@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1,
+  viewport-fit=cover">
+<meta name="theme-color" content="#1565c0">
+<title>TRAE同步显示与控制工具_网页客户端_手机版</title>
+<style>
+:root{
+  --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
+  --gray:#8a8a8a; --ubg:#e8f1fb; --abg:#ecf5ec; --bd:#d8dde3;
+}
+*{box-sizing:border-box; margin:0; padding:0;
+  -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{font:14px/1.55 "Microsoft YaHei","PingFang SC",sans-serif;
+  background:#f2f4f7; color:#222; display:flex; flex-direction:column;
+  overflow:hidden; overscroll-behavior:none; touch-action:manipulation;}
+button{font:inherit; cursor:pointer; border:1px solid var(--bd);
+  background:#fff; border-radius:6px; padding:4px 12px; min-height:36px;}
+button:disabled{color:#aaa; cursor:default; background:#f5f5f5;}
+input,select{font:inherit; border:1px solid var(--bd); border-radius:6px;
+  padding:4px 6px; background:#fff; min-height:36px;}
+select{font-size:12px;}
+/* ── 顶栏（两行 + 状态条） ── */
+#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);
+  padding-top:env(safe-area-inset-top);}
+.h1row{display:flex; align-items:center; gap:6px; padding:4px 8px;}
+#btn_menu{min-width:42px; font-size:17px; padding:4px 10px;}
+.h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+#lbl_rlink{margin-left:auto; font-weight:bold; font-size:12px;
+  white-space:nowrap;}
+.h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
+  flex-wrap:wrap;}
+#cmb_box{flex:1; max-width:42%; min-width:0;}
+#cmb_model{flex:2; min-width:0;}
+#lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
+#statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
+  background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* ── 消息区 ── */
+#msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:8px 8px 4px; background:#fff;}
+.msg{border-radius:8px; padding:5px 10px; margin:0 0 8px;}
+.msg.user{background:var(--ubg);}
+.msg.agent{background:var(--abg);}
+.msg .who{font-weight:bold; font-size:12px;}
+.msg.user .who{color:var(--blue);}
+.msg.agent .who{color:var(--green);}
+.msg .tm{color:var(--gray); font-size:11px; margin-left:6px;}
+.msg .body{margin-top:2px; white-space:pre-wrap; word-break:break-word;}
+.msg .body code{background:rgba(0,0,0,.06); padding:0 4px;
+  border-radius:3px; font-family:Consolas,monospace; font-size:12px;}
+.msg .body pre{background:rgba(0,0,0,.05); padding:6px 8px;
+  border-radius:4px; overflow-x:auto; margin:4px 0;}
+.msg .body pre code{background:none; padding:0;}
+.msg .body h1,.msg .body h2,.msg .body h3{margin:4px 0 2px; font-size:14px;}
+.msg .body a{color:var(--blue);}
+.empty{color:#999; text-align:center; padding:30px 0;}
+#finish{background:var(--abg); border-radius:8px; padding:5px 10px;
+  margin-bottom:8px;}
+#finish .ft{font-weight:bold; color:var(--green);}
+#finish .ff{color:var(--green); font-size:12px;}
+/* ── 附件行 / 输入行 ── */
+#attach_row{display:none; gap:4px; padding:2px 8px; flex-wrap:wrap;
+  flex:none; background:#fff;}
+#attach_row.on{display:flex;}
+.chip{border-radius:5px; padding:2px 8px; font-size:12px;
+  display:inline-flex; gap:4px; align-items:center; min-height:26px;}
+.chip.pend{background:#eee; color:#666;}
+.chip.ok{background:#e3f0fb; color:var(--blue);}
+.chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
+  padding:0 2px;}
+#input_row{display:flex; gap:6px; align-items:center;
+  padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+  background:#fff; border-top:1px solid var(--bd); flex:none;}
+#btn_attach{min-width:46px;}
+#btn_bench{min-width:46px;}
+#ent{flex:1; min-width:0; font-size:16px;}   /* 16px 防 iOS 聚焦放大 */
+#btn_send{min-width:66px; font-weight:bold; color:var(--blue);}
+#btn_send.stopmode{color:var(--red); border-color:var(--red);}
+#btn_send.intermode{color:var(--orange); border-color:var(--orange);}
+/* ── 抽屉（会话 + 菜单） ── */
+#mask{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:29;
+  display:none;}
+#mask.on{display:block;}
+#drawer{position:fixed; left:0; top:0; bottom:0; width:76%; max-width:300px;
+  background:#fff; z-index:30; transform:translateX(-102%);
+  transition:transform .18s ease; display:flex; flex-direction:column;
+  box-shadow:2px 0 10px rgba(0,0,0,.25); overscroll-behavior:contain;}
+#drawer.on{transform:none;}
+.dhdr{flex:none; display:flex; align-items:center;
+  justify-content:space-between; padding:8px 12px;
+  border-bottom:1px solid var(--bd);}
+.dhdr b{color:var(--blue);}
+#btn_dclose{min-width:38px; min-height:32px; padding:2px 10px;}
+#convs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:4px 0;}
+.convo{padding:8px 14px; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; color:#333;}
+.convo.folder{color:#0d47a1; font-weight:bold; font-size:13px;}
+.convo.item.act{background:#e3effb; color:var(--blue); font-weight:bold;}
+.dsec{flex:none; padding:6px 12px 2px; color:var(--gray); font-size:12px;
+  border-top:1px solid var(--bd); background:#fafbfc;}
+.dmi{flex:none; padding:10px 14px; cursor:pointer;}
+.dmi:active{background:#eef4fb;}
+#lbl_ver{flex:none; padding:8px 12px calc(8px + env(safe-area-inset-bottom));
+  color:var(--gray); font-size:11px; border-top:1px solid var(--bd);
+  background:#fafbfc;}
+/* ── 网络页（全屏覆盖） ── */
+#page_net{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_net.on{display:flex;}
+.nhdr{flex:none; display:flex; align-items:center; gap:8px;
+  padding:6px 10px calc(6px + env(safe-area-inset-top));
+  background:#fff; border-bottom:1px solid var(--bd);}
+.nhdr b{color:var(--blue); font-size:15px;}
+.nbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:10px 10px calc(10px + env(safe-area-inset-bottom));}
+fieldset{border:1px solid var(--bd); border-radius:8px;
+  padding:8px 10px; margin-bottom:12px; background:#fff;}
+legend{color:var(--blue); font-weight:bold; padding:0 6px;}
+.row{display:flex; align-items:center; gap:6px; margin:4px 0;
+  flex-wrap:wrap;}
+.row .hint{color:var(--gray); font-size:11px;}
+#in_wsurl{flex:1; min-width:0; font-size:13px;}
+#lbl_today{font-size:16px; font-weight:bold; color:var(--blue);}
+table{border-collapse:collapse; width:100%; margin-top:6px; font-size:12px;}
+th,td{border:1px solid var(--bd); padding:3px 6px; text-align:left;}
+th{background:#eef2f6;}
+td.num,th.num{text-align:right; font-family:Consolas,monospace;}
+#btn_netsave{color:var(--blue); font-weight:bold;}
+/* ── 工作台浏览页（全屏覆盖，1.01）── */
+#page_bench{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_bench.on{display:flex;}
+#bench_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:#fff; overscroll-behavior:contain;}
+.brow{padding:9px 14px; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; border-bottom:1px solid #eef1f4;}
+.brow:active{background:#eef4fb;}
+.brow.dir{color:#0d47a1;}
+.brow.file{color:#333;}
+.brow.up{color:var(--gray);}
+.brow.empty{color:#999; cursor:default;}
+.brow .plus{float:right; color:var(--blue); font-weight:bold;}
+#bfoot{flex:none; padding:6px 12px calc(6px + env(safe-area-inset-bottom));
+  color:var(--gray); font-size:11px; background:#fff;
+  border-top:1px solid var(--bd);}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <div class="h1row">
+    <button id="btn_menu">☰</button>
+    <span class="title">TRAE远程·手机版 v1.01</span>
+    <span id="lbl_rlink">🌐连接中…</span>
+  </div>
+  <div class="h2row">
+    <select id="cmb_box"></select>
+    <span id="lbl_ports">在线 —</span>
+    <span id="lbl_points">积分 —</span>
+    <select id="cmb_model"></select>
+  </div>
+  <div id="statebar">连接中…</div>
+</div>
+
+<div id="msgs"><div class="empty">（暂无消息，发送一条开始对话）</div></div>
+<div id="attach_row"></div>
+<div id="input_row">
+  <button id="btn_attach" title="选择附件（可多选，单个≤6MB）">📎</button>
+  <button id="btn_bench" title="浏览服务端工作台，选路径插入">📂</button>
+  <input id="ent" placeholder="输入消息…">
+  <button id="btn_send" disabled>发送</button>
+  <input type="file" id="file_pick" multiple style="display:none">
+</div>
+
+<div id="mask"></div>
+<aside id="drawer">
+  <div class="dhdr"><b>会话与操作</b>
+    <button id="btn_dclose">✕</button></div>
+  <div id="convs"></div>
+  <div class="dsec">操作</div>
+  <div class="dmi" id="btn_new">✚ 新任务</div>
+  <div class="dmi" id="btn_launch">🚀 拉起（重启当前目标）</div>
+  <div class="dmi" id="btn_net">🌐 网络页</div>
+  <div class="dsec">导出</div>
+  <div class="dmi" data-exp="0">导出 TXT（当前显示）</div>
+  <div class="dmi" data-exp="1">导出 HTML（当前显示）</div>
+  <div class="dmi" data-exp="2">完整导出 TXT（滚动收集）</div>
+  <div class="dmi" data-exp="3">完整导出 HTML（滚动收集）</div>
+  <div id="lbl_ver">v1.01 · 发送者ID 4000000001 · FOX 始终启用</div>
+</aside>
+
+<!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径） -->
+<div id="page_bench">
+  <div class="nhdr">
+    <button id="btn_benchback">‹ 返回</button>
+    <b id="lbl_bench">📂 工作台</b>
+    <button id="btn_bench_up" style="margin-left:auto; min-width:52px;">⬆</button>
+  </div>
+  <div id="bench_list"></div>
+  <div id="bfoot">📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入</div>
+</div>
+
+<div id="page_net">
+  <div class="nhdr">
+    <button id="btn_netback">‹ 返回</button>
+    <b>网络</b>
+  </div>
+  <div class="nbody">
+    <fieldset>
+      <legend>远程连接</legend>
+      <div class="row"><label>服务地址</label>
+        <input id="in_wsurl"></div>
+      <div class="row"><span class="hint">
+        与服务端网络页同款地址（两边一致即互通）。修改后保存并重连
+        生效。</span></div>
+    </fieldset>
+    <fieldset>
+      <legend>流量统计（WebSocket）</legend>
+      <div class="row"><span id="lbl_today">今日  收 0 B·0 条   发 0 B·0 条</span></div>
+      <div class="row">
+        <label>保留天数</label>
+        <input id="in_keep" type="number" min="1" max="3650" value="100"
+          style="width:70px;">
+        <span class="hint">超期自动清理；30 秒落盘一次。</span>
+      </div>
+      <table id="tv_net">
+        <thead><tr><th>日期</th><th class="num">收</th><th class="num">条</th>
+          <th class="num">发</th><th class="num">条</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </fieldset>
+    <div class="row">
+      <button id="btn_netsave" disabled>保存</button>
+      <span id="lbl_netflash"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ================= 手机版网页客户端 v1.01 =================
+ * 与桌面网页版/桌面客户端同协议：PieSocket 中继 + FOX 分段 +
+ * hello/ev 事件流。本端 FOX 发送者 ID = 4000000001（区别于服务端
+ * 1000000001、桌面客户端 2000000001、桌面网页版 3000000001——
+ * 四种客户端可同时在线互不吞回声）。
+ * 竖屏布局：顶栏两行+状态条 / 抽屉式会话与操作 / 底部输入栏
+ * （安全区适配 + 16px 输入防 iOS 聚焦放大 + 单按钮三态切换）。
+ * v1.01：插话（生成中打字，按钮变橙色「插话」，服务端以 Enter 触发
+ * TRAE 官方排队机制，AI 在当前步骤边界消费）+ 📂 工作台远程浏览
+ * （bench_ls 全屏页选路径插入输入框）。 */
+
+const MY_ID    = '4000000001';
+const SERVER_ID= '1000000001';
+const WS_URL_DEF = ('wss://free.blr2.piesocket.com/v3/TRAE'
+                    + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+const KA_SEC = 25;      // 心跳间隔（秒）
+const RECONNECT = 3;    // 断线重连间隔（秒）
+const FOX_HDR = 57;     // 协议头固定字节数
+const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
+const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
+
+/* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
+
+const LS_CFG = 'trae_webm_cfg', LS_NET = 'trae_webm_net',
+      LS_TM = 'trae_webm_times';
+
+function cfgGet(){
+  try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
+  catch(e){ return {}; }
+}
+function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
+let CFG = cfgGet();
+if (!CFG.ws_url) CFG.ws_url = WS_URL_DEF;
+if (!CFG.stats_keep) CFG.stats_keep = 100;
+
+const NET = (function(){
+  let d = {};
+  try { d = (JSON.parse(localStorage.getItem(LS_NET)) || {}).days || {}; }
+  catch(e){ d = {}; }
+  return {days: d};
+})();
+function netDay(){ return new Date().toLocaleDateString('sv'); }  // YYYY-MM-DD
+function statsAdd(rx, tx, rxn, txn){      // 字节 + 条数（对齐服务端 v1.04）
+  const b = NET.days[netDay()]
+    || (NET.days[netDay()] = {rx:0, tx:0, rxn:0, txn:0});
+  if (rx) b.rx += rx;
+  if (tx) b.tx += tx;
+  if (rxn) b.rxn = (b.rxn || 0) + rxn;
+  if (txn) b.txn = (b.txn || 0) + txn;
+}
+function statsFlush(){
+  const keep = Math.max(1, parseInt(CFG.stats_keep) || 100);
+  const ks = Object.keys(NET.days).sort();
+  if (ks.length > keep)
+    ks.slice(0, ks.length - keep).forEach(k => delete NET.days[k]);
+  localStorage.setItem(LS_NET, JSON.stringify(NET));
+}
+function fmtBytes(n){
+  n = n || 0;
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n/1048576).toFixed(2) + ' MB';
+  return (n/1073741824).toFixed(2) + ' GB';
+}
+
+/* ================= FOX 分段协议 ================= */
+
+const ENC = new TextEncoder(), DEC = new TextDecoder();
+
+function foxSplit(text){          // 按 UTF-8 字节切，回退字节边界保多字节完整
+  const raw = ENC.encode(text), out = [];
+  let cur = 0;
+  while (cur < raw.length){
+    let end = Math.min(cur + FOX_MAX, raw.length);
+    while (end > cur){
+      try { out.push(DEC.decode(raw.slice(cur, end))); break; }
+      catch(e){ end--; }
+    }
+    if (end === cur) out.push('');
+    cur = end;
+  }
+  return out;
+}
+
+const FoxIn = {                   // 分段拼装器（300s 残包超时丢弃）
+  buf: {},
+  feed(msg){
+    const m = FOX_RE.exec(msg);
+    if (!m) return null;
+    const [, ts, rnd, sender, idx, total] = m;
+    const body = msg.slice(msg.indexOf('】') + 1);
+    if (parseInt(total) <= 1) return [sender, body];
+    const mid = ts + rnd, t = Date.now();
+    const d = this.buf[mid] || (this.buf[mid] =
+      {n: parseInt(total), p: {}, at: t});
+    d.p[parseInt(idx)] = body;
+    d.at = t;
+    if (Object.keys(d.p).length < d.n){
+      for (const k in this.buf)
+        if (t - this.buf[k].at > 300000) delete this.buf[k];
+      return null;
+    }
+    let full = '';
+    for (let i = 1; i <= d.n; i++) full += (d.p[i] || '');
+    delete this.buf[mid];
+    return [sender, full];
+  }
+};
+
+function rnd8(){
+  let s = '';
+  const a = 'abcdefghijklmnopqrstuvwxyz';
+  for (let i = 0; i < 8; i++) s += a[Math.random()*26|0];
+  return s;
+}
+function pad3(n){ return String(n).padStart(3, '0'); }
+
+async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中继丢弃）
+  const parts = foxSplit(text);
+  const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  const mid = ts + rnd8();
+  for (let i = 1; i <= parts.length; i++){
+    const s = '【FOXID:' + mid + MY_ID + '=cut(' + pad3(i) + '/'
+              + pad3(parts.length) + ')】' + parts[i-1];
+    ws.send(s);
+    statsAdd(0, s.length, 0, 1);
+    if (parts.length > 1) await new Promise(r => setTimeout(r, 30));
+  }
+}
+function sendJson(d){ foxSend(JSON.stringify(d)); }
+function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
+
+/* ================= 状态 ================= */
+
+const S = {
+  ws: null, onLine: false,
+  box: '(未连接)', port: 0, boxes: [], alive: new Set(),
+  points: '—', snap: {},
+  attach_pending: null,
+  model_map: {}, model_busy: false,
+  convs_key: null, msgs_key: null,
+  busy: false, gen: false, ready: false, bench: null,
+};
+
+/* ================= DOM 快捷 ================= */
+
+const $ = id => document.getElementById(id);
+const el = {
+  menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
+  ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
+  state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
+  attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
+  file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
+  dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
+  launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
+  netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
+  wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
+  nflash: $('lbl_netflash'),
+  bench: $('btn_bench'), benchpage: $('page_bench'),
+  benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
+  benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
+};
+
+let flashTimer = null;
+function flash(msg, color){
+  el.state.textContent = msg;
+  el.state.style.color = color || 'var(--red)';
+  clearTimeout(flashTimer);
+  if (msg) flashTimer = setTimeout(() => renderState(S.snap), 4000);
+}
+
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ================= Markdown 轻量渲染（AI 消息） ================= */
+
+function mdHtml(text){
+  const out = [];
+  const parts = String(text).split(/```/);       // 奇数下标=代码块
+  for (let i = 0; i < parts.length; i++){
+    if (i % 2 === 1){                            // 代码块
+      let c = parts[i];
+      if (c.startsWith('\n')) c = c.slice(1);
+      out.push('<pre><code>' + esc(c) + '</code></pre>');
+      continue;
+    }
+    let s = esc(parts[i]);
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+    s = s.replace(/(^|\s)\*([^*\n]+)\*/g, '$1<i>$2</i>');
+    s = s.replace(/^###### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^##### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^#### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^## (.*)$/gm, '<h2>$1</h2>');
+    s = s.replace(/^# (.*)$/gm, '<h1>$1</h1>');
+    s = s.replace(/^\s*[-*] (.*)$/gm, '• $1');
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    out.push(s);
+  }
+  return out.join('');
+}
+
+/* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
+
+function djb2(s){
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h*33 ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(16).padStart(8, '0').slice(0, 10);
+}
+function timesGet(){
+  try { return JSON.parse(localStorage.getItem(LS_TM)) || {}; }
+  catch(e){ return {}; }
+}
+function fmtTime(iso){                    // 今天 HH:MM，往日 MM-DD HH:MM
+  if (!iso) return '';
+  const d = iso.slice(0,10), hm = iso.slice(11,16);
+  return d === new Date().toLocaleDateString('sv') ? hm : d.slice(5) + ' ' + hm;
+}
+function resolveTimes(msgs){
+  const cache = timesGet(), title = curTitle(), out = [];
+  let lastU = '';
+  for (const m of msgs){
+    if (m[0] === 'u'){
+      const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
+      if (!cache[k]) cache[k] = new Date().toISOString().slice(0,19);
+      lastU = cache[k];
+      out.push(fmtTime(cache[k]));
+    } else {
+      out.push(fmtTime(lastU));           // AI 消息沿用其提问时间
+    }
+  }
+  localStorage.setItem(LS_TM, JSON.stringify(cache));
+  return out;
+}
+function curTitle(){
+  const convs = (S.snap.convs || []);
+  for (const r of convs) if (r[0] === 'c' && r[2]) return r[1];
+  return '当前会话';
+}
+
+/* ================= 渲染 ================= */
+
+function renderAll(){
+  const snap = S.snap;
+  renderConvs(snap.convs || []);
+  renderMsgs(snap.msgs || [], snap.finish);
+  renderState(snap);
+  renderAttach(snap.attach || []);
+  syncModel(snap.model || '');
+}
+
+function drawerOpen(){ el.drawer.classList.add('on'); el.mask.classList.add('on'); }
+function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
+
+function renderConvs(rows){
+  const key = rows.map(r => r.join('|')).join('#');
+  if (key === S.convs_key) return;
+  S.convs_key = key;
+  el.convs.innerHTML = '';
+  let inFolder = false, idx = 0;
+  for (const [kind, title, flag] of rows){
+    if (kind === 'f'){
+      const d = document.createElement('div');
+      d.className = 'convo folder';
+      d.textContent = (flag ? '▸ ' : '▾ ') + title;
+      d.onclick = () => sendCmd('toggle_folder', title);
+      el.convs.appendChild(d);
+      inFolder = true;
+    } else {
+      const d = document.createElement('div');
+      d.className = 'convo item' + (flag ? ' act' : '');
+      d.style.paddingLeft = inFolder ? '28px' : '14px';
+      d.textContent = title;
+      const i = idx;
+      d.onclick = () => {
+        if (!flag){ sendCmd('switch', i); drawerClose(); }
+      };
+      el.convs.appendChild(d);
+      idx++;
+    }
+  }
+}
+
+function renderMsgs(msgs, finish){
+  let key = msgs.map(m => m[0] + ':' + m[1]).join('#');
+  if (finish)
+    key += '#fin:' + (finish.inLast ? 'L' : '-') + '|'
+           + (finish.files || []).join('|') + '~'
+           + (finish.text || '').slice(0, 60);
+  if (key === S.msgs_key) return;
+  S.msgs_key = key;
+  el.msgs.innerHTML = '';
+  if (!msgs.length){
+    el.msgs.innerHTML = '<div class="empty">（暂无消息，发送一条开始对话）</div>';
+    return;
+  }
+  const times = resolveTimes(msgs);
+  msgs.forEach((m, i) => {
+    const user = m[0] === 'u';
+    const d = document.createElement('div');
+    d.className = 'msg ' + (user ? 'user' : 'agent');
+    let h = '<div class="who">' + (user ? '我' : 'TRAE')
+          + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
+          + '</div><div class="body">'
+          + (user ? esc(m[1]) : mdHtml(m[1])) + '</div>';
+    d.innerHTML = h;
+    el.msgs.appendChild(d);
+  });
+  const showFin = finish && finish.inLast && (finish.files || finish.text);
+  if (showFin){
+    const d = document.createElement('div');
+    d.id = 'finish';
+    let h = '<div class="ft">✅ 任务完成'
+          + ((finish.files || []).length
+             ? '  生成物 ' + finish.files.length + ' 个' : '')
+          + '</div>';
+    const txt = (finish.text || '').trim();
+    if (txt) h += '<div class="ff">' + esc(txt.split('\n')[0].slice(0,80))
+                + '</div>';
+    (finish.files || []).forEach(
+      f => h += '<div class="ff">📄 ' + esc(f) + '</div>');
+    d.innerHTML = h;
+    el.msgs.appendChild(d);
+  }
+  el.msgs.scrollTop = el.msgs.scrollHeight;
+}
+
+function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
+  el.send.textContent = stop ? '停止' : '发送';
+  el.send.classList.toggle('stopmode', stop);
+  el.send.disabled = !enabled;
+}
+function refreshSendBtn(){               // 1.01：生成中打字 → 插话三态
+  el.send.classList.remove('intermode');
+  if (!S.ready){ setSendBtn(false, false); return; }
+  if (S.gen && el.ent.value.trim()){     // 生成中打字：橙色插话
+    el.send.textContent = '插话';
+    el.send.classList.remove('stopmode');
+    el.send.classList.add('intermode');
+    el.send.disabled = false;
+  } else {
+    setSendBtn(S.gen, true);             // 生成中=停止；空闲=发送
+  }
+}
+
+function renderState(snap){
+  S.gen = false;
+  S.ready = !!(snap && snap.online);
+  if (!S.ready){
+    el.state.textContent = 'TRAE 界面未就绪';
+    el.state.style.color = 'var(--red)';
+    setSendBtn(false, false);
+    return;
+  }
+  const idle = snap.sendIdle, inp = snap.inputText || '',
+        tail = snap.tail;
+  if (!idle && !inp){                        // 生成中
+    S.gen = true;
+    el.state.textContent = '生成中·' + (tail || '输出中');
+    el.state.style.color = 'var(--orange)';
+    refreshSendBtn();                        // 有本地字→插话，无→停止
+  } else if (idle && !inp){                  // 空闲
+    el.state.textContent = '空闲';
+    el.state.style.color = 'var(--green)';
+    setSendBtn(false, true);
+  } else {                                   // 输入框待发（远端残留）
+    S.gen = !idle;                           // 生成中残留仍属生成态
+    el.state.textContent = '输入框待发' + (inp.length > 20 ? '（有残留）'
+      : ': ' + inp.slice(0, 18));
+    el.state.style.color = 'var(--blue)';
+    setSendBtn(false, true);
+  }
+}
+
+function renderAttach(items){
+  const row = el.attach_row;
+  row.innerHTML = '';
+  if (S.attach_pending){
+    row.classList.add('on');
+    for (const nm of S.attach_pending){
+      const c = document.createElement('span');
+      c.className = 'chip pend';
+      c.textContent = '⏳ ' + nm;
+      row.appendChild(c);
+    }
+    return;
+  }
+  if (!items || !items.length){
+    row.classList.remove('on');
+    return;
+  }
+  row.classList.add('on');
+  items.forEach((it, i) => {
+    const c = document.createElement('span');
+    c.className = 'chip ok';
+    c.innerHTML = '📎 ' + esc(it.name)
+      + (it.size ? '  ' + esc(it.size) : '')
+      + ' <span class="rm" title="移除">✕</span>';
+    c.querySelector('.rm').onclick = e => {
+      e.stopPropagation(); sendCmd('attach_rm', i);
+    };
+    row.appendChild(c);
+  });
+}
+
+function syncModel(cur){
+  if (S.model_busy || !cur) return;
+  if (el.model.value === cur) return;
+  let found = false;
+  for (const [disp, name] of Object.entries(S.model_map))
+    if (name === cur){ el.model.value = disp; found = true; break; }
+  if (!found){                                // 列表未到：临时占位
+    const o = document.createElement('option');
+    o.value = cur; o.textContent = cur;
+    el.model.appendChild(o);
+    el.model.value = cur;
+    S.model_map[cur] = cur;
+  }
+}
+
+/* ================= 连接 / 事件流 ================= */
+
+let ws = null, reconnectTimer = null, kaTimer = null;
+let helloTimer = null, helloTries = 0, gotHello = false;
+
+function connect(){
+  clearTimeout(reconnectTimer);
+  try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
+  setOnLine(false);
+  gotHello = false;
+  // ?ws= 参数可临时覆盖服务地址（测试/多环境部署），不改 localStorage
+  const u = new URLSearchParams(location.search).get('ws');
+  ws = new WebSocket(u || CFG.ws_url);
+  S.ws = ws;
+  ws.onopen = () => {
+    setOnLine(true);
+    sendHello();               // 上线即拉服务端状态
+    clearInterval(kaTimer);
+    kaTimer = setInterval(() => {
+      try { ws.send('ping'); statsAdd(0, 4, 0, 1); } catch(e){}
+    }, KA_SEC * 1000);
+  };
+  ws.onmessage = ev => onMsg(ev.data);
+  ws.onclose = () => {
+    setOnLine(false);
+    clearInterval(kaTimer);
+    clearTimeout(helloTimer);
+    reconnectTimer = setTimeout(connect, RECONNECT * 1000);
+  };
+  ws.onerror = () => {};
+}
+
+function sendHello(){
+  /* 握手重试：浏览器 WS 握手完成瞬间立即发的第一条消息可能落在
+     中继把连接加入频道之前而被丢弃——3 秒重发直到收到应答
+     （最多 10 次；重连后从头再来）。 */
+  sendJson({t: 'hello', v: 1});
+  if (!gotHello && ++helloTries <= 10)
+    helloTimer = setTimeout(() => {
+      if (!gotHello && S.onLine) sendHello();
+    }, 3000);
+}
+
+function onMsg(msg){
+  statsAdd(msg.length, 0, 1, 0);
+  const r = FoxIn.feed(msg);
+  if (r === null){
+    /* 无 FOX 头：本端只发 FOX 帧，不可能撞自己回声——兜底收对端
+       （服务端 fox_on 关闭时）整条直发的裸 JSON。 */
+    if (msg[0] === '{'){
+      try { JSON.parse(msg); handleBody(msg); } catch(e){}
+    }
+    return;                                   // 其余=心跳/中继系统消息
+  }
+  const [sender, body] = r;
+  if (sender !== SERVER_ID) return;           // 只认服务端（含自己回声）
+  handleBody(body);
+}
+
+function handleBody(body){
+  let d;
+  try { d = JSON.parse(body); } catch(e){ return; }
+  if (!d || typeof d !== 'object') return;
+  if (d.t === 'ev') { onEv(d.k, d.v); return; }
+  if (d.t === 'hello') onHello(d);
+}
+
+function onEv(kind, v){
+  switch (kind){
+    case 'snap':
+      if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
+      S.snap = v;
+      renderAll();
+      break;
+    case 'dead':
+      flash('✘ 未连接（' + v + '）', 'var(--red)');
+      S.snap = {};
+      renderState({});
+      S.attach_pending = null;
+      renderAttach([]);
+      break;
+    case 'connected':
+      if (v !== S.port) return;
+      flash('● 已连接（' + v + '）', 'var(--green)');
+      setTimeout(() => {                      // 界面就绪后再拉积分/模型
+        if (S.port === v){ sendCmd('points', null); sendCmd('model_list', null); }
+      }, 8000);
+      break;
+    case 'sent':
+      S.msgs_key = null;
+      el.ent.value = '';
+      refreshSendBtn();
+      break;
+    case 'points':
+      if (v && v !== '读取失败') S.points = v;
+      el.points.textContent = '积分 ' + v;
+      break;
+    case 'models':
+      el.model.innerHTML = '';
+      S.model_map = {};
+      for (const [name, trail, restricted] of (v || [])){
+        const disp = name + (trail ? ' ' + trail : '')
+                   + (restricted ? '（受限）' : '');
+        const o = document.createElement('option');
+        o.value = disp; o.textContent = disp;
+        el.model.appendChild(o);
+        S.model_map[disp] = name;
+      }
+      syncModel(S.snap.model || '');
+      break;
+    case 'model_set':
+      S.model_busy = false;
+      flash(v[0] === v[1] ? '模型已切换：' + v[1]
+        : '「' + v[0] + '」未生效（当前 ' + (v[1] || '未知') + '）',
+        v[0] === v[1] ? 'var(--green)' : 'var(--red)');
+      syncModel(v[1]);
+      break;
+    case 'collecting':
+      flash('完整收集中… 已 ' + v + ' 条', 'var(--blue)');
+      break;
+    case 'collected':
+      doExport(v[0], v[1], true);
+      break;
+    case 'switched':
+      applySwitch(v[0], v[1]);
+      break;
+    case 'booterr':
+    case 'boot_noop':
+      S.busy = false;
+      flash(v);
+      break;
+    case 'attach_done':
+      S.attach_pending = null;
+      if (v.ok >= v.total && v.total)
+        flash('✅ 已附加 ' + v.ok + ' 个附件', 'var(--green)');
+      else if (v.ok)
+        flash('⚠ 仅附加成功 ' + v.ok + '/' + v.total + '（部分被 TRAE 拒收）',
+              'var(--orange)');
+      else
+        flash('❌ 附件未出现在输入栏（类型被拒？）');
+      renderAttach(S.snap.attach || []);
+      break;
+    case 'attach_rm_done':
+      renderAttach(S.snap.attach || []);
+      flash('已移除附件', '#888');
+      break;
+    case 'ports':
+      S.alive = new Set(v || []);
+      renderPorts();
+      break;
+    case 'cmderr':
+      flash('命令失败：' + v);
+      break;
+    case 'bench_ls':                       // 1.01：📂 目录应答
+      benchRender(v);
+      break;
+  }
+}
+
+function onHello(d){
+  gotHello = true;                     // 1.01：应答到达即停握手重试
+  const boxes = (d.boxes || []).filter(Boolean);
+  if (boxes.length && JSON.stringify(boxes) !== JSON.stringify(S.boxes)){
+    S.boxes = boxes;
+    el.box.innerHTML = '';
+    for (const b of boxes){
+      const o = document.createElement('option');
+      o.value = b; o.textContent = b;
+      el.box.appendChild(o);
+    }
+  }
+  S.alive = new Set(d.alive || []);
+  renderPorts();
+  if (d.points && d.points !== '—'){
+    S.points = d.points;
+    el.points.textContent = '积分 ' + d.points;
+  }
+  if (!d.box || !d.port) return;
+  const port = parseInt(d.port);
+  if (d.box !== S.box){ applySwitch(d.box, port); }
+  else if (port !== S.port){ S.port = port; }
+  if (d.conn) onEv('connected', S.port);
+}
+
+function applySwitch(box, port){
+  S.box = box; S.port = port;
+  S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  S.attach_pending = null; S.model_busy = false;
+  el.box.value = box;
+  el.convs.innerHTML = '';
+  el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
+                     + ' …）</div>';
+  renderAttach([]);
+  el.model.value = '';
+  document.title = 'TRAE远程·手机版 [' + box + ']';
+}
+
+function setOnLine(b){
+  S.onLine = b;
+  el.rlink.textContent = b ? '🌐在线' : '🌐离线';
+  el.rlink.style.color = b ? 'var(--green)' : 'var(--red)';
+}
+
+function renderPorts(){
+  el.ports.textContent = '在线 ' + S.alive.size + '/' + S.boxes.length;
+}
+
+/* ================= 命令 ================= */
+
+function cmd(c, a){
+  if (!S.onLine){ flash('⚠ 服务端未连接，命令未发出'); return; }
+  sendCmd(c, a);
+  if (c === 'send' || c === 'interject') el.ent.value = '';
+}
+
+el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发送
+  const t = el.ent.value.trim();
+  if (S.gen){
+    if (t){                       /* 1.01：生成中打字=插话——服务端以
+       Enter 触发 TRAE 官方排队机制，AI 在当前步骤边界消费；
+       空闲时服务端自动降级常规发送 */
+      flash('💬 已排队插话（AI 在当前步骤边界处理）', 'var(--orange)');
+      cmd('interject', t);
+    } else {
+      cmd('stop_gen', null);
+    }
+    return;
+  }
+  if (t) cmd('send', t);
+};
+el.ent.addEventListener('input', refreshSendBtn);   // 打字即时切换三态
+el.ent.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.isComposing){
+    e.preventDefault(); el.send.click();
+  }
+});
+el.new.onclick = () => { drawerClose(); cmd('new_task', null); };
+el.launch.onclick = () => {               // 请求服务端带端口拉起当前目标
+  drawerClose();
+  if (S.onLine && S.snap && S.snap.online){ flash('当前目标已连接'); return; }
+  if (!confirm('要请求服务端带调试端口启动/重启当前目标 TRAE 吗？\n'
+    + '（服务端正在运行的该 TRAE 会先关闭）')) return;
+  S.busy = true;
+  flash('正在请求服务端拉起 ' + S.box + '…', 'var(--blue)');
+  sendJson({t: 'boot', box: S.box});
+};
+el.box.onchange = () => {                 // 切换目标：在线直接切/离线确认拉起
+  const box = el.box.value;
+  if (box === S.box || S.busy){ el.box.value = S.box; return; }
+  if (!S.onLine){ flash('⚠ 服务端未连接'); el.box.value = S.box; return; }
+  if (S.alive.has(box)){
+    flash('正在切换到 ' + box + '…', 'var(--blue)');
+    sendJson({t: 'switch_box', box: box});
+  } else {
+    if (!confirm('[' + box + '] 在服务端未带调试端口运行。\n\n'
+      + '要请求服务端重启该 TRAE 并带端口吗？\n'
+      + '（服务端正在运行的该 TRAE 会先关闭）')){
+      el.box.value = S.box; return;
+    }
+    S.busy = true;
+    flash('正在请求服务端拉起 ' + box + '…', 'var(--blue)');
+    sendJson({t: 'boot', box: box});
+  }
+};
+el.model.onchange = () => {
+  const name = S.model_map[el.model.value];
+  if (!name || S.model_busy) return;
+  S.model_busy = true;
+  flash('正在切换模型 ' + name + '…', 'var(--blue)');
+  cmd('switch_model', name);
+};
+
+/* —— 抽屉 —— */
+
+el.menu.onclick = drawerOpen;
+el.mask.onclick = drawerClose;
+el.dclose.onclick = drawerClose;
+
+/* —— 1.01：📂 工作台远程浏览（bench_ls 逐级拉目录，服务端强制
+   约束在工作台根内；全屏页，目录单击进入、➕/文件单击插路径） —— */
+
+function benchReq(rel){
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  el.benchlist.innerHTML = '<div class="brow empty">读取中…</div>';
+  sendJson({t: 'bench_ls', p: rel || ''});
+}
+function benchIns(path){
+  const cur = el.ent.value.trim();
+  el.ent.value = (cur ? cur + ' ' : '') + path;
+  el.benchpage.classList.remove('on');
+  S.bench = null;
+  flash('已插入路径', 'var(--green)');
+}
+function benchRender(v){
+  if (!v || !v.ok){ flash('📂 ' + ((v && v.err) || '读取失败')); return; }
+  S.bench = v;
+  const rel = v.rel || '';
+  el.lbl_bench.textContent = '📂 ' + (v.root || '工作台')
+                             + (rel ? '\\' + rel : '');
+  const box = el.benchlist;
+  box.innerHTML = '';
+  if (rel){                                 // 根目录不显示上级行
+    const d = document.createElement('div');
+    d.className = 'brow up';
+    d.textContent = '⬙ ..';
+    d.onclick = () => benchReq(v.parent || '');
+    box.appendChild(d);
+  }
+  for (const n of (v.dirs || [])){
+    const sub = rel ? rel + '\\' + n : n;
+    const d = document.createElement('div');
+    d.className = 'brow dir';
+    d.textContent = '📁 ' + n;
+    d.onclick = () => benchReq(sub);       // 目录单击进入（手机无双击）
+    const b = document.createElement('span');
+    b.textContent = '➕';
+    b.className = 'plus';
+    b.title = '插入此目录路径';
+    b.onclick = e => { e.stopPropagation(); benchIns(v.path + '\\' + n); };
+    d.appendChild(b);
+    box.appendChild(d);
+  }
+  for (const n of (v.files || [])){
+    const d = document.createElement('div');
+    d.className = 'brow file';
+    d.textContent = '📄 ' + n;
+    d.onclick = () => benchIns(v.path + '\\' + n);
+    box.appendChild(d);
+  }
+  if (!box.children.length){
+    const d = document.createElement('div');
+    d.className = 'brow empty';
+    d.textContent = '（空目录）';
+    box.appendChild(d);
+  }
+}
+el.bench.onclick = () => {
+  if (!S.onLine){ flash('⚠ 服务端未连接，无法浏览工作台'); return; }
+  el.benchpage.classList.add('on');
+  benchReq('');
+};
+el.benchback.onclick = () => el.benchpage.classList.remove('on');
+el.bench_up.onclick = () => benchReq((S.bench || {}).parent || '');
+
+/* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
+
+el.attach.onclick = () => el.file.click();
+el.file.onchange = async () => {
+  const files = [...el.file.files];
+  el.file.value = '';
+  if (!files.length) return;
+  if (S.attach_pending){ flash('📎 正在附加上一批，请稍候…', 'var(--orange)'); return; }
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  const arr = [];
+  for (const f of files){
+    if (f.size > 6 * 1024 * 1024){
+      flash('「' + f.name + '」超过 6MB，远程通道暂不支持'); return;
+    }
+    const b64 = await new Promise((ok, no) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result).split(',')[1] || '');
+      r.onerror = no;
+      r.readAsDataURL(f);
+    }).catch(() => null);
+    if (b64 === null){ flash('读取 ' + f.name + ' 失败'); return; }
+    arr.push({n: f.name, d: b64});
+  }
+  S.attach_pending = arr.map(f => f.n);     // 反馈①：灰 chips 占位
+  renderAttach([]);
+  flash('📎 附加中…（' + arr.length + ' 个文件）', 'var(--orange)');
+  sendJson({t: 'attach_files', files: arr});
+};
+
+/* ================= 导出（Blob 下载） ================= */
+
+function dl(name, text, mime){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type: mime}));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function safeName(s){
+  return (String(s || '').replace(/[\\/:*?"<>|#\s]+/g, '_').slice(0, 24))
+         || '会话';
+}
+function expBase(){
+  const title = curTitle();
+  const now = new Date(), p = n => String(n).padStart(2, '0');
+  const stamp = '' + now.getFullYear() + p(now.getMonth()+1) + p(now.getDate())
+              + '_' + p(now.getHours()) + p(now.getMinutes());
+  return {
+    title: title,
+    fname: 'TRAE对话_' + S.box + '_' + safeName(title) + '_' + stamp,
+  };
+}
+function doExport(fmt, msgs, full){
+  if (!msgs || !msgs.length){ flash('当前会话没有可导出的消息'); return; }
+  const {title, fname} = expBase();
+  if (fmt === 'txt'){
+    const lines = ['# TRAE 对话记录', '# 目标: ' + S.box + '（端口 ' + S.port
+      + '）  会话: ' + title + '  导出: ' + new Date().toLocaleString()
+      + '  消息 ' + msgs.length + ' 条' + (full ? '（完整收集）'
+      : '（当前显示部分）'), ''];
+    for (const m of msgs)
+      lines.push('【' + (m[0] === 'u' ? '我' : 'TRAE') + '】\n' + m[1] + '\n');
+    dl(fname + (full ? '_完整' : '') + '.txt',
+       '\ufeff' + lines.join('\n'), 'text/plain;charset=utf-8');
+  } else {
+    const rows = msgs.map(m => {
+      const who = m[0] === 'u' ? '我' : 'TRAE';
+      const body = m[0] === 'u'
+        ? esc(m[1]).replace(/\n/g, '<br>') : mdHtml(m[1]);
+      return '<div class="msg ' + (m[0] === 'u' ? 'user' : 'agent')
+           + '"><div class="who">' + who + '</div><div class="body">'
+           + body + '</div></div>';
+    }).join('');
+    const html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
+      + '<title>TRAE 对话 ' + esc(title) + '</title><style>'
+      + 'body{font:14px/1.6 "Microsoft YaHei",sans-serif;max-width:860px;'
+      + 'margin:20px auto;padding:0 12px;color:#222;}'
+      + '.meta{color:#8a8a8a;border-bottom:1px solid #ddd;'
+      + 'padding-bottom:6px;margin-bottom:14px;}'
+      + '.msg{border-radius:6px;padding:6px 12px;margin:10px 0;}'
+      + '.user{background:#e8f1fb;}.agent{background:#ecf5ec;}'
+      + '.who{font-weight:bold;}.user .who{color:#1565c0;}'
+      + '.agent .who{color:#0a7d32;}'
+      + 'pre{background:rgba(0,0,0,.05);padding:8px;overflow-x:auto;}'
+      + 'code{background:rgba(0,0,0,.06);padding:0 4px;border-radius:3px;}'
+      + '</style></head><body><h1>TRAE 对话记录</h1>'
+      + '<div class="meta">目标 ' + esc(S.box) + '（端口 ' + S.port
+      + '） · 会话 ' + esc(title) + ' · 积分 ' + esc(S.points)
+      + ' · 导出时间 ' + new Date().toLocaleString() + ' · 消息 '
+      + msgs.length + ' 条' + (full ? '（完整收集）' : '（当前显示部分）')
+      + '</div>' + rows + '</body></html>';
+    dl(fname + (full ? '_完整' : '') + '.html', html, 'text/html;charset=utf-8');
+  }
+  flash('已导出 ' + msgs.length + ' 条消息', 'var(--green)');
+}
+
+document.querySelectorAll('#drawer [data-exp]').forEach(mi => {
+  const i = parseInt(mi.dataset.exp);
+  mi.onclick = () => {
+    drawerClose();
+    if (i < 2){ doExport(i === 0 ? 'txt' : 'html', S.snap.msgs || []); return; }
+    // 完整导出：须空闲且在线（生成中内容会变）
+    const snap = S.snap;
+    if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+    if (!snap || !snap.online){ flash('TRAE 未连接，无法完整导出'); return; }
+    if (!snap.sendIdle && !snap.inputText){
+      flash('生成中，等完成再完整导出（内容会变）'); return; }
+    flash('正在滚动收集全部消息…', 'var(--blue)');
+    sendCmd('export_full', i === 2 ? 'txt' : 'html');
+  };
+});
+
+/* ================= 网络页 ================= */
+
+el.net.onclick = () => {
+  drawerClose();
+  renderToday(); renderNetHist();
+  el.netpage.classList.add('on');
+};
+el.netback.onclick = () => el.netpage.classList.remove('on');
+
+el.wsurl.value = CFG.ws_url;
+el.keep.value = CFG.stats_keep;
+
+function netDirty(){ el.nsave.disabled = false; }
+el.wsurl.oninput = netDirty;
+el.keep.oninput = netDirty;
+el.nsave.onclick = () => {
+  const u = el.wsurl.value.trim();
+  if (!/^wss?:\/\//.test(u)){ flash('服务地址须以 ws:// 或 wss:// 开头'); return; }
+  CFG.ws_url = u;
+  CFG.stats_keep = Math.max(1, parseInt(el.keep.value) || 100);
+  cfgSave();
+  el.keep.value = CFG.stats_keep;
+  el.nsave.disabled = true;
+  statsFlush(); renderNetHist();
+  el.nflash.textContent = '已保存';
+  el.nflash.style.color = 'var(--green)';
+  setTimeout(() => el.nflash.textContent = '', 3000);
+  connect();                                  // 重连生效
+};
+
+function renderToday(){
+  const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
+  el.today.textContent = '今日  收 ' + fmtBytes(b.rx) + '·' + (b.rxn||0)
+                       + ' 条   发 ' + fmtBytes(b.tx) + '·' + (b.txn||0)
+                       + ' 条';
+}
+function renderNetHist(){
+  const tb = el.tnet.querySelector('tbody');
+  tb.innerHTML = '';
+  const keep = Math.max(1, parseInt(CFG.stats_keep) || 100);
+  const ks = Object.keys(NET.days).sort().reverse().slice(0, keep);
+  for (const k of ks){
+    const b = NET.days[k] || {};
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + k + '</td><td class="num">'
+      + fmtBytes(b.rx || 0) + '</td><td class="num">' + (b.rxn || 0)
+      + '</td><td class="num">' + fmtBytes(b.tx || 0)
+      + '</td><td class="num">' + (b.txn || 0) + '</td>';
+    tb.appendChild(tr);
+  }
+}
+setInterval(renderToday, 2000);
+setInterval(statsFlush, 30000);
+window.addEventListener('beforeunload', statsFlush);
+
+/* ================= 启动 ================= */
+
+connect();
+</script>
+</body>
+</html>
