@@ -5,17 +5,20 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>404 · 页面不存在</title>
 <!--
-  软件版本：404千人千面测试页 v1.00
+  软件版本：404千人千面测试页 v1.01
   版本号：每次修改递增，版本号+0.01
   说明：本页为 GitHub Pages 自定义 404 页，接管一切不存在的路径。
-        按地址栏的差异部分（路径末段 / 查询参数 / 锚点）匹配下方《映射表》，
-        命中则展示对应内容，未命中则展示默认 404。
-  数据来源：金山文档表格「404测试」 A列=链接差异部分 B列=展示内容
+        v1.00 按地址栏差异部分（路径末段/查询/锚点）匹配《映射表》展示不同内容；
+        v1.01 新增「一次性展示」：命中后先经云函数查表格第三列（是否已访问），
+        未展示过 → 写入"已展示+时间"再显示内容；已展示过 → 拒绝显示。
+        浏览器项目按守则走云函数中转（免令牌），令牌不落地前端。
+  数据来源：金山文档表格「404测试」 A列=链接差异部分 B列=展示内容 C列=是否已访问
 -->
 <style>
   :root{
     --fg:#1f2328; --sub:#57606a; --line:#d8dee4; --bg:#ffffff;
     --card:#f6f8fa; --accent:#0969da; --accent-bg:#ddf4ff; --warn:#9a6700; --warn-bg:#fff8c5;
+    --deny:#a32d2d; --deny-bg:#fcebeb;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -25,10 +28,7 @@
     display:flex;align-items:center;justify-content:center;padding:24px;
   }
   .wrap{width:100%;max-width:660px}
-  .code{
-    font-size:60px;font-weight:800;letter-spacing:3px;line-height:1;
-    color:var(--fg);margin:0 0 6px;
-  }
+  .code{font-size:60px;font-weight:800;letter-spacing:3px;line-height:1;margin:0 0 6px}
   .code span{color:var(--accent)}
   h1{font-size:19px;font-weight:600;margin:0 0 4px}
   .lead{color:var(--sub);font-size:14px;margin:0 0 22px}
@@ -38,34 +38,46 @@
   }
   .card.ok{background:var(--accent-bg);border-color:#b6e3ff}
   .card.miss{background:var(--warn-bg);border-color:#eed888}
+  .card.deny{background:var(--deny-bg);border-color:#f0b3b3}
+  .card.busy{background:var(--card);border-color:var(--line);text-align:center;color:var(--sub)}
   .row{display:flex;gap:10px;font-size:14px;padding:3px 0}
   .row .k{color:var(--sub);flex:0 0 96px}
   .row .v{word-break:break-all;font-family:ui-monospace,Consolas,monospace}
-  .big{
-    font-size:30px;font-weight:700;line-height:1.4;word-break:break-all;
-    margin:6px 0 0;
-  }
+  .big{font-size:30px;font-weight:700;line-height:1.4;word-break:break-all;margin:6px 0 0}
   .tag{
     display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;
     background:var(--accent-bg);color:var(--accent);border:1px solid #b6e3ff;margin-bottom:10px;
   }
   .tag.miss{background:var(--warn-bg);color:var(--warn);border-color:#eed888}
+  .tag.deny{background:var(--deny-bg);color:var(--deny);border-color:#f0b3b3}
   .keys{font-size:13px;color:var(--sub);margin-top:10px}
   .keys code{
     display:inline-block;background:#fff;border:1px solid var(--line);border-radius:5px;
     padding:1px 7px;margin:3px 4px 0 0;font-family:ui-monospace,Consolas,monospace;color:var(--fg);
   }
   .foot{color:var(--sub);font-size:12px;margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+  .spin{
+    display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:-2px;margin-right:8px;
+    border:2px solid #d0d7de;border-top-color:var(--accent);animation:rot 0.9s linear infinite;
+  }
+  @keyframes rot{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="code">4<span>0</span>4</div>
 
+  <div id="校验区" hidden>
+    <span class="tag">一次性展示 · 校验中</span>
+    <h1>正在核对该链接的使用记录</h1>
+    <p class="lead">每个链接只允许展示一次，正在查询云端登记状态…</p>
+    <div class="card busy"><span class="spin"></span>查询中，请稍候</div>
+  </div>
+
   <div id="命中区" hidden>
-    <span class="tag">已由 404.html 接管</span>
+    <span class="tag">首次展示 · 已登记</span>
     <h1 id="标题">页面不存在</h1>
-    <p class="lead" id="副标题">但你访问的地址带有一个可识别的差异值，下面是为它准备的内容。</p>
+    <p class="lead">这是该链接第一次（也是唯一一次）展示，内容如下。</p>
     <div class="card ok">
       <div class="row"><div class="k">地址栏差异</div><div class="v" id="命中键">-</div></div>
       <div class="row"><div class="k">展示内容</div><div class="v" id="命中值">-</div></div>
@@ -73,6 +85,26 @@
     <div class="card ok">
       <div class="keys" style="margin:0 0 4px">该差异对应的专属内容</div>
       <div class="big" id="大号内容">-</div>
+    </div>
+  </div>
+
+  <div id="拒绝区" hidden>
+    <span class="tag deny">拒绝显示</span>
+    <h1>该链接已被使用过</h1>
+    <p class="lead">一次性展示链接只能查看一次，本次访问已被拒绝。</p>
+    <div class="card deny">
+      <div class="row"><div class="k">地址栏差异</div><div class="v" id="拒绝键">-</div></div>
+      <div class="row"><div class="k">使用记录</div><div class="v" id="拒绝记录">-</div></div>
+    </div>
+  </div>
+
+  <div id="故障区" hidden>
+    <span class="tag miss">校验失败</span>
+    <h1>暂时无法核对该链接</h1>
+    <p class="lead">为保证「一次性展示」规则，校验或登记失败时不显示内容，请稍后刷新重试。</p>
+    <div class="card miss">
+      <div class="row"><div class="k">地址栏差异</div><div class="v" id="故障键">-</div></div>
+      <div class="row"><div class="k">失败原因</div><div class="v" id="故障原因">-</div></div>
     </div>
   </div>
 
@@ -89,7 +121,7 @@
     </div>
   </div>
 
-  <div class="foot" id="页脚">404 千人千面测试 · 由 404.html 接管 · 数据源：金山文档表格「404测试」</div>
+  <div class="foot">404 千人千面 + 一次性展示测试 · 由 404.html 接管 · 数据源：金山文档表格「404测试」</div>
 </div>
 
 <script>
@@ -102,17 +134,25 @@ var 映射表 = {
   "666": "asgdasgh"
 };
 
+/* ================= 通道配置（浏览器项目走云函数中转，免令牌） ================= */
+var 云函数地址 = "https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com";
+var 脚本地址 = "https://www.kdocs.cn/api/v3/ide/file/504393979179/script/V2-7JWsQUOjvWWp25OmsywnHK/sync_task";
+var 表格名 = "404测试";
+var 甲列名 = "111";        /* A列(链接差异)表头 */
+var 丙列名 = "是否已访问";  /* C列(一次性状态)表头 */
+
 /* ================= 从地址栏提取"差异部分"的候选值 ================= */
+function 解码(s){
+  try { return decodeURIComponent(s); } catch (e) { return s; }
+}
+
 function 取候选值(){
   var 候选 = [];
   var 段 = location.pathname.split("/").filter(function(s){ return s !== ""; });
 
-  // 路径末段最常用：/gittest/222 取 "222"
   if (段.length) 候选.push(解码(段[段.length - 1]));
-  // 整段路径也试一次：/aaa/bbb
   if (段.length > 1) 候选.push(解码(段.join("/")));
 
-  // 查询参数：?222 或 ?k=222 都能取到 222
   location.search.replace(/^\?/, "").split("&").forEach(function(项){
     if (!项) return;
     var i = 项.indexOf("=");
@@ -122,44 +162,106 @@ function 取候选值(){
     if (值) 候选.push(值);
   });
 
-  // 锚点：#222
   if (location.hash.length > 1) 候选.push(解码(location.hash.slice(1)));
 
   return 候选.filter(function(v){ return v !== ""; });
 }
 
-function 解码(s){
-  try { return decodeURIComponent(s); } catch (e) { return s; }
-}
-
-/* ================= 匹配并渲染 ================= */
-function 渲染(){
-  var 候选 = 取候选值();
-  var 命中键 = null;
-
+function 匹配差异键(候选){
   for (var i = 0; i < 候选.length; i++){
-    if (Object.prototype.hasOwnProperty.call(映射表, 候选[i])) { 命中键 = 候选[i]; break; }
+    if (Object.prototype.hasOwnProperty.call(映射表, 候选[i])) return 候选[i];
   }
-
-  if (命中键 !== null){
-    document.getElementById("命中区").hidden = false;
-    document.getElementById("命中键").textContent = 命中键;
-    document.getElementById("命中值").textContent = 映射表[命中键];
-    document.getElementById("大号内容").textContent = 映射表[命中键];
-    document.title = 映射表[命中键] + " · 404";
-  } else {
-    document.getElementById("未命中区").hidden = false;
-    document.getElementById("未命中键").textContent = 候选.length ? 候选[0] : "(空地址)";
-    var 容器 = document.getElementById("可用键");
-    Object.keys(映射表).forEach(function(k){
-      var el = document.createElement("code");
-      el.textContent = k;
-      容器.appendChild(el);
-    });
-  }
+  return null;
 }
 
-渲染();
+/* ================= 经云函数调用表格脚本 ================= */
+async function 调表格(argv){
+  var 响应 = await fetch(云函数地址, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ webhookUrl: 脚本地址, message: { Context: { argv: argv } } })
+  });
+  var 整包 = await 响应.json();
+  var 结果 = 整包 && 整包.data && 整包.data.result ? 整包.data.result : 整包;
+  if (!结果 || 结果.status !== "success"){
+    throw new Error(结果 && 结果.tongzhi ? 结果.tongzhi : "表格返回异常");
+  }
+  return 结果;
+}
+
+/* ================= 各分支渲染 ================= */
+function 只显示(区id){
+  ["校验区","命中区","拒绝区","故障区","未命中区"].forEach(function(id){
+    document.getElementById(id).hidden = (id !== 区id);
+  });
+}
+
+function 渲染校验中(){
+  只显示("校验区");
+  document.title = "校验中 · 一次性展示";
+}
+
+function 渲染命中(键, 值){
+  只显示("命中区");
+  document.getElementById("命中键").textContent = 键;
+  document.getElementById("命中值").textContent = 值;
+  document.getElementById("大号内容").textContent = 值;
+  document.title = 值 + " · 404";
+}
+
+function 渲染拒绝(键, 记录){
+  只显示("拒绝区");
+  document.getElementById("拒绝键").textContent = 键;
+  document.getElementById("拒绝记录").textContent = 记录;
+  document.title = "拒绝显示 · 该链接已使用";
+}
+
+function 渲染故障(键, 原因){
+  只显示("故障区");
+  document.getElementById("故障键").textContent = 键;
+  document.getElementById("故障原因").textContent = 原因;
+  document.title = "校验失败 · 404";
+}
+
+function 渲染默认404(候选){
+  只显示("未命中区");
+  document.getElementById("未命中键").textContent = 候选.length ? 候选[0] : "(空地址)";
+  var 容器 = document.getElementById("可用键");
+  Object.keys(映射表).forEach(function(k){
+    var el = document.createElement("code");
+    el.textContent = k;
+    容器.appendChild(el);
+  });
+  document.title = "404 · 页面不存在";
+}
+
+/* ================= 主流程 ================= */
+(async function 主流程(){
+  var 候选 = 取候选值();
+  var 键 = 匹配差异键(候选);
+
+  /* 不在映射表 → 不需要联网，直接默认 404 */
+  if (键 === null){ 渲染默认404(候选); return; }
+
+  /* 命中 → 云端校验一次性状态 */
+  渲染校验中();
+  try {
+    var 查 = await 调表格({ 表格名: 表格名, 操作: "查找", 列名: 甲列名, 关键字: 键 });
+    if (!查.数据 || !查.数据.length){ 渲染默认404([键]); return; }
+
+    var 行 = 查.数据[0];
+    if (行[丙列名]){ 渲染拒绝(键, 行[丙列名]); return; }
+
+    var 时刻 = new Date().toLocaleString("zh-CN", { hour12: false });
+    await 调表格({
+      表格名: 表格名, 操作: "写入单元格",
+      行号: 行._行号, 列名: 丙列名, 值: "已展示 " + 时刻
+    });
+    渲染命中(键, 映射表[键]);
+  } catch (错) {
+    渲染故障(键, (错 && 错.message) ? 错.message : "网络或通道异常");
+  }
+})();
 </script>
 </body>
 </html>
