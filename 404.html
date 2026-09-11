@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>404 · 页面不存在</title>
+<!--
+  软件版本：404千人千面测试页 v1.00
+  版本号：每次修改递增，版本号+0.01
+  说明：本页为 GitHub Pages 自定义 404 页，接管一切不存在的路径。
+        按地址栏的差异部分（路径末段 / 查询参数 / 锚点）匹配下方《映射表》，
+        命中则展示对应内容，未命中则展示默认 404。
+  数据来源：金山文档表格「404测试」 A列=链接差异部分 B列=展示内容
+-->
+<style>
+  :root{
+    --fg:#1f2328; --sub:#57606a; --line:#d8dee4; --bg:#ffffff;
+    --card:#f6f8fa; --accent:#0969da; --accent-bg:#ddf4ff; --warn:#9a6700; --warn-bg:#fff8c5;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  .wrap{width:100%;max-width:660px}
+  .code{
+    font-size:60px;font-weight:800;letter-spacing:3px;line-height:1;
+    color:var(--fg);margin:0 0 6px;
+  }
+  .code span{color:var(--accent)}
+  h1{font-size:19px;font-weight:600;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 22px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:18px 20px;margin-bottom:14px;
+  }
+  .card.ok{background:var(--accent-bg);border-color:#b6e3ff}
+  .card.miss{background:var(--warn-bg);border-color:#eed888}
+  .row{display:flex;gap:10px;font-size:14px;padding:3px 0}
+  .row .k{color:var(--sub);flex:0 0 96px}
+  .row .v{word-break:break-all;font-family:ui-monospace,Consolas,monospace}
+  .big{
+    font-size:30px;font-weight:700;line-height:1.4;word-break:break-all;
+    margin:6px 0 0;
+  }
+  .tag{
+    display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;
+    background:var(--accent-bg);color:var(--accent);border:1px solid #b6e3ff;margin-bottom:10px;
+  }
+  .tag.miss{background:var(--warn-bg);color:var(--warn);border-color:#eed888}
+  .keys{font-size:13px;color:var(--sub);margin-top:10px}
+  .keys code{
+    display:inline-block;background:#fff;border:1px solid var(--line);border-radius:5px;
+    padding:1px 7px;margin:3px 4px 0 0;font-family:ui-monospace,Consolas,monospace;color:var(--fg);
+  }
+  .foot{color:var(--sub);font-size:12px;margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="code">4<span>0</span>4</div>
+
+  <div id="命中区" hidden>
+    <span class="tag">已由 404.html 接管</span>
+    <h1 id="标题">页面不存在</h1>
+    <p class="lead" id="副标题">但你访问的地址带有一个可识别的差异值，下面是为它准备的内容。</p>
+    <div class="card ok">
+      <div class="row"><div class="k">地址栏差异</div><div class="v" id="命中键">-</div></div>
+      <div class="row"><div class="k">展示内容</div><div class="v" id="命中值">-</div></div>
+    </div>
+    <div class="card ok">
+      <div class="keys" style="margin:0 0 4px">该差异对应的专属内容</div>
+      <div class="big" id="大号内容">-</div>
+    </div>
+  </div>
+
+  <div id="未命中区" hidden>
+    <span class="tag miss">默认 404</span>
+    <h1>没有找到这个页面</h1>
+    <p class="lead">地址栏里的差异值不在映射表中，因此展示默认的 404 内容。</p>
+    <div class="card miss">
+      <div class="row"><div class="k">地址栏差异</div><div class="v" id="未命中键">-</div></div>
+    </div>
+    <div class="card">
+      <div class="keys" style="margin:0 0 2px">当前映射表里可用的差异值（测试用）：</div>
+      <div id="可用键"></div>
+    </div>
+  </div>
+
+  <div class="foot" id="页脚">404 千人千面测试 · 由 404.html 接管 · 数据源：金山文档表格「404测试」</div>
+</div>
+
+<script>
+/* ================= 映射表：A列(地址栏差异) → B列(展示内容) ================= */
+var 映射表 = {
+  "222": "fddvaba",
+  "333": "awerghafg",
+  "444": "zxvcbrfhg",
+  "555": "ferwgasba",
+  "666": "asgdasgh"
+};
+
+/* ================= 从地址栏提取"差异部分"的候选值 ================= */
+function 取候选值(){
+  var 候选 = [];
+  var 段 = location.pathname.split("/").filter(function(s){ return s !== ""; });
+
+  // 路径末段最常用：/gittest/222 取 "222"
+  if (段.length) 候选.push(解码(段[段.length - 1]));
+  // 整段路径也试一次：/aaa/bbb
+  if (段.length > 1) 候选.push(解码(段.join("/")));
+
+  // 查询参数：?222 或 ?k=222 都能取到 222
+  location.search.replace(/^\?/, "").split("&").forEach(function(项){
+    if (!项) return;
+    var i = 项.indexOf("=");
+    var 键 = 解码((i >= 0 ? 项.slice(0, i) : 项).replace(/\+/g, " "));
+    var 值 = i >= 0 ? 解码(项.slice(i + 1).replace(/\+/g, " ")) : "";
+    候选.push(键);
+    if (值) 候选.push(值);
+  });
+
+  // 锚点：#222
+  if (location.hash.length > 1) 候选.push(解码(location.hash.slice(1)));
+
+  return 候选.filter(function(v){ return v !== ""; });
+}
+
+function 解码(s){
+  try { return decodeURIComponent(s); } catch (e) { return s; }
+}
+
+/* ================= 匹配并渲染 ================= */
+function 渲染(){
+  var 候选 = 取候选值();
+  var 命中键 = null;
+
+  for (var i = 0; i < 候选.length; i++){
+    if (Object.prototype.hasOwnProperty.call(映射表, 候选[i])) { 命中键 = 候选[i]; break; }
+  }
+
+  if (命中键 !== null){
+    document.getElementById("命中区").hidden = false;
+    document.getElementById("命中键").textContent = 命中键;
+    document.getElementById("命中值").textContent = 映射表[命中键];
+    document.getElementById("大号内容").textContent = 映射表[命中键];
+    document.title = 映射表[命中键] + " · 404";
+  } else {
+    document.getElementById("未命中区").hidden = false;
+    document.getElementById("未命中键").textContent = 候选.length ? 候选[0] : "(空地址)";
+    var 容器 = document.getElementById("可用键");
+    Object.keys(映射表).forEach(function(k){
+      var el = document.createElement("code");
+      el.textContent = k;
+      容器.appendChild(el);
+    });
+  }
+}
+
+渲染();
+</script>
+</body>
+</html>
