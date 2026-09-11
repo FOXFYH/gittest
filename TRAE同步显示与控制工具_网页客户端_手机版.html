@@ -68,6 +68,26 @@ select{font-size:12px;}
 #opts{margin:0 0 8px; display:flex; flex-direction:column; gap:5px;}
 #opts .othint{font-size:11px; color:var(--gray); padding:0 2px;}
 .optbtn{text-align:left; min-height:34px;}
+/* ── 1.09：待确认占位气泡（空窗期反馈）── */
+.msg.pend{background:var(--ubg); border:1px dashed rgba(21,101,192,.55);}
+.msg.pend .body{color:#5a6b7d;}
+.msg.pend .pstat{font-size:11px; margin-left:6px; padding:1px 7px;
+  border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);}
+.msg.pend.ok .pstat{background:rgba(10,125,50,.14); color:var(--green);}
+.msg.pend.bad{border-color:rgba(198,40,40,.65);}
+.msg.pend.bad .pstat{background:rgba(198,40,40,.14); color:var(--red);}
+.msg.pend .pacts{margin-left:auto; display:flex; gap:4px;}
+.pendbtn{font-size:11px; min-height:22px; padding:0 8px; border-radius:4px;}
+.pendbtn.go{color:var(--blue);}
+.pendbtn.drop{color:var(--gray);}
+.switching{background:rgba(21,101,192,.07); border:1px dashed
+  rgba(21,101,192,.35); color:var(--blue); font-size:12px;
+  border-radius:8px; padding:6px 10px; margin:0 0 8px; text-align:center;}
+.switching::after{content:''; display:inline-block; width:6px; height:6px;
+  margin-left:6px; border-radius:50%; background:var(--blue);
+  animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+.optbtn.picked{opacity:.55;}
 /* ── 1.06：抽屉 文件夹➕ / 防升级开关 ── */
 .convo.folder{display:flex; align-items:center;}
 .convo.folder .fname{flex:1; min-width:0; overflow:hidden;
@@ -197,7 +217,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr">
   <div class="h1row">
     <button id="btn_menu">☰</button>
-    <span class="title">TRAE远程·手机版 v1.08</span>
+    <span class="title">TRAE远程·手机版 v1.09</span>
     <span id="lbl_rlink">🌐连接中…</span>
   </div>
   <div class="h2row">
@@ -309,7 +329,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.08 =================
+/* ================= 手机版网页客户端 v1.09 =================
  * 与桌面网页版/桌面客户端同协议：PieSocket 中继 + FOX 分段 +
  * hello/ev 事件流。本端 FOX 发送者 ID = 4000000001（区别于服务端
  * 1000000001、桌面客户端 2000000001、桌面网页版 3000000001——
@@ -337,7 +357,17 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 完整路径+「✕ 重选」（📂 浏览页选目录回填）；「创建」=目录与记忆
  * 有变化才发 task_dir_set（task_dlg_ok 回报），一致零操作直接就绪；
  * 「取消」= task_dlg_cancel。原「新任务（选工作目录）」入口并入本
- * 弹窗（选不选目录都走同一入口）。 */
+ * 弹窗（选不选目录都走同一入口）。
+ * v1.09（对齐服务端 v1.14）：空窗期反馈（待确认占位）——点「发送」
+ * 后要等服务端注入 TRAE、点发送、TRAE 渲染、0.8s 轮询、中继回传，
+ * 实测 3~6s 才看得到自己那条（最小化时更久）。这段空白以前没有任何
+ * 反馈，像「点了没反应 / 消息丢了」。现在：发送/插话本地立即回显一条
+ * 「我」的虚线占位气泡并标【发送中…/排队中…】，服务端阶段事件
+ * （sent.stage：typed 已进输入框 → clicked 已点发送 / queued 已排队）
+ * 推进状态，快照里出现同文本用户消息即撤下占位；15 秒未出现或收到
+ * cmderr ⇒ 标「⚠ 未确认」并给「重发 / 丢弃」（认领下标防连发相同
+ * 文本误判）。另补：切换会话「正在切换到「X」…」在途条（0.8~6s）、
+ * 折叠/展开与停止生成的即时提示、选项卡点后禁用防重复点。 */
 
 const MY_ID    = '4000000001';
 const SERVER_ID= '1000000001';
@@ -472,6 +502,10 @@ const S = {
   busy: false, gen: false, ready: false, bench: null,
   bench_mode: 'ins',
   task_open: false, task_mem: '', task_cur: '',   // 1.08：新建任务弹窗
+  /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡，
+     服务端阶段事件推进状态，快照里出现同文本用户消息即撤下 */
+  pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
+  switch_pend: null,
 };
 
 /* ================= DOM 快捷 ================= */
@@ -623,7 +657,10 @@ function renderConvs(rows){
         drawerClose();
       };
       d.appendChild(p);
-      d.onclick = () => sendCmd('toggle_folder', title);
+      d.onclick = () => {              /* 1.09：折叠/展开也要有反馈 */
+        flash('正在折叠/展开「' + title + '」…', 'var(--blue)');
+        sendCmd('toggle_folder', title);
+      };
       el.convs.appendChild(d);
       inFolder = true;
     } else {
@@ -633,12 +670,139 @@ function renderConvs(rows){
       d.textContent = title;
       const i = idx;
       d.onclick = () => {
-        if (!flag){ sendCmd('switch', i); drawerClose(); }
+        if (!flag){
+          pendSwitchSet(title);        /* 1.09：切换在途提示（0.8~6s）*/
+          flash('正在切换到「' + title + '」…', 'var(--blue)');
+          sendCmd('switch', i);
+          drawerClose();
+        }
       };
       el.convs.appendChild(d);
       idx++;
     }
   }
+}
+
+/* ============ 1.09：待确认项（空窗期反馈） ============
+   点「发送」后要等服务端把文字注入 TRAE 输入框、点发送、TRAE 渲染、
+   0.8s 轮询取快照、再经中继回传——实测 3~6s 才看得到自己那条。
+   这段空白以前完全没有反馈，像「点了没反应 / 消息丢了」。
+   现在：本地立即画一条「我」的占位气泡并标「发送中…」，服务端阶段
+   事件（已输入→已发出）推进状态，快照里出现同文本用户消息即撤下；
+   15 秒还没出现 ⇒ 标「⚠ 未确认」并给「重发 / 丢弃」。 */
+
+function pendSig(){
+  return S.pending.map(p => p.id + ':' + p.state).join(',');
+}
+
+function pendAdd(kind, text){
+  if (!text) return null;
+  const same = S.pending.find(p => p.text === text);
+  if (same) return same;               // 同文本已在册（服务端 pend 回显）
+  S.pend_seq++;
+  const p = {id: S.pend_seq, kind: kind, text: text,
+             state: 'sending', ts: Date.now()};
+  S.pending.push(p);
+  return p;
+}
+
+function pendStat(p){
+  if (p.state === 'typed')   return ['已输入 TRAE…', ''];
+  if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
+  if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
+  if (p.state === 'timeout') return ['⚠ 未确认（15 秒内没出现）', 'bad'];
+  return [p.kind === 'interject' ? '排队中…' : '发送中…', ''];
+}
+
+function renderPending(){
+  const old = $('pendbox');
+  if (old) old.remove();
+  if (!S.pending.length) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'pendbox';
+  S.pending.forEach(p => {
+    const st = pendStat(p);
+    const d = document.createElement('div');
+    d.className = 'msg user pend ' + st[1];
+    let h = '<div class="who">我<span class="pstat">' + esc(st[0])
+          + '</span>';
+    if (p.state === 'timeout')
+      h += '<span class="pacts">'
+         + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>'
+         + '<button class="pendbtn drop" data-drop="' + p.id
+         + '">丢弃</button></span>';
+    h += '</div><div class="body">' + esc(p.text) + '</div>';
+    d.innerHTML = h;
+    wrap.appendChild(d);
+  });
+  wrap.querySelectorAll('.pendbtn').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const gi = parseInt(b.dataset.go || '0');
+      const di = parseInt(b.dataset.drop || '0');
+      if (di){                       // 丢弃：撤下占位即可
+        S.pending = S.pending.filter(x => x.id !== di);
+        renderAll();
+        return;
+      }
+      const p = S.pending.find(x => x.id === gi);
+      if (!p) return;
+      S.pending = S.pending.filter(x => x.id !== gi);
+      cmd(p.kind, p.text);           // 重发（cmd 内会重新登记占位）
+    };
+  });
+  el.msgs.appendChild(wrap);
+  el.msgs.scrollTop = el.msgs.scrollHeight;
+}
+
+/* 快照到达：同文本用户消息出现 → 该占位已落地，撤下它。
+   用 pend_claims 记住已被认领的消息下标（连发相同文本也不会误判）；
+   换会话则清空认领记录。返回 true 表示待确认集有变化需重画。 */
+function pendReconcile(msgs){
+  if (!S.pending.length) return false;
+  /* 当前会话标识（快照无 title 字段，取 convs 里的当前行） */
+  const cv0 = (S.snap && S.snap.convs) || [];
+  const act0 = cv0.find(r => r[0] === 'c' && r[2]);
+  const conv = act0 ? act0[1] : '';
+  if (conv !== S.pend_conv){
+    S.pend_conv = conv;
+    S.pend_claims = [];
+  }
+  const users = (msgs || []).filter(m => m[0] === 'u');
+  let changed = false;
+  const keep = [];
+  S.pending.forEach(p => {
+    const t = (p.text || '').trim();
+    let idx = -1;
+    for (let i = users.length - 1; i >= 0; i--){
+      if (S.pend_claims.indexOf(i) >= 0) continue;
+      if ((users[i][1] || '').trim() === t){ idx = i; break; }
+    }
+    if (idx >= 0){
+      S.pend_claims.push(idx);
+      changed = true;
+      return;
+    }
+    if (p.state !== 'timeout' && Date.now() - p.ts > 15000){
+      p.state = 'timeout';
+      changed = true;
+    }
+    keep.push(p);
+  });
+  if (changed) S.pending = keep;
+  return changed;
+}
+
+/* 切换在途：会话切换要等 0.8~6s（含最小化恢复），期间给个明确的
+   「正在切换…」条，免得旧会话内容留着让人以为点错了。 */
+function pendSwitchSet(title){
+  S.switch_pend = {title: title || '', ts: Date.now()};
+  renderAll();
+}
+function pendSwitchClear(){
+  if (!S.switch_pend) return false;
+  S.switch_pend = null;
+  return true;
 }
 
 function renderMsgs(msgs, finish, opts){
@@ -652,13 +816,25 @@ function renderMsgs(msgs, finish, opts){
            + (finish.files || []).join('|') + '~'
            + (finish.text || '').slice(0, 60);
   key += '#opt:' + opts.map(o => o.t).join('|');
+  /* 1.09：待确认占位 + 切换在途条参与指纹（状态推进/撤下要重画） */
+  key += '#pend:' + pendSig()
+       + (S.switch_pend ? '#sw:' + S.switch_pend.title : '');
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   el.msgs.innerHTML = '';
-  if (!msgs.length && !opts.length){
-    el.msgs.innerHTML = '<div class="empty">（暂无消息，发送一条开始对话）</div>';
+  const empty = !msgs.length && !opts.length;
+  if (empty && !S.pending.length && !S.switch_pend){
+    el.msgs.innerHTML =
+      '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
   }
+  if (S.switch_pend){                    // 1.09：切换在途提示条
+    const sw = document.createElement('div');
+    sw.className = 'switching';
+    sw.textContent = '正在切换到「' + S.switch_pend.title + '」…';
+    el.msgs.appendChild(sw);
+  }
+  if (empty){ renderPending(); return; }
   const times = resolveTimes(msgs);
   let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
   msgs.forEach((m, i) => {
@@ -710,8 +886,12 @@ function renderMsgs(msgs, finish, opts){
       const b = document.createElement('button');
       b.className = 'optbtn';
       b.textContent = o.t;
-      b.onclick = () => {
-        flash('已选择：' + o.t, 'var(--blue)');
+      b.onclick = () => {              /* 1.09：点了先给反馈并防重复点
+                                          （服务端要 ~1s 才生效） */
+        if (b.disabled) return;
+        b.disabled = true;
+        b.classList.add('picked');
+        flash('已选择，正在提交给 TRAE…', 'var(--blue)');
         sendCmd('pick_opt', i);
       };
       oc.appendChild(b);
@@ -734,6 +914,7 @@ function renderMsgs(msgs, finish, opts){
     d.innerHTML = h;
     el.msgs.appendChild(d);
   }
+  renderPending();                  // 1.09：占位气泡永远排在末尾
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
 
@@ -903,11 +1084,21 @@ function handleBody(body){
 
 function onEv(kind, v){
   switch (kind){
-    case 'snap':
+    case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
       S.snap = v;
+      pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
+      if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
+        const cv = v.convs || [];
+        const act = cv.find(r => r[0] === 'c' && r[2]);
+        const has = cv.some(r => r[0] === 'c' && r[1] === S.switch_pend.title);
+        if ((act && act[1] === S.switch_pend.title) || !has
+            || Date.now() - S.switch_pend.ts > 8000)
+          S.switch_pend = null;              // 超时兜底，别一直挂着
+      }
       renderAll();
       break;
+    }
     case 'dead':
       flash('✘ 未连接（' + v + '）', 'var(--red)');
       S.snap = {};
@@ -922,11 +1113,36 @@ function onEv(kind, v){
         if (S.port === v){ sendCmd('points', null); sendCmd('model_list', null); }
       }, 8000);
       break;
-    case 'sent':
+    case 'sent': {                           /* 1.09：服务端阶段回报
+        （typed 已进 TRAE 输入框 / clicked 已点发送 / queued 已排队；
+        旧版服务端发纯文本也兼容——只当 unknown 状态处理） */
+      let stage = '', text = '';
+      if (v && typeof v === 'object'){
+        stage = v.stage || ''; text = v.text || '';
+      } else if (typeof v === 'string') text = v;
+      const p = S.pending.find(x => (!text || x.text === text)
+                                    && x.state !== 'timeout');
+      if (p){
+        if (stage === 'queued') p.state = 'queued';
+        else if (stage === 'clicked') p.state = 'sent';
+        else if (stage === 'typed') p.state = 'typed';
+      }
       S.msgs_key = null;
       el.ent.value = '';
       refreshSendBtn();
+      renderAll();
       break;
+    }
+    case 'pend': {                           /* 1.09：命令受理广播——
+        别的端（PC 面板）发出的消息也在本机回显占位，多端同看 */
+      const pk = (v && v[0]) || 'send';
+      const pt = (v && v[1]) || '';
+      if (pt && !S.pending.some(x => x.text === pt)){
+        pendAdd(pk, pt);
+        renderAll();
+      }
+      break;
+    }
     case 'points':
       if (v && v !== '读取失败') S.points = v;
       el.points.textContent = '积分 ' + v;
@@ -980,6 +1196,19 @@ function onEv(kind, v){
       break;
     case 'cmderr':
       flash('命令失败：' + v);
+      /* 1.09：命令报错 → 在途占位立刻标「未确认」，别让用户干等 15s */
+      if (S.pending.some(p => p.state === 'sending' || p.state === 'typed')){
+        S.pending.forEach(p => {
+          if (p.state === 'sending' || p.state === 'typed')
+            p.state = 'timeout';
+        });
+        renderAll();
+      }
+      if (S.switch_pend){ S.switch_pend = null; renderAll(); }
+      document.querySelectorAll('.optbtn.picked').forEach(b => {
+        b.disabled = false;
+        b.classList.remove('picked');
+      });
       break;
     case 'bench_ls':                       // 1.01：📂 目录应答
       benchRender(v);
@@ -1046,6 +1275,9 @@ function applySwitch(box, port){
   S.box = box; S.port = port;
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.attach_pending = null; S.model_busy = false;
+  /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
+  S.pending = []; S.switch_pend = null;
+  S.pend_claims = []; S.pend_conv = '';
   S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
                        // 原不重置，boot 一次 S.busy 永卡 true 锁死目标切换
   el.box.value = box;
@@ -1100,8 +1332,19 @@ function renderPorts(){
 
 function cmd(c, a){
   if (!S.onLine){ flash('⚠ 服务端未连接，命令未发出'); return; }
+  /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
+     清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
+  if ((c === 'send' || c === 'interject') && typeof a === 'string'
+      && a.trim()){
+    pendAdd(c, a);
+    if (c === 'send') flash('⏳ 正在发送…（已回显，等待 TRAE 同步）',
+                            'var(--blue)');
+  }
   sendCmd(c, a);
-  if (c === 'send' || c === 'interject') el.ent.value = '';
+  if (c === 'send' || c === 'interject'){
+    el.ent.value = '';
+    renderAll();
+  }
 }
 
 el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发送
@@ -1113,6 +1356,7 @@ el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发�
       flash('💬 已排队插话（AI 在当前步骤边界处理）', 'var(--orange)');
       cmd('interject', t);
     } else {
+      flash('⏳ 已请求停止生成…', 'var(--blue)');   // 1.09：空白期反馈
       cmd('stop_gen', null);
     }
     return;
