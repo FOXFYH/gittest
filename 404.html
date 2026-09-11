@@ -5,15 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>404 · 页面不存在</title>
 <!--
-  软件版本：404千人千面测试页 v1.02
+  软件版本：404千人千面测试页 v1.03
   版本号：每次修改递增，版本号+0.01
   说明：本页为 GitHub Pages 自定义 404 页，接管一切不存在的路径。
         v1.00 按地址栏差异部分（路径末段/查询/锚点）匹配《映射表》展示不同内容；
-        v1.01 新增「一次性展示」：命中后先经云函数查表格第三列（是否已访问），
+        v1.01 新增「一次性展示」：命中后先经云函数查表格（是否已访问），
         未展示过 → 写入"已展示+时间"再显示内容；已展示过 → 拒绝显示。
+        v1.02 适配新表头：A列=展示内容 B列=差异代码 C列=是否已访问。
+        v1.03 新增二级内容：表格「二级展示内容」列，首展页面点按钮后显示。
         浏览器项目按守则走云函数中转（免令牌），令牌不落地前端。
-        v1.02 适配新表头：A列=展示内容 B列=差异代码 C列=是否已访问，
-        查表列名由「111」改为「差异代码」。
   数据来源：金山文档表格「404测试」
 -->
 <style>
@@ -63,6 +63,13 @@
     border:2px solid #d0d7de;border-top-color:var(--accent);animation:rot 0.9s linear infinite;
   }
   @keyframes rot{to{transform:rotate(360deg)}}
+  .btn{
+    display:inline-block;border:none;border-radius:8px;cursor:pointer;
+    background:var(--accent);color:#fff;font-size:15px;font-weight:600;
+    padding:12px 26px;box-shadow:0 2px 8px #0969da33;transition:all .25s ease;
+  }
+  .btn:hover{background:#0860c4;transform:translateY(-1px)}
+  #二级内容区[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -87,6 +94,13 @@
     <div class="card ok">
       <div class="keys" style="margin:0 0 4px">该差异对应的专属内容</div>
       <div class="big" id="大号内容">-</div>
+    </div>
+    <div style="text-align:center" id="二级按钮区" hidden>
+      <button class="btn" id="二级按钮" onclick="看二级()">查看二级内容</button>
+    </div>
+    <div class="card ok" id="二级内容区" hidden>
+      <div class="keys" style="margin:0 0 4px">二级展示内容</div>
+      <div class="big" id="二级内容">-</div>
     </div>
   </div>
 
@@ -127,13 +141,13 @@
 </div>
 
 <script>
-/* ================= 映射表：A列(地址栏差异) → B列(展示内容) ================= */
+/* ================= 映射表：差异代码 → {内容, 二级} ================= */
 var 映射表 = {
-  "222": "fddvaba",
-  "333": "awerghafg",
-  "444": "zxvcbrfhg",
-  "555": "ferwgasba",
-  "666": "asgdasgh"
+  "222": { 内容: "fddvaba", 二级: "ASDFA" },
+  "333": { 内容: "awerghafg", 二级: "ASDFAS" },
+  "444": { 内容: "zxvcbrfhg", 二级: "ASDFA" },
+  "555": { 内容: "ferwgasba", 二级: "ASDGASG" },
+  "666": { 内容: "asgdasgh", 二级: "ASDFASD" }
 };
 
 /* ================= 通道配置（浏览器项目走云函数中转，免令牌） ================= */
@@ -203,12 +217,25 @@ function 渲染校验中(){
   document.title = "校验中 · 一次性展示";
 }
 
-function 渲染命中(键, 值){
+function 渲染命中(键, 条目){
   只显示("命中区");
   document.getElementById("命中键").textContent = 键;
-  document.getElementById("命中值").textContent = 值;
-  document.getElementById("大号内容").textContent = 值;
-  document.title = 值 + " · 404";
+  document.getElementById("命中值").textContent = 条目.内容;
+  document.getElementById("大号内容").textContent = 条目.内容;
+  document.title = 条目.内容 + " · 404";
+
+  /* 二级内容：有则亮出按钮，点击后才显示；无则整块隐藏 */
+  var 有二级 = !!(条目.二级 && 条目.二级 !== "");
+  document.getElementById("二级按钮区").hidden = !有二级;
+  document.getElementById("二级内容区").hidden = true;
+  document.getElementById("二级内容").textContent = 有二级 ? 条目.二级 : "";
+  document.getElementById("二级按钮").hidden = !有二级;
+}
+
+/* 点击按钮 → 展开二级内容并收起按钮（本页一次性会话内可见） */
+function 看二级(){
+  document.getElementById("二级内容区").hidden = false;
+  document.getElementById("二级按钮区").hidden = true;
 }
 
 function 渲染拒绝(键, 记录){
@@ -259,8 +286,7 @@ function 渲染默认404(候选){
       表格名: 表格名, 操作: "写入单元格",
       行号: 行._行号, 列名: 丙列名, 值: "已展示 " + 时刻
     });
-    渲染命中(键, 映射表[键]);
-  } catch (错) {
+    渲染命中(键, 映射表[键]);  } catch (错) {
     渲染故障(键, (错 && 错.message) ? 错.message : "网络或通道异常");
   }
 })();
