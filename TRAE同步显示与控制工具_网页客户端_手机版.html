@@ -250,7 +250,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.16</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.18</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -288,7 +288,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.16 · 切换到达确认 · FOX 始终启用</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.18 · 模型未知占位 · 不再伪装首项</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -449,7 +449,15 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * v1.16：切换「到达确认」——TRAE 先点亮会话标题后加载正文，旧
  * 逻辑标题一对上就撤「正在切换」条并显示「空闲」，正文其实还没
  * 到。现记录切换前消息指纹，快照里消息内容真的变化（正文到达）
- * 才撤条；状态栏在途期间强制显示「正在切换」，不提前显示空闲。 */
+ * 才撤条；状态栏在途期间强制显示「正在切换」，不提前显示空闲。
+ * v1.17：connected 后拉积分/模型列表的延时 8s→3s（connected 时
+ * 服务端快照 eval 已成功一次，界面基本可用；配合服务端 v1.30
+ * 救活放宽，网页端连上后不必再等很久）。
+ * v1.18：模型未知占位——TRAE 渲染冻结时 snap.model 读不到（空），
+ * 旧 syncModel 直接早退，下拉残留浏览器默认第一项，伪装成「已
+ * 选中第一个模型」误导用户。现显示「（模型未知）」占位，恢复
+ * 后自动换真值（配合服务端 v1.32 救活升级：同模型重选促重渲染，
+ * 冻结很快解除，占位只是短暂过渡）。 */
 
 /* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
  * 在 localStorage（服务端按此 ID 锁定操控者；刷新/重开页面 ID 不变） */
@@ -1278,8 +1286,24 @@ function renderFavPage(){
   }
 }
 
+const MODEL_UNK = '（模型未知）';   // 1.18：模型读不到时的占位显示
 function syncModel(cur){
-  if (S.model_busy || !cur) return;
+  if (S.model_busy) return;
+  const ph = el.model.querySelector('option[data-unk]');
+  if (!cur){
+    /* 1.18: 冻结/未就绪时 snap.model 为空——原实现直接早退，浏览器
+       默认显示第一项，伪装成「已选中第一个模型」误导用户（用户以为
+       模型被切走了）。改为明确占位；恢复后自动换成真值 */
+    if (!ph){
+      const o = document.createElement('option');
+      o.value = MODEL_UNK; o.textContent = MODEL_UNK;
+      o.dataset.unk = '1';
+      el.model.insertBefore(o, el.model.firstChild);
+    }
+    if (el.model.value !== MODEL_UNK) el.model.value = MODEL_UNK;
+    return;
+  }
+  if (ph) ph.remove();               // 有真值了：撤占位
   if (el.model.value === cur) return;
   let found = false;
   for (const [disp, name] of Object.entries(S.model_map))
@@ -1573,8 +1597,10 @@ function onEv(kind, v){
       if (v !== S.port) return;
       flash('● 已连接（' + v + '）', 'var(--green)');
       setTimeout(() => {                      // 界面就绪后再拉积分/模型
+        // v1.17：8s→3s——connected 时服务端快照 eval 已成功一次，
+        // 界面基本可用（服务端 _on_connected 同步缩短到 3s）
         if (S.port === v){ sendCmd('points', null); sendCmd('model_list', null); }
-      }, 8000);
+      }, 3000);
       break;
     case 'sent': {                           /* 1.09：服务端阶段回报
         （typed 已进 TRAE 输入框 / clicked 已点发送 / queued 已排队；
