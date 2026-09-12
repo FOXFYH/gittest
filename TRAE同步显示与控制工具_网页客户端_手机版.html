@@ -217,7 +217,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr">
   <div class="h1row">
     <button id="btn_menu">☰</button>
-    <span class="title">TRAE远程·手机版 v1.10</span>
+    <span class="title">TRAE远程·手机版 v1.11</span>
     <span id="lbl_rlink">🌐连接中…</span>
   </div>
   <div class="h2row">
@@ -285,6 +285,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
         <button id="btn_tdre">✕ 重选</button></div>
       <div id="td_full" class="tdfull"></div>
     </div>
+    <div id="td_lock" class="tdhint" style="display:none;
+        color:var(--blue); font-weight:bold;"></div>
     <div class="tdhint">新任务的工作区将指向所选目录；与 TRAE 记忆一致
       时零操作直接就绪。从 📂 浏览页选定后回到本页点「创建」。</div>
     <div id="td_stat" class="tdstat">正在展开新建任务…</div>
@@ -329,7 +331,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.10 =================
+/* ================= 手机版网页客户端 v1.11 =================
  * 与桌面网页版/桌面客户端同协议：PieSocket 中继 + FOX 分段 +
  * hello/ev 事件流。本端 FOX 发送者 ID = 4000000001（区别于服务端
  * 1000000001、桌面客户端 2000000001、桌面网页版 3000000001——
@@ -501,7 +503,8 @@ const S = {
   convs_key: null, msgs_key: null,
   busy: false, gen: false, ready: false, bench: null,
   bench_mode: 'ins',
-  task_open: false, task_mem: '', task_cur: '',   // 1.08：新建任务弹窗
+  task_open: false, task_mem: '', task_cur: '', task_lock: null,
+  /* 1.08 新建任务弹窗 / 1.11 task_lock=锁定文件夹 */
   /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡，
      服务端阶段事件推进状态，快照里出现同文本用户消息即撤下 */
   pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
@@ -527,6 +530,7 @@ const el = {
   benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
   bench_ok: $('btn_bench_ok'), bfoot: $('bfoot'),
   taskpage: $('page_taskdlg'), td_none: $('td_none'),
+  td_lock: $('td_lock'),
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), block: $('btn_block'),
@@ -652,9 +656,11 @@ function renderConvs(rows){
       p.onclick = e => {
         e.stopPropagation();
         if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
-        flash('正在文件夹「' + title + '」内新建对话…', 'var(--blue)');
-        sendCmd('new_task_in', title);
+        if (S.task_open) return;
         drawerClose();
+        /* 1.11：统一新建弹窗（锁定模式）——创建才真正点组内新建 */
+        taskDlgOpen(title);
+        flash('在「' + title + '」内新建对话', 'var(--blue)');
       };
       d.appendChild(p);
       d.onclick = () => {              /* 1.09：折叠/展开也要有反馈 */
@@ -1216,6 +1222,8 @@ function onEv(kind, v){
       break;
     case 'cmderr':
       flash('命令失败：' + v);
+      /* 1.11：新建弹窗流程出错 → 收起弹窗（否则卡在「正在展开」） */
+      if (S.task_open){ taskDlgClose(); }
       /* 1.09：命令报错 → 在途占位立刻标「未确认」，别让用户干等 15s */
       if (S.pending.some(p => p.state === 'sending' || p.state === 'typed')){
         S.pending.forEach(p => {
@@ -1566,15 +1574,29 @@ el.bench_ok.onclick = () => {               // 1.06：选定当前浏览目录
 /* —— 1.08：新建任务弹窗（对齐服务端 v1.10 TaskDlg 两态渲染；
    原入口并入——new_task_dir 链路服务端保留但本端不再发送） —— */
 
-function taskDlgOpen(){
+function taskDlgOpen(lock){         /* 1.11：lock=文件夹组名 → 锁定模式
+  （组头 ➕ 入口）——不预开 TRAE 输入区、无目录选择，创建=new_task_in */
   S.task_open = true;
+  S.task_lock = lock || null;
   S.task_mem = '';
   S.task_cur = '';
   taskDlgRender();
-  el.td_stat.textContent = '正在展开新建任务…';
+  el.td_stat.textContent = S.task_lock
+    ? '点「创建」在文件夹内新建对话' : '正在展开新建任务…';
   el.taskpage.classList.add('on');
 }
-function taskDlgRender(){          // 工作目录行两态：未选 / 已选
+function taskDlgRender(){          // 工作目录行两态 + 1.11 锁定态
+  if (S.task_lock){
+    el.td_lock.style.display = '';
+    el.td_lock.textContent = '🔒 归属文件夹：' + S.task_lock
+      + '（组内新建·锁定）';
+    el.td_none.style.display = 'none';
+    el.td_sel.style.display = 'none';
+    document.querySelector('#page_taskdlg .tdsec').style.display = 'none';
+    return;
+  }
+  document.querySelector('#page_taskdlg .tdsec').style.display = '';
+  el.td_lock.style.display = 'none';
   const cur = S.task_cur || S.task_mem;
   if (cur){
     el.td_none.style.display = 'none';
@@ -1599,7 +1621,14 @@ function taskPickDir(){            // 选择/重选 → 📂 浏览页选目录�
 }
 el.td_none.onclick = () => taskPickDir();
 el.td_re.onclick = () => taskPickDir();
-el.td_ok.onclick = () => {         // 创建：目录与记忆有变化才设置
+el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目录
+  与记忆有变化才设置 */
+  if (S.task_lock){
+    taskDlgClose();
+    flash('正在文件夹「' + S.task_lock + '」内新建对话…', 'var(--blue)');
+    sendCmd('new_task_in', S.task_lock);
+    return;
+  }
   if (S.task_cur && S.task_cur !== S.task_mem){
     el.td_stat.textContent = '正在设置工作目录…';
     flash('正在设置工作目录…', 'var(--blue)');
@@ -1609,9 +1638,11 @@ el.td_ok.onclick = () => {         // 创建：目录与记忆有变化才设置
     flash('✅ 新建任务就绪', 'var(--green)');
   }
 };
-el.td_cancel.onclick = () => {     // 取消：Esc×2 关 TRAE 输入区
+el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 TRAE 输入区
+  直接关；普通模式 Esc×2 关 TRAE 输入区 */
+  const wasLock = S.task_lock;
   taskDlgClose();
-  sendCmd('task_dlg_cancel', null);
+  if (!wasLock) sendCmd('task_dlg_cancel', null);
 };
 function renderBlock(){                     // 抽屉防升级状态文字
   const st = el.block.querySelector('.st');
