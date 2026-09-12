@@ -202,6 +202,25 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 #bfoot{flex:none; padding:6px 12px calc(6px + env(safe-area-inset-bottom));
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
+/* ── 1.15：模型收藏管理页（全屏覆盖）── */
+#page_fav{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_fav.on{display:flex;}
+#fav_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:#fff; overscroll-behavior:contain;}
+.frow{display:flex; align-items:center; gap:8px; padding:10px 14px;
+  cursor:pointer; border-bottom:1px solid #eef1f4; font-size:14px;}
+.frow:active{background:#eef4fb;}
+.frow .fname{flex:1; min-width:0; overflow:hidden; white-space:nowrap;
+  text-overflow:ellipsis;}
+.frow .fstar{flex:none; font-size:17px; width:30px; text-align:center;}
+.frow.isfav .fstar{color:#e6a700;}
+.frow.isfav .fname{color:var(--blue); font-weight:bold;}
+.frow.dead .fname{color:#c62828;}
+.frow.dead .fmark{flex:none; color:#c62828; font-size:11px;}
+.fhint{padding:10px 14px; color:var(--gray); font-size:12px;
+  line-height:1.6;}
+#btn_fav{flex:none; min-width:34px;}
 /* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
    bench 覆盖本页，选定后回来）── */
 #page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
@@ -231,7 +250,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.14</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.15</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -240,6 +259,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <span id="lbl_ports" data-page-node-id="zBgT5txMkCBKKMlkXhsbis">在线 —</span>
     <span id="lbl_points" data-page-node-id="yFYp8ovoyEJEqbf3s1uUjI">积分 —</span>
     <select id="cmb_model" data-page-node-id="QQf0z68kfKCspuI3tgt6mc"></select>
+    <button id="btn_fav" title="模型收藏管理" data-page-node-id="QQf0z68kfKCspuI3tgt6md">☆</button>
   </div>
   <div id="statebar" data-page-node-id="CWWwN1Nx4NvBnM1wGfRZ6V">连接中…</div>
 </div>
@@ -268,7 +288,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.14 · 多服务端 · FOX 始终启用</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.15 · 模型收藏 · FOX 始终启用</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -310,6 +330,22 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       时零操作直接就绪。从 📂 浏览页选定后回到本页点「创建」。</div>
     <div id="td_stat" class="tdstat" data-page-node-id="57lnk93UF2L7NlSUkvPx2w">正在展开新建任务…</div>
   </div>
+</div>
+
+<!-- 1.15：模型收藏管理页——列出官方全部模型，点行收藏/取消收藏；
+     失效收藏（官方改名/下架）单列一节可移除。下拉列表有收藏时只
+     显示收藏 + 当前模型。 -->
+<div id="page_fav">
+  <div class="nhdr">
+    <button id="btn_favback">‹ 返回</button>
+    <b>☆ 模型收藏</b>
+  </div>
+  <div class="fhint">点模型行收藏 ★ / 取消 ☆（立即生效并持久保存）。
+    有收藏后，顶栏模型下拉只显示收藏的模型；当前对话选中的非收藏
+    模型仍会显示出来，但切换列表里不再出现其它未收藏模型。</div>
+  <div id="fav_list"></div>
+  <div id="bfoot">官方模型列表经常变更，收藏被改名/下架时会标 ⚠ 提醒，
+    到本页红字处移除即可。</div>
 </div>
 
 <div id="page_net" data-page-node-id="oddG8dIObpfpeiicXo0wyz">
@@ -405,7 +441,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 快照就重发 hello（最多 5 次），防中继丢包「正在连接」卡死（点
  * 当前已操控的服务端本就不动作，1.13 已忽略）；② 上翻历史约一屏
  * 自动进入「历史全屏」（隐藏顶栏/输入行，消息区独占整屏看更多
- * 历史），翻回接近底部（带半屏冗余）或点「↓ 回到最新」退出。 */
+ * 历史），翻回接近底部（带半屏冗余）或点「↓ 回到最新」退出。
+ * v1.15：模型收藏——顶栏 ☆ 打开收藏管理页（列出官方模型点按收
+ * 藏/取消，localStorage 持久）；已有收藏时模型下拉只列收藏项，
+ * 当前选中的非收藏模型仍显示（标「当前」）；官方改名/下架导致
+ * 收藏失效时下拉标 ⚠ 并弹提醒（不可误切，可去管理页移除）。 */
 
 /* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
  * 在 localStorage（服务端按此 ID 锁定操控者；刷新/重开页面 ID 不变） */
@@ -546,6 +586,11 @@ const S = {
   points: '—', snap: {},
   attach_pending: null,
   model_map: {}, model_busy: false,
+  /* 1.15 模型收藏：favs=收藏的模型真名数组（localStorage 持久）；
+     models_full=最近一拍官方模型列表 [name,trail,restricted]；
+     fav_invalid=失效收藏名集合（官方改名/下架），warned=已提醒集合 */
+  favs: [], models_full: [], fav_invalid: [], fav_warned: [],
+  model_names: new Set(),
   convs_key: null, msgs_key: null,
   busy: false, gen: false, ready: false, bench: null,
   bench_mode: 'ins',
@@ -586,6 +631,8 @@ const el = {
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), block: $('btn_block'),
   fexit: $('fexit'),
+  fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
+  favlist: $('fav_list'),
 };
 
 let flashTimer = null;
@@ -1104,6 +1151,115 @@ function renderAttach(items){
   });
 }
 
+/* ===== 1.15：模型收藏 =====
+ * 官方模型列表经常变更（改名/下架），收藏按「模型真名」存
+ * localStorage（trae_webm_fav_models），跨服务端通用。有收藏时
+ * 下拉只列收藏项 + 当前模型占位；收藏失效标 ⚠ 并弹提醒。 */
+
+function loadFavs(){
+  try { return JSON.parse(localStorage.getItem('trae_webm_fav_models')
+    || '[]') || []; } catch(e){ return []; }
+}
+S.favs = loadFavs();            // 1.15：启动即载入收藏（localStorage）
+function saveFavs(a){
+  S.favs = a;
+  try { localStorage.setItem('trae_webm_fav_models', JSON.stringify(a)); }
+  catch(e){}
+}
+function modelDisp(e){          // e=[name,trail,restricted] → 下拉显示文本
+  return e[0] + (e[1] ? ' ' + e[1] : '') + (e[2] ? '（受限）' : '');
+}
+
+function rebuildModelOptions(){
+  /* 按收藏规则重建模型下拉（models 事件 / 收藏变更时调用） */
+  const entries = S.models_full || [];
+  const names = new Set(entries.map(e => e[0]));
+  S.model_names = names;
+  const cur = S.snap.model || '';
+  const favs = S.favs || [];
+  const items = [];             // [disp, name, dead]
+  if (!favs.length){            // 无收藏：官方全量（原行为）
+    for (const e of entries) items.push([modelDisp(e), e[0], false]);
+  } else {
+    const inList = new Set();
+    for (const fn of favs){     // 收藏按收藏顺序列出
+      const e = entries.find(x => x[0] === fn);
+      if (e){ items.push([modelDisp(e), fn, false]); inList.add(fn); }
+      else    items.push(['⚠ ' + fn + '（已失效）', fn, true]);
+    }
+    if (cur && !inList.has(cur)){   // 当前选中的非收藏模型：保留显示
+      const e = entries.find(x => x[0] === cur);
+      items.push([(e ? modelDisp(e) : cur) + '（当前）', cur, false]);
+    }
+  }
+  el.model.innerHTML = '';
+  S.model_map = {};
+  for (const [disp, name] of items){
+    const o = document.createElement('option');
+    o.value = disp; o.textContent = disp;
+    el.model.appendChild(o);
+    S.model_map[disp] = name;
+  }
+  syncModel(cur);
+}
+
+function checkFavInvalid(){
+  /* models 事件后核对：收藏不在官方列表 → 弹提醒（每次新失效才提醒） */
+  const names = S.model_names || new Set();
+  const inv = (S.favs || []).filter(fn => !names.has(fn));
+  const fresh = inv.filter(fn => !S.fav_warned.includes(fn));
+  S.fav_invalid = inv;
+  if (inv.length){
+    S.fav_warned = inv.slice();
+    if (fresh.length)
+      flash('⚠ 收藏模型已失效：' + fresh.join('、')
+        + '（可能被官方改名/下架，请到 ☆ 收藏管理移除）');
+  } else if (S.fav_warned.length){
+    S.fav_warned = [];          // 失效恢复（官方又加回来了）清提醒标记
+  }
+}
+
+function renderFavPage(){
+  const L = el.favlist;
+  L.innerHTML = '';
+  const mk = (html, cls) => {
+    const d = document.createElement('div');
+    d.className = 'frow' + (cls ? ' ' + cls : '');
+    d.innerHTML = html;
+    return d;
+  };
+  if (!(S.models_full || []).length){
+    L.appendChild(mk('<span class="fname">（尚未获取到官方模型列表，'
+      + '连接服务端后会自动加载）</span>', 'empty'));
+  }
+  const names = new Set((S.models_full || []).map(e => e[0]));
+  /* 失效收藏单列一节：红字 + 点击移除 */
+  for (const fn of (S.favs || [])){
+    if (names.has(fn)) continue;
+    const d = mk('<span class="fmark">⚠ 已失效</span>'
+      + '<span class="fname">' + esc(fn) + '</span>'
+      + '<span class="fstar">✕</span>', 'dead');
+    d.onclick = () => {
+      saveFavs(S.favs.filter(x => x !== fn));
+      renderFavPage(); rebuildModelOptions(); checkFavInvalid();
+    };
+    L.appendChild(d);
+  }
+  /* 官方全量模型：点行切换收藏状态 */
+  for (const e of (S.models_full || [])){
+    const fn = e[0], on = (S.favs || []).includes(fn);
+    const d = mk('<span class="fname">' + esc(modelDisp(e)) + '</span>'
+      + '<span class="fstar">' + (on ? '★' : '☆') + '</span>',
+      on ? 'isfav' : '');
+    d.onclick = () => {
+      saveFavs(on ? S.favs.filter(x => x !== fn)
+                  : S.favs.concat([fn]));
+      renderFavPage(); rebuildModelOptions();
+    };
+    L.appendChild(d);
+  }
+}
+
 function syncModel(cur){
   if (S.model_busy || !cur) return;
   if (el.model.value === cur) return;
@@ -1441,17 +1597,9 @@ function onEv(kind, v){
       el.points.textContent = '积分 ' + v;
       break;
     case 'models':
-      el.model.innerHTML = '';
-      S.model_map = {};
-      for (const [name, trail, restricted] of (v || [])){
-        const disp = name + (trail ? ' ' + trail : '')
-                   + (restricted ? '（受限）' : '');
-        const o = document.createElement('option');
-        o.value = disp; o.textContent = disp;
-        el.model.appendChild(o);
-        S.model_map[disp] = name;
-      }
-      syncModel(S.snap.model || '');
+      S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
+      rebuildModelOptions();
+      checkFavInvalid();
       break;
     case 'model_set':
       S.model_busy = false;
@@ -1728,10 +1876,22 @@ el.box.onchange = () => {                 // 切换目标：在线直接切/离�
 el.model.onchange = () => {
   const name = S.model_map[el.model.value];
   if (!name || S.model_busy) return;
+  if (S.fav_invalid && S.fav_invalid.includes(name)){
+    /* 1.15：选中了已失效的收藏——不发送，回显当前模型 */
+    flash('⚠「' + name + '」已失效（可能被官方改名/下架），'
+      + '请到 ☆ 收藏管理移除后重新收藏新名字');
+    syncModel(S.snap.model || '');
+    return;
+  }
   S.model_busy = true;
   flash('正在切换模型 ' + name + '…', 'var(--blue)');
   cmd('switch_model', name);
 };
+
+/* —— 1.15：模型收藏管理页 —— */
+
+el.fav.onclick = () => { renderFavPage(); el.favpage.classList.add('on'); };
+el.favback.onclick = () => el.favpage.classList.remove('on');
 
 /* —— 抽屉 —— */
 
