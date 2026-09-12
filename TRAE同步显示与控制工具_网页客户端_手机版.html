@@ -47,6 +47,16 @@ select{font-size:12px;}
 /* ── 消息区 ── */
 #msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   padding:8px 8px 4px; background:#fff;}
+/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
+   消息区独占整屏，能看更多历史；body.fmsg 生效 */
+body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
+body.fmsg #input_row{ display:none; }
+#fexit{display:none; position:fixed; right:12px; bottom:16px;
+  z-index:30; border:1px solid var(--blue); background:#fff;
+  color:var(--blue); font-weight:bold; border-radius:20px;
+  padding:2px 14px; min-height:34px;
+  box-shadow:0 2px 8px rgba(21,101,192,.25);}
+body.fmsg #fexit{display:block;}
 .msg{border-radius:8px; padding:5px 10px; margin:0 0 8px;}
 .msg.user{background:var(--ubg);}
 .msg.agent{background:var(--abg);}
@@ -221,7 +231,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.13</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.14</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -244,6 +254,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
 
+<button id="fexit" title="退出历史全屏">↓ 回到最新</button>
+
 <div id="mask" data-page-node-id="I7viH7nT9Joec3kgqGKfLl"></div>
 <aside id="drawer" data-page-node-id="VClCJuexXQ02vBOU4OB5Hp">
   <div class="dhdr" data-page-node-id="UX9xJ7WTICEexReuYMmB1i"><b data-page-node-id="cdqe18BGvfIS49PF4TNU1B">会话与操作</b>
@@ -256,7 +268,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.13 · 多服务端 · FOX 始终启用</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.14 · 多服务端 · FOX 始终启用</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -388,7 +400,12 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 操控服务端的内容。
  * v1.13（对齐服务端 v1.24）：操控互斥——本端 ID 改为持久唯一
  * （'4'+9位，localStorage），每 20s 发 ctl_hb 续占、切走发 ctl_free
- * 还锁；被占用时 hello 提示、指令被拒显示 deny 提示。 */
+ * 还锁；被占用时 hello 提示、指令被拒显示 deny 提示。
+ * v1.14（对齐服务端 v1.25）：① 切换后看门狗——切服务端 3s 没等到
+ * 快照就重发 hello（最多 5 次），防中继丢包「正在连接」卡死（点
+ * 当前已操控的服务端本就不动作，1.13 已忽略）；② 上翻历史约一屏
+ * 自动进入「历史全屏」（隐藏顶栏/输入行，消息区独占整屏看更多
+ * 历史），翻回接近底部（带半屏冗余）或点「↓ 回到最新」退出。 */
 
 /* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
  * 在 localStorage（服务端按此 ID 锁定操控者；刷新/重开页面 ID 不变） */
@@ -568,6 +585,7 @@ const el = {
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), block: $('btn_block'),
+  fexit: $('fexit'),
 };
 
 let flashTimer = null;
@@ -874,6 +892,9 @@ function renderMsgs(msgs, finish, opts){
        + (S.switch_pend ? '#sw:' + S.switch_pend.title : '');
   if (key === S.msgs_key) return;
   S.msgs_key = key;
+  /* 1.14：历史全屏下重画保持阅读位置（不强制回底） */
+  const keepTop = document.body.classList.contains('fmsg')
+      ? el.msgs.scrollTop : null;
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
   if (empty && !S.pending.length && !S.switch_pend){
@@ -968,8 +989,42 @@ function renderMsgs(msgs, finish, opts){
     el.msgs.appendChild(d);
   }
   renderPending();                  // 1.09：占位气泡永远排在末尾
+  if (keepTop !== null){
+    el.msgs.scrollTop = keepTop;
+    /* 1.14：翻回接近底部（半屏冗余）→ 自动退出历史全屏 */
+    if (el.msgs.scrollHeight - keepTop - el.msgs.clientHeight
+        < el.msgs.clientHeight * 0.5)
+      exitFmsg();
+  } else {
+    el.msgs.scrollTop = el.msgs.scrollHeight;
+  }
+}
+
+/* 1.14：上翻历史约一屏 → 自动进入历史全屏（隐藏顶栏/输入行，消息区
+   独占整屏看更多历史）；翻回接近底部（半屏冗余）或点「↓ 回到最新」
+   退出。触发口径 = 距底距离超过一屏高（即从底部向上翻起了一屏），
+   内容不足约 1.6 屏不触发（没有翻历史的意义）。 */
+function enterFmsg(){
+  if (document.body.classList.contains('fmsg')) return;
+  document.body.classList.add('fmsg');
+  flash('已进入历史全屏（翻回底部退出）', 'var(--blue)');
+}
+function exitFmsg(){
+  if (!document.body.classList.contains('fmsg')) return;
+  document.body.classList.remove('fmsg');
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
+el.fexit.onclick = exitFmsg;
+el.msgs.addEventListener('scroll', () => {
+  const m = el.msgs;
+  const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
+  if (document.body.classList.contains('fmsg')){
+    if (dist < m.clientHeight * 0.5) exitFmsg();
+  } else if (dist > m.clientHeight
+             && m.scrollHeight > m.clientHeight * 1.6){
+    enterFmsg();
+  }
+});
 
 function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
   el.send.textContent = stop ? '停止' : '发送';
@@ -1189,6 +1244,7 @@ function pickCur(){
     flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
     applySrvEntry();                           // 载入其缓存状态
     sendJson({t: 'hello'});                    // 拉即时全量
+    helloWatch();                              // 1.14：快照看门狗
   }
 }
 function setCur(nm){
@@ -1198,10 +1254,27 @@ function setCur(nm){
     else localStorage.removeItem(LS_SRV);
   } catch(e){}
 }
+/* 1.14：切换后快照看门狗——hello 应答经中继可能丢，3 秒内没等到
+   快照就重发 hello（最多 5 次），别让「正在连接」一直卡着。
+   点当前已操控的服务器本就直接忽略（switchSrv 入口 nm===S.cur
+   return，1.13 已如此），不会触发多余动作。 */
+let _hello_tm = 0, _hello_n = 0;
+function helloWatch(){
+  clearTimeout(_hello_tm); _hello_n = 0;
+  const tick = () => {
+    if (!S.cur || !S.onLine) return;
+    if (S.snap && Object.keys(S.snap).length) return;  // 快照已到
+    if (++_hello_n > 5) return;
+    sendJson({t: 'hello'});
+    _hello_tm = setTimeout(tick, 3000);
+  };
+  _hello_tm = setTimeout(tick, 3000);
+}
 function switchSrv(nm){
   if (!S.servers[nm] || nm === S.cur) return;
   /* 1.13：切走前向旧目标显式还锁（ctl_free），不等超时自动释放 */
   if (S.cur && S.onLine) sendJson({t: 'ctl_free'});
+  exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   setCur(nm);
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
@@ -1219,6 +1292,7 @@ function switchSrv(nm){
   renderAttach([]);
   applySrvEntry();
   sendJson({t: 'hello'});
+  helloWatch();                             /* 1.14：快照看门狗 */
   renderTop(); renderSrvList();
   flash('已切换操控 [' + nm + ']', 'var(--blue)');
 }
@@ -1501,6 +1575,7 @@ function onHello(d){
 
 function applySwitch(box, port){
   S.box = box; S.port = port;
+  exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.attach_pending = null; S.model_busy = false;
   /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
