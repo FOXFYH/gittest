@@ -250,7 +250,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.20</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.21</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -288,7 +288,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.20 · 全屏只进不出 · 不再伪装首项</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.21 · 修复键盘误触发全屏 · 不再伪装首项</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -1085,6 +1085,17 @@ function fprog(to){                 // 程序化滚动：静默期内不参与�
   fLockUntil = Date.now() + 450;
   el.msgs.scrollTop = to;
 }
+/* 1.21：点输入框 → 手机键盘弹出 → 窗口 resize，#msgs 可视高度骤缩
+   使距底距离瞬间超过进入门槛 → 被误判「在找历史」进了全屏、输入行
+   被藏掉、根本无法打字。修复：① resize（键盘弹出/收起）静默 800ms；
+   ② 输入框/文本域聚焦（正在打字）时不自动进全屏。 */
+window.addEventListener('resize', () => {
+  fLockUntil = Date.now() + 800;
+});
+function fTyping(){
+  const ae = document.activeElement;
+  return !!ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT');
+}
 function enterFmsg(){
   if (document.body.classList.contains('fmsg')) return;
   const m = el.msgs;
@@ -1104,6 +1115,7 @@ function exitFmsg(){
 el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
   if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
+  if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到
