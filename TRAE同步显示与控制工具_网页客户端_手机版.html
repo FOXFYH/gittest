@@ -32,6 +32,10 @@ select{font-size:12px;}
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 #lbl_rlink{margin-left:auto; font-weight:bold; font-size:12px;
   white-space:nowrap;}
+/* 1.12：当前操控的服务端（点击进抽屉切换） */
+#lbl_srv{font-weight:bold; font-size:12px; color:var(--blue);
+  white-space:nowrap; max-width:34%; overflow:hidden;
+  text-overflow:ellipsis; cursor:pointer;}
 .h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
   flex-wrap:wrap;}
 #cmb_box{flex:1; max-width:42%; min-width:0;}
@@ -217,7 +221,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr">
   <div class="h1row">
     <button id="btn_menu">☰</button>
-    <span class="title">TRAE远程·手机版 v1.11</span>
+    <span class="title">TRAE远程·手机版 v1.12</span>
+    <span id="lbl_srv">操控:—</span>
     <span id="lbl_rlink">🌐连接中…</span>
   </div>
   <div class="h2row">
@@ -244,12 +249,14 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dhdr"><b>会话与操作</b>
     <button id="btn_dclose">✕</button></div>
   <div id="convs"></div>
+  <div class="dsec">服务端（点击切换操控）</div>
+  <div id="srvlist"></div>
   <div class="dsec">操作</div>
   <div class="dmi" id="btn_new">✚ 新任务</div>
   <div class="dmi" id="btn_launch">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block">🚫 防自动升级：<span class="st">未知</span></div>
   <div class="dmi" id="btn_net">🌐 网络页</div>
-  <div id="lbl_ver">v1.08 · 发送者ID 4000000001 · FOX 始终启用</div>
+  <div id="lbl_ver">v1.12 · 多服务端 · FOX 始终启用</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -331,7 +338,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.11 =================
+/* ================= 手机版网页客户端 v1.12 =================
  * 与桌面网页版/桌面客户端同协议：PieSocket 中继 + FOX 分段 +
  * hello/ev 事件流。本端 FOX 发送者 ID = 4000000001（区别于服务端
  * 1000000001、桌面客户端 2000000001、桌面网页版 3000000001——
@@ -369,7 +376,16 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 推进状态，快照里出现同文本用户消息即撤下占位；15 秒未出现或收到
  * cmderr ⇒ 标「⚠ 未确认」并给「重发 / 丢弃」（认领下标防连发相同
  * 文本误判）。另补：切换会话「正在切换到「X」…」在途条（0.8~6s）、
- * 折叠/展开与停止生成的即时提示、选项卡点后禁用防重复点。 */
+ * 折叠/展开与停止生成的即时提示、选项卡点后禁用防重复点。
+ * v1.12（对齐服务端 v1.23）：多服务端——① 顶栏新增「操控:服务端名」
+ * （点按进抽屉），抽屉新增「服务端」清单（在线 ● / 离线 ○，点击即
+ * 切换操控对象，选择记忆在 localStorage）；② 服务端 FOX 发送者
+ * '1' 开头即认（服务端 ID 由服务器名称派生，不再固定 1000000001，
+ * 仍拒收 '4' 开头的客户端回声）；③ 所有报文自动带 'to':当前操控的
+ * 服务端名（服务端据此定向受理，多台服务端同频道互不串台）；④
+ * hello/srv 心跳（20s/超时 75s）维护在线服务端名册，当前操控对象
+ * 离线自动切到下一个在线者；事件流按 'srv' 源头过滤，只渲染当前
+ * 操控服务端的内容。 */
 
 const MY_ID    = '4000000001';
 const SERVER_ID= '1000000001';
@@ -384,7 +400,7 @@ const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
 const LS_CFG = 'trae_webm_cfg', LS_NET = 'trae_webm_net',
-      LS_TM = 'trae_webm_times';
+      LS_TM = 'trae_webm_times', LS_SRV = 'trae_webm_srv';
 
 function cfgGet(){
   try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
@@ -489,7 +505,11 @@ async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中
     if (parts.length > 1) await new Promise(r => setTimeout(r, 30));
   }
 }
-function sendJson(d){ foxSend(JSON.stringify(d)); }
+function sendJson(d){
+  /* 1.12：报文自动定向到当前操控的服务端（多服务端同频道） */
+  if (S.cur && !d.to) d.to = S.cur;
+  foxSend(JSON.stringify(d));
+}
 function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
 
 /* ================= 状态 ================= */
@@ -509,6 +529,10 @@ const S = {
      服务端阶段事件推进状态，快照里出现同文本用户消息即撤下 */
   pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
   switch_pend: null,
+  /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
+     conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
+  servers: {},
+  cur: null,
 };
 
 /* ================= DOM 快捷 ================= */
@@ -516,6 +540,7 @@ const S = {
 const $ = id => document.getElementById(id);
 const el = {
   menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
+  srv: $('lbl_srv'), srvlist: $('srvlist'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
@@ -1088,7 +1113,8 @@ function onMsg(msg){
     return;                                   // 其余=心跳/中继系统消息
   }
   const [sender, body] = r;
-  if (sender !== SERVER_ID) return;           // 只认服务端（含自己回声）
+  if (sender[0] !== '1') return;              // 1.12：只认服务端（'1'
+                                              // 开头），拒客户端回声
   srvSeen();                                  // 1.07：服务端判活
   handleBody(body);
 }
@@ -1097,9 +1123,148 @@ function handleBody(body){
   let d;
   try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
+  /* 1.12 多服务端：报文按 'srv' 源头名归册；只渲染当前操控服务端
+     的内容（hello/srv 心跳同时维护名册）。旧版服务端无 'srv' 字段
+     → 归入「默认服务端」兼容单机场景。 */
+  const nm = d.srv || '默认服务端';
+  regSrv(nm, d);
+  if (d.t === 'srv'){
+    if (nm === S.cur && d.alive){ S.alive = new Set(d.alive); renderPorts(); }
+    renderSrvList();
+    return;
+  }
+  if (nm !== S.cur) return;                   // 非当前操控对象：忽略
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
   if (d.t === 'hello') onHello(d);
 }
+
+/* ============ 1.12 多服务端名册 ============ */
+
+function regSrv(nm, d){
+  let s = S.servers[nm];
+  if (!s) s = S.servers[nm] = {name: nm, ts: 0};
+  s.ts = Date.now();
+  if (d.sid) s.sid = d.sid;
+  if (d.v) s.v = d.v;
+  if (d.t === 'hello' || d.t === 'srv'){
+    if (d.boxes) s.boxes = d.boxes;
+    if (d.alive) s.alive = d.alive;
+    if (d.conn !== undefined) s.conn = d.conn;
+    if (d.box) s.box = d.box;
+    if (d.port) s.port = d.port;
+  }
+  pickCur();
+  renderTop();
+}
+function pickCur(){
+  if (S.cur && S.servers[S.cur]) return;      // 现选仍在线
+  const names = Object.keys(S.servers);
+  if (!names.length){ setCur(null); return; }
+  // 优先恢复 localStorage 记忆，否则第一个在线者
+  let want = null;
+  try { want = localStorage.getItem(LS_SRV); } catch(e){}
+  if (want && S.servers[want]) setCur(want);
+  else setCur(names[0]);
+  if (S.cur){
+    flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
+    applySrvEntry();                           // 载入其缓存状态
+    sendJson({t: 'hello'});                    // 拉即时全量
+  }
+}
+function setCur(nm){
+  S.cur = nm;
+  try {
+    if (nm) localStorage.setItem(LS_SRV, nm);
+    else localStorage.removeItem(LS_SRV);
+  } catch(e){}
+}
+function switchSrv(nm){
+  if (!S.servers[nm] || nm === S.cur) return;
+  setCur(nm);
+  /* 换操控对象：旧目标的界面状态全部作废 */
+  S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  S.pending = []; S.switch_pend = null;
+  S.pend_claims = []; S.pend_conv = '';
+  S.busy = false; S.model_busy = false;
+  S.points = '—'; el.points.textContent = '积分 —';
+  S.alive = new Set(); S.boxes = [];
+  el.model.innerHTML = ''; S.model_map = {};
+  el.box.innerHTML = '';
+  S.box = '(未连接)'; S.port = 0;
+  el.convs.innerHTML = '';
+  el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
+                     + ' …）</div>';
+  renderAttach([]);
+  applySrvEntry();
+  sendJson({t: 'hello'});
+  renderTop(); renderSrvList();
+  flash('已切换操控 [' + nm + ']', 'var(--blue)');
+}
+function applySrvEntry(){
+  /* 用名册缓存恢复当前服务端的基础状态（hello 应答再补全） */
+  const s = S.servers[S.cur];
+  if (!s) return;
+  if (s.boxes && s.boxes.length){
+    S.boxes = s.boxes;
+    el.box.innerHTML = '';
+    for (const b of s.boxes){
+      const o = document.createElement('option');
+      o.value = b; o.textContent = b;
+      el.box.appendChild(o);
+    }
+  }
+  if (s.alive){ S.alive = new Set(s.alive); renderPorts(); }
+  if (s.box && s.port && s.box !== S.box) applySwitch(s.box, s.port);
+}
+function pruneSrv(){
+  const now = Date.now();
+  let changed = false;
+  for (const nm of Object.keys(S.servers)){
+    if (now - S.servers[nm].ts > 75000){
+      delete S.servers[nm]; changed = true;
+    }
+  }
+  if (changed){
+    if (!S.cur || !S.servers[S.cur]){
+      pickCur();
+      if (S.cur) { applySrvEntry(); sendJson({t: 'hello'}); }
+    }
+    renderSrvList();
+  }
+}
+setInterval(pruneSrv, 5000);
+
+function renderTop(){
+  const s = S.servers[S.cur];
+  const on = s && s.conn;
+  el.srv.textContent = '操控:' + (S.cur || '—') + (on ? ' ●' : ' ○');
+  el.srv.style.color = on ? 'var(--green)' : 'var(--gray)';
+}
+function renderSrvList(){
+  el.srvlist.innerHTML = '';
+  const names = Object.keys(S.servers).sort();
+  if (!names.length){
+    const d = document.createElement('div');
+    d.className = 'dmi';
+    d.textContent = '（暂无在线服务端）';
+    d.style.color = 'var(--gray)';
+    el.srvlist.appendChild(d);
+    return;
+  }
+  for (const nm of names){
+    const s = S.servers[nm];
+    const d = document.createElement('div');
+    d.className = 'dmi' + (nm === S.cur ? ' on' : '');
+    const na = (s.alive || []).length,
+          nb = (s.boxes || []).length;
+    d.textContent = (s.conn ? '● ' : '○ ') + nm
+                  + (nb ? '（在线 ' + na + '/' + nb + '）' : '');
+    if (nm === S.cur) d.style.color = 'var(--blue)';
+    d.onclick = () => { drawerClose(); switchSrv(nm); };
+    el.srvlist.appendChild(d);
+  }
+}
+el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
 
 function onEv(kind, v){
   switch (kind){
