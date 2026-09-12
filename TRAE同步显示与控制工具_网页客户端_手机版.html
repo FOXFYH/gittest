@@ -217,7 +217,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr">
   <div class="h1row">
     <button id="btn_menu">☰</button>
-    <span class="title">TRAE远程·手机版 v1.09</span>
+    <span class="title">TRAE远程·手机版 v1.10</span>
     <span id="lbl_rlink">🌐连接中…</span>
   </div>
   <div class="h2row">
@@ -329,7 +329,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.09 =================
+/* ================= 手机版网页客户端 v1.10 =================
  * 与桌面网页版/桌面客户端同协议：PieSocket 中继 + FOX 分段 +
  * hello/ev 事件流。本端 FOX 发送者 ID = 4000000001（区别于服务端
  * 1000000001、桌面客户端 2000000001、桌面网页版 3000000001——
@@ -696,7 +696,7 @@ function pendSig(){
 }
 
 function pendAdd(kind, text){
-  if (!text) return null;
+  if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
   const same = S.pending.find(p => p.text === text);
   if (same) return same;               // 同文本已在册（服务端 pend 回显）
   S.pend_seq++;
@@ -772,6 +772,12 @@ function pendReconcile(msgs){
   let changed = false;
   const keep = [];
   S.pending.forEach(p => {
+    if (p.kind === 'switch'){          /* 1.10：切换占位不进气泡，
+        旧版误入的残留直接清掉（会话标题不会出现在消息区，按文本
+        匹配永远失败 → 挂满 15s 变「未确认」，完全不真实） */
+      changed = true;
+      return;
+    }
     const t = (p.text || '').trim();
     let idx = -1;
     for (let i = users.length - 1; i >= 0; i--){
@@ -796,7 +802,14 @@ function pendReconcile(msgs){
 /* 切换在途：会话切换要等 0.8~6s（含最小化恢复），期间给个明确的
    「正在切换…」条，免得旧会话内容留着让人以为点错了。 */
 function pendSwitchSet(title){
-  S.switch_pend = {title: title || '', ts: Date.now()};
+  title = title || '';
+  /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
+     不重复渲染） */
+  if (S.switch_pend && S.switch_pend.title === title){
+    S.switch_pend.ts = Date.now();
+    return;
+  }
+  S.switch_pend = {title: title, ts: Date.now()};
   renderAll();
 }
 function pendSwitchClear(){
@@ -1133,10 +1146,17 @@ function onEv(kind, v){
       renderAll();
       break;
     }
-    case 'pend': {                           /* 1.09：命令受理广播——
-        别的端（PC 面板）发出的消息也在本机回显占位，多端同看 */
+    case 'pend': {                           /* 1.10：命令受理广播——
+        别的端（PC 面板）发出的消息也在本机回显占位，多端同看。
+        switch 不进气泡：统一走「正在切换」提示条（同目标幂等、
+        目标激活即撤、8s 兜底），此前误入气泡会挂 15s 变「未确认」 */
       const pk = (v && v[0]) || 'send';
       const pt = (v && v[1]) || '';
+      if (pk === 'switch'){
+        pendSwitchSet(pt);
+        renderAll();
+        break;
+      }
       if (pt && !S.pending.some(x => x.text === pt)){
         pendAdd(pk, pt);
         renderAll();
