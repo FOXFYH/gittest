@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
+<html lang="zh-CN" data-page-node-id="a3BJFm1aqZ2wCBMnE5X6z1">
+<head data-page-node-id="ifPap0uNA7aKsFtXSqtqt1">
+<meta charset="utf-8" data-page-node-id="HtDIgArRIZ3kdjyQElQAk0">
 <meta name="viewport" content="width=device-width, initial-scale=1,
-  viewport-fit=cover">
-<meta name="theme-color" content="#1565c0">
+  viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
+<meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
 <title>TRAE同步显示与控制工具_网页客户端_手机版</title>
 <style>
 :root{
@@ -216,122 +216,122 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   min-height:16px;}
 </style>
 </head>
-<body>
+<body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
 
-<div id="hdr">
-  <div class="h1row">
-    <button id="btn_menu">☰</button>
-    <span class="title">TRAE远程·手机版 v1.12</span>
-    <span id="lbl_srv">操控:—</span>
-    <span id="lbl_rlink">🌐连接中…</span>
+<div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
+  <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
+    <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.12</span>
+    <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
+    <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
-  <div class="h2row">
-    <select id="cmb_box"></select>
-    <span id="lbl_ports">在线 —</span>
-    <span id="lbl_points">积分 —</span>
-    <select id="cmb_model"></select>
+  <div class="h2row" data-page-node-id="euyPvOhmsEx2BKClFKwgAN">
+    <select id="cmb_box" data-page-node-id="avZdj3ZBchVnC6JODiSw44"></select>
+    <span id="lbl_ports" data-page-node-id="zBgT5txMkCBKKMlkXhsbis">在线 —</span>
+    <span id="lbl_points" data-page-node-id="yFYp8ovoyEJEqbf3s1uUjI">积分 —</span>
+    <select id="cmb_model" data-page-node-id="QQf0z68kfKCspuI3tgt6mc"></select>
   </div>
-  <div id="statebar">连接中…</div>
+  <div id="statebar" data-page-node-id="CWWwN1Nx4NvBnM1wGfRZ6V">连接中…</div>
 </div>
 
-<div id="msgs"><div class="empty">（暂无消息，发送一条开始对话）</div></div>
-<div id="attach_row"></div>
-<div id="input_row">
-  <button id="btn_attach" title="选择附件（可多选，单个≤6MB）">📎</button>
-  <button id="btn_bench" title="浏览服务端工作台，选路径插入">📂</button>
+<div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
+<div id="attach_row" data-page-node-id="0FRu38I2Y9H4SjISPCj3qv"></div>
+<div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
+  <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
+  <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
   <textarea id="ent" placeholder="输入消息…" rows="1"></textarea>
-  <button id="btn_send" disabled>发送</button>
-  <input type="file" id="file_pick" multiple style="display:none">
+  <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
+  <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
 
-<div id="mask"></div>
-<aside id="drawer">
-  <div class="dhdr"><b>会话与操作</b>
-    <button id="btn_dclose">✕</button></div>
-  <div id="convs"></div>
-  <div class="dsec">服务端（点击切换操控）</div>
-  <div id="srvlist"></div>
-  <div class="dsec">操作</div>
-  <div class="dmi" id="btn_new">✚ 新任务</div>
-  <div class="dmi" id="btn_launch">🚀 拉起（重启当前目标）</div>
-  <div class="dmi" id="btn_block">🚫 防自动升级：<span class="st">未知</span></div>
-  <div class="dmi" id="btn_net">🌐 网络页</div>
-  <div id="lbl_ver">v1.12 · 多服务端 · FOX 始终启用</div>
+<div id="mask" data-page-node-id="I7viH7nT9Joec3kgqGKfLl"></div>
+<aside id="drawer" data-page-node-id="VClCJuexXQ02vBOU4OB5Hp">
+  <div class="dhdr" data-page-node-id="UX9xJ7WTICEexReuYMmB1i"><b data-page-node-id="cdqe18BGvfIS49PF4TNU1B">会话与操作</b>
+    <button id="btn_dclose" data-page-node-id="bw5XmI4so1On3gY8Lekl62">✕</button></div>
+  <div id="convs" data-page-node-id="IsffT1TgDFvsO7otRBnwGp"></div>
+  <div class="dsec" data-page-node-id="0zAOhFVQ79VNdiCr8Fnrjw">服务端（点击切换操控）</div>
+  <div id="srvlist" data-page-node-id="PGBlxfvg8bFmppmtz2w0MO"></div>
+  <div class="dsec" data-page-node-id="c3sDv9IscaIa1GP95F52FT">操作</div>
+  <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
+  <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
+  <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
+  <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.13 · 多服务端 · FOX 始终启用</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
      1.06：双模式——插入路径 / 选定工作目录新建任务（✅ 头钮） -->
-<div id="page_bench">
-  <div class="nhdr">
-    <button id="btn_benchback">‹ 返回</button>
-    <b id="lbl_bench">📂 工作台</b>
+<div id="page_bench" data-page-node-id="uHDGvgap8UHBowBBpOQDrH">
+  <div class="nhdr" data-page-node-id="L21IuAXdE94HzveZAKp5Z6">
+    <button id="btn_benchback" data-page-node-id="EOwUXuVYMphga9cSkEGX0g">‹ 返回</button>
+    <b id="lbl_bench" data-page-node-id="79NvRM4UbQGSgpsEBxQnL2">📂 工作台</b>
     <button id="btn_bench_ok" title="选定当前浏览的目录（新建任务）"
-      style="margin-left:auto; min-width:52px; display:none;">✅</button>
-    <button id="btn_bench_up" style="min-width:52px;">⬆</button>
+      style="margin-left:auto; min-width:52px; display:none;" data-page-node-id="0ECXrFOWDwaRJM8VQeLt2X">✅</button>
+    <button id="btn_bench_up" style="min-width:52px;" data-page-node-id="xCb5ddevivi6saWjwdt8b1">⬆</button>
   </div>
-  <div id="bench_list"></div>
-  <div id="bfoot">📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入</div>
+  <div id="bench_list" data-page-node-id="aNDBDnDCbWLXCl2z9LXguS"></div>
+  <div id="bfoot" data-page-node-id="FEpMnO7IgqKtfL6QzKv7zL">📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入</div>
 </div>
 
 <!-- 1.08：新建任务弹窗（对齐服务端 v1.10 TaskDlg）——new_task_dlg
      展开输入区并抓 TRAE 记忆目录（task_dlg 事件预填）；选择/重选=
      📂 浏览页选目录回填；创建=目录与记忆有变化才 task_dir_set，
      一致零操作直接就绪；取消=task_dlg_cancel（Esc 关输入区） -->
-<div id="page_taskdlg">
-  <div class="nhdr">
-    <button id="btn_tdcancel">‹ 取消</button>
-    <b>✚ 新建任务</b>
+<div id="page_taskdlg" data-page-node-id="kV2H9hiNAlPGaDMK6yCdQF">
+  <div class="nhdr" data-page-node-id="SaAHCCGxHWyKMeBapPlNsl">
+    <button id="btn_tdcancel" data-page-node-id="brcLaYonoiUFU5NxsEOXID">‹ 取消</button>
+    <b data-page-node-id="6dTixRCqwEY0vHQXsdEtcZ">✚ 新建任务</b>
     <button id="btn_tdok" style="margin-left:auto; color:var(--blue);
-      font-weight:bold;">创建</button>
+      font-weight:bold;" data-page-node-id="8EPHMakfdQxa1u86YOgEb8">创建</button>
   </div>
-  <div class="tdbody">
-    <div class="tdsec">工作目录（可选）</div>
-    <div id="td_none" class="tdpick">📁 选择文件夹…</div>
-    <div id="td_sel">
-      <div class="tdrow1"><span id="td_name" class="tdname"></span>
-        <button id="btn_tdre">✕ 重选</button></div>
-      <div id="td_full" class="tdfull"></div>
+  <div class="tdbody" data-page-node-id="gcUg9ErXf8pwq3fpCAYB8A">
+    <div class="tdsec" data-page-node-id="SpMrMh8pWN6H6CJnTJBkJy">工作目录（可选）</div>
+    <div id="td_none" class="tdpick" data-page-node-id="6aaZNh0HtLtqcBIPABx8ro">📁 选择文件夹…</div>
+    <div id="td_sel" data-page-node-id="xdzVqVVwac2toluF03ACpi">
+      <div class="tdrow1" data-page-node-id="fxKMEKd140HhrNpiLBn9HG"><span id="td_name" class="tdname" data-page-node-id="ZcC5gspgNPgz1lx6AGZF7t"></span>
+        <button id="btn_tdre" data-page-node-id="bdW4KJ0BPDhKVKkmnV0D7W">✕ 重选</button></div>
+      <div id="td_full" class="tdfull" data-page-node-id="Kij3Q52TqaiwAhu7CdJ1kZ"></div>
     </div>
     <div id="td_lock" class="tdhint" style="display:none;
-        color:var(--blue); font-weight:bold;"></div>
-    <div class="tdhint">新任务的工作区将指向所选目录；与 TRAE 记忆一致
+        color:var(--blue); font-weight:bold;" data-page-node-id="MFjHnlYEfl4KwQ9vMEka8W"></div>
+    <div class="tdhint" data-page-node-id="IpSHdKZWF7WUpqn72ktFXI">新任务的工作区将指向所选目录；与 TRAE 记忆一致
       时零操作直接就绪。从 📂 浏览页选定后回到本页点「创建」。</div>
-    <div id="td_stat" class="tdstat">正在展开新建任务…</div>
+    <div id="td_stat" class="tdstat" data-page-node-id="57lnk93UF2L7NlSUkvPx2w">正在展开新建任务…</div>
   </div>
 </div>
 
-<div id="page_net">
-  <div class="nhdr">
-    <button id="btn_netback">‹ 返回</button>
-    <b>网络</b>
+<div id="page_net" data-page-node-id="oddG8dIObpfpeiicXo0wyz">
+  <div class="nhdr" data-page-node-id="SkWX0NpP7LfDsIUv2uU5BW">
+    <button id="btn_netback" data-page-node-id="CpHM5colHBIkcO68jwAKhI">‹ 返回</button>
+    <b data-page-node-id="sqtAJ2SqjLlJyH6aFUI87l">网络</b>
   </div>
-  <div class="nbody">
-    <fieldset>
-      <legend>远程连接</legend>
-      <div class="row"><label>服务地址</label>
-        <input id="in_wsurl"></div>
-      <div class="row"><span class="hint">
+  <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
+    <fieldset data-page-node-id="FFEkTqPDyCvWYOBJYHsezc">
+      <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
+      <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">服务地址</label>
+        <input id="in_wsurl" data-page-node-id="DVptB7LnQ9GbFJNGjINr6s"></div>
+      <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
         与服务端网络页同款地址（两边一致即互通）。修改后保存并重连
         生效。</span></div>
     </fieldset>
-    <fieldset>
-      <legend>流量统计（WebSocket）</legend>
-      <div class="row"><span id="lbl_today">今日  收 0 B·0 条   发 0 B·0 条</span></div>
-      <div class="row">
-        <label>保留天数</label>
+    <fieldset data-page-node-id="8SKaqjuDG4j8saN4BtSqaW">
+      <legend data-page-node-id="bcrQE6cC0XiryhicJJtmZn">流量统计（WebSocket）</legend>
+      <div class="row" data-page-node-id="dQdF4c001Jf9DJEAXAcciN"><span id="lbl_today" data-page-node-id="YN59Jot8ToDDSF5i8yCgNy">今日  收 0 B·0 条   发 0 B·0 条</span></div>
+      <div class="row" data-page-node-id="AZlqYB0VqLsZX8bjc5lTQT">
+        <label data-page-node-id="5o9aSMOjeJkS4irLVTXcgl">保留天数</label>
         <input id="in_keep" type="number" min="1" max="3650" value="100"
-          style="width:70px;">
-        <span class="hint">超期自动清理；30 秒落盘一次。</span>
+          style="width:70px;" data-page-node-id="xCprX30d3pfmORZsYhO2qy">
+        <span class="hint" data-page-node-id="d2Z1UJB5cxMl7Kf759pQsB">超期自动清理；30 秒落盘一次。</span>
       </div>
-      <table id="tv_net">
-        <thead><tr><th>日期</th><th class="num">收</th><th class="num">条</th>
-          <th class="num">发</th><th class="num">条</th></tr></thead>
-        <tbody></tbody>
+      <table id="tv_net" data-page-node-id="dKnTt30BFfWpXLv4gLFC2a">
+        <thead data-page-node-id="615HoG3oazf3ZuX3FHuBU7"><tr data-page-node-id="l4putJz8xlBPH88WuJVyGm"><th data-page-node-id="vKb7shjyBBraxyv4haUCWL">日期</th><th class="num" data-page-node-id="rplzMX9rBq3uhuibReBMfb">收</th><th class="num" data-page-node-id="CT05dM49MxgQHgjbEw2RAv">条</th>
+          <th class="num" data-page-node-id="Xbva2eFt8XFjasuKXLlytL">发</th><th class="num" data-page-node-id="aEVxHZt6NcjSThvVOml3Pf">条</th></tr></thead>
+        <tbody data-page-node-id="ERUQgE2BRVaLqVCVQjyx4l"></tbody>
       </table>
     </fieldset>
-    <div class="row">
-      <button id="btn_netsave" disabled>保存</button>
-      <span id="lbl_netflash"></span>
+    <div class="row" data-page-node-id="AarmtWGaXLkCWjMJLws5C1">
+      <button id="btn_netsave" disabled data-page-node-id="G2KG6btlv2PooEaIfnNKMJ">保存</button>
+      <span id="lbl_netflash" data-page-node-id="IJ1J8pTZbXPsxZWok11Svr"></span>
     </div>
   </div>
 </div>
@@ -385,9 +385,18 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 服务端名（服务端据此定向受理，多台服务端同频道互不串台）；④
  * hello/srv 心跳（20s/超时 75s）维护在线服务端名册，当前操控对象
  * 离线自动切到下一个在线者；事件流按 'srv' 源头过滤，只渲染当前
- * 操控服务端的内容。 */
+ * 操控服务端的内容。
+ * v1.13（对齐服务端 v1.24）：操控互斥——本端 ID 改为持久唯一
+ * （'4'+9位，localStorage），每 20s 发 ctl_hb 续占、切走发 ctl_free
+ * 还锁；被占用时 hello 提示、指令被拒显示 deny 提示。 */
 
-const MY_ID    = '4000000001';
+/* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
+ * 在 localStorage（服务端按此 ID 锁定操控者；刷新/重开页面 ID 不变） */
+let MY_ID = localStorage.getItem('trae_webm_uid');
+if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
+  MY_ID = '4' + String(Math.floor(100000000 + Math.random() * 900000000));
+  try { localStorage.setItem('trae_webm_uid', MY_ID); } catch(e){}
+}
 const SERVER_ID= '1000000001';
 const WS_URL_DEF = ('wss://free.blr2.piesocket.com/v3/TRAE'
                     + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
@@ -1134,6 +1143,14 @@ function handleBody(body){
     return;
   }
   if (nm !== S.cur) return;                   // 非当前操控对象：忽略
+  /* 1.13：操控互斥——目标拒绝（正被其他客户端占用） */
+  if (d.t === 'deny'){
+    if (d.target === MY_ID)
+      flash('🔒 [' + (d.srv || '远方') + '] 正被 '
+            + (d.holder || '其他客户端') + ' 占用，稍后再试',
+            'var(--red)');
+    return;
+  }
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
   if (d.t === 'hello') onHello(d);
 }
@@ -1152,6 +1169,9 @@ function regSrv(nm, d){
     if (d.conn !== undefined) s.conn = d.conn;
     if (d.box) s.box = d.box;
     if (d.port) s.port = d.port;
+    /* 1.13：操控占用状态（正被谁锁着；mine===false=别人） */
+    if (d.lock !== undefined) s.lock = d.lock;
+    else if (d.t === 'hello' && !d.lock) s.lock = null;
   }
   pickCur();
   renderTop();
@@ -1180,6 +1200,8 @@ function setCur(nm){
 }
 function switchSrv(nm){
   if (!S.servers[nm] || nm === S.cur) return;
+  /* 1.13：切走前向旧目标显式还锁（ctl_free），不等超时自动释放 */
+  if (S.cur && S.onLine) sendJson({t: 'ctl_free'});
   setCur(nm);
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
@@ -1233,6 +1255,10 @@ function pruneSrv(){
   }
 }
 setInterval(pruneSrv, 5000);
+/* 1.13：操控续占心跳——停留在当前操控对象就每 20s 续一次锁
+   （服务端默认 60 秒无操作释放；不发心跳即视为离开） */
+setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
+            20000);
 
 function renderTop(){
   const s = S.servers[S.cur];
@@ -1258,7 +1284,9 @@ function renderSrvList(){
     const na = (s.alive || []).length,
           nb = (s.boxes || []).length;
     d.textContent = (s.conn ? '● ' : '○ ') + nm
-                  + (nb ? '（在线 ' + na + '/' + nb + '）' : '');
+                  + (nb ? '（在线 ' + na + '/' + nb + '）' : '')
+                  + (s.lock && s.lock.mine === false
+                     ? ' 🔒' + (s.lock.id || '被占用') : '');
     if (nm === S.cur) d.style.color = 'var(--blue)';
     d.onclick = () => { drawerClose(); switchSrv(nm); };
     el.srvlist.appendChild(d);
@@ -1440,6 +1468,13 @@ function onEv(kind, v){
 
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
+  /* 1.13：目标正被其他客户端占用时提示（操控指令会被 deny） */
+  if (d.lock && d.lock.mine === false && d.lock.id){
+    flash('🔒 [' + (d.srv || '远方') + '] 正被 ' + d.lock.id
+          + ' 占用（约 ' + (d.lock.left || 0) + ' 秒后释放）',
+          'var(--red)');
+    renderSrvList();          // 清单同步显示 🔒 标记
+  }
   const boxes = (d.boxes || []).filter(Boolean);
   if (boxes.length && JSON.stringify(boxes) !== JSON.stringify(S.boxes)){
     S.boxes = boxes;
