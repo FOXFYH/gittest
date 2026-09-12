@@ -250,7 +250,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.18</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.19</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -288,7 +288,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.18 · 模型未知占位 · 不再伪装首项</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.19 · 全屏闪烁修复 · 不再伪装首项</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -1069,25 +1069,42 @@ function renderMsgs(msgs, finish, opts){
 
 /* 1.14：上翻历史约一屏 → 自动进入历史全屏（隐藏顶栏/输入行，消息区
    独占整屏看更多历史）；翻回接近底部（半屏冗余）或点「↓ 回到最新」
-   退出。触发口径 = 距底距离超过一屏高（即从底部向上翻起了一屏），
-   内容不足约 1.6 屏不触发（没有翻历史的意义）。 */
+   退出。触发口径 = 距底距离超过约 1.2 屏高，
+   内容不足约 1.6 屏不触发（没有翻历史的意义）。
+   1.19 修闪烁：进出全屏会隐藏/恢复顶栏输入行，#msgs 高度突变导致
+   距底距离 dist 突变——刚过线就进入→dist 缩水→误判翻回底部→退出
+   →再进入，死循环闪烁进不去。修复：① fprog 程序化滚动统一走静默
+   （450ms 内忽略 scroll 回调）；② enterFmsg 布局变化后按高度差补偿
+   scrollTop，视野停留在同一段内容上（dist 不变，不会立即误退）。 */
+let fLockUntil = 0;                 // 程序滚动/进出全屏后的静默截止
+function fprog(to){                 // 程序化滚动：静默期内不参与判定
+  fLockUntil = Date.now() + 450;
+  el.msgs.scrollTop = to;
+}
 function enterFmsg(){
   if (document.body.classList.contains('fmsg')) return;
+  const m = el.msgs;
+  const before = m.scrollTop, prevCH = m.clientHeight;
   document.body.classList.add('fmsg');
+  /* 布局收窄后 #msgs 变高，补滚同高差保持视野不动（dist 不突变） */
+  requestAnimationFrame(() => {
+    fprog(before + Math.max(0, m.clientHeight - prevCH));
+  });
   flash('已进入历史全屏（翻回底部退出）', 'var(--blue)');
 }
 function exitFmsg(){
   if (!document.body.classList.contains('fmsg')) return;
   document.body.classList.remove('fmsg');
-  el.msgs.scrollTop = el.msgs.scrollHeight;
+  requestAnimationFrame(() => fprog(el.msgs.scrollHeight));
 }
 el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
+  if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
   if (document.body.classList.contains('fmsg')){
     if (dist < m.clientHeight * 0.5) exitFmsg();
-  } else if (dist > m.clientHeight
+  } else if (dist > m.clientHeight * 1.2
              && m.scrollHeight > m.clientHeight * 1.6){
     enterFmsg();
   }
