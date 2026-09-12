@@ -250,7 +250,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.15</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.16</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -288,7 +288,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.15 · 模型收藏 · FOX 始终启用</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.16 · 切换到达确认 · FOX 始终启用</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -445,7 +445,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * v1.15：模型收藏——顶栏 ☆ 打开收藏管理页（列出官方模型点按收
  * 藏/取消，localStorage 持久）；已有收藏时模型下拉只列收藏项，
  * 当前选中的非收藏模型仍显示（标「当前」）；官方改名/下架导致
- * 收藏失效时下拉标 ⚠ 并弹提醒（不可误切，可去管理页移除）。 */
+ * 收藏失效时下拉标 ⚠ 并弹提醒（不可误切，可去管理页移除）。
+ * v1.16：切换「到达确认」——TRAE 先点亮会话标题后加载正文，旧
+ * 逻辑标题一对上就撤「正在切换」条并显示「空闲」，正文其实还没
+ * 到。现记录切换前消息指纹，快照里消息内容真的变化（正文到达）
+ * 才撤条；状态栏在途期间强制显示「正在切换」，不提前显示空闲。 */
 
 /* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
  * 在 localStorage（服务端按此 ID 锁定操控者；刷新/重开页面 ID 不变） */
@@ -905,7 +909,14 @@ function pendReconcile(msgs){
 }
 
 /* 切换在途：会话切换要等 0.8~6s（含最小化恢复），期间给个明确的
-   「正在切换…」条，免得旧会话内容留着让人以为点错了。 */
+   「正在切换…」条，免得旧会话内容留着让人以为点错了。
+   1.16：TRAE 先点亮会话标题、后加载正文——仅凭「目标项已激活」
+   撤条会提前放行。现记录切换前的消息指纹，快照消息内容真的变了
+   （正文到达）才算切换完成；状态栏同步强制「正在切换」。 */
+function msgsFp(msgs){
+  return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
+    + (m[3] || 0) + (m[4] || 0)).join('#');
+}
 function pendSwitchSet(title){
   title = title || '';
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
@@ -914,7 +925,8 @@ function pendSwitchSet(title){
     S.switch_pend.ts = Date.now();
     return;
   }
-  S.switch_pend = {title: title, ts: Date.now()};
+  S.switch_pend = {title: title, ts: Date.now(),
+                   fp0: msgsFp(S.snap.msgs)};
   renderAll();
 }
 function pendSwitchClear(){
@@ -1117,6 +1129,12 @@ function renderState(snap){
       : ': ' + inp.slice(0, 18));
     el.state.style.color = 'var(--blue)';
     setSendBtn(false, true);
+  }
+  /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
+     不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容） */
+  if (S.switch_pend){
+    el.state.textContent = '正在切换「' + S.switch_pend.title + '」…';
+    el.state.style.color = 'var(--blue)';
   }
 }
 
@@ -1534,8 +1552,11 @@ function onEv(kind, v){
         const cv = v.convs || [];
         const act = cv.find(r => r[0] === 'c' && r[2]);
         const has = cv.some(r => r[0] === 'c' && r[1] === S.switch_pend.title);
-        if ((act && act[1] === S.switch_pend.title) || !has
-            || Date.now() - S.switch_pend.ts > 8000)
+        /* 1.16：到达确认——标题激活还不够（TRAE 先亮标题后加载
+           正文），消息指纹与切换前不同才说明正文真的换过来了 */
+        const arrived = msgsFp(v.msgs) !== S.switch_pend.fp0;
+        if ((act && act[1] === S.switch_pend.title && arrived) || !has
+            || Date.now() - S.switch_pend.ts > 12000)
           S.switch_pend = null;              // 超时兜底，别一直挂着
       }
       renderAll();
