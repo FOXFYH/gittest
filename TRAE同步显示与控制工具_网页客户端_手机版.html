@@ -94,6 +94,22 @@ body.fmsg #fexit{display:block;}
 #opts{margin:0 0 8px; display:flex; flex-direction:column; gap:5px;}
 #opts .othint{font-size:11px; color:var(--gray); padding:0 2px;}
 .optbtn{text-align:left; min-height:34px;}
+/* ── 1.40：AI 提问卡（结构化 ask 快照）── */
+.otherrow{display:flex; gap:6px; align-items:stretch;}
+.otherrow input{flex:1; min-width:0; font-size:14px; padding:7px 10px;
+  border:1px solid #c5cbd3; border-radius:8px; background:#fff;
+  color:#1c2733;}
+.otherrow input:disabled{opacity:.55;}
+.otherrow button{font-size:13px; padding:0 14px; border-radius:8px;
+  border:1px solid var(--blue); background:var(--blue); color:#fff;}
+.otherrow button:disabled{opacity:.5;}
+.askfoot{display:flex; gap:8px; justify-content:flex-end; margin-top:2px;}
+.askfoot button{font-size:13px; min-height:32px; padding:0 16px;
+  border-radius:8px; border:1px solid #c5cbd3; background:#fff;
+  color:#37474f;}
+.askfoot button:disabled{opacity:.5;}
+.askfoot #askgo{border-color:var(--blue); background:var(--blue);
+  color:#fff;}
 /* ── 1.09：待确认占位气泡（空窗期反馈）── */
 .msg.pend{background:var(--ubg); border:1px dashed rgba(21,101,192,.55);}
 .msg.pend .body{color:#5a6b7d;}
@@ -262,7 +278,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.25</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.26</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -300,7 +316,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.25 · 会话重命名/占位不超时 · 不再伪装首项</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.26 · AI提问卡可点选作答 · 不再伪装首项</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -781,7 +797,7 @@ function renderAll(){
       if (/^(全部)?(撤销|保留)$/.test(t)) return false;
       return true;
     });
-  renderMsgs(snap.msgs || [], snap.finish, opts0);
+  renderMsgs(snap.msgs || [], snap.finish, opts0, snap.ask || null);
   renderState(snap);
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
@@ -1095,7 +1111,7 @@ function pendSwitchClear(){
   return true;
 }
 
-function renderMsgs(msgs, finish, opts){
+function renderMsgs(msgs, finish, opts, ask){
   opts = opts || [];
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
      与 opts（选项卡答完即销毁） */
@@ -1192,8 +1208,63 @@ function renderMsgs(msgs, finish, opts){
     });
     el.msgs.appendChild(d);
   });
-  /* 1.06：AI 提问选项卡（快照 opts，与最后一条 AI 消息同区域） */
-  if (opts.length){
+  /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 TRAE
+     AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
+     底部 主按钮(下一步/确认)/取消）。可点选项、可填其他、可提交。 */
+  if (ask && ask.opts && ask.opts.length){
+    const oc = document.createElement('div');
+    oc.id = 'opts';
+    let h = '<div class="othint">🤖 AI 提问'
+          + (ask.q ? ' · ' + esc(ask.q) : '') + '</div>';
+    ask.opts.forEach((o, i) => {
+      if (o.other) return;             /* 其他项渲染成输入框 */
+      h += '<button class="optbtn" data-ai="' + i + '">'
+         + esc(o.t) + '</button>';
+    });
+    const oi = ask.opts.findIndex(o => o.other);
+    if (oi >= 0)
+      h += '<div class="otherrow"><input id="askother" '
+         + 'placeholder="其他：输入你的回答…" maxlength="500">'
+         + '<button id="asksend">发送</button></div>';
+    h += '<div class="askfoot">'
+       + (ask.cancel ? '<button id="askcancel">取消</button>' : '')
+       + '<button id="askgo">' + esc(ask.btn || '下一步') + '</button>'
+       + '</div>';
+    oc.innerHTML = h;
+    oc.querySelectorAll('.optbtn').forEach(b => {
+      b.onclick = () => {
+        if (b.disabled) return;
+        b.disabled = true;
+        b.classList.add('picked');
+        flash('已选择「' + b.textContent.slice(0, 20)
+            + '」，等待下一问或 AI 继续…', 'var(--blue)');
+        sendCmd('ask_pick', parseInt(b.dataset.ai));
+      };
+    });
+    const sb = oc.querySelector('#asksend');
+    if (sb) sb.onclick = () => {
+      const inp = oc.querySelector('#askother');
+      const v = (inp.value || '').trim();
+      if (!v){ flash('先填写回答内容', 'var(--orange)'); return; }
+      sb.disabled = true;
+      inp.disabled = true;
+      flash('已提交自定义回答…', 'var(--blue)');
+      sendCmd('ask_other', v);
+    };
+    const go = oc.querySelector('#askgo');
+    if (go) go.onclick = () => {
+      go.disabled = true;
+      flash('提交答案…', 'var(--blue)');
+      sendCmd('ask_submit', 0);
+    };
+    const cc = oc.querySelector('#askcancel');
+    if (cc) cc.onclick = () => {
+      cc.disabled = true;
+      flash('已取消本次提问…', 'var(--blue)');
+      sendCmd('ask_cancel', 0);
+    };
+    el.msgs.appendChild(oc);
+  } else if (opts.length){
     const oc = document.createElement('div');
     oc.id = 'opts';
     const hint = document.createElement('div');
