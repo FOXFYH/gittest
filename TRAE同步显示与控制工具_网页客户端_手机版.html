@@ -250,7 +250,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.22</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.23</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -288,7 +288,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.22 · 长消息确认前100字 · 不再伪装首项</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.23 · 确认参数服务端可调 · 不再伪装首项</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -612,6 +612,8 @@ const S = {
      服务端阶段事件推进状态，快照里出现同文本用户消息即撤下 */
   pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
   pend_seen: {},                     /* 1.22：用户消息首见时刻 */
+  pend_head: 100,                    /* 1.23：确认匹配字数（hello/pendcfg 同步） */
+  pend_age: 60000,                   /* 1.23：消息出现时限毫秒 */
   switch_pend: null,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
@@ -873,12 +875,13 @@ function renderPending(){
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
 
-/* 1.22：发送确认匹配——「前 100 字相同」即可（长消息 TRAE 会折叠
-   显示，全文比对必然失败）。一侧不足 100 字按前缀算（折叠截断可能
-   不到 100 字）；任一侧短于 12 字则要求全等（防超短文本误配）。 */
-function pendHead100(sent, shown){
-  const a = (sent || '').trim().slice(0, 100);
-  const b = (shown || '').trim().slice(0, 100);
+/* 1.22：发送确认匹配——「前 N 字相同」即可（N=服务端设置页
+   「确认匹配字数」，默认 100；长消息 TRAE 会折叠显示，全文比对
+   必然失败）。一侧不足 N 字按前缀算（折叠截断可能不到 N 字）；
+   任一侧短于 12 字则要求全等（防超短文本误配）。 */
+function pendHead100(sent, shown, n){
+  const a = (sent || '').trim().slice(0, n || 100);
+  const b = (shown || '').trim().slice(0, n || 100);
   if (!a || !b) return false;
   if (a === b) return true;
   if (Math.min(a.length, b.length) >= 12)
@@ -924,9 +927,9 @@ function pendReconcile(msgs){
     let idx = -1;
     for (let i = users.length - 1; i >= 0; i--){
       if (S.pend_claims.indexOf(i) >= 0) continue;
-      const ts0 = S.pend_seen[users[i]];      /* 60 秒内新消息才认 */
-      if (ts0 === undefined || now - ts0 > 60000) continue;
-      if (pendHead100(t, users[i])){ idx = i; break; }
+      const ts0 = S.pend_seen[users[i]];   /* 时限内新消息才认 */
+      if (ts0 === undefined || now - ts0 > S.pend_age) continue;
+      if (pendHead100(t, users[i], S.pend_head)){ idx = i; break; }
     }
     if (idx >= 0){
       S.pend_claims.push(idx);
@@ -1631,6 +1634,10 @@ el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
 
 function onEv(kind, v){
   switch (kind){
+    case 'pendcfg':                    /* 1.23：确认匹配参数变更即时跟随 */
+      if (v && v.head) S.pend_head = Math.max(10, v.head | 0);
+      if (v && v.age) S.pend_age = Math.max(5, v.age | 0) * 1000;
+      return;
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
       S.snap = v;
@@ -1800,6 +1807,11 @@ function onEv(kind, v){
 
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
+  /* 1.23：确认匹配参数（字数/时限）随 hello 同步 */
+  if (d.pendcfg && d.pendcfg.head)
+    S.pend_head = Math.max(10, d.pendcfg.head | 0);
+  if (d.pendcfg && d.pendcfg.age)
+    S.pend_age = Math.max(5, d.pendcfg.age | 0) * 1000;
   /* 1.13：目标正被其他客户端占用时提示（操控指令会被 deny） */
   if (d.lock && d.lock.mine === false && d.lock.id){
     flash('🔒 [' + (d.srv || '远方') + '] 正被 ' + d.lock.id
