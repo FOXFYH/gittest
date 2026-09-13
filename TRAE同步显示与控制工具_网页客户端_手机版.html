@@ -73,6 +73,18 @@ body.fmsg #fexit{display:block;}
 .msg .body h1,.msg .body h2,.msg .body h3{margin:4px 0 2px; font-size:14px;}
 .msg .body a{color:var(--blue);}
 .empty{color:#999; text-align:center; padding:30px 0;}
+/* ── 1.25：会话操作菜单（长按会话行） ── */
+#convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
+  display:flex; align-items:flex-end; justify-content:center;}
+.cmsheet{background:#fff; border-radius:14px 14px 0 0; width:100%;
+  max-width:420px; padding:10px 14px calc(14px + env(safe-area-inset-bottom));}
+.cmsheet .cmtitle{font-size:13px; color:var(--gray); margin:2px 2px 8px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.cmsheet button{display:block; width:100%; text-align:left; padding:12px 10px;
+  border:none; background:none; font-size:16px; border-radius:8px;
+  color:#222;}
+.cmsheet button:active{background:#f0f2f5;}
+.cmsheet button.cmcancel{color:var(--gray); text-align:center;}
 /* ── 1.06：消息操作（回退/删除）+ AI 选项卡 ── */
 .msg .who{display:flex; align-items:center;}
 .who .mract{margin-left:auto; display:flex; gap:4px;}
@@ -250,7 +262,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.24</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.25</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -288,7 +300,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.24 · 复制/重编/Q弹退全屏 · 不再伪装首项</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.25 · 会话重命名/占位不超时 · 不再伪装首项</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -758,9 +770,17 @@ function renderAll(){
   const snap = S.snap;
   renderConvs(snap.convs || []);
   /* 1.24：过滤「安装 TRAE Code」类安装引导按钮（误点无意义；
-     服务端已滤，此处双保险兼容旧服务端） */
+     服务端已滤，此处双保险兼容旧服务端）。1.25：diff 审查
+     （N 个文件待审查/全部撤销/全部保留）与「后台命令正在运行」
+     状态钮同样不是 AI 提问，一并滤掉。 */
   const opts0 = (snap.opts || [])
-    .filter(o => !/安装/i.test(o.t || '') || !/trae/i.test(o.t || ''));
+    .filter(o => !/安装/i.test(o.t || '') || !/trae/i.test(o.t || ''))
+    .filter(o => {
+      const t = o.t || '';
+      if (/待审查|后台命令/.test(t)) return false;
+      if (/^(全部)?(撤销|保留)$/.test(t)) return false;
+      return true;
+    });
   renderMsgs(snap.msgs || [], snap.finish, opts0);
   renderState(snap);
   renderAttach(snap.attach || []);
@@ -814,7 +834,23 @@ function renderConvs(rows){
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       d.textContent = title;
       const i = idx;
+      /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
+      let lpTimer = null, lpFired = false;
+      const stopLP = () => {
+        if (lpTimer){ clearTimeout(lpTimer); lpTimer = null; }
+      };
+      d.addEventListener('touchstart', () => {
+        lpFired = false;
+        lpTimer = setTimeout(() => {
+          lpFired = true;
+          convMenuOpen(title);
+        }, 550);
+      }, {passive: true});
+      d.addEventListener('touchmove', stopLP, {passive: true});
+      d.addEventListener('touchend', stopLP);
+      d.addEventListener('touchcancel', stopLP);
       d.onclick = () => {
+        if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
         if (!flag){
           pendSwitchSet(title);        /* 1.09：切换在途提示（0.8~6s）*/
           flash('正在切换到「' + title + '」…', 'var(--blue)');
@@ -828,13 +864,42 @@ function renderConvs(rows){
   }
 }
 
+/* 1.25：会话操作菜单（长按会话行弹出）。本期实现「重命名」——
+   走服务端 conv_rename（右键会话行 → 上下文菜单「重命名」→
+   内联编辑框写入 → Enter）；后续菜单项随服务端能力再补。 */
+function convMenuOpen(title){
+  const old = $('convmenu');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'convmenu';
+  ov.innerHTML = '<div class="cmsheet">'
+    + '<div class="cmtitle">' + esc(title) + '</div>'
+    + '<button data-act="ren">✎ 重命名</button>'
+    + '<button class="cmcancel" data-act="cancel">取消</button>'
+    + '</div>';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.querySelectorAll('button').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      ov.remove();
+      if (b.dataset.act !== 'ren') return;
+      const nn = (prompt('重命名会话', title) || '').trim();
+      if (!nn || nn === title) return;
+      sendCmd('conv_rename', [title, nn]);
+      flash('正在重命名为「' + nn + '」…', 'var(--blue)');
+    };
+  });
+  document.body.appendChild(ov);
+}
+
 /* ============ 1.09：待确认项（空窗期反馈） ============
    点「发送」后要等服务端把文字注入 TRAE 输入框、点发送、TRAE 渲染、
    0.8s 轮询取快照、再经中继回传——实测 3~6s 才看得到自己那条。
    这段空白以前完全没有反馈，像「点了没反应 / 消息丢了」。
    现在：本地立即画一条「我」的占位气泡并标「发送中…」，服务端阶段
-   事件（已输入→已发出）推进状态，快照里出现同文本用户消息即撤下；
-   15 秒还没出现 ⇒ 标「⚠ 未确认」并给「重发 / 丢弃」。 */
+   事件（已输入→已发出）推进状态，快照里出现同文本用户消息即撤下。
+   1.25：不再 15 秒标「⚠ 未确认」——插话走官方排队，AI 忙时多久
+   入列都正常（无限制）；用户可随时手动「丢弃/改写」。 */
 
 function pendSig(){
   return S.pending.map(p => p.id + ':' + p.state).join(',');
@@ -855,7 +920,9 @@ function pendStat(p){
   if (p.state === 'typed')   return ['已输入 TRAE…', ''];
   if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
   if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
-  if (p.state === 'timeout') return ['⚠ 未确认（15 秒内没出现）', 'bad'];
+  /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
+     历史残留兼容，文案不再写死 15 秒 */
+  if (p.state === 'timeout') return ['⚠ 未确认（可丢弃/改写/重发）', 'bad'];
   return [p.kind === 'interject' ? '排队中…' : '发送中…', ''];
 }
 
@@ -872,15 +939,16 @@ function renderPending(){
     let h = '<div class="who">我<span class="pstat">' + esc(st[0])
           + '</span>';
     /* 1.24：任何状态的挂起占位都可「改写」——撤回占位、文本回填
-       输入框重新编辑再发（用户要求的反悔机制） */
+       输入框重新编辑再发（用户要求的反悔机制）
+       1.25：「丢弃」也常显（占位不再自动超时，真没发出去时手动兜底） */
     h += '<span class="pacts">'
        + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
-       + '</span>';
+       + '<button class="pendbtn drop" data-drop="' + p.id
+       + '">丢弃</button></span>';
     if (p.state === 'timeout')
       h += '<span class="pacts">'
          + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>'
-         + '<button class="pendbtn drop" data-drop="' + p.id
-         + '">丢弃</button></span>';
+         + '</span>';
     h += '</div><div class="body">' + esc(p.text) + '</div>';
     d.innerHTML = h;
     wrap.appendChild(d);
@@ -990,10 +1058,10 @@ function pendReconcile(msgs){
       changed = true;
       return;
     }
-    if (p.state !== 'timeout' && Date.now() - p.ts > 15000){
-      p.state = 'timeout';
-      changed = true;
-    }
+    /* 1.25：不再 15 秒「未确认」超时——插话走 TRAE 官方排队，
+       AI 忙时多久入列都正常（用户原话：应该没有限制）。占位只有
+       两种结局：出现在对话记录里（自动确认撤下），或用户手动
+       「丢弃/改写」。 */
     keep.push(p);
   });
   if (changed) S.pending = keep;
