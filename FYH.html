@@ -2,66 +2,101 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>FYH 远程控制面板</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
     font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif;
-    background: #f5f5f5; color: #333; font-size: 14px; height: 100vh; display: flex; flex-direction: column;
+    background: #f5f5f5; color: #333; font-size: 14px;
+    height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
   }
+  /* ===== 顶部 ===== */
   header {
-    background: #2d2d2d; color: #eee; padding: 10px 16px; display: flex; align-items: center; gap: 12px;
+    background: #2d2d2d; color: #eee; padding: 8px 12px;
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
   }
-  header h1 { font-size: 16px; font-weight: 600; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: #999; display: inline-block; }
+  header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #999; display: inline-block; flex-shrink: 0; }
   .dot.on { background: #4caf50; }
   .dot.off { background: #e74c3c; }
-  #statusText { font-size: 12px; color: #ccc; margin-left: auto; }
-  main { flex: 1; display: flex; min-height: 0; }
-  aside {
-    width: 220px; background: #fff; border-right: 1px solid #ddd; padding: 12px; overflow-y: auto; flex-shrink: 0;
+  #statusText { font-size: 11px; color: #bbb; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini {
+    background: none; border: 1px solid #555; color: #ccc; border-radius: 6px;
+    padding: 2px 10px; font-size: 12px; cursor: pointer; flex-shrink: 0;
   }
-  aside h2 { font-size: 13px; color: #888; margin-bottom: 8px; font-weight: 600; }
-  .device {
-    padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 6px; cursor: pointer;
-    background: #fff; transition: all .15s;
+  .mini.on { background: #555; color: #fff; }
+  /* ===== 设备栏（顶部横排方块按钮） ===== */
+  #devBar {
+    display: flex; gap: 8px; padding: 8px 12px; overflow-x: auto;
+    background: #fff; border-bottom: 1px solid #ddd; flex-shrink: 0; scrollbar-width: none;
   }
-  .device:hover { border-color: #aaa; }
-  .device.active { background: #f0f0f0; border-color: #333; }
-  .device .name { font-size: 14px; color: #333; }
-  .device .meta { font-size: 11px; color: #999; margin-top: 2px; }
-  section { flex: 1; padding: 16px; overflow-y: auto; background: #fafafa; }
-  .empty { color: #aaa; text-align: center; margin-top: 60px; font-size: 13px; }
+  #devBar::-webkit-scrollbar { display: none; }
+  .dev-title { font-size: 12px; color: #999; width: 100%; }
+  .dev-btn {
+    width: 54px; height: 54px; border-radius: 10px; border: 1px solid #ddd;
+    background: #fff; color: #333; font-size: 11px; line-height: 1.2;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    flex-shrink: 0; cursor: pointer; padding: 2px; overflow: hidden; word-break: break-all;
+  }
+  .dev-btn.active { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
+  .dev-btn.add { border: 1px dashed #bbb; font-size: 22px; color: #999; font-weight: 600; }
+  /* ===== 应用区（下方整屏） ===== */
+  main { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; background: #fafafa; }
+  .empty { color: #aaa; text-align: center; margin-top: 80px; font-size: 14px; line-height: 1.8; }
+  .app-title {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    font-size: 13px; color: #888; font-weight: 600; flex-wrap: wrap;
+  }
+  .app-title .auto { font-size: 11px; color: #bbb; margin-left: auto; }
   .app-card {
-    background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;
-    display: flex; align-items: center; gap: 12px;
+    background: #fff; border: 1px solid #ddd; border-radius: 10px;
+    padding: 14px; margin-bottom: 12px;
   }
-  .app-card .app-name { font-size: 15px; font-weight: 600; flex: 1; }
-  .app-card .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+  .app-card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .app-card .app-name { font-size: 16px; font-weight: 600; flex: 1; min-width: 0; word-break: break-all; }
+  .app-card .status { font-size: 12px; padding: 2px 10px; border-radius: 12px; flex-shrink: 0; }
   .app-card .status.run { background: #e8f5e9; color: #2e7d32; }
   .app-card .status.stop { background: #fafafa; color: #888; border: 1px solid #ddd; }
   .app-card .status.nainst { background: #fff8e1; color: #b26a00; border: 1px solid #f0e0b0; }
+  .app-card .tip { font-size: 12px; color: #b26a00; background: #fff8e1; border-radius: 6px; padding: 6px 8px; margin-bottom: 10px; line-height: 1.5; }
+  .app-card .btns { display: flex; gap: 8px; }
+  .app-card .btns .btn { flex: 1; min-height: 42px; font-size: 15px; }
   .btn {
-    border: 1px solid #bbb; background: #fff; color: #333; padding: 5px 14px; border-radius: 6px;
-    cursor: pointer; font-size: 13px; transition: all .15s; min-width: 56px;
+    border: 1px solid #bbb; background: #fff; color: #333; border-radius: 8px;
+    cursor: pointer; font-size: 13px; transition: all .15s; user-select: none;
   }
-  .btn:hover { background: #f0f0f0; }
+  .btn:active { opacity: .7; }
   .btn.primary { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
-  .btn.primary:hover { background: #444; }
   .btn.danger { color: #c62828; border-color: #e0b4b4; }
-  .btn.danger:hover { background: #fdecea; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
-  footer {
-    background: #fff; border-top: 1px solid #ddd; padding: 8px 12px; height: 120px; display: flex; flex-direction: column;
-  }
-  footer h2 { font-size: 12px; color: #888; margin-bottom: 4px; font-weight: 600; }
-  #log {
-    flex: 1; overflow-y: auto; font-family: Consolas, monospace; font-size: 11px; color: #666;
-    background: #fafafa; border: 1px solid #eee; padding: 6px 8px; border-radius: 4px; line-height: 1.6;
-  }
   .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #333; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* ===== 日志（可折叠） ===== */
+  #logPanel {
+    background: #fff; border-top: 1px solid #ddd; height: 36vh; flex-shrink: 0;
+    display: flex; flex-direction: column;
+  }
+  #logPanel[hidden] { display: none; }
+  #logPanel h2 { font-size: 12px; color: #888; padding: 6px 12px; display: flex; justify-content: space-between; align-items: center; }
+  #log { flex: 1; overflow-y: auto; font-family: Consolas, monospace; font-size: 11px; color: #666; padding: 0 12px 8px; line-height: 1.6; }
+  /* ===== 设备更多弹窗 ===== */
+  .overlay-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10; }
+  .overlay-sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; background: #fff;
+    border-radius: 14px 14px 0 0; z-index: 11; max-height: 72vh;
+    display: flex; flex-direction: column; padding: 14px 12px 20px;
+    animation: sheetUp .2s ease;
+  }
+  @keyframes sheetUp { from { transform: translateY(30px); opacity: .4; } to { transform: none; opacity: 1; } }
+  .overlay-title { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+  #devFullList { overflow-y: auto; }
+  .full-dev {
+    padding: 13px 14px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 8px;
+    cursor: pointer; font-size: 15px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .full-dev.active { background: #f0f0f0; border-color: #333; }
+  .full-dev .st { font-size: 12px; color: #999; }
 </style>
 </head>
 <body>
@@ -69,20 +104,23 @@
   <h1>FYH 远程控制面板</h1>
   <span id="wsDot" class="dot off"></span>
   <span id="statusText">未连接</span>
+  <button id="logToggle" class="mini">日志</button>
 </header>
-<main>
-  <aside>
-    <h2>在线设备</h2>
-    <div id="deviceList"><div class="empty">等待设备上线…</div></div>
-  </aside>
-  <section id="appArea">
-    <div class="empty">← 先在左侧选择一台设备<br>再对其上的应用执行 打开 / 关闭 / 重启</div>
-  </section>
+<div id="devBar"><div class="dev-title">等待设备上线…</div></div>
+<main id="appArea">
+  <div class="empty">↑ 先在上方选择一台设备<br>再对其上的应用执行 打开 / 关闭 / 重启</div>
 </main>
-<footer>
-  <h2>操作日志</h2>
+<div id="logPanel" hidden>
+  <h2>操作日志 <button id="logClose" class="mini">收起</button></h2>
   <div id="log"></div>
-</footer>
+</div>
+<div id="devOverlay" hidden>
+  <div class="overlay-mask" onclick="closeDevOverlay()"></div>
+  <div class="overlay-sheet">
+    <div class="overlay-title">选择设备 <button id="overlayClose" class="mini">✕</button></div>
+    <div id="devFullList"></div>
+  </div>
+</div>
 
 <script>
 "use strict";
@@ -144,8 +182,16 @@ let selectedDevice = null; // 当前选中的设备名
 let selectedApps = [];     // 当前设备的应用清单
 let refreshSec = 60;       // 自动刷新间隔（秒，由 FYH 设置页下发）
 let refreshTimer = null;   // 自动刷新定时器
+const BAR_SHOW = 5;        // 顶部直接显示的设备方块数，其余进"+"弹窗
 
-// ================= 设备列表 =================
+// ================= 设备 =================
+function aliveDevices() {
+  const now = Date.now();
+  return Object.keys(devices)
+    .filter(n => now - devices[n] <= 3 * 60 * 1000)
+    .sort();
+}
+
 function touchDevice(name) {
   if (!name) return;
   devices[name] = Date.now();
@@ -153,22 +199,49 @@ function touchDevice(name) {
 }
 
 function renderDevices() {
-  const list = document.getElementById("deviceList");
-  const now = Date.now();
-  const alive = Object.keys(devices).filter(n => now - devices[n] <= 3 * 60 * 1000);
-  alive.sort();
+  const bar = document.getElementById("devBar");
+  const alive = aliveDevices();
   if (!alive.length) {
-    list.innerHTML = '<div class="empty">等待设备上线…</div>';
+    bar.innerHTML = '<div class="dev-title">等待设备上线…</div>';
     return;
   }
-  list.innerHTML = "";
-  alive.forEach(n => {
+  bar.innerHTML = "";
+  alive.slice(0, BAR_SHOW).forEach(n => {
     const d = document.createElement("div");
-    d.className = "device" + (n === selectedDevice ? " active" : "");
-    d.innerHTML = '<div class="name">' + n + '</div><div class="meta">在线</div>';
+    d.className = "dev-btn" + (n === selectedDevice ? " active" : "");
+    d.textContent = n;
+    d.title = n;
     d.onclick = () => selectDevice(n);
-    list.appendChild(d);
+    bar.appendChild(d);
   });
+  // "+" 更多设备按钮
+  const add = document.createElement("div");
+  add.className = "dev-btn add";
+  add.textContent = "+";
+  add.onclick = openDevOverlay;
+  bar.appendChild(add);
+}
+
+function openDevOverlay() {
+  const list = document.getElementById("devFullList");
+  const alive = aliveDevices();
+  list.innerHTML = "";
+  if (!alive.length) {
+    list.innerHTML = '<div class="empty">暂无在线设备</div>';
+  } else {
+    alive.forEach(n => {
+      const d = document.createElement("div");
+      d.className = "full-dev" + (n === selectedDevice ? " active" : "");
+      d.innerHTML = '<span>' + n + '</span><span class="st">在线</span>';
+      d.onclick = () => { closeDevOverlay(); selectDevice(n); };
+      list.appendChild(d);
+    });
+  }
+  document.getElementById("devOverlay").hidden = false;
+}
+
+function closeDevOverlay() {
+  document.getElementById("devOverlay").hidden = true;
 }
 
 function requestApps() {
@@ -198,7 +271,7 @@ function selectDevice(name) {
 function renderApps() {
   const area = document.getElementById("appArea");
   if (!selectedDevice) {
-    area.innerHTML = '<div class="empty">← 先在左侧选择一台设备</div>';
+    area.innerHTML = '<div class="empty">↑ 先在上方选择一台设备<br>再对其上的应用执行 打开 / 关闭 / 重启</div>';
     return;
   }
   if (!selectedApps.length) {
@@ -207,43 +280,64 @@ function renderApps() {
   }
   area.innerHTML = "";
   const title = document.createElement("div");
-  title.style.cssText = "font-size:13px;color:#888;margin-bottom:10px;font-weight:600;display:flex;align-items:center;gap:10px;";
+  title.className = "app-title";
   const tt = document.createElement("span");
-  tt.textContent = "设备：" + selectedDevice + "（共 " + selectedApps.length + " 个应用）";
+  tt.textContent = "设备：" + selectedDevice + "（" + selectedApps.length + " 个应用）";
   title.appendChild(tt);
   const rb = document.createElement("button");
-  rb.className = "btn";
+  rb.className = "mini";
   rb.textContent = "刷新";
-  rb.title = "立即获取真实状态";
   rb.onclick = requestApps;
   title.appendChild(rb);
   const nf = document.createElement("span");
+  nf.className = "auto";
   nf.textContent = "每 " + refreshSec + " 秒自动刷新";
-  nf.style.cssText = "font-size:11px;color:#bbb;margin-left:auto;";
   title.appendChild(nf);
   area.appendChild(title);
+
   selectedApps.forEach(app => {
     const card = document.createElement("div");
     card.className = "app-card";
     const installed = app.installed !== false;
     const run = !!app.running;
+    const missing = !!app.missing;
     let statusHtml, statusCls;
-    if (!installed) { statusHtml = "未安装"; statusCls = "nainst"; }
-    else if (run) { statusHtml = "运行中"; statusCls = "run"; }
+    if (!installed) {
+      statusHtml = missing ? "未找到位置" : "未安装";
+      statusCls = "nainst";
+    } else if (run) { statusHtml = "运行中"; statusCls = "run"; }
     else { statusHtml = "未运行"; statusCls = "stop"; }
     const disabled = installed ? "" : " disabled";
+    let tip = "";
+    if (missing) tip = '<div class="tip">自动寻找安装位置失败，请在该设备 FYH 的 apps.json 中人工指定路径</div>';
     card.innerHTML =
-      '<div class="app-name">' + (app.name || app.key || "?") + '</div>' +
-      '<div class="status ' + statusCls + '">' + statusHtml + '</div>' +
-      '<button class="btn primary" data-act="app_open"' + disabled + '>打开</button>' +
-      '<button class="btn" data-act="app_restart"' + disabled + '>重启</button>' +
-      '<button class="btn danger" data-act="app_close"' + disabled + '>关闭</button>';
+      '<div class="top">' +
+        '<div class="app-name">' + (app.name || app.key || "?") + '</div>' +
+        '<div class="status ' + statusCls + '">' + statusHtml + '</div>' +
+      '</div>' + tip +
+      '<div class="btns">' +
+        '<button class="btn primary" data-act="app_open"' + disabled + '>打开</button>' +
+        '<button class="btn" data-act="app_restart"' + disabled + '>重启</button>' +
+        '<button class="btn danger" data-act="app_close"' + disabled + '>关闭</button>' +
+      '</div>';
     card.querySelectorAll("button").forEach(btn => {
       btn.onclick = () => sendRC({ cmd: btn.dataset.act, target: selectedDevice, key: app.key });
     });
     area.appendChild(card);
   });
 }
+
+// ================= 日志折叠 =================
+function toggleLog() {
+  const panel = document.getElementById("logPanel");
+  const btn = document.getElementById("logToggle");
+  const hidden = panel.hidden;
+  panel.hidden = !hidden;
+  btn.classList.toggle("on", hidden);
+}
+document.getElementById("logToggle").onclick = toggleLog;
+document.getElementById("logClose").onclick = toggleLog;
+document.getElementById("overlayClose").onclick = closeDevOverlay;
 
 // ================= WS =================
 function connect() {
