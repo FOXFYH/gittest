@@ -250,7 +250,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.23</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.24</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -288,7 +288,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.23 · 确认参数服务端可调 · 不再伪装首项</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.24 · 复制/重编/Q弹退全屏 · 不再伪装首项</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -613,7 +613,7 @@ const S = {
   pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
   pend_seen: {},                     /* 1.22：用户消息首见时刻 */
   pend_head: 100,                    /* 1.23：确认匹配字数（hello/pendcfg 同步） */
-  pend_age: 60000,                   /* 1.23：消息出现时限毫秒 */
+  pend_age: 30000,                   /* 1.24：消息出现时限毫秒（30 秒） */
   switch_pend: null,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
@@ -661,6 +661,27 @@ function flash(msg, color){
 function esc(s){
   return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* 1.24：一键复制文本（clipboard API 优先，非安全上下文兜底） */
+function copyText(t){
+  t = String(t == null ? '' : t);
+  const done = () => flash('已复制到剪贴板', 'var(--green)');
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(() => copyFallback(t, done));
+  } else copyFallback(t, done);
+}
+function copyFallback(t, done){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    done();
+  }catch(e){ flash('复制失败，请长按文本手动复制', 'var(--red)'); }
 }
 
 /* ================= Markdown 轻量渲染（AI 消息） ================= */
@@ -736,7 +757,11 @@ function curTitle(){
 function renderAll(){
   const snap = S.snap;
   renderConvs(snap.convs || []);
-  renderMsgs(snap.msgs || [], snap.finish, snap.opts || []);
+  /* 1.24：过滤「安装 TRAE Code」类安装引导按钮（误点无意义；
+     服务端已滤，此处双保险兼容旧服务端） */
+  const opts0 = (snap.opts || [])
+    .filter(o => !/安装/i.test(o.t || '') || !/trae/i.test(o.t || ''));
+  renderMsgs(snap.msgs || [], snap.finish, opts0);
   renderState(snap);
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
@@ -846,6 +871,11 @@ function renderPending(){
     d.className = 'msg user pend ' + st[1];
     let h = '<div class="who">我<span class="pstat">' + esc(st[0])
           + '</span>';
+    /* 1.24：任何状态的挂起占位都可「改写」——撤回占位、文本回填
+       输入框重新编辑再发（用户要求的反悔机制） */
+    h += '<span class="pacts">'
+       + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
+       + '</span>';
     if (p.state === 'timeout')
       h += '<span class="pacts">'
          + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>'
@@ -860,6 +890,18 @@ function renderPending(){
       e.stopPropagation();
       const gi = parseInt(b.dataset.go || '0');
       const di = parseInt(b.dataset.drop || '0');
+      const ei = parseInt(b.dataset.edit || '0');
+      if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
+        const p = S.pending.find(x => x.id === ei);
+        if (!p) return;
+        S.pending = S.pending.filter(x => x.id !== ei);
+        el.ent.value = p.text || '';
+        refreshSendBtn();
+        try { el.ent.focus(); } catch(e2){}
+        renderAll();
+        flash('已撤回，可修改后重新发送', 'var(--blue)');
+        return;
+      }
       if (di){                       // 丢弃：撤下占位即可
         S.pending = S.pending.filter(x => x.id !== di);
         renderAll();
@@ -875,13 +917,25 @@ function renderPending(){
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
 
+/* 1.24：文本规范化去污染——TRAE 渲染会吃掉 markdown 记号/空白
+   （**加粗** 变粗体、段落成块级元素），快照文本与发送原文在字符
+   层面对不上 → 明明已出现却判「未确认」。比较前双方统一：去全部
+   空白与零宽字符、去 markdown 修饰符（* ` _ ~ > #）、转小写。 */
+function normTxt(s){
+  return String(s || '')
+    .replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, '')
+    .replace(/[`*_~>#]/g, '')
+    .toLowerCase();
+}
+
 /* 1.22：发送确认匹配——「前 N 字相同」即可（N=服务端设置页
    「确认匹配字数」，默认 100；长消息 TRAE 会折叠显示，全文比对
    必然失败）。一侧不足 N 字按前缀算（折叠截断可能不到 N 字）；
-   任一侧短于 12 字则要求全等（防超短文本误配）。 */
+   任一侧短于 12 字则要求全等（防超短文本误配）。
+   1.24：比对前先 normTxt 规范化（格式污染不再导致误判）。 */
 function pendHead100(sent, shown, n){
-  const a = (sent || '').trim().slice(0, n || 100);
-  const b = (shown || '').trim().slice(0, n || 100);
+  const a = normTxt(sent).slice(0, n || 100);
+  const b = normTxt(shown).slice(0, n || 100);
   if (!a || !b) return false;
   if (a === b) return true;
   if (Math.min(a.length, b.length) >= 12)
@@ -909,7 +963,7 @@ function pendReconcile(msgs){
   const users = [];
   (msgs || []).forEach(m => {
     if (m && m[0] === 'u'){
-      const ut = (m[1] || '').trim();
+      const ut = normTxt(m[1]);          /* 1.24：规范化后再登记/比对 */
       if (ut && !(ut in S.pend_seen)) S.pend_seen[ut] = now;
       users.push(ut);
     }
@@ -923,7 +977,7 @@ function pendReconcile(msgs){
       changed = true;
       return;
     }
-    const t = (p.text || '').trim();
+    const t = normTxt(p.text);         /* 1.24：规范化后再比对 */
     let idx = -1;
     for (let i = users.length - 1; i >= 0; i--){
       if (S.pend_claims.indexOf(i) >= 0) continue;
@@ -1016,8 +1070,15 @@ function renderMsgs(msgs, finish, opts){
   msgs.forEach((m, i) => {
     const user = m[0] === 'u';
     let acts = '';
+    /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息——把
+       文本回填输入框改完再发；TRAE 端无法真撤回已入列的消息，
+       反悔机制 = 回填重编后作为新消息发出） */
+    acts += '<button class="mact cpy" data-k="copy" data-i="' + i
+          + '">📋 复制</button>';
     if (user){
       ui++;
+      acts += '<button class="mact ed" data-k="edit" data-i="' + i
+            + '">✎ 重编</button>';
       if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
                       + ui + '">↩ 回退</button>';
       if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
@@ -1031,11 +1092,24 @@ function renderMsgs(msgs, finish, opts){
           + '</div><div class="body">'
           + (user ? esc(m[1]) : mdHtml(m[1])) + '</div>';
     d.innerHTML = h;
-    /* 1.06：回退/删除（破坏性操作，confirm 二次确认） */
+    /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
+       1.24：复制/重编（本地即时完成，不涉服务端） */
     d.querySelectorAll('.mact').forEach(b => {
       b.onclick = e => {
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
+        if (k === 'copy'){
+          copyText(msgs[parseInt(b.dataset.i)][1]);
+          return;
+        }
+        if (k === 'edit'){
+          const it = msgs[parseInt(b.dataset.i)];
+          el.ent.value = it ? (it[1] || '') : '';
+          refreshSendBtn();
+          try { el.ent.focus(); } catch(e2){}
+          flash('已回填输入框，可修改后重新发送', 'var(--blue)');
+          return;
+        }
         if (k === 'rewind'){
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
             + '其后全部对话（含 AI 回复）将一并移除。')) return;
@@ -1158,6 +1232,38 @@ el.msgs.addEventListener('scroll', () => {
     enterFmsg();
   }
 });
+/* 1.24：Q 弹退出全屏——用户最常用的回底方式是「滑回最新」，到底
+   后浏览器出现 Q 弹（overscroll 回弹）说明人已经到底还想继续。
+   实现：全屏下在距底 ≤4px 处继续向上快拽（触屏 dy<-24px / 滚轮
+   deltaY>0）即判定触底回弹 → 退出全屏回正常界面，比点按钮顺手。
+   （触屏向上滑=滚向底部；到底后继续上拽才是 Q 弹，反向不会误触） */
+var fTouchY = 0, fAtBottom = false;
+el.msgs.addEventListener('touchstart', e => {
+  fTouchY = e.touches[0].clientY;
+  fAtBottom = el.msgs.scrollHeight - el.msgs.scrollTop
+              - el.msgs.clientHeight < 4;
+}, {passive: true});
+el.msgs.addEventListener('touchmove', e => {
+  if (!fAtBottom || Date.now() < fLockUntil) return;
+  if (!document.body.classList.contains('fmsg')){
+    fAtBottom = false;
+    return;
+  }
+  if (e.touches[0].clientY - fTouchY < -24){   // 到底后继续上拽
+    fAtBottom = false;
+    exitFmsg();
+    flash('已回到最新', 'var(--green)');
+  }
+}, {passive: true});
+el.msgs.addEventListener('wheel', e => {
+  if (!document.body.classList.contains('fmsg')) return;
+  if (Date.now() < fLockUntil) return;
+  const m = el.msgs;
+  if (e.deltaY > 0 && m.scrollHeight - m.scrollTop - m.clientHeight < 4){
+    exitFmsg();
+    flash('已回到最新', 'var(--green)');
+  }
+}, {passive: true});
 
 function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
   el.send.textContent = stop ? '停止' : '发送';
@@ -1194,7 +1300,10 @@ function renderState(snap){
     el.state.style.color = 'var(--orange)';
     refreshSendBtn();                        // 有本地字→插话，无→停止
   } else if (idle && !inp){                  // 空闲
-    el.state.textContent = '空闲';
+    /* 1.24：空闲时顺带显示当前会话名——整行只写「空闲」太浪费 */
+    const ct = (curTitle() || '').trim();
+    el.state.textContent = '空闲'
+      + (ct ? ' · ' + (ct.length > 14 ? ct.slice(0, 14) + '…' : ct) : '');
     el.state.style.color = 'var(--green)';
     setSendBtn(false, true);
   } else {                                   // 输入框待发（远端残留）
