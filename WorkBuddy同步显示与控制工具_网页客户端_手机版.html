@@ -26,7 +26,7 @@ select{font-size:12px;}
 /* ── 顶栏（两行 + 状态条） ── */
 #hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);
   padding-top:env(safe-area-inset-top);}
-.h1row{display:flex; align-items:center; gap:6px; padding:4px 8px;}
+.h1row{display:flex; align-items:center; gap:6px; padding:2px 8px;}
 #btn_menu{min-width:42px; font-size:17px; padding:4px 10px;}
 .h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -36,12 +36,12 @@ select{font-size:12px;}
 #lbl_srv{font-weight:bold; font-size:12px; color:var(--blue);
   white-space:nowrap; max-width:34%; overflow:hidden;
   text-overflow:ellipsis; cursor:pointer;}
-.h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
+.h2row{display:flex; align-items:center; gap:5px; padding:0 8px 2px;
   flex-wrap:wrap;}
 #cmb_box{flex:1; max-width:42%; min-width:0;}
 #cmb_model{flex:2; min-width:0;}
 #lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
-#statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
+#statebar{flex:none; text-align:center; font-size:12px; padding:1px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 /* ── 消息区 ── */
@@ -85,6 +85,7 @@ body.fmsg #fexit{display:block;}
   color:#222;}
 .cmsheet button:active{background:#f0f2f5;}
 .cmsheet button.cmcancel{color:var(--gray); text-align:center;}
+.cmsheet button.cmdel{color:var(--red);}   /* 1.4x：删除会话（危险项） */
 /* ── 1.06：消息操作（回退/删除）+ AI 选项卡 ── */
 .msg .who{display:flex; align-items:center;}
 .who .mract{margin-left:auto; display:flex; gap:4px;}
@@ -278,7 +279,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">WorkBuddy远程·手机版 v1.26</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程键</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -882,7 +883,7 @@ function renderConvs(rows){
 
 /* 1.25：会话操作菜单（长按会话行弹出）。本期实现「重命名」——
    走服务端 conv_rename（右键会话行 → 上下文菜单「重命名」→
-   内联编辑框写入 → Enter）；后续菜单项随服务端能力再补。 */
+   内联编辑框写入 → Enter）；1.4x 新增「删除任务」（走 conv_del）。 */
 function convMenuOpen(title){
   const old = $('convmenu');
   if (old) old.remove();
@@ -891,6 +892,7 @@ function convMenuOpen(title){
   ov.innerHTML = '<div class="cmsheet">'
     + '<div class="cmtitle">' + esc(title) + '</div>'
     + '<button data-act="ren">✎ 重命名</button>'
+    + '<button class="cmdel" data-act="del">🗑 删除任务</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
     + '</div>';
   ov.onclick = e => { if (e.target === ov) ov.remove(); };
@@ -898,7 +900,17 @@ function convMenuOpen(title){
     b.onclick = e => {
       e.stopPropagation();
       ov.remove();
-      if (b.dataset.act !== 'ren') return;
+      if (b.dataset.act !== 'ren' && b.dataset.act !== 'del') return;
+      // 1.4x：删除走二次确认（本地 confirm），避免误触
+      if (b.dataset.act === 'del'){
+        if (!confirm('确认删除会话「' + title + '」？\n此操作不可恢复。')){
+          return;
+        }
+        if (!S.onLine){ flash('⚠ 服务端未连接', 'var(--red)'); return; }
+        flash('正在删除「' + title + '」…', 'var(--red)');
+        sendCmd('conv_del', [title]);
+        return;
+      }
       const nn = (prompt('重命名会话', title) || '').trim();
       if (!nn || nn === title) return;
       sendCmd('conv_rename', [title, nn]);
