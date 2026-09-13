@@ -41,6 +41,7 @@
   .app-card .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
   .app-card .status.run { background: #e8f5e9; color: #2e7d32; }
   .app-card .status.stop { background: #fafafa; color: #888; border: 1px solid #ddd; }
+  .app-card .status.nainst { background: #fff8e1; color: #b26a00; border: 1px solid #f0e0b0; }
   .btn {
     border: 1px solid #bbb; background: #fff; color: #333; padding: 5px 14px; border-radius: 6px;
     cursor: pointer; font-size: 13px; transition: all .15s; min-width: 56px;
@@ -141,6 +142,8 @@ let mySenderId = myId();
 let devices = {};          // 设备名 -> 最后在线时间戳
 let selectedDevice = null; // 当前选中的设备名
 let selectedApps = [];     // 当前设备的应用清单
+let refreshSec = 60;       // 自动刷新间隔（秒，由 FYH 设置页下发）
+let refreshTimer = null;   // 自动刷新定时器
 
 // ================= 设备列表 =================
 function touchDevice(name) {
@@ -168,13 +171,27 @@ function renderDevices() {
   });
 }
 
+function requestApps() {
+  if (!selectedDevice) return;
+  document.getElementById("appArea").innerHTML =
+    '<div class="empty"><span class="spinner"></span> 正在请求应用清单…</div>';
+  sendRC({ cmd: "app_list", target: selectedDevice });
+}
+
+function startAutoRefresh(sec) {
+  refreshSec = Math.max(parseInt(sec, 10) || 60, 10);
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    if (selectedDevice) requestApps();
+  }, refreshSec * 1000);
+}
+
 function selectDevice(name) {
   selectedDevice = name;
   selectedApps = [];
   renderDevices();
-  document.getElementById("appArea").innerHTML =
-    '<div class="empty"><span class="spinner"></span> 正在请求应用清单…</div>';
-  sendRC({ cmd: "app_list", target: name });
+  startAutoRefresh(refreshSec); // 打开界面先刷新一次，之后按设置间隔自动刷新
+  requestApps();
 }
 
 // ================= 应用区 =================
@@ -190,19 +207,37 @@ function renderApps() {
   }
   area.innerHTML = "";
   const title = document.createElement("div");
-  title.style.cssText = "font-size:13px;color:#888;margin-bottom:10px;font-weight:600;";
-  title.textContent = "设备：" + selectedDevice + "（共 " + selectedApps.length + " 个应用）";
+  title.style.cssText = "font-size:13px;color:#888;margin-bottom:10px;font-weight:600;display:flex;align-items:center;gap:10px;";
+  const tt = document.createElement("span");
+  tt.textContent = "设备：" + selectedDevice + "（共 " + selectedApps.length + " 个应用）";
+  title.appendChild(tt);
+  const rb = document.createElement("button");
+  rb.className = "btn";
+  rb.textContent = "刷新";
+  rb.title = "立即获取真实状态";
+  rb.onclick = requestApps;
+  title.appendChild(rb);
+  const nf = document.createElement("span");
+  nf.textContent = "每 " + refreshSec + " 秒自动刷新";
+  nf.style.cssText = "font-size:11px;color:#bbb;margin-left:auto;";
+  title.appendChild(nf);
   area.appendChild(title);
   selectedApps.forEach(app => {
     const card = document.createElement("div");
     card.className = "app-card";
+    const installed = app.installed !== false;
     const run = !!app.running;
+    let statusHtml, statusCls;
+    if (!installed) { statusHtml = "未安装"; statusCls = "nainst"; }
+    else if (run) { statusHtml = "运行中"; statusCls = "run"; }
+    else { statusHtml = "未运行"; statusCls = "stop"; }
+    const disabled = installed ? "" : " disabled";
     card.innerHTML =
       '<div class="app-name">' + (app.name || app.key || "?") + '</div>' +
-      '<div class="status ' + (run ? "run" : "stop") + '">' + (run ? "运行中" : "未运行") + '</div>' +
-      '<button class="btn primary" data-act="app_open">打开</button>' +
-      '<button class="btn" data-act="app_restart">重启</button>' +
-      '<button class="btn danger" data-act="app_close">关闭</button>';
+      '<div class="status ' + statusCls + '">' + statusHtml + '</div>' +
+      '<button class="btn primary" data-act="app_open"' + disabled + '>打开</button>' +
+      '<button class="btn" data-act="app_restart"' + disabled + '>重启</button>' +
+      '<button class="btn danger" data-act="app_close"' + disabled + '>关闭</button>';
     card.querySelectorAll("button").forEach(btn => {
       btn.onclick = () => sendRC({ cmd: btn.dataset.act, target: selectedDevice, key: app.key });
     });
@@ -293,8 +328,9 @@ function handlePayload(payload) {
     try { data = JSON.parse(body); } catch (e) { return; }
     if (data.cmd === "app_list") {
       selectedApps = data.apps || [];
+      if (typeof data.refresh_sec === "number") startAutoRefresh(data.refresh_sec);
       renderApps();
-      log("收到 " + (data.apps || []).length + " 个应用清单");
+      log("收到 " + (data.apps || []).length + " 个应用清单（每 " + refreshSec + " 秒自动刷新）");
     } else if (data.cmd === "app_result") {
       if (selectedDevice) {
         const app = selectedApps.find(a => a.key === data.key);
