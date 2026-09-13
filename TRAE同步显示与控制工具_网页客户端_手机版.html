@@ -250,7 +250,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.21</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.22</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -288,7 +288,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.21 · 修复键盘误触发全屏 · 不再伪装首项</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.22 · 长消息确认前100字 · 不再伪装首项</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -611,6 +611,7 @@ const S = {
   /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡，
      服务端阶段事件推进状态，快照里出现同文本用户消息即撤下 */
   pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
+  pend_seen: {},                     /* 1.22：用户消息首见时刻 */
   switch_pend: null,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
@@ -872,9 +873,24 @@ function renderPending(){
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
 
+/* 1.22：发送确认匹配——「前 100 字相同」即可（长消息 TRAE 会折叠
+   显示，全文比对必然失败）。一侧不足 100 字按前缀算（折叠截断可能
+   不到 100 字）；任一侧短于 12 字则要求全等（防超短文本误配）。 */
+function pendHead100(sent, shown){
+  const a = (sent || '').trim().slice(0, 100);
+  const b = (shown || '').trim().slice(0, 100);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) >= 12)
+    return a.startsWith(b) || b.startsWith(a);
+  return false;
+}
+
 /* 快照到达：同文本用户消息出现 → 该占位已落地，撤下它。
    用 pend_claims 记住已被认领的消息下标（连发相同文本也不会误判）；
-   换会话则清空认领记录。返回 true 表示待确认集有变化需重画。 */
+   换会话则清空认领记录。返回 true 表示待确认集有变化需重画。
+   1.22：只认 60 秒内新出现的消息（首见时刻表 pend_seen），
+   防止与历史里同开头的老消息误配。 */
 function pendReconcile(msgs){
   if (!S.pending.length) return false;
   /* 当前会话标识（快照无 title 字段，取 convs 里的当前行） */
@@ -884,11 +900,20 @@ function pendReconcile(msgs){
   if (conv !== S.pend_conv){
     S.pend_conv = conv;
     S.pend_claims = [];
+    S.pend_seen = {};
   }
-  const users = (msgs || []).filter(m => m[0] === 'u');
+  const now = Date.now();
+  const users = [];
+  (msgs || []).forEach(m => {
+    if (m && m[0] === 'u'){
+      const ut = (m[1] || '').trim();
+      if (ut && !(ut in S.pend_seen)) S.pend_seen[ut] = now;
+      users.push(ut);
+    }
+  });
   let changed = false;
   const keep = [];
-  S.pending.forEach(p => {
+  S.pending.forEach((p, pi) => {
     if (p.kind === 'switch'){          /* 1.10：切换占位不进气泡，
         旧版误入的残留直接清掉（会话标题不会出现在消息区，按文本
         匹配永远失败 → 挂满 15s 变「未确认」，完全不真实） */
@@ -899,7 +924,9 @@ function pendReconcile(msgs){
     let idx = -1;
     for (let i = users.length - 1; i >= 0; i--){
       if (S.pend_claims.indexOf(i) >= 0) continue;
-      if ((users[i][1] || '').trim() === t){ idx = i; break; }
+      const ts0 = S.pend_seen[users[i]];      /* 60 秒内新消息才认 */
+      if (ts0 === undefined || now - ts0 > 60000) continue;
+      if (pendHead100(t, users[i])){ idx = i; break; }
     }
     if (idx >= 0){
       S.pend_claims.push(idx);
