@@ -1,0 +1,2563 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="a3BJFm1aqZ2wCBMnE5X6z1">
+<head data-page-node-id="ifPap0uNA7aKsFtXSqtqt1">
+<meta charset="utf-8" data-page-node-id="HtDIgArRIZ3kdjyQElQAk0">
+<meta name="viewport" content="width=device-width, initial-scale=1,
+  viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
+<meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
+<title>WorkBuddy同步显示与控制工具_网页客户端_手机版</title>
+<style>
+:root{
+  --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
+  --gray:#8a8a8a; --ubg:#e8f1fb; --abg:#ecf5ec; --bd:#d8dde3;
+}
+*{box-sizing:border-box; margin:0; padding:0;
+  -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{font:14px/1.55 "Microsoft YaHei","PingFang SC",sans-serif;
+  background:#f2f4f7; color:#222; display:flex; flex-direction:column;
+  overflow:hidden; overscroll-behavior:none; touch-action:manipulation;}
+button{font:inherit; cursor:pointer; border:1px solid var(--bd);
+  background:#fff; border-radius:6px; padding:4px 12px; min-height:36px;}
+button:disabled{color:#aaa; cursor:default; background:#f5f5f5;}
+input,select{font:inherit; border:1px solid var(--bd); border-radius:6px;
+  padding:4px 6px; background:#fff; min-height:36px;}
+select{font-size:12px;}
+/* ── 顶栏（两行 + 状态条） ── */
+#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);
+  padding-top:env(safe-area-inset-top);}
+.h1row{display:flex; align-items:center; gap:6px; padding:4px 8px;}
+#btn_menu{min-width:42px; font-size:17px; padding:4px 10px;}
+.h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+#lbl_rlink{margin-left:auto; font-weight:bold; font-size:12px;
+  white-space:nowrap;}
+/* 1.12：当前操控的服务端（点击进抽屉切换） */
+#lbl_srv{font-weight:bold; font-size:12px; color:var(--blue);
+  white-space:nowrap; max-width:34%; overflow:hidden;
+  text-overflow:ellipsis; cursor:pointer;}
+.h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
+  flex-wrap:wrap;}
+#cmb_box{flex:1; max-width:42%; min-width:0;}
+#cmb_model{flex:2; min-width:0;}
+#lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
+#statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
+  background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* ── 消息区 ── */
+#msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:8px 8px 4px; background:#fff;}
+/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
+   消息区独占整屏，能看更多历史；body.fmsg 生效 */
+body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
+body.fmsg #input_row{ display:none; }
+#fexit{display:none; position:fixed; right:12px; bottom:16px;
+  z-index:30; border:1px solid var(--blue); background:#fff;
+  color:var(--blue); font-weight:bold; border-radius:20px;
+  padding:2px 14px; min-height:34px;
+  box-shadow:0 2px 8px rgba(21,101,192,.25);}
+body.fmsg #fexit{display:block;}
+.msg{border-radius:8px; padding:5px 10px; margin:0 0 8px;}
+.msg.user{background:var(--ubg);}
+.msg.agent{background:var(--abg);}
+.msg .who{font-weight:bold; font-size:12px;}
+.msg.user .who{color:var(--blue);}
+.msg.agent .who{color:var(--green);}
+.msg .tm{color:var(--gray); font-size:11px; margin-left:6px;}
+.msg .body{margin-top:2px; white-space:pre-wrap; word-break:break-word;}
+.msg .body code{background:rgba(0,0,0,.06); padding:0 4px;
+  border-radius:3px; font-family:Consolas,monospace; font-size:12px;}
+.msg .body pre{background:rgba(0,0,0,.05); padding:6px 8px;
+  border-radius:4px; overflow-x:auto; margin:4px 0;}
+.msg .body pre code{background:none; padding:0;}
+.msg .body h1,.msg .body h2,.msg .body h3{margin:4px 0 2px; font-size:14px;}
+.msg .body a{color:var(--blue);}
+.empty{color:#999; text-align:center; padding:30px 0;}
+/* ── 1.25：会话操作菜单（长按会话行） ── */
+#convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
+  display:flex; align-items:flex-end; justify-content:center;}
+.cmsheet{background:#fff; border-radius:14px 14px 0 0; width:100%;
+  max-width:420px; padding:10px 14px calc(14px + env(safe-area-inset-bottom));}
+.cmsheet .cmtitle{font-size:13px; color:var(--gray); margin:2px 2px 8px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.cmsheet button{display:block; width:100%; text-align:left; padding:12px 10px;
+  border:none; background:none; font-size:16px; border-radius:8px;
+  color:#222;}
+.cmsheet button:active{background:#f0f2f5;}
+.cmsheet button.cmcancel{color:var(--gray); text-align:center;}
+/* ── 1.06：消息操作（回退/删除）+ AI 选项卡 ── */
+.msg .who{display:flex; align-items:center;}
+.who .mract{margin-left:auto; display:flex; gap:4px;}
+.mact{font-size:11px; min-height:22px; padding:0 8px; border-radius:4px;}
+.mact.rev{color:var(--blue);}
+.mact.del{color:var(--red);}
+#opts{margin:0 0 8px; display:flex; flex-direction:column; gap:5px;}
+#opts .othint{font-size:11px; color:var(--gray); padding:0 2px;}
+.optbtn{text-align:left; min-height:34px;}
+/* ── 1.40：AI 提问卡（结构化 ask 快照）── */
+.otherrow{display:flex; gap:6px; align-items:stretch;}
+.otherrow input{flex:1; min-width:0; font-size:14px; padding:7px 10px;
+  border:1px solid #c5cbd3; border-radius:8px; background:#fff;
+  color:#1c2733;}
+.otherrow input:disabled{opacity:.55;}
+.otherrow button{font-size:13px; padding:0 14px; border-radius:8px;
+  border:1px solid var(--blue); background:var(--blue); color:#fff;}
+.otherrow button:disabled{opacity:.5;}
+.askfoot{display:flex; gap:8px; justify-content:flex-end; margin-top:2px;}
+.askfoot button{font-size:13px; min-height:32px; padding:0 16px;
+  border-radius:8px; border:1px solid #c5cbd3; background:#fff;
+  color:#37474f;}
+.askfoot button:disabled{opacity:.5;}
+.askfoot #askgo{border-color:var(--blue); background:var(--blue);
+  color:#fff;}
+/* ── 1.09：待确认占位气泡（空窗期反馈）── */
+.msg.pend{background:var(--ubg); border:1px dashed rgba(21,101,192,.55);}
+.msg.pend .body{color:#5a6b7d;}
+.msg.pend .pstat{font-size:11px; margin-left:6px; padding:1px 7px;
+  border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);}
+.msg.pend.ok .pstat{background:rgba(10,125,50,.14); color:var(--green);}
+.msg.pend.bad{border-color:rgba(198,40,40,.65);}
+.msg.pend.bad .pstat{background:rgba(198,40,40,.14); color:var(--red);}
+.msg.pend .pacts{margin-left:auto; display:flex; gap:4px;}
+.pendbtn{font-size:11px; min-height:22px; padding:0 8px; border-radius:4px;}
+.pendbtn.go{color:var(--blue);}
+.pendbtn.drop{color:var(--gray);}
+.switching{background:rgba(21,101,192,.07); border:1px dashed
+  rgba(21,101,192,.35); color:var(--blue); font-size:12px;
+  border-radius:8px; padding:6px 10px; margin:0 0 8px; text-align:center;}
+.switching::after{content:''; display:inline-block; width:6px; height:6px;
+  margin-left:6px; border-radius:50%; background:var(--blue);
+  animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+.optbtn.picked{opacity:.55;}
+/* ── 1.06：抽屉 文件夹➕ / 防升级开关 ── */
+.convo.folder{display:flex; align-items:center;}
+.convo.folder .fname{flex:1; min-width:0; overflow:hidden;
+  text-overflow:ellipsis;}
+.fplus{color:var(--blue); font-weight:bold; padding:0 4px 0 12px;}
+#btn_block .st{font-weight:normal; color:var(--gray); font-size:12px;}
+#btn_block.on .st{color:var(--green); font-weight:bold;}
+#finish{background:var(--abg); border-radius:8px; padding:5px 10px;
+  margin-bottom:8px;}
+#finish .ft{font-weight:bold; color:var(--green);}
+#finish .ff{color:var(--green); font-size:12px;}
+/* ── 附件行 / 输入行 ── */
+#attach_row{display:none; gap:4px; padding:2px 8px; flex-wrap:wrap;
+  flex:none; background:#fff;}
+#attach_row.on{display:flex;}
+.chip{border-radius:5px; padding:2px 8px; font-size:12px;
+  display:inline-flex; gap:4px; align-items:center; min-height:26px;}
+.chip.pend{background:#eee; color:#666;}
+.chip.ok{background:#e3f0fb; color:var(--blue);}
+.chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
+  padding:0 2px;}
+#input_row{display:flex; gap:6px; align-items:center;
+  padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+  background:#fff; border-top:1px solid var(--bd); flex:none;}
+#btn_attach{min-width:46px;}
+#btn_bench{min-width:46px;}
+#ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:260px;
+  line-height:22px; border:none; outline:none; resize:none;
+  overflow-y:auto; box-sizing:border-box; font-family:inherit;}
+#ent.grow{height:170px;}   /* 聚焦增高（约5倍单行高度+随内容自适应） */
+#btn_send{min-width:66px; font-weight:bold; color:var(--blue);}
+#btn_send.stopmode{color:var(--red); border-color:var(--red);}
+#btn_send.intermode{color:var(--orange); border-color:var(--orange);}
+/* ── 抽屉（会话 + 菜单） ── */
+#mask{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:29;
+  display:none;}
+#mask.on{display:block;}
+#drawer{position:fixed; left:0; top:0; bottom:0; width:76%; max-width:300px;
+  background:#fff; z-index:30; transform:translateX(-102%);
+  transition:transform .18s ease; display:flex; flex-direction:column;
+  box-shadow:2px 0 10px rgba(0,0,0,.25); overscroll-behavior:contain;}
+#drawer.on{transform:none;}
+.dhdr{flex:none; display:flex; align-items:center;
+  justify-content:space-between; padding:8px 12px;
+  border-bottom:1px solid var(--bd);}
+.dhdr b{color:var(--blue);}
+#btn_dclose{min-width:38px; min-height:32px; padding:2px 10px;}
+#convs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:4px 0;}
+.convo{padding:8px 14px; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; color:#333;}
+.convo.folder{color:#0d47a1; font-weight:bold; font-size:13px;}
+.convo.item.act{background:#e3effb; color:var(--blue); font-weight:bold;}
+.dsec{flex:none; padding:6px 12px 2px; color:var(--gray); font-size:12px;
+  border-top:1px solid var(--bd); background:#fafbfc;}
+.dmi{flex:none; padding:10px 14px; cursor:pointer;}
+.dmi:active{background:#eef4fb;}
+#lbl_ver{flex:none; padding:8px 12px calc(8px + env(safe-area-inset-bottom));
+  color:var(--gray); font-size:11px; border-top:1px solid var(--bd);
+  background:#fafbfc;}
+/* ── 网络页（全屏覆盖） ── */
+#page_net{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_net.on{display:flex;}
+.nhdr{flex:none; display:flex; align-items:center; gap:8px;
+  padding:6px 10px calc(6px + env(safe-area-inset-top));
+  background:#fff; border-bottom:1px solid var(--bd);}
+.nhdr b{color:var(--blue); font-size:15px;}
+.nbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:10px 10px calc(10px + env(safe-area-inset-bottom));}
+fieldset{border:1px solid var(--bd); border-radius:8px;
+  padding:8px 10px; margin-bottom:12px; background:#fff;}
+legend{color:var(--blue); font-weight:bold; padding:0 6px;}
+.row{display:flex; align-items:center; gap:6px; margin:4px 0;
+  flex-wrap:wrap;}
+.row .hint{color:var(--gray); font-size:11px;}
+#in_wsurl{flex:1; min-width:0; font-size:13px;}
+#lbl_today{font-size:16px; font-weight:bold; color:var(--blue);}
+table{border-collapse:collapse; width:100%; margin-top:6px; font-size:12px;}
+th,td{border:1px solid var(--bd); padding:3px 6px; text-align:left;}
+th{background:#eef2f6;}
+td.num,th.num{text-align:right; font-family:Consolas,monospace;}
+#btn_netsave{color:var(--blue); font-weight:bold;}
+/* ── 工作台浏览页（全屏覆盖，1.01）── */
+#page_bench{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_bench.on{display:flex;}
+#bench_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:#fff; overscroll-behavior:contain;}
+.brow{padding:9px 14px; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; border-bottom:1px solid #eef1f4;}
+.brow:active{background:#eef4fb;}
+.brow.dir{color:#0d47a1;}
+.brow.file{color:#333;}
+.brow.up{color:var(--gray);}
+.brow.empty{color:#999; cursor:default;}
+.brow .plus{float:right; color:var(--blue); font-weight:bold;}
+#bfoot{flex:none; padding:6px 12px calc(6px + env(safe-area-inset-bottom));
+  color:var(--gray); font-size:11px; background:#fff;
+  border-top:1px solid var(--bd);}
+/* ── 1.15：模型收藏管理页（全屏覆盖）── */
+#page_fav{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_fav.on{display:flex;}
+#fav_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:#fff; overscroll-behavior:contain;}
+.frow{display:flex; align-items:center; gap:8px; padding:10px 14px;
+  cursor:pointer; border-bottom:1px solid #eef1f4; font-size:14px;}
+.frow:active{background:#eef4fb;}
+.frow .fname{flex:1; min-width:0; overflow:hidden; white-space:nowrap;
+  text-overflow:ellipsis;}
+.frow .fstar{flex:none; font-size:17px; width:30px; text-align:center;}
+.frow.isfav .fstar{color:#e6a700;}
+.frow.isfav .fname{color:var(--blue); font-weight:bold;}
+.frow.dead .fname{color:#c62828;}
+.frow.dead .fmark{flex:none; color:#c62828; font-size:11px;}
+.fhint{padding:10px 14px; color:var(--gray); font-size:12px;
+  line-height:1.6;}
+#btn_fav{flex:none; min-width:34px;}
+/* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
+   bench 覆盖本页，选定后回来）── */
+#page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_taskdlg.on{display:flex;}
+.tdbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:14px 14px calc(14px + env(safe-area-inset-bottom));}
+.tdsec{font-size:12px; color:var(--gray); margin:4px 0 8px;}
+.tdpick{background:#fff; border:1px solid var(--bd); border-radius:8px;
+  padding:13px 14px; cursor:pointer; color:var(--blue); font-weight:bold;}
+.tdpick:active{background:#eef4fb;}
+#td_sel{background:#fff; border:1px solid var(--bd); border-radius:8px;
+  padding:10px 14px;}
+.tdrow1{display:flex; align-items:center;}
+.tdname{flex:1; font-weight:bold; font-size:15px; overflow:hidden;
+  white-space:nowrap; text-overflow:ellipsis;}
+#btn_tdre{flex:none; margin-left:8px; color:var(--orange); font-size:12px;}
+.tdfull{color:var(--gray); font-size:11px; margin-top:4px;
+  word-break:break-all;}
+.tdhint{color:var(--gray); font-size:11px; margin-top:10px; line-height:1.6;}
+.tdstat{color:var(--blue); font-size:12px; margin-top:14px;
+  min-height:16px;}
+</style>
+</head>
+<body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
+
+<div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
+  <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
+    <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">WorkBuddy远程·手机版 v1.26</span>
+    <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
+    <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
+  </div>
+  <div class="h2row" data-page-node-id="euyPvOhmsEx2BKClFKwgAN">
+    <select id="cmb_box" data-page-node-id="avZdj3ZBchVnC6JODiSw44"></select>
+    <span id="lbl_ports" data-page-node-id="zBgT5txMkCBKKMlkXhsbis">在线 —</span>
+    <span id="lbl_points" data-page-node-id="yFYp8ovoyEJEqbf3s1uUjI">积分 —</span>
+    <select id="cmb_model" data-page-node-id="QQf0z68kfKCspuI3tgt6mc"></select>
+    <button id="btn_fav" title="模型收藏管理" data-page-node-id="QQf0z68kfKCspuI3tgt6md">☆</button>
+  </div>
+  <div id="statebar" data-page-node-id="CWWwN1Nx4NvBnM1wGfRZ6V">连接中…</div>
+</div>
+
+<div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
+<div id="attach_row" data-page-node-id="0FRu38I2Y9H4SjISPCj3qv"></div>
+<div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
+  <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
+  <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
+  <textarea id="ent" placeholder="输入消息…" rows="1"></textarea>
+  <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
+  <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
+</div>
+
+<button id="fexit" title="退出历史全屏">↓ 回到最新</button>
+
+<div id="mask" data-page-node-id="I7viH7nT9Joec3kgqGKfLl"></div>
+<aside id="drawer" data-page-node-id="VClCJuexXQ02vBOU4OB5Hp">
+  <div class="dhdr" data-page-node-id="UX9xJ7WTICEexReuYMmB1i"><b data-page-node-id="cdqe18BGvfIS49PF4TNU1B">会话与操作</b>
+    <button id="btn_dclose" data-page-node-id="bw5XmI4so1On3gY8Lekl62">✕</button></div>
+  <div id="convs" data-page-node-id="IsffT1TgDFvsO7otRBnwGp"></div>
+  <div class="dsec" data-page-node-id="0zAOhFVQ79VNdiCr8Fnrjw">服务端（点击切换操控）</div>
+  <div id="srvlist" data-page-node-id="PGBlxfvg8bFmppmtz2w0MO"></div>
+  <div class="dsec" data-page-node-id="c3sDv9IscaIa1GP95F52FT">操作</div>
+  <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
+  <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
+  <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
+  <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.26 · AI提问卡可点选作答 · 不再伪装首项</div>
+</aside>
+
+<!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
+     1.06：双模式——插入路径 / 选定工作目录新建任务（✅ 头钮） -->
+<div id="page_bench" data-page-node-id="uHDGvgap8UHBowBBpOQDrH">
+  <div class="nhdr" data-page-node-id="L21IuAXdE94HzveZAKp5Z6">
+    <button id="btn_benchback" data-page-node-id="EOwUXuVYMphga9cSkEGX0g">‹ 返回</button>
+    <b id="lbl_bench" data-page-node-id="79NvRM4UbQGSgpsEBxQnL2">📂 工作台</b>
+    <button id="btn_bench_ok" title="选定当前浏览的目录（新建任务）"
+      style="margin-left:auto; min-width:52px; display:none;" data-page-node-id="0ECXrFOWDwaRJM8VQeLt2X">✅</button>
+    <button id="btn_bench_up" style="min-width:52px;" data-page-node-id="xCb5ddevivi6saWjwdt8b1">⬆</button>
+  </div>
+  <div id="bench_list" data-page-node-id="aNDBDnDCbWLXCl2z9LXguS"></div>
+  <div id="bfoot" data-page-node-id="FEpMnO7IgqKtfL6QzKv7zL">📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入</div>
+</div>
+
+<!-- 1.08：新建任务弹窗（对齐服务端 v1.10 TaskDlg）——new_task_dlg
+     展开输入区并抓 WorkBuddy 记忆目录（task_dlg 事件预填）；选择/重选=
+     📂 浏览页选目录回填；创建=目录与记忆有变化才 task_dir_set，
+     一致零操作直接就绪；取消=task_dlg_cancel（Esc 关输入区） -->
+<div id="page_taskdlg" data-page-node-id="kV2H9hiNAlPGaDMK6yCdQF">
+  <div class="nhdr" data-page-node-id="SaAHCCGxHWyKMeBapPlNsl">
+    <button id="btn_tdcancel" data-page-node-id="brcLaYonoiUFU5NxsEOXID">‹ 取消</button>
+    <b data-page-node-id="6dTixRCqwEY0vHQXsdEtcZ">✚ 新建任务</b>
+    <button id="btn_tdok" style="margin-left:auto; color:var(--blue);
+      font-weight:bold;" data-page-node-id="8EPHMakfdQxa1u86YOgEb8">创建</button>
+  </div>
+  <div class="tdbody" data-page-node-id="gcUg9ErXf8pwq3fpCAYB8A">
+    <div class="tdsec" data-page-node-id="SpMrMh8pWN6H6CJnTJBkJy">工作目录（可选）</div>
+    <div id="td_none" class="tdpick" data-page-node-id="6aaZNh0HtLtqcBIPABx8ro">📁 选择文件夹…</div>
+    <div id="td_sel" data-page-node-id="xdzVqVVwac2toluF03ACpi">
+      <div class="tdrow1" data-page-node-id="fxKMEKd140HhrNpiLBn9HG"><span id="td_name" class="tdname" data-page-node-id="ZcC5gspgNPgz1lx6AGZF7t"></span>
+        <button id="btn_tdre" data-page-node-id="bdW4KJ0BPDhKVKkmnV0D7W">✕ 重选</button></div>
+      <div id="td_full" class="tdfull" data-page-node-id="Kij3Q52TqaiwAhu7CdJ1kZ"></div>
+    </div>
+    <div id="td_lock" class="tdhint" style="display:none;
+        color:var(--blue); font-weight:bold;" data-page-node-id="MFjHnlYEfl4KwQ9vMEka8W"></div>
+    <div class="tdhint" data-page-node-id="IpSHdKZWF7WUpqn72ktFXI">新任务的工作区将指向所选目录；与 WorkBuddy 记忆一致
+      时零操作直接就绪。从 📂 浏览页选定后回到本页点「创建」。</div>
+    <div id="td_stat" class="tdstat" data-page-node-id="57lnk93UF2L7NlSUkvPx2w">正在展开新建任务…</div>
+  </div>
+</div>
+
+<!-- 1.15：模型收藏管理页——列出官方全部模型，点行收藏/取消收藏；
+     失效收藏（官方改名/下架）单列一节可移除。下拉列表有收藏时只
+     显示收藏 + 当前模型。 -->
+<div id="page_fav">
+  <div class="nhdr">
+    <button id="btn_favback">‹ 返回</button>
+    <b>☆ 模型收藏</b>
+  </div>
+  <div class="fhint">点模型行收藏 ★ / 取消 ☆（立即生效并持久保存）。
+    有收藏后，顶栏模型下拉只显示收藏的模型；当前对话选中的非收藏
+    模型仍会显示出来，但切换列表里不再出现其它未收藏模型。</div>
+  <div id="fav_list"></div>
+  <div id="bfoot">官方模型列表经常变更，收藏被改名/下架时会标 ⚠ 提醒，
+    到本页红字处移除即可。</div>
+</div>
+
+<div id="page_net" data-page-node-id="oddG8dIObpfpeiicXo0wyz">
+  <div class="nhdr" data-page-node-id="SkWX0NpP7LfDsIUv2uU5BW">
+    <button id="btn_netback" data-page-node-id="CpHM5colHBIkcO68jwAKhI">‹ 返回</button>
+    <b data-page-node-id="sqtAJ2SqjLlJyH6aFUI87l">网络</b>
+  </div>
+  <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
+    <fieldset data-page-node-id="FFEkTqPDyCvWYOBJYHsezc">
+      <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
+      <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">服务地址</label>
+        <input id="in_wsurl" data-page-node-id="DVptB7LnQ9GbFJNGjINr6s"></div>
+      <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
+        与服务端网络页同款地址（两边一致即互通）。修改后保存并重连
+        生效。</span></div>
+    </fieldset>
+    <fieldset data-page-node-id="8SKaqjuDG4j8saN4BtSqaW">
+      <legend data-page-node-id="bcrQE6cC0XiryhicJJtmZn">流量统计（WebSocket）</legend>
+      <div class="row" data-page-node-id="dQdF4c001Jf9DJEAXAcciN"><span id="lbl_today" data-page-node-id="YN59Jot8ToDDSF5i8yCgNy">今日  收 0 B·0 条   发 0 B·0 条</span></div>
+      <div class="row" data-page-node-id="AZlqYB0VqLsZX8bjc5lTQT">
+        <label data-page-node-id="5o9aSMOjeJkS4irLVTXcgl">保留天数</label>
+        <input id="in_keep" type="number" min="1" max="3650" value="100"
+          style="width:70px;" data-page-node-id="xCprX30d3pfmORZsYhO2qy">
+        <span class="hint" data-page-node-id="d2Z1UJB5cxMl7Kf759pQsB">超期自动清理；30 秒落盘一次。</span>
+      </div>
+      <table id="tv_net" data-page-node-id="dKnTt30BFfWpXLv4gLFC2a">
+        <thead data-page-node-id="615HoG3oazf3ZuX3FHuBU7"><tr data-page-node-id="l4putJz8xlBPH88WuJVyGm"><th data-page-node-id="vKb7shjyBBraxyv4haUCWL">日期</th><th class="num" data-page-node-id="rplzMX9rBq3uhuibReBMfb">收</th><th class="num" data-page-node-id="CT05dM49MxgQHgjbEw2RAv">条</th>
+          <th class="num" data-page-node-id="Xbva2eFt8XFjasuKXLlytL">发</th><th class="num" data-page-node-id="aEVxHZt6NcjSThvVOml3Pf">条</th></tr></thead>
+        <tbody data-page-node-id="ERUQgE2BRVaLqVCVQjyx4l"></tbody>
+      </table>
+    </fieldset>
+    <div class="row" data-page-node-id="AarmtWGaXLkCWjMJLws5C1">
+      <button id="btn_netsave" disabled data-page-node-id="G2KG6btlv2PooEaIfnNKMJ">保存</button>
+      <span id="lbl_netflash" data-page-node-id="IJ1J8pTZbXPsxZWok11Svr"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ================= 手机版网页客户端 v1.13 =================
+ * 与桌面网页版/桌面客户端同协议：PieSocket 中继 + FOX 分段 +
+ * hello/ev 事件流。本端 FOX 发送者 ID = 4000000001（区别于服务端
+ * 1000000001、桌面客户端 2000000001、桌面网页版 3000000001——
+ * 四种客户端可同时在线互不吞回声）。
+ * 竖屏布局：顶栏两行+状态条 / 抽屉式会话与操作 / 底部输入栏
+ * （安全区适配 + 16px 输入防 iOS 聚焦放大 + 单按钮三态切换）。
+ * v1.01：插话（生成中打字，按钮变橙色「插话」，服务端以 Enter 触发
+ * WorkBuddy 官方排队机制，AI 在当前步骤边界消费）+ 📂 工作台远程浏览
+ * （bench_ls 全屏页选路径插入输入框）。
+ * v1.06（对齐服务端 v1.06）：用户消息尾部 ↩回退/🗑删除（快照
+ * [rev,del] 标志，仅空闲对话出现，序号=「我」的消息第 N 条）/
+ * AI 提问选项卡点选（快照 opts，pick_opt）/ 新任务选工作目录
+ * （📂 浏览页双模式，✅ 选定后 new_task_dir）/ 文件夹组头 ➕
+ * 组内新建（new_task_in，隶属文件夹工作区）/ 🚫 防自动升级开关
+ * （block_update，hello.block 初始态 + block_stat 事件回驱）。
+ * v1.07：① 拉起项放行在线重启（服务端 boot 本就先杀再拉，原在线
+ * 时本地拦下导致 WorkBuddy 卡死时救不了）；② 移除全部导出功能（抽屉
+ * 导出区 + export_full 命令 + collected 落盘链路）；③ 顶栏状态灯
+ * 改为「与服务的连接」：WS坏了 / 连接成功 / 服务器未启动——判活
+ * 依据 = 服务端 6s 一轮的 ports 广播等任何来向消息（16s 无消息判
+ * 离线），不再显示无意义的「自身是否在线」。
+ * v1.08（对齐服务端 v1.10）：新建任务改弹窗流程——「✚ 新任务」先发
+ * new_task_dlg（服务端展开 WorkBuddy 输入区并抓记忆工作目录，task_dlg
+ * 事件预填本页）；工作目录行：未选=「选择文件夹…」，已选=目录名+
+ * 完整路径+「✕ 重选」（📂 浏览页选目录回填）；「创建」=目录与记忆
+ * 有变化才发 task_dir_set（task_dlg_ok 回报），一致零操作直接就绪；
+ * 「取消」= task_dlg_cancel。原「新任务（选工作目录）」入口并入本
+ * 弹窗（选不选目录都走同一入口）。
+ * v1.09（对齐服务端 v1.14）：空窗期反馈（待确认占位）——点「发送」
+ * 后要等服务端注入 WorkBuddy、点发送、WorkBuddy 渲染、0.8s 轮询、中继回传，
+ * 实测 3~6s 才看得到自己那条（最小化时更久）。这段空白以前没有任何
+ * 反馈，像「点了没反应 / 消息丢了」。现在：发送/插话本地立即回显一条
+ * 「我」的虚线占位气泡并标【发送中…/排队中…】，服务端阶段事件
+ * （sent.stage：typed 已进输入框 → clicked 已点发送 / queued 已排队）
+ * 推进状态，快照里出现同文本用户消息即撤下占位；15 秒未出现或收到
+ * cmderr ⇒ 标「⚠ 未确认」并给「重发 / 丢弃」（认领下标防连发相同
+ * 文本误判）。另补：切换会话「正在切换到「X」…」在途条（0.8~6s）、
+ * 折叠/展开与停止生成的即时提示、选项卡点后禁用防重复点。
+ * v1.12（对齐服务端 v1.23）：多服务端——① 顶栏新增「操控:服务端名」
+ * （点按进抽屉），抽屉新增「服务端」清单（在线 ● / 离线 ○，点击即
+ * 切换操控对象，选择记忆在 localStorage）；② 服务端 FOX 发送者
+ * '1' 开头即认（服务端 ID 由服务器名称派生，不再固定 1000000001，
+ * 仍拒收 '4' 开头的客户端回声）；③ 所有报文自动带 'to':当前操控的
+ * 服务端名（服务端据此定向受理，多台服务端同频道互不串台）；④
+ * hello/srv 心跳（20s/超时 75s）维护在线服务端名册，当前操控对象
+ * 离线自动切到下一个在线者；事件流按 'srv' 源头过滤，只渲染当前
+ * 操控服务端的内容。
+ * v1.13（对齐服务端 v1.24）：操控互斥——本端 ID 改为持久唯一
+ * （'4'+9位，localStorage），每 20s 发 ctl_hb 续占、切走发 ctl_free
+ * 还锁；被占用时 hello 提示、指令被拒显示 deny 提示。
+ * v1.14（对齐服务端 v1.25）：① 切换后看门狗——切服务端 3s 没等到
+ * 快照就重发 hello（最多 5 次），防中继丢包「正在连接」卡死（点
+ * 当前已操控的服务端本就不动作，1.13 已忽略）；② 上翻历史约一屏
+ * 自动进入「历史全屏」（隐藏顶栏/输入行，消息区独占整屏看更多
+ * 历史），翻回接近底部（带半屏冗余）或点「↓ 回到最新」退出。
+ * v1.15：模型收藏——顶栏 ☆ 打开收藏管理页（列出官方模型点按收
+ * 藏/取消，localStorage 持久）；已有收藏时模型下拉只列收藏项，
+ * 当前选中的非收藏模型仍显示（标「当前」）；官方改名/下架导致
+ * 收藏失效时下拉标 ⚠ 并弹提醒（不可误切，可去管理页移除）。
+ * v1.16：切换「到达确认」——WorkBuddy 先点亮会话标题后加载正文，旧
+ * 逻辑标题一对上就撤「正在切换」条并显示「空闲」，正文其实还没
+ * 到。现记录切换前消息指纹，快照里消息内容真的变化（正文到达）
+ * 才撤条；状态栏在途期间强制显示「正在切换」，不提前显示空闲。
+ * v1.17：connected 后拉积分/模型列表的延时 8s→3s（connected 时
+ * 服务端快照 eval 已成功一次，界面基本可用；配合服务端 v1.30
+ * 救活放宽，网页端连上后不必再等很久）。
+ * v1.18：模型未知占位——WorkBuddy 渲染冻结时 snap.model 读不到（空），
+ * 旧 syncModel 直接早退，下拉残留浏览器默认第一项，伪装成「已
+ * 选中第一个模型」误导用户。现显示「（模型未知）」占位，恢复
+ * 后自动换真值（配合服务端 v1.32 救活升级：同模型重选促重渲染，
+ * 冻结很快解除，占位只是短暂过渡）。 */
+
+/* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
+ * 在 localStorage（服务端按此 ID 锁定操控者；刷新/重开页面 ID 不变） */
+let MY_ID = localStorage.getItem('wb_webm_uid');
+if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
+  MY_ID = '4' + String(Math.floor(100000000 + Math.random() * 900000000));
+  try { localStorage.setItem('wb_webm_uid', MY_ID); } catch(e){}
+}
+const SERVER_ID= '1000000001';
+const WS_URL_DEF = ('wss://free.blr2.piesocket.com/v3/WorkBuddy'
+                    + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+const KA_SEC = 25;      // 心跳间隔（秒）
+const RECONNECT = 3;    // 断线重连间隔（秒）
+const FOX_HDR = 57;     // 协议头固定字节数
+const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
+const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
+
+/* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
+
+const LS_CFG = 'wb_webm_cfg', LS_NET = 'wb_webm_net',
+      LS_TM = 'wb_webm_times', LS_SRV = 'wb_webm_srv';
+
+function cfgGet(){
+  try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
+  catch(e){ return {}; }
+}
+function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
+let CFG = cfgGet();
+if (!CFG.ws_url) CFG.ws_url = WS_URL_DEF;
+if (!CFG.stats_keep) CFG.stats_keep = 100;
+
+const NET = (function(){
+  let d = {};
+  try { d = (JSON.parse(localStorage.getItem(LS_NET)) || {}).days || {}; }
+  catch(e){ d = {}; }
+  return {days: d};
+})();
+function netDay(){ return new Date().toLocaleDateString('sv'); }  // YYYY-MM-DD
+function statsAdd(rx, tx, rxn, txn){      // 字节 + 条数（对齐服务端 v1.04）
+  const b = NET.days[netDay()]
+    || (NET.days[netDay()] = {rx:0, tx:0, rxn:0, txn:0});
+  if (rx) b.rx += rx;
+  if (tx) b.tx += tx;
+  if (rxn) b.rxn = (b.rxn || 0) + rxn;
+  if (txn) b.txn = (b.txn || 0) + txn;
+}
+function statsFlush(){
+  const keep = Math.max(1, parseInt(CFG.stats_keep) || 100);
+  const ks = Object.keys(NET.days).sort();
+  if (ks.length > keep)
+    ks.slice(0, ks.length - keep).forEach(k => delete NET.days[k]);
+  localStorage.setItem(LS_NET, JSON.stringify(NET));
+}
+function fmtBytes(n){
+  n = n || 0;
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n/1048576).toFixed(2) + ' MB';
+  return (n/1073741824).toFixed(2) + ' GB';
+}
+
+/* ================= FOX 分段协议 ================= */
+
+const ENC = new TextEncoder(), DEC = new TextDecoder();
+
+function foxSplit(text){          // 按 UTF-8 字节切，回退字节边界保多字节完整
+  const raw = ENC.encode(text), out = [];
+  let cur = 0;
+  while (cur < raw.length){
+    let end = Math.min(cur + FOX_MAX, raw.length);
+    while (end > cur){
+      try { out.push(DEC.decode(raw.slice(cur, end))); break; }
+      catch(e){ end--; }
+    }
+    if (end === cur) out.push('');
+    cur = end;
+  }
+  return out;
+}
+
+const FoxIn = {                   // 分段拼装器（300s 残包超时丢弃）
+  buf: {},
+  feed(msg){
+    const m = FOX_RE.exec(msg);
+    if (!m) return null;
+    const [, ts, rnd, sender, idx, total] = m;
+    const body = msg.slice(msg.indexOf('】') + 1);
+    if (parseInt(total) <= 1) return [sender, body];
+    const mid = ts + rnd, t = Date.now();
+    const d = this.buf[mid] || (this.buf[mid] =
+      {n: parseInt(total), p: {}, at: t});
+    d.p[parseInt(idx)] = body;
+    d.at = t;
+    if (Object.keys(d.p).length < d.n){
+      for (const k in this.buf)
+        if (t - this.buf[k].at > 300000) delete this.buf[k];
+      return null;
+    }
+    let full = '';
+    for (let i = 1; i <= d.n; i++) full += (d.p[i] || '');
+    delete this.buf[mid];
+    return [sender, full];
+  }
+};
+
+function rnd8(){
+  let s = '';
+  const a = 'abcdefghijklmnopqrstuvwxyz';
+  for (let i = 0; i < 8; i++) s += a[Math.random()*26|0];
+  return s;
+}
+function pad3(n){ return String(n).padStart(3, '0'); }
+
+async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中继丢弃）
+  const parts = foxSplit(text);
+  const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  const mid = ts + rnd8();
+  for (let i = 1; i <= parts.length; i++){
+    const s = '【FOXID:' + mid + MY_ID + '=cut(' + pad3(i) + '/'
+              + pad3(parts.length) + ')】' + parts[i-1];
+    ws.send(s);
+    statsAdd(0, s.length, 0, 1);
+    if (parts.length > 1) await new Promise(r => setTimeout(r, 30));
+  }
+}
+function sendJson(d){
+  /* 1.12：报文自动定向到当前操控的服务端（多服务端同频道） */
+  if (S.cur && !d.to) d.to = S.cur;
+  foxSend(JSON.stringify(d));
+}
+function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
+
+/* ================= 状态 ================= */
+
+const S = {
+  ws: null, onLine: false, wsOpenAt: 0, lastSrv: 0,
+  box: '(未连接)', port: 0, boxes: [], alive: new Set(),
+  points: '—', snap: {},
+  attach_pending: null,
+  model_map: {}, model_busy: false,
+  /* 1.15 模型收藏：favs=收藏的模型真名数组（localStorage 持久）；
+     models_full=最近一拍官方模型列表 [name,trail,restricted]；
+     fav_invalid=失效收藏名集合（官方改名/下架），warned=已提醒集合 */
+  favs: [], models_full: [], fav_invalid: [], fav_warned: [],
+  model_names: new Set(),
+  convs_key: null, msgs_key: null,
+  busy: false, gen: false, ready: false, bench: null,
+  bench_mode: 'ins',
+  task_open: false, task_mem: '', task_cur: '', task_lock: null,
+  /* 1.08 新建任务弹窗 / 1.11 task_lock=锁定文件夹 */
+  /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡，
+     服务端阶段事件推进状态，快照里出现同文本用户消息即撤下 */
+  pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
+  pend_seen: {},                     /* 1.22：用户消息首见时刻 */
+  pend_head: 100,                    /* 1.23：确认匹配字数（hello/pendcfg 同步） */
+  pend_age: 30000,                   /* 1.24：消息出现时限毫秒（30 秒） */
+  switch_pend: null,
+  /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
+     conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
+  servers: {},
+  cur: null,
+};
+
+/* ================= DOM 快捷 ================= */
+
+const $ = id => document.getElementById(id);
+const el = {
+  menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
+  srv: $('lbl_srv'), srvlist: $('srvlist'),
+  ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
+  state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
+  attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
+  file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
+  dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
+  launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
+  netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
+  wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
+  nflash: $('lbl_netflash'),
+  bench: $('btn_bench'), benchpage: $('page_bench'),
+  benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
+  benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
+  bench_ok: $('btn_bench_ok'), bfoot: $('bfoot'),
+  taskpage: $('page_taskdlg'), td_none: $('td_none'),
+  td_lock: $('td_lock'),
+  td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
+  td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
+  td_stat: $('td_stat'), block: $('btn_block'),
+  fexit: $('fexit'),
+  fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
+  favlist: $('fav_list'),
+};
+
+let flashTimer = null;
+function flash(msg, color){
+  el.state.textContent = msg;
+  el.state.style.color = color || 'var(--red)';
+  clearTimeout(flashTimer);
+  if (msg) flashTimer = setTimeout(() => renderState(S.snap), 4000);
+}
+
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* 1.24：一键复制文本（clipboard API 优先，非安全上下文兜底） */
+function copyText(t){
+  t = String(t == null ? '' : t);
+  const done = () => flash('已复制到剪贴板', 'var(--green)');
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(() => copyFallback(t, done));
+  } else copyFallback(t, done);
+}
+function copyFallback(t, done){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    done();
+  }catch(e){ flash('复制失败，请长按文本手动复制', 'var(--red)'); }
+}
+
+/* ================= Markdown 轻量渲染（AI 消息） ================= */
+
+function mdHtml(text){
+  const out = [];
+  const parts = String(text).split(/```/);       // 奇数下标=代码块
+  for (let i = 0; i < parts.length; i++){
+    if (i % 2 === 1){                            // 代码块
+      let c = parts[i];
+      if (c.startsWith('\n')) c = c.slice(1);
+      out.push('<pre><code>' + esc(c) + '</code></pre>');
+      continue;
+    }
+    let s = esc(parts[i]);
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+    s = s.replace(/(^|\s)\*([^*\n]+)\*/g, '$1<i>$2</i>');
+    s = s.replace(/^###### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^##### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^#### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^### (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^## (.*)$/gm, '<h2>$1</h2>');
+    s = s.replace(/^# (.*)$/gm, '<h1>$1</h1>');
+    s = s.replace(/^\s*[-*] (.*)$/gm, '• $1');
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    out.push(s);
+  }
+  return out.join('');
+}
+
+/* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
+
+function djb2(s){
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h*33 ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(16).padStart(8, '0').slice(0, 10);
+}
+function timesGet(){
+  try { return JSON.parse(localStorage.getItem(LS_TM)) || {}; }
+  catch(e){ return {}; }
+}
+function fmtTime(iso){                    // 今天 HH:MM，往日 MM-DD HH:MM
+  if (!iso) return '';
+  const d = iso.slice(0,10), hm = iso.slice(11,16);
+  return d === new Date().toLocaleDateString('sv') ? hm : d.slice(5) + ' ' + hm;
+}
+function resolveTimes(msgs){
+  const cache = timesGet(), title = curTitle(), out = [];
+  let lastU = '';
+  for (const m of msgs){
+    if (m[0] === 'u'){
+      const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
+      if (!cache[k]) cache[k] = new Date().toISOString().slice(0,19);
+      lastU = cache[k];
+      out.push(fmtTime(cache[k]));
+    } else {
+      out.push(fmtTime(lastU));           // AI 消息沿用其提问时间
+    }
+  }
+  localStorage.setItem(LS_TM, JSON.stringify(cache));
+  return out;
+}
+function curTitle(){
+  const convs = (S.snap.convs || []);
+  for (const r of convs) if (r[0] === 'c' && r[2]) return r[1];
+  return '当前会话';
+}
+
+/* ================= 渲染 ================= */
+
+function renderAll(){
+  const snap = S.snap;
+  renderConvs(snap.convs || []);
+  /* 1.24：过滤「安装 WorkBuddy」类安装引导按钮（误点无意义；
+     服务端已滤，此处双保险兼容旧服务端）。1.25：diff 审查
+     （N 个文件待审查/全部撤销/全部保留）与「后台命令正在运行」
+     状态钮同样不是 AI 提问，一并滤掉。 */
+  const opts0 = (snap.opts || [])
+    .filter(o => !/安装/i.test(o.t || '') || !/workbuddy/i.test(o.t || ''))
+    .filter(o => {
+      const t = o.t || '';
+      if (/待审查|后台命令/.test(t)) return false;
+      if (/^(全部)?(撤销|保留)$/.test(t)) return false;
+      return true;
+    });
+  renderMsgs(snap.msgs || [], snap.finish, opts0, snap.ask || null);
+  renderState(snap);
+  renderAttach(snap.attach || []);
+  syncModel(snap.model || '');
+}
+
+function drawerOpen(){
+  el.drawer.classList.add('on'); el.mask.classList.add('on');
+  if (S.onLine) sendCmd('block_stat', null);   // 1.06：开抽屉刷新防升级状态
+}
+function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
+
+function renderConvs(rows){
+  const key = rows.map(r => r.join('|')).join('#');
+  if (key === S.convs_key) return;
+  S.convs_key = key;
+  el.convs.innerHTML = '';
+  let inFolder = false, idx = 0;
+  for (const [kind, title, flag] of rows){
+    if (kind === 'f'){
+      const d = document.createElement('div');
+      d.className = 'convo folder';
+      const nm = document.createElement('span');
+      nm.className = 'fname';
+      nm.textContent = (flag ? '▸ ' : '▾ ') + title;
+      d.appendChild(nm);
+      /* 1.06：组头 ➕ —— 在该文件夹工作区内新建对话 */
+      const p = document.createElement('span');
+      p.className = 'fplus';
+      p.textContent = '➕';
+      p.title = '在此文件夹内新建对话（隶属文件夹工作区）';
+      p.onclick = e => {
+        e.stopPropagation();
+        if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+        if (S.task_open) return;
+        drawerClose();
+        /* 1.11：统一新建弹窗（锁定模式）——创建才真正点组内新建 */
+        taskDlgOpen(title);
+        flash('在「' + title + '」内新建对话', 'var(--blue)');
+      };
+      d.appendChild(p);
+      d.onclick = () => {              /* 1.09：折叠/展开也要有反馈 */
+        flash('正在折叠/展开「' + title + '」…', 'var(--blue)');
+        sendCmd('toggle_folder', title);
+      };
+      el.convs.appendChild(d);
+      inFolder = true;
+    } else {
+      const d = document.createElement('div');
+      d.className = 'convo item' + (flag ? ' act' : '');
+      d.style.paddingLeft = inFolder ? '28px' : '14px';
+      d.textContent = title;
+      const i = idx;
+      /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
+      let lpTimer = null, lpFired = false;
+      const stopLP = () => {
+        if (lpTimer){ clearTimeout(lpTimer); lpTimer = null; }
+      };
+      d.addEventListener('touchstart', () => {
+        lpFired = false;
+        lpTimer = setTimeout(() => {
+          lpFired = true;
+          convMenuOpen(title);
+        }, 550);
+      }, {passive: true});
+      d.addEventListener('touchmove', stopLP, {passive: true});
+      d.addEventListener('touchend', stopLP);
+      d.addEventListener('touchcancel', stopLP);
+      d.onclick = () => {
+        if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
+        if (!flag){
+          pendSwitchSet(title);        /* 1.09：切换在途提示（0.8~6s）*/
+          flash('正在切换到「' + title + '」…', 'var(--blue)');
+          sendCmd('switch', i);
+          drawerClose();
+        }
+      };
+      el.convs.appendChild(d);
+      idx++;
+    }
+  }
+}
+
+/* 1.25：会话操作菜单（长按会话行弹出）。本期实现「重命名」——
+   走服务端 conv_rename（右键会话行 → 上下文菜单「重命名」→
+   内联编辑框写入 → Enter）；后续菜单项随服务端能力再补。 */
+function convMenuOpen(title){
+  const old = $('convmenu');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'convmenu';
+  ov.innerHTML = '<div class="cmsheet">'
+    + '<div class="cmtitle">' + esc(title) + '</div>'
+    + '<button data-act="ren">✎ 重命名</button>'
+    + '<button class="cmcancel" data-act="cancel">取消</button>'
+    + '</div>';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.querySelectorAll('button').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      ov.remove();
+      if (b.dataset.act !== 'ren') return;
+      const nn = (prompt('重命名会话', title) || '').trim();
+      if (!nn || nn === title) return;
+      sendCmd('conv_rename', [title, nn]);
+      flash('正在重命名为「' + nn + '」…', 'var(--blue)');
+    };
+  });
+  document.body.appendChild(ov);
+}
+
+/* ============ 1.09：待确认项（空窗期反馈） ============
+   点「发送」后要等服务端把文字注入 WorkBuddy 输入框、点发送、WorkBuddy 渲染、
+   0.8s 轮询取快照、再经中继回传——实测 3~6s 才看得到自己那条。
+   这段空白以前完全没有反馈，像「点了没反应 / 消息丢了」。
+   现在：本地立即画一条「我」的占位气泡并标「发送中…」，服务端阶段
+   事件（已输入→已发出）推进状态，快照里出现同文本用户消息即撤下。
+   1.25：不再 15 秒标「⚠ 未确认」——插话走官方排队，AI 忙时多久
+   入列都正常（无限制）；用户可随时手动「丢弃/改写」。 */
+
+function pendSig(){
+  return S.pending.map(p => p.id + ':' + p.state).join(',');
+}
+
+function pendAdd(kind, text){
+  if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
+  const same = S.pending.find(p => p.text === text);
+  if (same) return same;               // 同文本已在册（服务端 pend 回显）
+  S.pend_seq++;
+  const p = {id: S.pend_seq, kind: kind, text: text,
+             state: 'sending', ts: Date.now()};
+  S.pending.push(p);
+  return p;
+}
+
+function pendStat(p){
+  if (p.state === 'typed')   return ['已输入 WorkBuddy…', ''];
+  if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
+  if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
+  /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
+     历史残留兼容，文案不再写死 15 秒 */
+  if (p.state === 'timeout') return ['⚠ 未确认（可丢弃/改写/重发）', 'bad'];
+  return [p.kind === 'interject' ? '排队中…' : '发送中…', ''];
+}
+
+function renderPending(){
+  const old = $('pendbox');
+  if (old) old.remove();
+  if (!S.pending.length) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'pendbox';
+  S.pending.forEach(p => {
+    const st = pendStat(p);
+    const d = document.createElement('div');
+    d.className = 'msg user pend ' + st[1];
+    let h = '<div class="who">我<span class="pstat">' + esc(st[0])
+          + '</span>';
+    /* 1.24：任何状态的挂起占位都可「改写」——撤回占位、文本回填
+       输入框重新编辑再发（用户要求的反悔机制）
+       1.25：「丢弃」也常显（占位不再自动超时，真没发出去时手动兜底） */
+    h += '<span class="pacts">'
+       + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
+       + '<button class="pendbtn drop" data-drop="' + p.id
+       + '">丢弃</button></span>';
+    if (p.state === 'timeout')
+      h += '<span class="pacts">'
+         + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>'
+         + '</span>';
+    h += '</div><div class="body">' + esc(p.text) + '</div>';
+    d.innerHTML = h;
+    wrap.appendChild(d);
+  });
+  wrap.querySelectorAll('.pendbtn').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const gi = parseInt(b.dataset.go || '0');
+      const di = parseInt(b.dataset.drop || '0');
+      const ei = parseInt(b.dataset.edit || '0');
+      if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
+        const p = S.pending.find(x => x.id === ei);
+        if (!p) return;
+        S.pending = S.pending.filter(x => x.id !== ei);
+        el.ent.value = p.text || '';
+        refreshSendBtn();
+        try { el.ent.focus(); } catch(e2){}
+        renderAll();
+        flash('已撤回，可修改后重新发送', 'var(--blue)');
+        return;
+      }
+      if (di){                       // 丢弃：撤下占位即可
+        S.pending = S.pending.filter(x => x.id !== di);
+        renderAll();
+        return;
+      }
+      const p = S.pending.find(x => x.id === gi);
+      if (!p) return;
+      S.pending = S.pending.filter(x => x.id !== gi);
+      cmd(p.kind, p.text);           // 重发（cmd 内会重新登记占位）
+    };
+  });
+  el.msgs.appendChild(wrap);
+  el.msgs.scrollTop = el.msgs.scrollHeight;
+}
+
+/* 1.24：文本规范化去污染——WorkBuddy 渲染会吃掉 markdown 记号/空白
+   （**加粗** 变粗体、段落成块级元素），快照文本与发送原文在字符
+   层面对不上 → 明明已出现却判「未确认」。比较前双方统一：去全部
+   空白与零宽字符、去 markdown 修饰符（* ` _ ~ > #）、转小写。 */
+function normTxt(s){
+  return String(s || '')
+    .replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, '')
+    .replace(/[`*_~>#]/g, '')
+    .toLowerCase();
+}
+
+/* 1.22：发送确认匹配——「前 N 字相同」即可（N=服务端设置页
+   「确认匹配字数」，默认 100；长消息 WorkBuddy 会折叠显示，全文比对
+   必然失败）。一侧不足 N 字按前缀算（折叠截断可能不到 N 字）；
+   任一侧短于 12 字则要求全等（防超短文本误配）。
+   1.24：比对前先 normTxt 规范化（格式污染不再导致误判）。 */
+function pendHead100(sent, shown, n){
+  const a = normTxt(sent).slice(0, n || 100);
+  const b = normTxt(shown).slice(0, n || 100);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) >= 12)
+    return a.startsWith(b) || b.startsWith(a);
+  return false;
+}
+
+/* 快照到达：同文本用户消息出现 → 该占位已落地，撤下它。
+   用 pend_claims 记住已被认领的消息下标（连发相同文本也不会误判）；
+   换会话则清空认领记录。返回 true 表示待确认集有变化需重画。
+   1.22：只认 60 秒内新出现的消息（首见时刻表 pend_seen），
+   防止与历史里同开头的老消息误配。 */
+function pendReconcile(msgs){
+  if (!S.pending.length) return false;
+  /* 当前会话标识（快照无 title 字段，取 convs 里的当前行） */
+  const cv0 = (S.snap && S.snap.convs) || [];
+  const act0 = cv0.find(r => r[0] === 'c' && r[2]);
+  const conv = act0 ? act0[1] : '';
+  if (conv !== S.pend_conv){
+    S.pend_conv = conv;
+    S.pend_claims = [];
+    S.pend_seen = {};
+  }
+  const now = Date.now();
+  const users = [];
+  (msgs || []).forEach(m => {
+    if (m && m[0] === 'u'){
+      const ut = normTxt(m[1]);          /* 1.24：规范化后再登记/比对 */
+      if (ut && !(ut in S.pend_seen)) S.pend_seen[ut] = now;
+      users.push(ut);
+    }
+  });
+  let changed = false;
+  const keep = [];
+  S.pending.forEach((p, pi) => {
+    if (p.kind === 'switch'){          /* 1.10：切换占位不进气泡，
+        旧版误入的残留直接清掉（会话标题不会出现在消息区，按文本
+        匹配永远失败 → 挂满 15s 变「未确认」，完全不真实） */
+      changed = true;
+      return;
+    }
+    const t = normTxt(p.text);         /* 1.24：规范化后再比对 */
+    let idx = -1;
+    for (let i = users.length - 1; i >= 0; i--){
+      if (S.pend_claims.indexOf(i) >= 0) continue;
+      const ts0 = S.pend_seen[users[i]];   /* 时限内新消息才认 */
+      if (ts0 === undefined || now - ts0 > S.pend_age) continue;
+      if (pendHead100(t, users[i], S.pend_head)){ idx = i; break; }
+    }
+    if (idx >= 0){
+      S.pend_claims.push(idx);
+      changed = true;
+      return;
+    }
+    /* 1.25：不再 15 秒「未确认」超时——插话走 WorkBuddy 官方排队，
+       AI 忙时多久入列都正常（用户原话：应该没有限制）。占位只有
+       两种结局：出现在对话记录里（自动确认撤下），或用户手动
+       「丢弃/改写」。 */
+    keep.push(p);
+  });
+  if (changed) S.pending = keep;
+  return changed;
+}
+
+/* 切换在途：会话切换要等 0.8~6s（含最小化恢复），期间给个明确的
+   「正在切换…」条，免得旧会话内容留着让人以为点错了。
+   1.16：WorkBuddy 先点亮会话标题、后加载正文——仅凭「目标项已激活」
+   撤条会提前放行。现记录切换前的消息指纹，快照消息内容真的变了
+   （正文到达）才算切换完成；状态栏同步强制「正在切换」。 */
+function msgsFp(msgs){
+  return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
+    + (m[3] || 0) + (m[4] || 0)).join('#');
+}
+function pendSwitchSet(title){
+  title = title || '';
+  /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
+     不重复渲染） */
+  if (S.switch_pend && S.switch_pend.title === title){
+    S.switch_pend.ts = Date.now();
+    return;
+  }
+  S.switch_pend = {title: title, ts: Date.now(),
+                   fp0: msgsFp(S.snap.msgs)};
+  renderAll();
+}
+function pendSwitchClear(){
+  if (!S.switch_pend) return false;
+  S.switch_pend = null;
+  return true;
+}
+
+function renderMsgs(msgs, finish, opts, ask){
+  opts = opts || [];
+  /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
+     与 opts（选项卡答完即销毁） */
+  let key = msgs.map(m => m[0] + ':' + m[1] + ':' + (m[3] || 0)
+                              + (m[4] || 0)).join('#');
+  if (finish)
+    key += '#fin:' + (finish.inLast ? 'L' : '-') + '|'
+           + (finish.files || []).join('|') + '~'
+           + (finish.text || '').slice(0, 60);
+  key += '#opt:' + opts.map(o => o.t).join('|');
+  /* 1.09：待确认占位 + 切换在途条参与指纹（状态推进/撤下要重画） */
+  key += '#pend:' + pendSig()
+       + (S.switch_pend ? '#sw:' + S.switch_pend.title : '');
+  if (key === S.msgs_key) return;
+  S.msgs_key = key;
+  /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
+     1.20：非全屏时若用户已上翻找历史（未近底）同样保位置——快照
+     每秒重画会把人强拽回底部，永远凑不满进全屏的门槛（鬼打墙
+     根因）；只有近底部（200px 内）才吸附回底跟新消息。 */
+  const inF = document.body.classList.contains('fmsg');
+  const savedTop = el.msgs.scrollTop;
+  const nearBottom = el.msgs.scrollHeight - savedTop
+      - el.msgs.clientHeight < 200;
+  el.msgs.innerHTML = '';
+  const empty = !msgs.length && !opts.length;
+  if (empty && !S.pending.length && !S.switch_pend){
+    el.msgs.innerHTML =
+      '<div class="empty">（暂无消息，发送一条开始对话）</div>';
+    return;
+  }
+  if (S.switch_pend){                    // 1.09：切换在途提示条
+    const sw = document.createElement('div');
+    sw.className = 'switching';
+    sw.textContent = '正在切换到「' + S.switch_pend.title + '」…';
+    el.msgs.appendChild(sw);
+  }
+  if (empty){ renderPending(); return; }
+  const times = resolveTimes(msgs);
+  let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
+  msgs.forEach((m, i) => {
+    const user = m[0] === 'u';
+    let acts = '';
+    /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息——把
+       文本回填输入框改完再发；WorkBuddy 端无法真撤回已入列的消息，
+       反悔机制 = 回填重编后作为新消息发出） */
+    acts += '<button class="mact cpy" data-k="copy" data-i="' + i
+          + '">📋 复制</button>';
+    if (user){
+      ui++;
+      acts += '<button class="mact ed" data-k="edit" data-i="' + i
+            + '">✎ 重编</button>';
+      if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
+                      + ui + '">↩ 回退</button>';
+      if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
+                      + ui + '">🗑 删除</button>';
+    }
+    const d = document.createElement('div');
+    d.className = 'msg ' + (user ? 'user' : 'agent');
+    let h = '<div class="who">' + (user ? '我' : 'WorkBuddy')
+          + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
+          + (acts ? '<span class="mract">' + acts + '</span>' : '')
+          + '</div><div class="body">'
+          + (user ? esc(m[1]) : mdHtml(m[1])) + '</div>';
+    d.innerHTML = h;
+    /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
+       1.24：复制/重编（本地即时完成，不涉服务端） */
+    d.querySelectorAll('.mact').forEach(b => {
+      b.onclick = e => {
+        e.stopPropagation();
+        const k = b.dataset.k, mi = parseInt(b.dataset.mi);
+        if (k === 'copy'){
+          copyText(msgs[parseInt(b.dataset.i)][1]);
+          return;
+        }
+        if (k === 'edit'){
+          const it = msgs[parseInt(b.dataset.i)];
+          el.ent.value = it ? (it[1] || '') : '';
+          refreshSendBtn();
+          try { el.ent.focus(); } catch(e2){}
+          flash('已回填输入框，可修改后重新发送', 'var(--blue)');
+          return;
+        }
+        if (k === 'rewind'){
+          if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
+            + '其后全部对话（含 AI 回复）将一并移除。')) return;
+          flash('正在回退…', 'var(--blue)');
+        } else {
+          if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
+            + '其对应的 AI 回复会一并删除。')) return;
+          flash('正在删除…', 'var(--blue)');
+        }
+        sendCmd(k, mi);
+      };
+    });
+    el.msgs.appendChild(d);
+  });
+  /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 WorkBuddy
+     AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
+     底部 主按钮(下一步/确认)/取消）。可点选项、可填其他、可提交。 */
+  if (ask && ask.opts && ask.opts.length){
+    const oc = document.createElement('div');
+    oc.id = 'opts';
+    let h = '<div class="othint">🤖 AI 提问'
+          + (ask.q ? ' · ' + esc(ask.q) : '') + '</div>';
+    ask.opts.forEach((o, i) => {
+      if (o.other) return;             /* 其他项渲染成输入框 */
+      h += '<button class="optbtn" data-ai="' + i + '">'
+         + esc(o.t) + '</button>';
+    });
+    const oi = ask.opts.findIndex(o => o.other);
+    if (oi >= 0)
+      h += '<div class="otherrow"><input id="askother" '
+         + 'placeholder="其他：输入你的回答…" maxlength="500">'
+         + '<button id="asksend">发送</button></div>';
+    h += '<div class="askfoot">'
+       + (ask.cancel ? '<button id="askcancel">取消</button>' : '')
+       + '<button id="askgo">' + esc(ask.btn || '下一步') + '</button>'
+       + '</div>';
+    oc.innerHTML = h;
+    oc.querySelectorAll('.optbtn').forEach(b => {
+      b.onclick = () => {
+        if (b.disabled) return;
+        b.disabled = true;
+        b.classList.add('picked');
+        flash('已选择「' + b.textContent.slice(0, 20)
+            + '」，等待下一问或 AI 继续…', 'var(--blue)');
+        sendCmd('ask_pick', parseInt(b.dataset.ai));
+      };
+    });
+    const sb = oc.querySelector('#asksend');
+    if (sb) sb.onclick = () => {
+      const inp = oc.querySelector('#askother');
+      const v = (inp.value || '').trim();
+      if (!v){ flash('先填写回答内容', 'var(--orange)'); return; }
+      sb.disabled = true;
+      inp.disabled = true;
+      flash('已提交自定义回答…', 'var(--blue)');
+      sendCmd('ask_other', v);
+    };
+    const go = oc.querySelector('#askgo');
+    if (go) go.onclick = () => {
+      go.disabled = true;
+      flash('提交答案…', 'var(--blue)');
+      sendCmd('ask_submit', 0);
+    };
+    const cc = oc.querySelector('#askcancel');
+    if (cc) cc.onclick = () => {
+      cc.disabled = true;
+      flash('已取消本次提问…', 'var(--blue)');
+      sendCmd('ask_cancel', 0);
+    };
+    el.msgs.appendChild(oc);
+  } else if (opts.length){
+    const oc = document.createElement('div');
+    oc.id = 'opts';
+    const hint = document.createElement('div');
+    hint.className = 'othint';
+    hint.textContent = 'AI 提问 · 点选一项继续：';
+    oc.appendChild(hint);
+    opts.forEach((o, i) => {
+      const b = document.createElement('button');
+      b.className = 'optbtn';
+      b.textContent = o.t;
+      b.onclick = () => {              /* 1.09：点了先给反馈并防重复点
+                                          （服务端要 ~1s 才生效） */
+        if (b.disabled) return;
+        b.disabled = true;
+        b.classList.add('picked');
+        flash('已选择，正在提交给 WorkBuddy…', 'var(--blue)');
+        sendCmd('pick_opt', i);
+      };
+      oc.appendChild(b);
+    });
+    el.msgs.appendChild(oc);
+  }
+  const showFin = finish && finish.inLast && (finish.files || finish.text);
+  if (showFin){
+    const d = document.createElement('div');
+    d.id = 'finish';
+    let h = '<div class="ft">✅ 任务完成'
+          + ((finish.files || []).length
+             ? '  生成物 ' + finish.files.length + ' 个' : '')
+          + '</div>';
+    const txt = (finish.text || '').trim();
+    if (txt) h += '<div class="ff">' + esc(txt.split('\n')[0].slice(0,80))
+                + '</div>';
+    (finish.files || []).forEach(
+      f => h += '<div class="ff">📄 ' + esc(f) + '</div>');
+    d.innerHTML = h;
+    el.msgs.appendChild(d);
+  }
+  renderPending();                  // 1.09：占位气泡永远排在末尾
+  if (inF){
+    el.msgs.scrollTop = savedTop;   /* 1.20：全屏内只保位置，
+                                       绝不自动退出（鬼打墙根因） */
+  } else if (nearBottom){
+    fprog(el.msgs.scrollHeight);    /* 近底吸附：新消息照常跟底 */
+  } else {
+    el.msgs.scrollTop = savedTop;   /* 翻历史中：位置不被快照拽回 */
+  }
+}
+
+/* 1.14：上翻历史自动进入全屏（隐藏顶栏/输入行，消息区独占整屏看
+   更多历史）；1.20 按用户设计定型：发现用户开始找历史（上翻约
+   0.6 屏）就进全屏，全屏内绝不自动退出——只有点「↓ 回到最新」
+   或切换会话才退出；快照重画在翻历史时保位置不拽回底部。
+   1.19 修闪烁：进出全屏会隐藏/恢复顶栏输入行，#msgs 高度突变导致
+   距底距离 dist 突变——刚过线就进入→dist 缩水→误判翻回底部→退出
+   →再进入，死循环闪烁进不去。修复：① fprog 程序化滚动统一走静默
+   （450ms 内忽略 scroll 回调）；② enterFmsg 布局变化后按高度差补偿
+   scrollTop，视野停留在同一段内容上（dist 不变，不会立即误退）。 */
+var fLockUntil = 0;                 // 程序滚动/进出全屏后的静默截止
+function fprog(to){                 // 程序化滚动：静默期内不参与判定
+  fLockUntil = Date.now() + 450;
+  el.msgs.scrollTop = to;
+}
+/* 1.21：点输入框 → 手机键盘弹出 → 窗口 resize，#msgs 可视高度骤缩
+   使距底距离瞬间超过进入门槛 → 被误判「在找历史」进了全屏、输入行
+   被藏掉、根本无法打字。修复：① resize（键盘弹出/收起）静默 800ms；
+   ② 输入框/文本域聚焦（正在打字）时不自动进全屏。 */
+window.addEventListener('resize', () => {
+  fLockUntil = Date.now() + 800;
+});
+function fTyping(){
+  const ae = document.activeElement;
+  return !!ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT');
+}
+function enterFmsg(){
+  if (document.body.classList.contains('fmsg')) return;
+  const m = el.msgs;
+  const before = m.scrollTop, prevCH = m.clientHeight;
+  document.body.classList.add('fmsg');
+  /* 布局收窄后 #msgs 变高，补滚同高差保持视野不动（dist 不突变） */
+  requestAnimationFrame(() => {
+    fprog(before + Math.max(0, m.clientHeight - prevCH));
+  });
+  flash('已进入历史全屏（点「↓ 回到最新」返回）', 'var(--blue)');
+}
+function exitFmsg(){
+  if (!document.body.classList.contains('fmsg')) return;
+  document.body.classList.remove('fmsg');
+  requestAnimationFrame(() => fprog(el.msgs.scrollHeight));
+}
+el.fexit.onclick = exitFmsg;
+el.msgs.addEventListener('scroll', () => {
+  if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
+  if (fTyping()) return;                    // 1.21：正在打字不进全屏
+  const m = el.msgs;
+  const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
+  /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到
+     最新」、切换会话。手指怎么滑都不退（鬼打墙根因）。
+     进入门槛降为 0.6 屏：一开始往上找历史就进全屏，
+     不必猛甩突破（用户原话：发现我在找历史就自动进）。 */
+  if (!document.body.classList.contains('fmsg')
+      && dist > m.clientHeight * 0.6
+      && m.scrollHeight > m.clientHeight * 1.6){
+    enterFmsg();
+  }
+});
+/* 1.24：Q 弹退出全屏——用户最常用的回底方式是「滑回最新」，到底
+   后浏览器出现 Q 弹（overscroll 回弹）说明人已经到底还想继续。
+   实现：全屏下在距底 ≤4px 处继续向上快拽（触屏 dy<-24px / 滚轮
+   deltaY>0）即判定触底回弹 → 退出全屏回正常界面，比点按钮顺手。
+   （触屏向上滑=滚向底部；到底后继续上拽才是 Q 弹，反向不会误触） */
+var fTouchY = 0, fAtBottom = false;
+el.msgs.addEventListener('touchstart', e => {
+  fTouchY = e.touches[0].clientY;
+  fAtBottom = el.msgs.scrollHeight - el.msgs.scrollTop
+              - el.msgs.clientHeight < 4;
+}, {passive: true});
+el.msgs.addEventListener('touchmove', e => {
+  if (!fAtBottom || Date.now() < fLockUntil) return;
+  if (!document.body.classList.contains('fmsg')){
+    fAtBottom = false;
+    return;
+  }
+  if (e.touches[0].clientY - fTouchY < -24){   // 到底后继续上拽
+    fAtBottom = false;
+    exitFmsg();
+    flash('已回到最新', 'var(--green)');
+  }
+}, {passive: true});
+el.msgs.addEventListener('wheel', e => {
+  if (!document.body.classList.contains('fmsg')) return;
+  if (Date.now() < fLockUntil) return;
+  const m = el.msgs;
+  if (e.deltaY > 0 && m.scrollHeight - m.scrollTop - m.clientHeight < 4){
+    exitFmsg();
+    flash('已回到最新', 'var(--green)');
+  }
+}, {passive: true});
+
+function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
+  el.send.textContent = stop ? '停止' : '发送';
+  el.send.classList.toggle('stopmode', stop);
+  el.send.disabled = !enabled;
+}
+function refreshSendBtn(){               // 1.01：生成中打字 → 插话三态
+  el.send.classList.remove('intermode');
+  if (!S.ready){ setSendBtn(false, false); return; }
+  if (S.gen && el.ent.value.trim()){     // 生成中打字：橙色插话
+    el.send.textContent = '插话';
+    el.send.classList.remove('stopmode');
+    el.send.classList.add('intermode');
+    el.send.disabled = false;
+  } else {
+    setSendBtn(S.gen, true);             // 生成中=停止；空闲=发送
+  }
+}
+
+function renderState(snap){
+  S.gen = false;
+  S.ready = !!(snap && snap.online);
+  if (!S.ready){
+    el.state.textContent = 'WorkBuddy 界面未就绪';
+    el.state.style.color = 'var(--red)';
+    setSendBtn(false, false);
+    return;
+  }
+  const idle = snap.sendIdle, inp = snap.inputText || '',
+        tail = snap.tail;
+  if (!idle && !inp){                        // 生成中
+    S.gen = true;
+    el.state.textContent = '生成中·' + (tail || '输出中');
+    el.state.style.color = 'var(--orange)';
+    refreshSendBtn();                        // 有本地字→插话，无→停止
+  } else if (idle && !inp){                  // 空闲
+    /* 1.24：空闲时顺带显示当前会话名——整行只写「空闲」太浪费 */
+    const ct = (curTitle() || '').trim();
+    el.state.textContent = '空闲'
+      + (ct ? ' · ' + (ct.length > 14 ? ct.slice(0, 14) + '…' : ct) : '');
+    el.state.style.color = 'var(--green)';
+    setSendBtn(false, true);
+  } else {                                   // 输入框待发（远端残留）
+    S.gen = !idle;                           // 生成中残留仍属生成态
+    el.state.textContent = '输入框待发' + (inp.length > 20 ? '（有残留）'
+      : ': ' + inp.slice(0, 18));
+    el.state.style.color = 'var(--blue)';
+    setSendBtn(false, true);
+  }
+  /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
+     不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容） */
+  if (S.switch_pend){
+    el.state.textContent = '正在切换「' + S.switch_pend.title + '」…';
+    el.state.style.color = 'var(--blue)';
+  }
+}
+
+function renderAttach(items){
+  const row = el.attach_row;
+  row.innerHTML = '';
+  if (S.attach_pending){
+    row.classList.add('on');
+    for (const nm of S.attach_pending){
+      const c = document.createElement('span');
+      c.className = 'chip pend';
+      c.textContent = '⏳ ' + nm;
+      row.appendChild(c);
+    }
+    return;
+  }
+  if (!items || !items.length){
+    row.classList.remove('on');
+    return;
+  }
+  row.classList.add('on');
+  items.forEach((it, i) => {
+    const c = document.createElement('span');
+    c.className = 'chip ok';
+    c.innerHTML = '📎 ' + esc(it.name)
+      + (it.size ? '  ' + esc(it.size) : '')
+      + ' <span class="rm" title="移除">✕</span>';
+    c.querySelector('.rm').onclick = e => {
+      e.stopPropagation(); sendCmd('attach_rm', i);
+    };
+    row.appendChild(c);
+  });
+}
+
+/* ===== 1.15：模型收藏 =====
+ * 官方模型列表经常变更（改名/下架），收藏按「模型真名」存
+ * localStorage（wb_webm_fav_models），跨服务端通用。有收藏时
+ * 下拉只列收藏项 + 当前模型占位；收藏失效标 ⚠ 并弹提醒。 */
+
+function loadFavs(){
+  try { return JSON.parse(localStorage.getItem('wb_webm_fav_models')
+    || '[]') || []; } catch(e){ return []; }
+}
+S.favs = loadFavs();            // 1.15：启动即载入收藏（localStorage）
+function saveFavs(a){
+  S.favs = a;
+  try { localStorage.setItem('wb_webm_fav_models', JSON.stringify(a)); }
+  catch(e){}
+}
+function modelDisp(e){          // e=[name,trail,restricted] → 下拉显示文本
+  return e[0] + (e[1] ? ' ' + e[1] : '') + (e[2] ? '（受限）' : '');
+}
+
+function rebuildModelOptions(){
+  /* 按收藏规则重建模型下拉（models 事件 / 收藏变更时调用） */
+  const entries = S.models_full || [];
+  const names = new Set(entries.map(e => e[0]));
+  S.model_names = names;
+  const cur = S.snap.model || '';
+  const favs = S.favs || [];
+  const items = [];             // [disp, name, dead]
+  if (!favs.length){            // 无收藏：官方全量（原行为）
+    for (const e of entries) items.push([modelDisp(e), e[0], false]);
+  } else {
+    const inList = new Set();
+    for (const fn of favs){     // 收藏按收藏顺序列出
+      const e = entries.find(x => x[0] === fn);
+      if (e){ items.push([modelDisp(e), fn, false]); inList.add(fn); }
+      else    items.push(['⚠ ' + fn + '（已失效）', fn, true]);
+    }
+    if (cur && !inList.has(cur)){   // 当前选中的非收藏模型：保留显示
+      const e = entries.find(x => x[0] === cur);
+      items.push([(e ? modelDisp(e) : cur) + '（当前）', cur, false]);
+    }
+  }
+  el.model.innerHTML = '';
+  S.model_map = {};
+  for (const [disp, name] of items){
+    const o = document.createElement('option');
+    o.value = disp; o.textContent = disp;
+    el.model.appendChild(o);
+    S.model_map[disp] = name;
+  }
+  syncModel(cur);
+}
+
+function checkFavInvalid(){
+  /* models 事件后核对：收藏不在官方列表 → 弹提醒（每次新失效才提醒） */
+  const names = S.model_names || new Set();
+  const inv = (S.favs || []).filter(fn => !names.has(fn));
+  const fresh = inv.filter(fn => !S.fav_warned.includes(fn));
+  S.fav_invalid = inv;
+  if (inv.length){
+    S.fav_warned = inv.slice();
+    if (fresh.length)
+      flash('⚠ 收藏模型已失效：' + fresh.join('、')
+        + '（可能被官方改名/下架，请到 ☆ 收藏管理移除）');
+  } else if (S.fav_warned.length){
+    S.fav_warned = [];          // 失效恢复（官方又加回来了）清提醒标记
+  }
+}
+
+function renderFavPage(){
+  const L = el.favlist;
+  L.innerHTML = '';
+  const mk = (html, cls) => {
+    const d = document.createElement('div');
+    d.className = 'frow' + (cls ? ' ' + cls : '');
+    d.innerHTML = html;
+    return d;
+  };
+  if (!(S.models_full || []).length){
+    L.appendChild(mk('<span class="fname">（尚未获取到官方模型列表，'
+      + '连接服务端后会自动加载）</span>', 'empty'));
+  }
+  const names = new Set((S.models_full || []).map(e => e[0]));
+  /* 失效收藏单列一节：红字 + 点击移除 */
+  for (const fn of (S.favs || [])){
+    if (names.has(fn)) continue;
+    const d = mk('<span class="fmark">⚠ 已失效</span>'
+      + '<span class="fname">' + esc(fn) + '</span>'
+      + '<span class="fstar">✕</span>', 'dead');
+    d.onclick = () => {
+      saveFavs(S.favs.filter(x => x !== fn));
+      renderFavPage(); rebuildModelOptions(); checkFavInvalid();
+    };
+    L.appendChild(d);
+  }
+  /* 官方全量模型：点行切换收藏状态 */
+  for (const e of (S.models_full || [])){
+    const fn = e[0], on = (S.favs || []).includes(fn);
+    const d = mk('<span class="fname">' + esc(modelDisp(e)) + '</span>'
+      + '<span class="fstar">' + (on ? '★' : '☆') + '</span>',
+      on ? 'isfav' : '');
+    d.onclick = () => {
+      saveFavs(on ? S.favs.filter(x => x !== fn)
+                  : S.favs.concat([fn]));
+      renderFavPage(); rebuildModelOptions();
+    };
+    L.appendChild(d);
+  }
+}
+
+const MODEL_UNK = '（模型未知）';   // 1.18：模型读不到时的占位显示
+function syncModel(cur){
+  if (S.model_busy) return;
+  const ph = el.model.querySelector('option[data-unk]');
+  if (!cur){
+    /* 1.18: 冻结/未就绪时 snap.model 为空——原实现直接早退，浏览器
+       默认显示第一项，伪装成「已选中第一个模型」误导用户（用户以为
+       模型被切走了）。改为明确占位；恢复后自动换成真值 */
+    if (!ph){
+      const o = document.createElement('option');
+      o.value = MODEL_UNK; o.textContent = MODEL_UNK;
+      o.dataset.unk = '1';
+      el.model.insertBefore(o, el.model.firstChild);
+    }
+    if (el.model.value !== MODEL_UNK) el.model.value = MODEL_UNK;
+    return;
+  }
+  if (ph) ph.remove();               // 有真值了：撤占位
+  if (el.model.value === cur) return;
+  let found = false;
+  for (const [disp, name] of Object.entries(S.model_map))
+    if (name === cur){ el.model.value = disp; found = true; break; }
+  if (!found){                                // 列表未到：临时占位
+    const o = document.createElement('option');
+    o.value = cur; o.textContent = cur;
+    el.model.appendChild(o);
+    el.model.value = cur;
+    S.model_map[cur] = cur;
+  }
+}
+
+/* ================= 连接 / 事件流 ================= */
+
+let ws = null, reconnectTimer = null, kaTimer = null;
+let helloTimer = null, helloTries = 0, gotHello = false;
+
+function connect(){
+  clearTimeout(reconnectTimer);
+  try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
+  setOnLine(false);
+  gotHello = false;
+  helloTries = 0;    // 1.07：重连后重起握手重试（原不重置——10 次用尽
+                     // 后，重连首条 hello 被中继丢弃就永远失联）
+  S.lastSrv = 0;    // 旧连接的服务端活动不再作数
+  // ?ws= 参数可临时覆盖服务地址（测试/多环境部署），不改 localStorage
+  const u = new URLSearchParams(location.search).get('ws');
+  ws = new WebSocket(u || CFG.ws_url);
+  S.ws = ws;
+  ws.onopen = () => {
+    setOnLine(true);
+    sendHello();               // 上线即拉服务端状态
+    clearInterval(kaTimer);
+    kaTimer = setInterval(() => {
+      try { ws.send('ping'); statsAdd(0, 4, 0, 1); } catch(e){}
+    }, KA_SEC * 1000);
+  };
+  ws.onmessage = ev => onMsg(ev.data);
+  ws.onclose = () => {
+    setOnLine(false);
+    clearInterval(kaTimer);
+    clearTimeout(helloTimer);
+    reconnectTimer = setTimeout(connect, RECONNECT * 1000);
+  };
+  ws.onerror = () => {};
+}
+
+function sendHello(){
+  /* 握手重试：浏览器 WS 握手完成瞬间立即发的第一条消息可能落在
+     中继把连接加入频道之前而被丢弃——3 秒重发直到收到应答
+     （最多 10 次；重连后从头再来）。 */
+  sendJson({t: 'hello', v: 1});
+  if (!gotHello && ++helloTries <= 10)
+    helloTimer = setTimeout(() => {
+      if (!gotHello && S.onLine) sendHello();
+    }, 3000);
+}
+
+function onMsg(msg){
+  statsAdd(msg.length, 0, 1, 0);
+  const r = FoxIn.feed(msg);
+  if (r === null){
+    /* 无 FOX 头：本端只发 FOX 帧，不可能撞自己回声——兜底收对端
+       （服务端 fox_on 关闭时）整条直发的裸 JSON。 */
+    if (msg[0] === '{'){
+      try { JSON.parse(msg); srvSeen(); handleBody(msg); } catch(e){}
+    }
+    return;                                   // 其余=心跳/中继系统消息
+  }
+  const [sender, body] = r;
+  if (sender[0] !== '1') return;              // 1.12：只认服务端（'1'
+                                              // 开头），拒客户端回声
+  srvSeen();                                  // 1.07：服务端判活
+  handleBody(body);
+}
+
+function handleBody(body){
+  let d;
+  try { d = JSON.parse(body); } catch(e){ return; }
+  if (!d || typeof d !== 'object') return;
+  /* 1.12 多服务端：报文按 'srv' 源头名归册；只渲染当前操控服务端
+     的内容（hello/srv 心跳同时维护名册）。旧版服务端无 'srv' 字段
+     → 归入「默认服务端」兼容单机场景。 */
+  const nm = d.srv || '默认服务端';
+  regSrv(nm, d);
+  if (d.t === 'srv'){
+    if (nm === S.cur && d.alive){ S.alive = new Set(d.alive); renderPorts(); }
+    renderSrvList();
+    return;
+  }
+  if (nm !== S.cur) return;                   // 非当前操控对象：忽略
+  /* 1.13：操控互斥——目标拒绝（正被其他客户端占用） */
+  if (d.t === 'deny'){
+    if (d.target === MY_ID)
+      flash('🔒 [' + (d.srv || '远方') + '] 正被 '
+            + (d.holder || '其他客户端') + ' 占用，稍后再试',
+            'var(--red)');
+    return;
+  }
+  if (d.t === 'ev') { onEv(d.k, d.v); return; }
+  if (d.t === 'hello') onHello(d);
+}
+
+/* ============ 1.12 多服务端名册 ============ */
+
+function regSrv(nm, d){
+  let s = S.servers[nm];
+  if (!s) s = S.servers[nm] = {name: nm, ts: 0};
+  s.ts = Date.now();
+  if (d.sid) s.sid = d.sid;
+  if (d.v) s.v = d.v;
+  if (d.t === 'hello' || d.t === 'srv'){
+    if (d.boxes) s.boxes = d.boxes;
+    if (d.alive) s.alive = d.alive;
+    if (d.conn !== undefined) s.conn = d.conn;
+    if (d.box) s.box = d.box;
+    if (d.port) s.port = d.port;
+    /* 1.13：操控占用状态（正被谁锁着；mine===false=别人） */
+    if (d.lock !== undefined) s.lock = d.lock;
+    else if (d.t === 'hello' && !d.lock) s.lock = null;
+  }
+  pickCur();
+  renderTop();
+}
+function pickCur(){
+  if (S.cur && S.servers[S.cur]) return;      // 现选仍在线
+  const names = Object.keys(S.servers);
+  if (!names.length){ setCur(null); return; }
+  // 优先恢复 localStorage 记忆，否则第一个在线者
+  let want = null;
+  try { want = localStorage.getItem(LS_SRV); } catch(e){}
+  if (want && S.servers[want]) setCur(want);
+  else setCur(names[0]);
+  if (S.cur){
+    flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
+    applySrvEntry();                           // 载入其缓存状态
+    sendJson({t: 'hello'});                    // 拉即时全量
+    helloWatch();                              // 1.14：快照看门狗
+  }
+}
+function setCur(nm){
+  S.cur = nm;
+  try {
+    if (nm) localStorage.setItem(LS_SRV, nm);
+    else localStorage.removeItem(LS_SRV);
+  } catch(e){}
+}
+/* 1.14：切换后快照看门狗——hello 应答经中继可能丢，3 秒内没等到
+   快照就重发 hello（最多 5 次），别让「正在连接」一直卡着。
+   点当前已操控的服务器本就直接忽略（switchSrv 入口 nm===S.cur
+   return，1.13 已如此），不会触发多余动作。 */
+let _hello_tm = 0, _hello_n = 0;
+function helloWatch(){
+  clearTimeout(_hello_tm); _hello_n = 0;
+  const tick = () => {
+    if (!S.cur || !S.onLine) return;
+    if (S.snap && Object.keys(S.snap).length) return;  // 快照已到
+    if (++_hello_n > 5) return;
+    sendJson({t: 'hello'});
+    _hello_tm = setTimeout(tick, 3000);
+  };
+  _hello_tm = setTimeout(tick, 3000);
+}
+function switchSrv(nm){
+  if (!S.servers[nm] || nm === S.cur) return;
+  /* 1.13：切走前向旧目标显式还锁（ctl_free），不等超时自动释放 */
+  if (S.cur && S.onLine) sendJson({t: 'ctl_free'});
+  exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
+  setCur(nm);
+  /* 换操控对象：旧目标的界面状态全部作废 */
+  S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  S.pending = []; S.switch_pend = null;
+  S.pend_claims = []; S.pend_conv = '';
+  S.busy = false; S.model_busy = false;
+  S.points = '—'; el.points.textContent = '积分 —';
+  S.alive = new Set(); S.boxes = [];
+  el.model.innerHTML = ''; S.model_map = {};
+  el.box.innerHTML = '';
+  S.box = '(未连接)'; S.port = 0;
+  el.convs.innerHTML = '';
+  el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
+                     + ' …）</div>';
+  renderAttach([]);
+  applySrvEntry();
+  sendJson({t: 'hello'});
+  helloWatch();                             /* 1.14：快照看门狗 */
+  renderTop(); renderSrvList();
+  flash('已切换操控 [' + nm + ']', 'var(--blue)');
+}
+function applySrvEntry(){
+  /* 用名册缓存恢复当前服务端的基础状态（hello 应答再补全） */
+  const s = S.servers[S.cur];
+  if (!s) return;
+  if (s.boxes && s.boxes.length){
+    S.boxes = s.boxes;
+    el.box.innerHTML = '';
+    for (const b of s.boxes){
+      const o = document.createElement('option');
+      o.value = b; o.textContent = b;
+      el.box.appendChild(o);
+    }
+  }
+  if (s.alive){ S.alive = new Set(s.alive); renderPorts(); }
+  if (s.box && s.port && s.box !== S.box) applySwitch(s.box, s.port);
+}
+function pruneSrv(){
+  const now = Date.now();
+  let changed = false;
+  for (const nm of Object.keys(S.servers)){
+    if (now - S.servers[nm].ts > 75000){
+      delete S.servers[nm]; changed = true;
+    }
+  }
+  if (changed){
+    if (!S.cur || !S.servers[S.cur]){
+      pickCur();
+      if (S.cur) { applySrvEntry(); sendJson({t: 'hello'}); }
+    }
+    renderSrvList();
+  }
+}
+setInterval(pruneSrv, 5000);
+/* 1.13：操控续占心跳——停留在当前操控对象就每 20s 续一次锁
+   （服务端默认 60 秒无操作释放；不发心跳即视为离开） */
+setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
+            20000);
+
+function renderTop(){
+  const s = S.servers[S.cur];
+  const on = s && s.conn;
+  el.srv.textContent = '操控:' + (S.cur || '—') + (on ? ' ●' : ' ○');
+  el.srv.style.color = on ? 'var(--green)' : 'var(--gray)';
+}
+function renderSrvList(){
+  el.srvlist.innerHTML = '';
+  const names = Object.keys(S.servers).sort();
+  if (!names.length){
+    const d = document.createElement('div');
+    d.className = 'dmi';
+    d.textContent = '（暂无在线服务端）';
+    d.style.color = 'var(--gray)';
+    el.srvlist.appendChild(d);
+    return;
+  }
+  for (const nm of names){
+    const s = S.servers[nm];
+    const d = document.createElement('div');
+    d.className = 'dmi' + (nm === S.cur ? ' on' : '');
+    const na = (s.alive || []).length,
+          nb = (s.boxes || []).length;
+    d.textContent = (s.conn ? '● ' : '○ ') + nm
+                  + (nb ? '（在线 ' + na + '/' + nb + '）' : '')
+                  + (s.lock && s.lock.mine === false
+                     ? ' 🔒' + (s.lock.id || '被占用') : '');
+    if (nm === S.cur) d.style.color = 'var(--blue)';
+    d.onclick = () => { drawerClose(); switchSrv(nm); };
+    el.srvlist.appendChild(d);
+  }
+}
+el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
+
+function onEv(kind, v){
+  switch (kind){
+    case 'pendcfg':                    /* 1.23：确认匹配参数变更即时跟随 */
+      if (v && v.head) S.pend_head = Math.max(10, v.head | 0);
+      if (v && v.age) S.pend_age = Math.max(5, v.age | 0) * 1000;
+      return;
+    case 'snap': {
+      if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
+      S.snap = v;
+      pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
+      if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
+        const cv = v.convs || [];
+        const act = cv.find(r => r[0] === 'c' && r[2]);
+        const has = cv.some(r => r[0] === 'c' && r[1] === S.switch_pend.title);
+        /* 1.16：到达确认——标题激活还不够（WorkBuddy 先亮标题后加载
+           正文），消息指纹与切换前不同才说明正文真的换过来了 */
+        const arrived = msgsFp(v.msgs) !== S.switch_pend.fp0;
+        if ((act && act[1] === S.switch_pend.title && arrived) || !has
+            || Date.now() - S.switch_pend.ts > 12000)
+          S.switch_pend = null;              // 超时兜底，别一直挂着
+      }
+      renderAll();
+      break;
+    }
+    case 'dead':
+      flash('✘ 未连接（' + v + '）', 'var(--red)');
+      S.snap = {};
+      renderState({});
+      S.attach_pending = null;
+      renderAttach([]);
+      break;
+    case 'connected':
+      if (v !== S.port) return;
+      flash('● 已连接（' + v + '）', 'var(--green)');
+      setTimeout(() => {                      // 界面就绪后再拉积分/模型
+        // v1.17：8s→3s——connected 时服务端快照 eval 已成功一次，
+        // 界面基本可用（服务端 _on_connected 同步缩短到 3s）
+        if (S.port === v){ sendCmd('points', null); sendCmd('model_list', null); }
+      }, 3000);
+      break;
+    case 'sent': {                           /* 1.09：服务端阶段回报
+        （typed 已进 WorkBuddy 输入框 / clicked 已点发送 / queued 已排队；
+        旧版服务端发纯文本也兼容——只当 unknown 状态处理） */
+      let stage = '', text = '';
+      if (v && typeof v === 'object'){
+        stage = v.stage || ''; text = v.text || '';
+      } else if (typeof v === 'string') text = v;
+      const p = S.pending.find(x => (!text || x.text === text)
+                                    && x.state !== 'timeout');
+      if (p){
+        if (stage === 'queued') p.state = 'queued';
+        else if (stage === 'clicked') p.state = 'sent';
+        else if (stage === 'typed') p.state = 'typed';
+      }
+      S.msgs_key = null;
+      el.ent.value = '';
+      refreshSendBtn();
+      renderAll();
+      break;
+    }
+    case 'pend': {                           /* 1.10：命令受理广播——
+        别的端（PC 面板）发出的消息也在本机回显占位，多端同看。
+        switch 不进气泡：统一走「正在切换」提示条（同目标幂等、
+        目标激活即撤、8s 兜底），此前误入气泡会挂 15s 变「未确认」 */
+      const pk = (v && v[0]) || 'send';
+      const pt = (v && v[1]) || '';
+      if (pk === 'switch'){
+        pendSwitchSet(pt);
+        renderAll();
+        break;
+      }
+      if (pt && !S.pending.some(x => x.text === pt)){
+        pendAdd(pk, pt);
+        renderAll();
+      }
+      break;
+    }
+    case 'points':
+      if (v && v !== '读取失败') S.points = v;
+      el.points.textContent = '积分 ' + v;
+      break;
+    case 'models':
+      S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
+      rebuildModelOptions();
+      checkFavInvalid();
+      break;
+    case 'model_set':
+      S.model_busy = false;
+      flash(v[0] === v[1] ? '模型已切换：' + v[1]
+        : '「' + v[0] + '」未生效（当前 ' + (v[1] || '未知') + '）',
+        v[0] === v[1] ? 'var(--green)' : 'var(--red)');
+      syncModel(v[1]);
+      break;
+    case 'switched':
+      applySwitch(v[0], v[1]);
+      break;
+    case 'booterr':
+    case 'boot_noop':
+      S.busy = false;
+      flash(v);
+      break;
+    case 'attach_done':
+      S.attach_pending = null;
+      if (v.ok >= v.total && v.total)
+        flash('✅ 已附加 ' + v.ok + ' 个附件', 'var(--green)');
+      else if (v.ok)
+        flash('⚠ 仅附加成功 ' + v.ok + '/' + v.total + '（部分被 WorkBuddy 拒收）',
+              'var(--orange)');
+      else
+        flash('❌ 附件未出现在输入栏（类型被拒？）');
+      renderAttach(S.snap.attach || []);
+      break;
+    case 'attach_rm_done':
+      renderAttach(S.snap.attach || []);
+      flash('已移除附件', '#888');
+      break;
+    case 'ports':
+      S.alive = new Set(v || []);
+      renderPorts();
+      break;
+    case 'cmderr':
+      flash('命令失败：' + v);
+      /* 1.11：新建弹窗流程出错 → 收起弹窗（否则卡在「正在展开」） */
+      if (S.task_open){ taskDlgClose(); }
+      /* 1.09：命令报错 → 在途占位立刻标「未确认」，别让用户干等 15s */
+      if (S.pending.some(p => p.state === 'sending' || p.state === 'typed')){
+        S.pending.forEach(p => {
+          if (p.state === 'sending' || p.state === 'typed')
+            p.state = 'timeout';
+        });
+        renderAll();
+      }
+      if (S.switch_pend){ S.switch_pend = null; renderAll(); }
+      document.querySelectorAll('.optbtn.picked').forEach(b => {
+        b.disabled = false;
+        b.classList.remove('picked');
+      });
+      break;
+    case 'bench_ls':                       // 1.01：📂 目录应答
+      benchRender(v);
+      break;
+    case 'msg_act':                        // 1.06：回退/删除完成 (kind, mi)
+      flash(v[0] === 'revert'
+        ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
+        : '已删除第 ' + (v[1] + 1) + ' 条「我」的消息', 'var(--green)');
+      break;
+    case 'block_stat':                     // 1.06：防升级状态/操作结果
+      if (v.ok){
+        S.block = !!v.blocked;
+        renderBlock();
+        flash(v.blocked ? '🚫 自动升级：已封锁' : '自动升级：未封锁',
+              v.blocked ? 'var(--green)' : 'var(--orange)');
+      } else {
+        flash('防升级：' + (v.err || '操作失败'), 'var(--red)');
+      }
+      break;
+    case 'task_dlg':                        // 1.08：记忆目录抓取结果（预填）
+      if (S.task_open){
+        S.task_mem = v.full || '';
+        S.task_cur = '';
+        taskDlgRender();
+        el.td_stat.textContent = v.full
+          ? '已预填 WorkBuddy 记忆目录（可直接「创建」或「✕ 重选」）'
+          : 'WorkBuddy 无记忆目录（可选可不选）';
+      }
+      break;
+    case 'task_dlg_ok':                     // 1.08：task_dir_set 设置成功
+      if (S.task_open) taskDlgClose();
+      flash('✅ 工作目录已设置：' + (v || ''), 'var(--green)');
+      break;
+  }
+}
+
+function onHello(d){
+  gotHello = true;                     // 1.01：应答到达即停握手重试
+  /* 1.23：确认匹配参数（字数/时限）随 hello 同步 */
+  if (d.pendcfg && d.pendcfg.head)
+    S.pend_head = Math.max(10, d.pendcfg.head | 0);
+  if (d.pendcfg && d.pendcfg.age)
+    S.pend_age = Math.max(5, d.pendcfg.age | 0) * 1000;
+  /* 1.13：目标正被其他客户端占用时提示（操控指令会被 deny） */
+  if (d.lock && d.lock.mine === false && d.lock.id){
+    flash('🔒 [' + (d.srv || '远方') + '] 正被 ' + d.lock.id
+          + ' 占用（约 ' + (d.lock.left || 0) + ' 秒后释放）',
+          'var(--red)');
+    renderSrvList();          // 清单同步显示 🔒 标记
+  }
+  const boxes = (d.boxes || []).filter(Boolean);
+  if (boxes.length && JSON.stringify(boxes) !== JSON.stringify(S.boxes)){
+    S.boxes = boxes;
+    el.box.innerHTML = '';
+    for (const b of boxes){
+      const o = document.createElement('option');
+      o.value = b; o.textContent = b;
+      el.box.appendChild(o);
+    }
+  }
+  S.alive = new Set(d.alive || []);
+  renderPorts();
+  if (d.block !== undefined){ S.block = d.block; renderBlock(); }  // 1.06
+  if (d.points && d.points !== '—'){
+    S.points = d.points;
+    el.points.textContent = '积分 ' + d.points;
+  }
+  if (!d.box || !d.port) return;
+  const port = parseInt(d.port);
+  if (d.box !== S.box){ applySwitch(d.box, port); }
+  else if (port !== S.port){ S.port = port; }
+  if (d.conn) onEv('connected', S.port);
+}
+
+function applySwitch(box, port){
+  S.box = box; S.port = port;
+  exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
+  S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  S.attach_pending = null; S.model_busy = false;
+  /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
+  S.pending = []; S.switch_pend = null;
+  S.pend_claims = []; S.pend_conv = '';
+  S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
+                       // 原不重置，boot 一次 S.busy 永卡 true 锁死目标切换
+  el.box.value = box;
+  el.convs.innerHTML = '';
+  el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
+                     + ' …）</div>';
+  renderAttach([]);
+  el.model.value = '';
+  document.title = 'WorkBuddy远程·手机版 [' + box + ']';
+}
+
+function setOnLine(b){
+  S.onLine = b;
+  if (b) S.wsOpenAt = Date.now();
+  renderLink();
+}
+
+/* 1.07：顶栏状态灯 = 与服务端的连接状况（不再显示无意义的
+   「自身是否在线」——客户端自己显然在运行）。判活依据：收到
+   服务端任何来向消息（hello 应答 / 每 6s 一轮的 ports 广播 /
+   快照…）即算活着；16s 无任何消息判「服务器未启动」（阈值
+   覆盖连续 2 轮 ports 丢失）。 */
+function renderLink(){
+  let txt, col;
+  if (!S.onLine){
+    if (S.wsOpenAt){ txt = 'WS坏了'; col = 'var(--red)'; }   // 曾连上后断开
+    else { txt = '连接中…'; col = 'var(--gray)'; }           // 首次未连过
+  } else {
+    const gap = Date.now() - (S.lastSrv || S.wsOpenAt);
+    if (S.lastSrv && gap < 16000){
+      txt = '连接成功'; col = 'var(--green)';
+    } else if (gap < 16000){                   // 刚连上，等服务端应答
+      txt = '连接中…'; col = 'var(--gray)';
+    } else {
+      txt = '服务器未启动'; col = 'var(--orange)';
+    }
+  }
+  el.rlink.textContent = txt;
+  el.rlink.style.color = col;
+}
+function srvSeen(){                    // 服务端来向消息：判活 + 即时刷新
+  S.lastSrv = Date.now();
+  renderLink();
+}
+setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
+
+function renderPorts(){
+  el.ports.textContent = '在线 ' + S.alive.size + '/' + S.boxes.length;
+}
+
+/* ================= 命令 ================= */
+
+function cmd(c, a){
+  if (!S.onLine){ flash('⚠ 服务端未连接，命令未发出'); return; }
+  /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
+     清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
+  if ((c === 'send' || c === 'interject') && typeof a === 'string'
+      && a.trim()){
+    pendAdd(c, a);
+    if (c === 'send') flash('⏳ 正在发送…（已回显，等待 WorkBuddy 同步）',
+                            'var(--blue)');
+  }
+  sendCmd(c, a);
+  if (c === 'send' || c === 'interject'){
+    el.ent.value = '';
+    renderAll();
+  }
+}
+
+el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发送
+  const t = el.ent.value.trim();
+  if (S.gen){
+    if (t){                       /* 1.01：生成中打字=插话——服务端以
+       Enter 触发 WorkBuddy 官方排队机制，AI 在当前步骤边界消费；
+       空闲时服务端自动降级常规发送 */
+      flash('💬 已排队插话（AI 在当前步骤边界处理）', 'var(--orange)');
+      cmd('interject', t);
+    } else {
+      flash('⏳ 已请求停止生成…', 'var(--blue)');   // 1.09：空白期反馈
+      cmd('stop_gen', null);
+    }
+    return;
+  }
+  if (t) cmd('send', t);
+};
+/* 聚焦增高输入框（约5倍单行高度），失焦缩回单行，随内容自动扩展 */
+const ENT_GROW = 170, ENT_MAX = 260;
+function entFit(){
+  el.ent.style.height = 'auto';
+  const h2 = Math.max(el.ent.scrollHeight,
+                      (el.ent.value || '') ? ENT_GROW : 34);
+  el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
+}
+el.ent.addEventListener('focus', () => { el.ent.classList.add('grow'); entFit(); });
+el.ent.addEventListener('blur', () => { el.ent.classList.remove('grow');
+                                         el.ent.style.height = '34px'; });
+el.ent.addEventListener('input', () => { refreshSendBtn(); entFit(); });
+el.ent.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.isComposing){
+    e.preventDefault(); el.send.click();
+  }
+});
+el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并入）
+  drawerClose();
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  if (!S.snap || !S.snap.online){ flash('⚠ WorkBuddy 未在线'); return; }
+  if (S.task_open) return;
+  taskDlgOpen();
+  flash('正在展开新建任务…', 'var(--blue)');
+  sendCmd('new_task_dlg', null);
+};
+el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 boot
+  drawerClose();                  // 本就先杀再拉——原在线时本地拦下，
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }   // WorkBuddy 卡死救不了）
+  const online = S.snap && S.snap.online;
+  if (!confirm(online
+    ? '要重启当前目标 ' + S.box + ' 的 WorkBuddy 吗？\n'
+      + '（正在生成的任务会中断，重启后自动重连）'
+    : '要请求服务端带调试端口启动当前目标 WorkBuddy 吗？\n'
+      + '（服务端正在运行的该 WorkBuddy 会先关闭）'))
+    return;
+  S.busy = true;
+  flash(online ? '正在请求服务端重启 ' + S.box + '…'
+               : '正在请求服务端拉起 ' + S.box + '…', 'var(--blue)');
+  sendJson({t: 'boot', box: S.box});
+};
+el.box.onchange = () => {                 // 切换目标：在线直接切/离线确认拉起
+  const box = el.box.value;
+  if (box === S.box || S.busy){ el.box.value = S.box; return; }
+  if (!S.onLine){ flash('⚠ 服务端未连接'); el.box.value = S.box; return; }
+  if (S.alive.has(box)){
+    flash('正在切换到 ' + box + '…', 'var(--blue)');
+    sendJson({t: 'switch_box', box: box});
+  } else {
+    if (!confirm('[' + box + '] 在服务端未带调试端口运行。\n\n'
+      + '要请求服务端重启该 WorkBuddy 并带端口吗？\n'
+      + '（服务端正在运行的该 WorkBuddy 会先关闭）')){
+      el.box.value = S.box; return;
+    }
+    S.busy = true;
+    flash('正在请求服务端拉起 ' + box + '…', 'var(--blue)');
+    sendJson({t: 'boot', box: box});
+  }
+};
+el.model.onchange = () => {
+  const name = S.model_map[el.model.value];
+  if (!name || S.model_busy) return;
+  if (S.fav_invalid && S.fav_invalid.includes(name)){
+    /* 1.15：选中了已失效的收藏——不发送，回显当前模型 */
+    flash('⚠「' + name + '」已失效（可能被官方改名/下架），'
+      + '请到 ☆ 收藏管理移除后重新收藏新名字');
+    syncModel(S.snap.model || '');
+    return;
+  }
+  S.model_busy = true;
+  flash('正在切换模型 ' + name + '…', 'var(--blue)');
+  cmd('switch_model', name);
+};
+
+/* —— 1.15：模型收藏管理页 —— */
+
+el.fav.onclick = () => { renderFavPage(); el.favpage.classList.add('on'); };
+el.favback.onclick = () => el.favpage.classList.remove('on');
+
+/* —— 抽屉 —— */
+
+el.menu.onclick = drawerOpen;
+el.mask.onclick = drawerClose;
+el.dclose.onclick = drawerClose;
+
+/* —— 1.01：📂 工作台远程浏览（bench_ls 逐级拉目录，服务端强制
+   约束在工作台根内；全屏页，目录单击进入、➕/文件单击插路径）。
+   1.06 双模式：ins=插路径（原行为）/ newdir=选工作目录新建任务
+   （目录行 ✅ 选定子目录；头钮 ✅ 选定当前浏览目录；文件隐藏） —— */
+
+function benchReq(rel){
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  el.benchlist.innerHTML = '<div class="brow empty">读取中…</div>';
+  sendJson({t: 'bench_ls', p: rel || ''});
+}
+function benchIns(path){
+  const cur = el.ent.value.trim();
+  el.ent.value = (cur ? cur + ' ' : '') + path;
+  el.benchpage.classList.remove('on');
+  S.bench = null;
+  flash('已插入路径', 'var(--green)');
+}
+function benchModeUI(){                 // 1.06：按模式切换头钮/底栏提示
+  const pick = S.bench_mode === 'newdir';
+  el.bench_ok.style.display = pick ? '' : 'none';
+  el.bfoot.textContent = pick
+    ? '📁 单击进入子目录 · ✅ 选定该目录（新建任务用）'
+    : '📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入';
+}
+function benchPick(path){               // 1.08：选定目录 → 回填弹窗
+  el.benchpage.classList.remove('on');
+  S.bench = null;
+  S.bench_mode = 'ins';
+  benchModeUI();
+  S.task_cur = path;                    // 回填（不立即建任务）
+  taskDlgRender();
+  el.td_stat.textContent = '已选目录，点「创建」开始任务';
+  flash('已选工作目录', 'var(--green)');
+}
+function benchRender(v){
+  if (!v || !v.ok){ flash('📂 ' + ((v && v.err) || '读取失败')); return; }
+  S.bench = v;
+  const pick = S.bench_mode === 'newdir';
+  const rel = v.rel || '';
+  el.lbl_bench.textContent = (pick ? '📂 选工作目录 ' : '📂 ')
+                             + (v.root || '工作台')
+                             + (rel ? '\\' + rel : '');
+  const box = el.benchlist;
+  box.innerHTML = '';
+  if (rel){                                 // 根目录不显示上级行
+    const d = document.createElement('div');
+    d.className = 'brow up';
+    d.textContent = '⬙ ..';
+    d.onclick = () => benchReq(v.parent || '');
+    box.appendChild(d);
+  }
+  for (const n of (v.dirs || [])){
+    const sub = rel ? rel + '\\' + n : n;
+    const d = document.createElement('div');
+    d.className = 'brow dir';
+    d.textContent = '📁 ' + n;
+    d.onclick = () => benchReq(sub);       // 目录单击进入（手机无双击）
+    const b = document.createElement('span');
+    if (pick){                              // 1.06：选目录模式 → ✅ 选定
+      b.textContent = '✅';
+      b.title = '选定此目录新建任务';
+      b.onclick = e => { e.stopPropagation(); benchPick(v.path + '\\' + n); };
+    } else {                                // 原模式 → ➕ 插路径
+      b.textContent = '➕';
+      b.title = '插入此目录路径';
+      b.onclick = e => { e.stopPropagation(); benchIns(v.path + '\\' + n); };
+    }
+    b.className = 'plus';
+    d.appendChild(b);
+    box.appendChild(d);
+  }
+  if (!pick){                               // 选目录模式不列文件
+    for (const n of (v.files || [])){
+      const d = document.createElement('div');
+      d.className = 'brow file';
+      d.textContent = '📄 ' + n;
+      d.onclick = () => benchIns(v.path + '\\' + n);
+      box.appendChild(d);
+    }
+  }
+  if (!box.children.length){
+    const d = document.createElement('div');
+    d.className = 'brow empty';
+    d.textContent = '（空目录）';
+    box.appendChild(d);
+  }
+}
+el.bench.onclick = () => {
+  if (!S.onLine){ flash('⚠ 服务端未连接，无法浏览工作台'); return; }
+  S.bench_mode = 'ins';
+  benchModeUI();
+  el.benchpage.classList.add('on');
+  benchReq('');
+};
+el.benchback.onclick = () => {
+  el.benchpage.classList.remove('on');
+  S.bench_mode = 'ins';                     // 返回即复位（防模式残留）
+  benchModeUI();
+};
+el.bench_up.onclick = () => benchReq((S.bench || {}).parent || '');
+el.bench_ok.onclick = () => {               // 1.06：选定当前浏览目录
+  const b = S.bench;
+  if (b && b.ok) benchPick(b.path);
+};
+
+/* —— 1.06 防自动升级开关（新任务部分已由 1.08 弹窗取代） —— */
+
+/* —— 1.08：新建任务弹窗（对齐服务端 v1.10 TaskDlg 两态渲染；
+   原入口并入——new_task_dir 链路服务端保留但本端不再发送） —— */
+
+function taskDlgOpen(lock){         /* 1.11：lock=文件夹组名 → 锁定模式
+  （组头 ➕ 入口）——不预开 WorkBuddy 输入区、无目录选择，创建=new_task_in */
+  S.task_open = true;
+  S.task_lock = lock || null;
+  S.task_mem = '';
+  S.task_cur = '';
+  taskDlgRender();
+  el.td_stat.textContent = S.task_lock
+    ? '点「创建」在文件夹内新建对话' : '正在展开新建任务…';
+  el.taskpage.classList.add('on');
+}
+function taskDlgRender(){          // 工作目录行两态 + 1.11 锁定态
+  if (S.task_lock){
+    el.td_lock.style.display = '';
+    el.td_lock.textContent = '🔒 归属文件夹：' + S.task_lock
+      + '（组内新建·锁定）';
+    el.td_none.style.display = 'none';
+    el.td_sel.style.display = 'none';
+    document.querySelector('#page_taskdlg .tdsec').style.display = 'none';
+    return;
+  }
+  document.querySelector('#page_taskdlg .tdsec').style.display = '';
+  el.td_lock.style.display = 'none';
+  const cur = S.task_cur || S.task_mem;
+  if (cur){
+    el.td_none.style.display = 'none';
+    el.td_sel.style.display = '';
+    el.td_name.textContent = '📁 '
+      + (cur.split(/[\\\/]/).filter(Boolean).pop() || cur);
+    el.td_full.textContent = cur;
+  } else {
+    el.td_none.style.display = '';
+    el.td_sel.style.display = 'none';
+  }
+}
+function taskDlgClose(){
+  S.task_open = false;
+  el.taskpage.classList.remove('on');
+}
+function taskPickDir(){            // 选择/重选 → 📂 浏览页选目录回填
+  S.bench_mode = 'newdir';
+  benchModeUI();
+  el.benchpage.classList.add('on');
+  benchReq('');
+}
+el.td_none.onclick = () => taskPickDir();
+el.td_re.onclick = () => taskPickDir();
+el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目录
+  与记忆有变化才设置 */
+  if (S.task_lock){
+    taskDlgClose();
+    flash('正在文件夹「' + S.task_lock + '」内新建对话…', 'var(--blue)');
+    sendCmd('new_task_in', S.task_lock);
+    return;
+  }
+  if (S.task_cur && S.task_cur !== S.task_mem){
+    el.td_stat.textContent = '正在设置工作目录…';
+    flash('正在设置工作目录…', 'var(--blue)');
+    sendCmd('task_dir_set', S.task_cur);
+  } else {
+    taskDlgClose();
+    flash('✅ 新建任务就绪', 'var(--green)');
+  }
+};
+el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 WorkBuddy 输入区
+  直接关；普通模式 Esc×2 关 WorkBuddy 输入区 */
+  const wasLock = S.task_lock;
+  taskDlgClose();
+  if (!wasLock) sendCmd('task_dlg_cancel', null);
+};
+function renderBlock(){                     // 抽屉防升级状态文字
+  const st = el.block.querySelector('.st');
+  el.block.classList.toggle('on', S.block === true);
+  st.textContent = S.block === true ? '已封锁'
+                 : S.block === false ? '未封锁' : '未知';
+}
+el.block.onclick = () => {
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  if (S.block === null){ flash('服务端未定位到 WorkBuddy 安装目录'); return; }
+  const to = !S.block;
+  if (!confirm(to
+    ? '禁止 WorkBuddy 自动升级？\n（清理已下载升级包 + 封锁升级程序，'
+      + '防止改版后本工具操作失灵）'
+    : '恢复 WorkBuddy 自动升级？')) return;
+  flash(to ? '正在封锁自动升级…' : '正在恢复自动升级…', 'var(--blue)');
+  sendCmd('block_update', to);
+};
+
+/* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
+
+el.attach.onclick = () => el.file.click();
+el.file.onchange = async () => {
+  const files = [...el.file.files];
+  el.file.value = '';
+  if (!files.length) return;
+  if (S.attach_pending){ flash('📎 正在附加上一批，请稍候…', 'var(--orange)'); return; }
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  const arr = [];
+  for (const f of files){
+    if (f.size > 6 * 1024 * 1024){
+      flash('「' + f.name + '」超过 6MB，远程通道暂不支持'); return;
+    }
+    const b64 = await new Promise((ok, no) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result).split(',')[1] || '');
+      r.onerror = no;
+      r.readAsDataURL(f);
+    }).catch(() => null);
+    if (b64 === null){ flash('读取 ' + f.name + ' 失败'); return; }
+    arr.push({n: f.name, d: b64});
+  }
+  S.attach_pending = arr.map(f => f.n);     // 反馈①：灰 chips 占位
+  renderAttach([]);
+  flash('📎 附加中…（' + arr.length + ' 个文件）', 'var(--orange)');
+  sendJson({t: 'attach_files', files: arr});
+};
+
+/* —— 1.07：导出功能整体移除（用户要求网页版不要导出）：
+   抽屉导出区 / export_full 命令 / collected 落盘链路均已删，
+   服务端 export_full 处理保留不影响（无人触发即不执行） —— */
+
+/* ================= 网络页 ================= */
+
+el.net.onclick = () => {
+  drawerClose();
+  renderToday(); renderNetHist();
+  el.netpage.classList.add('on');
+};
+el.netback.onclick = () => el.netpage.classList.remove('on');
+
+el.wsurl.value = CFG.ws_url;
+el.keep.value = CFG.stats_keep;
+
+function netDirty(){ el.nsave.disabled = false; }
+el.wsurl.oninput = netDirty;
+el.keep.oninput = netDirty;
+el.nsave.onclick = () => {
+  const u = el.wsurl.value.trim();
+  if (!/^wss?:\/\//.test(u)){ flash('服务地址须以 ws:// 或 wss:// 开头'); return; }
+  CFG.ws_url = u;
+  CFG.stats_keep = Math.max(1, parseInt(el.keep.value) || 100);
+  cfgSave();
+  el.keep.value = CFG.stats_keep;
+  el.nsave.disabled = true;
+  statsFlush(); renderNetHist();
+  el.nflash.textContent = '已保存';
+  el.nflash.style.color = 'var(--green)';
+  setTimeout(() => el.nflash.textContent = '', 3000);
+  connect();                                  // 重连生效
+};
+
+function renderToday(){
+  const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
+  el.today.textContent = '今日  收 ' + fmtBytes(b.rx) + '·' + (b.rxn||0)
+                       + ' 条   发 ' + fmtBytes(b.tx) + '·' + (b.txn||0)
+                       + ' 条';
+}
+function renderNetHist(){
+  const tb = el.tnet.querySelector('tbody');
+  tb.innerHTML = '';
+  const keep = Math.max(1, parseInt(CFG.stats_keep) || 100);
+  const ks = Object.keys(NET.days).sort().reverse().slice(0, keep);
+  for (const k of ks){
+    const b = NET.days[k] || {};
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + k + '</td><td class="num">'
+      + fmtBytes(b.rx || 0) + '</td><td class="num">' + (b.rxn || 0)
+      + '</td><td class="num">' + fmtBytes(b.tx || 0)
+      + '</td><td class="num">' + (b.txn || 0) + '</td>';
+    tb.appendChild(tr);
+  }
+}
+setInterval(renderToday, 2000);
+setInterval(statsFlush, 30000);
+window.addEventListener('beforeunload', statsFlush);
+
+/* ================= 启动 ================= */
+
+connect();
+</script>
+</body>
+</html>
