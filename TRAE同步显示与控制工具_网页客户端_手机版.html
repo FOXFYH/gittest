@@ -334,7 +334,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.29</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.30</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -375,7 +375,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.29 · 插话队列管理 · 上一题回退 · 提问卡单选+连续多问不吞 · 积分预警</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.30 · 会话置顶/删除 · 插话队列管理 · 上一题回退 · 提问卡单选</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -473,7 +473,9 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.29 =================
+/* ================= 手机版网页客户端 v1.30 =================
+ * v1.30（对齐服务端 v1.45）：长按会话菜单新增「📌 置顶/取消置顶」
+ *   (conv_pin 切换项)与「🗑 删除」(conv_del，confirm+服务端确认框)。
  * v1.29（对齐服务端 v1.44）：排队条管理面板——快照 pend 渲染
  *   排队消息列表，每条 ⚡发送(pend_sendnow)/✎取出编辑(pend_edit
  *   后文本回填本端输入框)/🗑删除(pend_del)；队列指纹参与重画。
@@ -1006,9 +1008,10 @@ function renderConvs(rows){
   }
 }
 
-/* 1.25：会话操作菜单（长按会话行弹出）。本期实现「重命名」——
-   走服务端 conv_rename（右键会话行 → 上下文菜单「重命名」→
-   内联编辑框写入 → Enter）；后续菜单项随服务端能力再补。 */
+/* 1.25：会话操作菜单（长按会话行弹出）。1.29 起含：重命名
+   （conv_rename，右键菜单「重命名」→ 内联编辑）；置顶/取消置顶
+   （conv_pin，TRAE 菜单为切换项，两文案自动适配）；删除
+   （conv_del，本端 confirm 后服务端再点确认框「删除」）。 */
 function convMenuOpen(title){
   const old = $('convmenu');
   if (old) old.remove();
@@ -1016,15 +1019,31 @@ function convMenuOpen(title){
   ov.id = 'convmenu';
   ov.innerHTML = '<div class="cmsheet">'
     + '<div class="cmtitle">' + esc(title) + '</div>'
+    + '<button data-act="pin">📌 置顶 / 取消置顶</button>'
     + '<button data-act="ren">✎ 重命名</button>'
+    + '<button data-act="del" style="color:var(--red)">🗑 删除</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
     + '</div>';
   ov.onclick = e => { if (e.target === ov) ov.remove(); };
   ov.querySelectorAll('button').forEach(b => {
     b.onclick = e => {
       e.stopPropagation();
+      const act = b.dataset.act;
+      if (act === 'cancel'){ ov.remove(); return; }
+      if (act === 'pin'){
+        ov.remove();
+        flash('正在切换置顶…', 'var(--blue)');
+        sendCmd('conv_pin', title);
+        return;
+      }
+      if (act === 'del'){
+        ov.remove();
+        if (!confirm('删除会话「' + title + '」？\n删除后不可恢复。')) return;
+        flash('正在删除会话…', 'var(--blue)');
+        sendCmd('conv_del', title);
+        return;
+      }
       ov.remove();
-      if (b.dataset.act !== 'ren') return;
       const nn = (prompt('重命名会话', title) || '').trim();
       if (!nn || nn === title) return;
       sendCmd('conv_rename', [title, nn]);
