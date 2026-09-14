@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.30</title>
+<title>wb远程 v1.31</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -312,7 +312,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.30</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.31</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -352,7 +352,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_block" title="防自动升级" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.30 · 低频查询</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.31 · 取消插话</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -1475,20 +1475,18 @@ function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
   el.send.classList.toggle('stopmode', stop);
   el.send.disabled = !enabled;
 }
-function refreshSendBtn(){               // 1.01：生成中打字 → 插话三态
+function refreshSendBtn(){               // 1.30：两态——有本地字=发送；生成中无字=停止
   el.send.classList.remove('intermode');
   if (!S.ready){ setSendBtn(false, false); return; }
-  if (S.gen && el.ent.value.trim()){     // 生成中打字：橙色插话
-    el.send.textContent = '插话';
-    el.send.classList.remove('stopmode');
-    el.send.classList.add('intermode');
-    el.send.disabled = false;
+  if (el.ent.value.trim()){
+    /* 1.30：有本地字就显示「发送」——无论空闲还是生成中。生成中点发送
+       由服务端先暂停本轮生成（点停止键→等空闲）再正常发送。 */
+    setSendBtn(false, true);
   } else if (S.gen){
     setSendBtn(true, true);           // 生成中、无本地字 → 停止钮
   } else {
-    /* 1.46：空闲灰=需填写文本——本地 #ent 为空则发送钮灰（disabled），
-       填完才激活。对齐远端发送钮「灰→填字→可发送」的语义。 */
-    setSendBtn(false, !!el.ent.value.trim());
+    /* 1.46：空闲灰=需填写文本——本地 #ent 为空则发送钮灰（disabled） */
+    setSendBtn(false, false);
   }
 }
 
@@ -2216,7 +2214,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.29 [' + box + ']';
+  document.title = 'wb远程 v1.31 [' + box + ']';
 }
 
 function setOnLine(b){
@@ -2277,21 +2275,16 @@ function cmd(c, a){
   }
 }
 
-el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发送
+el.send.onclick = () => {        // 1.30：有字=发送；生成中无字=停止
   const t = el.ent.value.trim();
-  if (S.gen){
-    if (t){                       /* 1.01：生成中打字=插话——服务端以
-       Enter 触发 WorkBuddy 官方排队机制，AI 在当前步骤边界消费；
-       空闲时服务端自动降级常规发送 */
-      flash('💬 已排队插话（AI 在当前步骤边界处理）', 'var(--orange)');
-      cmd('interject', t);
-    } else {
-      flash('⏳ 已请求停止生成…', 'var(--blue)');   // 1.09：空白期反馈
-      cmd('stop_gen', null);
-    }
-    return;
+  if (t){                        /* 1.30：生成中点发送=「暂停后发送」——
+       服务端收到 send 若在生成中，会先点停止暂停本轮再正常发送 */
+    if (S.gen) flash('⏸ 先暂停本轮，随后发送…', 'var(--blue)');
+    cmd('send', t);
+  } else if (S.gen){
+    flash('⏳ 已请求停止生成…', 'var(--blue)');   // 1.09：空白期反馈
+    cmd('stop_gen', null);
   }
-  if (t) cmd('send', t);
 };
 /* 聚焦增高输入框（约7倍单行高度），失焦缩回单行，随内容自动扩展（对齐 TRAE） */
 const ENT_GROW = 255, ENT_MAX = 390;
