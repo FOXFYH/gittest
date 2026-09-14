@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.32</title>
+<title>wb远程 v1.33</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -312,7 +312,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.32</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.33</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -352,7 +352,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_block" title="防自动升级" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.32 · 占位卡超时才出操作</div>
+  <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.33 · 登录账号显示</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -677,7 +678,7 @@ function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
 const S = {
   ws: null, onLine: false, wsOpenAt: 0, lastSrv: 0,
   box: '(未连接)', port: 0, boxes: [], alive: new Set(),
-  points: '—', snap: {},
+  points: '—', acct: '', snap: {},
   attach_pending: null,
   model_map: {}, model_busy: false,
   /* 1.15 模型收藏：favs=收藏的模型真名数组（localStorage 持久）；
@@ -712,6 +713,7 @@ const el = {
   menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
+  acct: $('lbl_acct'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
   input_row: $('input_row'),
@@ -858,6 +860,11 @@ function renderAll(){
   renderState(snap);
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
+  renderAcct();
+}
+
+function renderAcct(){                     // 1.33：登录账号名（hello/account 更新）
+  if (el.acct) el.acct.textContent = S.acct || '—';
 }
 
 function drawerOpen(){
@@ -1910,6 +1917,7 @@ function switchSrv(nm){
   S.pend_claims = []; S.pend_conv = '';
   S.busy = false; S.model_busy = false;
   S.points = '—'; el.points.textContent = '积分 —';
+  S.acct = ''; renderAcct();
   S.alive = new Set(); S.boxes = [];
   el.model.innerHTML = ''; S.model_map = {};
   el.box.innerHTML = '';
@@ -2077,6 +2085,10 @@ function onEv(kind, v){
       if (v && v !== '读取失败') S.points = v;
       el.points.textContent = '积分 ' + v;
       break;
+    case 'account':                        /* 1.33：登录账号名（读积分时带回） */
+      S.acct = String(v || '');
+      renderAcct();
+      break;
     case 'models':
       S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
       rebuildModelOptions();
@@ -2202,6 +2214,10 @@ function onHello(d){
     S.points = d.points;
     el.points.textContent = '积分 ' + d.points;
   }
+  if (d.acct !== undefined){                       /* 1.33：登录账号名随 hello */
+    S.acct = String(d.acct || '');
+    renderAcct();
+  }
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
   if (d.box !== S.box){ applySwitch(d.box, port); }
@@ -2225,7 +2241,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.32 [' + box + ']';
+  document.title = 'wb远程 v1.33 [' + box + ']';
 }
 
 function setOnLine(b){
@@ -2714,6 +2730,7 @@ function channelPrompt(){
 
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
+renderAcct();                                    /* 1.33：账号行首显 — */
 if (wsOV || CFG.channel) connect(); else channelPrompt();
 </script>
 </body>
