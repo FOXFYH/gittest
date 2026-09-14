@@ -141,6 +141,33 @@ body.fmsg #fexit{display:block;}
   margin-bottom:8px;}
 #finish .ft{font-weight:bold; color:var(--green);}
 #finish .ff{color:var(--green); font-size:12px;}
+/* ── 1.27：积分预警 toast ── */
+#warnbox{position:fixed; left:50%; top:38%; transform:translateX(-50%)
+  translateY(-50%) scale(.9); z-index:60; background:#fff3e0;
+  border:2px solid #ef6c00; color:#e65100; font-weight:bold;
+  font-size:16px; padding:14px 22px; border-radius:12px;
+  box-shadow:0 4px 18px rgba(230,81,0,.35); opacity:0;
+  pointer-events:none; transition:opacity .18s, transform .18s;
+  max-width:82vw; text-align:center;}
+#warnbox.on{opacity:1; transform:translateX(-50%) translateY(-50%)
+  scale(1);}
+/* ── 1.27：频道名输入弹窗 ── */
+#chanmask{position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.55);
+  display:flex; align-items:center; justify-content:center;}
+#chanbox{background:#fff; border-radius:14px; padding:20px 18px;
+  width:84vw; max-width:360px; box-shadow:0 6px 30px rgba(0,0,0,.3);}
+#chanbox .ctitle{font-weight:bold; font-size:16px; color:var(--blue);
+  margin-bottom:8px;}
+#chanbox .chint{font-size:12px; color:var(--gray); line-height:1.6;
+  margin-bottom:10px;}
+#chanin{width:100%; box-sizing:border-box; font-size:16px;
+  padding:10px 12px; border:1px solid var(--bd); border-radius:8px;
+  outline:none;}
+#chanin:focus{border-color:var(--blue);}
+#chanbox .cerr{color:var(--red); font-size:12px; min-height:16px;
+  margin:4px 0;}
+#chanok{width:100%; padding:11px 0; font-weight:bold; font-size:15px;
+  color:#fff; background:var(--blue); border:none; border-radius:8px;}
 /* ── 附件行 / 输入行 ── */
 #attach_row{display:none; gap:4px; padding:2px 8px; flex-wrap:wrap;
   flex:none; background:#fff;}
@@ -156,10 +183,18 @@ body.fmsg #fexit{display:block;}
   background:#fff; border-top:1px solid var(--bd); flex:none;}
 #btn_attach{min-width:46px;}
 #btn_bench{min-width:46px;}
-#ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:260px;
+#ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
-#ent.grow{height:170px;}   /* 聚焦增高（约5倍单行高度+随内容自适应） */
+/* 1.27：聚焦增高 255px（原 170 再 +50%）；增高时 📎/📂/发送 跳到
+   顶行，输入框独占整行矩形（原来左右被按钮夹住，宽度受限） */
+#ent.grow{height:255px;}
+#input_row.grow{flex-wrap:wrap;}
+#input_row.grow #btn_attach,
+#input_row.grow #btn_bench,
+#input_row.grow #btn_send{order:1;}
+#input_row.grow #btn_send{margin-left:auto;}
+#input_row.grow #ent{order:2; flex-basis:100%; margin-top:6px;}
 #btn_send{min-width:66px; font-weight:bold; color:var(--blue);}
 #btn_send.stopmode{color:var(--red); border-color:var(--red);}
 #btn_send.intermode{color:var(--orange); border-color:var(--orange);}
@@ -187,6 +222,12 @@ body.fmsg #fexit{display:block;}
   border-top:1px solid var(--bd); background:#fafbfc;}
 .dmi{flex:none; padding:10px 14px; cursor:pointer;}
 .dmi:active{background:#eef4fb;}
+/* 1.27：底部功能左右并列（省纵向空间 → 会话列表看得更多条） */
+#dmis{flex:none; display:grid; grid-template-columns:1fr 1fr;
+  gap:1px 8px; padding:2px 8px;}
+#dmis .dmi{border:1px solid var(--bd); border-radius:7px;
+  padding:9px 10px; font-size:13px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 #lbl_ver{flex:none; padding:8px 12px calc(8px + env(safe-area-inset-bottom));
   color:var(--gray); font-size:11px; border-top:1px solid var(--bd);
   background:#fafbfc;}
@@ -278,7 +319,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.26</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.27</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -311,12 +352,15 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div id="convs" data-page-node-id="IsffT1TgDFvsO7otRBnwGp"></div>
   <div class="dsec" data-page-node-id="0zAOhFVQ79VNdiCr8Fnrjw">服务端（点击切换操控）</div>
   <div id="srvlist" data-page-node-id="PGBlxfvg8bFmppmtz2w0MO"></div>
+  <div class="dsec" data-page-node-id="c3sDv9IscaIa1GP95F52FT">登录账号：<span id="lbl_acct" style="color:var(--blue); font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
   <div class="dsec" data-page-node-id="c3sDv9IscaIa1GP95F52FT">操作</div>
-  <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
-  <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
-  <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
-  <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.26 · AI提问卡可点选作答 · 不再伪装首项</div>
+  <div id="dmis">
+    <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
+    <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
+    <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
+    <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
+  </div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.27 · 提问卡单选+连续多问不吞 · 积分预警 · 频道名密码制</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -384,11 +428,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
     <fieldset data-page-node-id="FFEkTqPDyCvWYOBJYHsezc">
       <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
-      <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">服务地址</label>
+      <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">频道名</label>
         <input id="in_wsurl" data-page-node-id="DVptB7LnQ9GbFJNGjINr6s"></div>
       <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
-        与服务端网络页同款地址（两边一致即互通）。修改后保存并重连
-        生效。</span></div>
+        频道名相当于密码，与服务端「设置→远程服务」处显示的一致才能
+        连上。修改后保存并重连生效。</span></div>
     </fieldset>
     <fieldset data-page-node-id="8SKaqjuDG4j8saN4BtSqaW">
       <legend data-page-node-id="bcrQE6cC0XiryhicJJtmZn">流量统计（WebSocket）</legend>
@@ -414,7 +458,23 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.13 =================
+/* ================= 手机版网页客户端 v1.27 =================
+ * v1.27（对齐服务端 v1.41）：
+ * ① 提问卡指纹纳入重画 key——修复 AI 连续多问时第 2 问起被吞
+ *    （key 不含 ask，快照变了不重画，页面永远停在第一问）；
+ * ② 提问卡单选锁——点选一项后其余选项锁定（再点已选项=反选），
+ *    去掉多余的「发送」小按钮（原版没有），「其他」填完直接点
+ *    底部主按钮提交（有字=ask_other，无字=ask_submit），
+ *    「不选只填自己意见」路径从此走得通；
+ * ③ 频道名密码制——本端零硬编码，首次使用全屏弹窗输入频道名
+ *    （localStorage 持久），网络页可改；旧 CFG.ws_url 作废；
+ * ④ 积分预警 toast（2 秒自动消失，服务端同时发钉钉 97 通道）；
+ * ⑤ 抽屉显示 TRAE 登录账号名（hello/account 事件），底部功能
+ *    改左右并列，会话列表可视条数更多；
+ * ⑥ 发送/插话占位气泡按会话隔离——切到别的对话不再显示别的
+ *    对话的「排队中」记录（切回原会话照常显示）；
+ * ⑦ 输入框聚焦增高 255px（+50%），📎/📂/发送 自动跳到顶行，
+ *    输入区独占整行矩形；输入内容自适应最高 390px。
  * 与桌面网页版/桌面客户端同协议：PieSocket 中继 + FOX 分段 +
  * hello/ev 事件流。本端 FOX 发送者 ID = 4000000001（区别于服务端
  * 1000000001、桌面客户端 2000000001、桌面网页版 3000000001——
@@ -495,8 +555,10 @@ if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
   try { localStorage.setItem('trae_webm_uid', MY_ID); } catch(e){}
 }
 const SERVER_ID= '1000000001';
-const WS_URL_DEF = ('wss://free.blr2.piesocket.com/v3/TRAE'
-                    + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+/* v1.27：频道名 = 密码（只有服务端知道），本端绝不硬编码——
+ * 首次使用弹窗输入（localStorage 持久），网络页可改。 */
+const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
+                     + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
 const KA_SEC = 25;      // 心跳间隔（秒）
 const RECONNECT = 3;    // 断线重连间隔（秒）
 const FOX_HDR = 57;     // 协议头固定字节数
@@ -506,7 +568,8 @@ const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
 const LS_CFG = 'trae_webm_cfg', LS_NET = 'trae_webm_net',
-      LS_TM = 'trae_webm_times', LS_SRV = 'trae_webm_srv';
+      LS_TM = 'trae_webm_times', LS_SRV = 'trae_webm_srv',
+      LS_CH = 'trae_webm_channel';
 
 function cfgGet(){
   try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
@@ -514,8 +577,21 @@ function cfgGet(){
 }
 function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
-if (!CFG.ws_url) CFG.ws_url = WS_URL_DEF;
 if (!CFG.stats_keep) CFG.stats_keep = 100;
+/* v1.27：频道名存独立键（旧 CFG.ws_url 含旧公开频道，直接作废） */
+try { if (CFG.ws_url) delete CFG.ws_url; } catch(e){}
+function chanGet(){
+  try { return (localStorage.getItem(LS_CH) || '').trim(); }
+  catch(e){ return ''; }
+}
+function chanSet(ch){
+  try { localStorage.setItem(LS_CH, ch); } catch(e){}
+}
+function wsUrlOf(ch){
+  /* 不做 URL 编码：'@' 在路径段合法，且须与服务端裸字串完全一致，
+     两端才能进同一频道 */
+  return WS_URL_TMPL.replace('%s', ch);
+}
 
 const NET = (function(){
   let d = {};
@@ -642,6 +718,8 @@ const S = {
   pend_seen: {},                     /* 1.22：用户消息首见时刻 */
   pend_head: 100,                    /* 1.23：确认匹配字数（hello/pendcfg 同步） */
   pend_age: 30000,                   /* 1.24：消息出现时限毫秒（30 秒） */
+  ask_lock: null,                    /* 1.27：提问卡单选锁 {fp, idx} */
+  acct: '',                          /* 1.27：TRAE 登录账号名 */
   switch_pend: null,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
@@ -657,6 +735,7 @@ const el = {
   srv: $('lbl_srv'), srvlist: $('srvlist'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
+  input_row: $('input_row'),
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
@@ -674,6 +753,7 @@ const el = {
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), block: $('btn_block'),
   fexit: $('fexit'),
+  acct: $('lbl_acct'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favlist: $('fav_list'),
 };
@@ -684,6 +764,27 @@ function flash(msg, color){
   el.state.style.color = color || 'var(--red)';
   clearTimeout(flashTimer);
   if (msg) flashTimer = setTimeout(() => renderState(S.snap), 4000);
+}
+
+/* 1.27：积分预警 toast——页面中上部大字提醒，2 秒后自动消失
+   （不走 statebar，那会被下一条快照状态覆盖） */
+let warnTimer = null;
+function warnFlash(msg){
+  let t = $('warnbox');
+  if (!t){
+    t = document.createElement('div');
+    t.id = 'warnbox';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(warnTimer);
+  warnTimer = setTimeout(() => t.classList.remove('on'), 2000);
+}
+
+/* 1.27：登录账号名显示（抽屉「登录账号」行） */
+function renderAcct(){
+  if (el.acct) el.acct.textContent = S.acct || '—';
 }
 
 function esc(s){
@@ -921,13 +1022,24 @@ function pendSig(){
   return S.pending.map(p => p.id + ':' + p.state).join(',');
 }
 
+/* 1.27：提问卡指纹——问题文本+选项文案+选中态+主按钮，任一变化
+   都要触发重画并解除单选锁 */
+function askFp(a){
+  if (!a || !a.opts || !a.opts.length) return '';
+  return (a.q || '') + '#' + a.opts.map(o =>
+    (o.other ? '◇' : '') + (o.t || '') + (o.sel ? '*' : '')
+  ).join('|') + '#' + (a.btn || '');
+}
+
 function pendAdd(kind, text){
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
   const same = S.pending.find(p => p.text === text);
   if (same) return same;               // 同文本已在册（服务端 pend 回显）
   S.pend_seq++;
+  /* 1.27：占位挂到发起时的会话上——插话/发送只对当时那个对话有效，
+     切到别的对话期间不再显示（切回来仍可见，落地后照常撤下） */
   const p = {id: S.pend_seq, kind: kind, text: text,
-             state: 'sending', ts: Date.now()};
+             state: 'sending', ts: Date.now(), conv: curTitle()};
   S.pending.push(p);
   return p;
 }
@@ -946,9 +1058,15 @@ function renderPending(){
   const old = $('pendbox');
   if (old) old.remove();
   if (!S.pending.length) return;
+  /* 1.27：只显示属于当前会话的占位（其余仍挂在册，切回原会话
+     照常显示；无会话信息的旧数据一律显示） */
+  const cv = curTitle();
+  const shown = S.pending.filter(p => !p.conv || p.conv === cv
+                                    || p.conv === '当前会话');
+  if (!shown.length) return;
   const wrap = document.createElement('div');
   wrap.id = 'pendbox';
-  S.pending.forEach(p => {
+  shown.forEach(p => {
     const st = pendStat(p);
     const d = document.createElement('div');
     d.className = 'msg user pend ' + st[1];
@@ -1122,6 +1240,12 @@ function renderMsgs(msgs, finish, opts, ask){
            + (finish.files || []).join('|') + '~'
            + (finish.text || '').slice(0, 60);
   key += '#opt:' + opts.map(o => o.t).join('|');
+  /* 1.27：提问卡指纹参与 key——v1.40 只把 opts 放进 key 而 ask
+     独立在外，TRAE 连续多问时第 2 问起 ask 变了但 key 没变 →
+     重画被跳过，页面永远停在第一问（用户实测「后面的都被吞了」）。
+     指纹含问题文本+各选项文案+选中态+主按钮文字，任何一问变化
+     都会触发重画。 */
+  key += '#ask:' + askFp(ask);
   /* 1.09：待确认占位 + 切换在途条参与指纹（状态推进/撤下要重画） */
   key += '#pend:' + pendSig()
        + (S.switch_pend ? '#sw:' + S.switch_pend.title : '');
@@ -1210,22 +1334,35 @@ function renderMsgs(msgs, finish, opts, ask){
   });
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 TRAE
      AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
-     底部 主按钮(下一步/确认)/取消）。可点选项、可填其他、可提交。 */
+     底部 主按钮(下一步/确认)/取消）。可点选项、可填其他、可提交。
+     1.27 交互重做：
+     · 单选互斥——点选一项后其余选项锁定（指纹不变期间），防连点
+       多项把 TRAE 选态点乱（用户实测「竟然能选多个」）；
+     · 去掉多余的「发送」小按钮（原版没有，用户困惑）——「其他」
+       输入后直接点底部主按钮提交（ask_other），不填则 ask_submit；
+     · 主按钮文案沿用 TRAE 原文（下一步/确认/完成）。 */
   if (ask && ask.opts && ask.opts.length){
+    const fp = askFp(ask);
+    if (S.ask_lock && S.ask_lock.fp !== fp) S.ask_lock = null;
+    const locked = S.ask_lock && S.ask_lock.fp === fp;
     const oc = document.createElement('div');
     oc.id = 'opts';
     let h = '<div class="othint">🤖 AI 提问'
-          + (ask.q ? ' · ' + esc(ask.q) : '') + '</div>';
+          + (ask.q ? ' · ' + esc(ask.q) : '')
+          + '（点选项作答会自动进下一问；或填「其他」点主按钮）</div>';
     ask.opts.forEach((o, i) => {
       if (o.other) return;             /* 其他项渲染成输入框 */
-      h += '<button class="optbtn" data-ai="' + i + '">'
+      const isPicked = locked && S.ask_lock.idx === i;
+      h += '<button class="optbtn' + (isPicked ? ' picked' : '')
+         + '" data-ai="' + i + '"'
+         + (locked && !isPicked ? ' disabled' : '') + '>'
          + esc(o.t) + '</button>';
     });
     const oi = ask.opts.findIndex(o => o.other);
     if (oi >= 0)
       h += '<div class="otherrow"><input id="askother" '
-         + 'placeholder="其他：输入你的回答…" maxlength="500">'
-         + '<button id="asksend">发送</button></div>';
+         + 'placeholder="其他：输入你的回答（可不选直接填这里）" '
+         + 'maxlength="500"></div>';
     h += '<div class="askfoot">'
        + (ask.cancel ? '<button id="askcancel">取消</button>' : '')
        + '<button id="askgo">' + esc(ask.btn || '下一步') + '</button>'
@@ -1234,28 +1371,32 @@ function renderMsgs(msgs, finish, opts, ask){
     oc.querySelectorAll('.optbtn').forEach(b => {
       b.onclick = () => {
         if (b.disabled) return;
-        b.disabled = true;
-        b.classList.add('picked');
-        flash('已选择「' + b.textContent.slice(0, 20)
-            + '」，等待下一问或 AI 继续…', 'var(--blue)');
-        sendCmd('ask_pick', parseInt(b.dataset.ai));
+        const idx = parseInt(b.dataset.ai);
+        if (locked && S.ask_lock.idx === idx){
+          /* 再点已选项 = 反选（TRAE 原生为切换选中态），解锁 */
+          S.ask_lock = null;
+        } else {
+          S.ask_lock = {fp: fp, idx: idx};
+        }
+        renderAll();                   /* 立即出锁定态（服务端 ~1s 生效） */
+        flash('已选「' + b.textContent.slice(0, 20)
+            + '」，点「' + (ask.btn || '下一步') + '」继续',
+            'var(--blue)');
+        sendCmd('ask_pick', idx);
       };
     });
-    const sb = oc.querySelector('#asksend');
-    if (sb) sb.onclick = () => {
-      const inp = oc.querySelector('#askother');
-      const v = (inp.value || '').trim();
-      if (!v){ flash('先填写回答内容', 'var(--orange)'); return; }
-      sb.disabled = true;
-      inp.disabled = true;
-      flash('已提交自定义回答…', 'var(--blue)');
-      sendCmd('ask_other', v);
-    };
     const go = oc.querySelector('#askgo');
     if (go) go.onclick = () => {
+      const inp = oc.querySelector('#askother');
+      const v = inp ? (inp.value || '').trim() : '';
       go.disabled = true;
-      flash('提交答案…', 'var(--blue)');
-      sendCmd('ask_submit', 0);
+      if (v){
+        flash('已提交自定义回答…', 'var(--blue)');
+        sendCmd('ask_other', v);
+      } else {
+        flash('提交答案…', 'var(--blue)');
+        sendCmd('ask_submit', 0);
+      }
     };
     const cc = oc.querySelector('#askcancel');
     if (cc) cc.onclick = () => {
@@ -1645,8 +1786,13 @@ function connect(){
                      // 后，重连首条 hello 被中继丢弃就永远失联）
   S.lastSrv = 0;    // 旧连接的服务端活动不再作数
   // ?ws= 参数可临时覆盖服务地址（测试/多环境部署），不改 localStorage
-  const u = new URLSearchParams(location.search).get('ws');
-  ws = new WebSocket(u || CFG.ws_url);
+  const qp = new URLSearchParams(location.search).get('ws');
+  let ch = chanGet();
+  if (!ch && !qp){
+    channelPrompt();                    // v1.27：首次使用必须先输频道名
+    return;
+  }
+  ws = new WebSocket(qp || wsUrlOf(ch));
   S.ws = ws;
   ws.onopen = () => {
     setOnLine(true);
@@ -1675,6 +1821,41 @@ function sendHello(){
     helloTimer = setTimeout(() => {
       if (!gotHello && S.onLine) sendHello();
     }, 3000);
+}
+
+/* ============ v1.27：频道名（密码）输入弹窗 ============
+   频道名只有服务端知道，本端绝不硬编码。首次使用（本地无记录）
+   弹全屏输入层；输对才能连上服务端。网络页可随时修改。 */
+function channelPrompt(){
+  let ov = $('chanmask');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'chanmask';
+  ov.innerHTML =
+    '<div id="chanbox">'
+    + '<div class="ctitle">🔑 输入频道名</div>'
+    + '<div class="chint">频道名相当于连接密码，由服务端提供'
+    + '（服务端「设置→远程服务」处可见）。首次输入后将保存在'
+    + '本机，下次自动连接。</div>'
+    + '<input id="chanin" autocomplete="off" autocapitalize="off" '
+    + 'placeholder="输入频道名…">'
+    + '<div class="cerr" id="chanerr"></div>'
+    + '<button id="chanok">保存并连接</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const inp = $('chanin');
+  const err = $('chanerr');
+  setTimeout(() => { try { inp.focus(); } catch(e){} }, 80);
+  const go = () => {
+    const v = (inp.value || '').trim();
+    if (!v){ err.textContent = '频道名不能为空'; return; }
+    chanSet(v);
+    ov.remove();
+    flash('频道名已保存，正在连接…', 'var(--blue)');
+    connect();
+  };
+  $('chanok').onclick = go;
+  inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) go(); };
 }
 
 function onMsg(msg){
@@ -1961,6 +2142,18 @@ function onEv(kind, v){
       if (v && v !== '读取失败') S.points = v;
       el.points.textContent = '积分 ' + v;
       break;
+    case 'points_warn':                    /* 1.27：积分不足预警 */
+      warnFlash('⚠ 积分不足：' + (v.points || v)
+              + (v.th ? '（阈值 ' + v.th + '）' : '')
+              + '，已通知钉钉');
+      break;
+    case 'account':                        /* 1.27：登录账号名 */
+      S.acct = String(v || '');
+      renderAcct();
+      break;
+    case 'notice':                         /* 1.41：服务端提示（如语音键拒点） */
+      flash(String(v || ''), 'var(--blue)');
+      break;
     case 'models':
       S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
       rebuildModelOptions();
@@ -2013,6 +2206,7 @@ function onEv(kind, v){
         renderAll();
       }
       if (S.switch_pend){ S.switch_pend = null; renderAll(); }
+      S.ask_lock = null;               /* 1.27：命令失败解锁提问卡 */
       document.querySelectorAll('.optbtn.picked').forEach(b => {
         b.disabled = false;
         b.classList.remove('picked');
@@ -2055,6 +2249,8 @@ function onEv(kind, v){
 
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
+  /* 1.27：登录账号名（hello 同步；服务端读积分时刷新） */
+  if (d.acct !== undefined){ S.acct = String(d.acct || ''); renderAcct(); }
   /* 1.23：确认匹配参数（字数/时限）随 hello 同步 */
   if (d.pendcfg && d.pendcfg.head)
     S.pend_head = Math.max(10, d.pendcfg.head | 0);
@@ -2184,17 +2380,24 @@ el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发�
   }
   if (t) cmd('send', t);
 };
-/* 聚焦增高输入框（约5倍单行高度），失焦缩回单行，随内容自动扩展 */
-const ENT_GROW = 170, ENT_MAX = 260;
+/* 聚焦增高输入框（255px，按钮跳顶行），失焦缩回单行，随内容自动扩展 */
+const ENT_GROW = 255, ENT_MAX = 390;
 function entFit(){
   el.ent.style.height = 'auto';
   const h2 = Math.max(el.ent.scrollHeight,
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
-el.ent.addEventListener('focus', () => { el.ent.classList.add('grow'); entFit(); });
-el.ent.addEventListener('blur', () => { el.ent.classList.remove('grow');
-                                         el.ent.style.height = '34px'; });
+el.ent.addEventListener('focus', () => {
+  el.ent.classList.add('grow');
+  el.input_row.classList.add('grow');   /* 1.27：按钮跳顶行 */
+  entFit();
+});
+el.ent.addEventListener('blur', () => {
+  el.ent.classList.remove('grow');
+  el.input_row.classList.remove('grow');
+  el.ent.style.height = '34px';
+});
 el.ent.addEventListener('input', () => { refreshSendBtn(); entFit(); });
 el.ent.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.isComposing){
@@ -2509,16 +2712,16 @@ el.net.onclick = () => {
 };
 el.netback.onclick = () => el.netpage.classList.remove('on');
 
-el.wsurl.value = CFG.ws_url;
+el.wsurl.value = chanGet();          /* v1.27：网络页改存频道名 */
 el.keep.value = CFG.stats_keep;
 
 function netDirty(){ el.nsave.disabled = false; }
 el.wsurl.oninput = netDirty;
 el.keep.oninput = netDirty;
 el.nsave.onclick = () => {
-  const u = el.wsurl.value.trim();
-  if (!/^wss?:\/\//.test(u)){ flash('服务地址须以 ws:// 或 wss:// 开头'); return; }
-  CFG.ws_url = u;
+  const ch = el.wsurl.value.trim();
+  if (!ch){ flash('频道名不能为空'); return; }
+  chanSet(ch);
   CFG.stats_keep = Math.max(1, parseInt(el.keep.value) || 100);
   cfgSave();
   el.keep.value = CFG.stats_keep;
@@ -2557,6 +2760,7 @@ window.addEventListener('beforeunload', statsFlush);
 
 /* ================= 启动 ================= */
 
+renderAcct();                            /* 1.27：账号行先显 — */
 connect();
 </script>
 </body>
