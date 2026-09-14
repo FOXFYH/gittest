@@ -352,7 +352,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.31</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.32</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -394,7 +394,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.31 · 会话状态灯(左) · 未登录横幅 · 会话置顶/删除 · 插话队列 · 上一题回退</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.32 · 登录心跳节流(后台/闲置自动退出) · 会话状态灯(左) · 插话队列 · 置顶/删除 · 上一题回退</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -492,7 +492,13 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.31 =================
+/* ================= 手机版网页客户端 v1.32 =================
+ * v1.32（对齐服务端 v1.51）：客户端登录态 + 心跳节流——上线/回前台
+ *   发 login（服务端随即整包重放），在线期间每 60s 发 hb 心跳；
+ *   页面切后台 或 超过 5 分钟无任何操作 → logout（停止心跳）＝
+ *   自动退出登录，服务端随之停发（最耗流量的 AI 聊天记录彻底停）；
+ *   回到前台或再次操作自动重新登录。断线＝退出登录。
+ *   详见《WS节流措施汇总.txt》。
  * v1.31d（对齐服务端 v1.50）：排队交接——本地「发送中/排队中…」
  *   占位卡在消息进入 TRAE 排队条（快照 pend）的瞬间即撤下，交给
  *   队列面板显示（此前要等它落进聊天记录，会与队列面板重复两张
@@ -613,8 +619,11 @@ const SERVER_ID= '1000000001';
  * 首次使用弹窗输入（localStorage 持久），网络页可改。 */
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
                      + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
-const KA_SEC = 25;      // 心跳间隔（秒）
+const KA_SEC = 25;      // WS 链路心跳间隔（秒，保活）
 const RECONNECT = 3;    // 断线重连间隔（秒）
+/* v1.32：客户端登录态节流参数 */
+const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 150s 无心跳判下线
+const IDLE_MS = 5 * 60 * 1000;  // 超过 5 分钟无任何操作 → 视为退出登录
 const FOX_HDR = 57;     // 协议头固定字节数
 const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
 const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
@@ -1961,17 +1970,21 @@ function connect(){
   S.ws = ws;
   ws.onopen = () => {
     setOnLine(true);
-    sendHello();               // 上线即拉服务端状态
     clearInterval(kaTimer);
     kaTimer = setInterval(() => {
       try { ws.send('ping'); statsAdd(0, 4, 0, 1); } catch(e){}
     }, KA_SEC * 1000);
+    /* v1.32：登录 → 服务端开始广播；loginWatch 兜底握手首条被中继丢弃 */
+    cliRebind();
+    cliLogin('上线');
+    loginWatch();
   };
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
     setOnLine(false);
     clearInterval(kaTimer);
     clearTimeout(helloTimer);
+    loggedIn = false; clearInterval(hbTimer);   // v1.32：断线＝退出登录
     reconnectTimer = setTimeout(connect, RECONNECT * 1000);
   };
   ws.onerror = () => {};
@@ -1986,6 +1999,77 @@ function sendHello(){
     helloTimer = setTimeout(() => {
       if (!gotHello && S.onLine) sendHello();
     }, 3000);
+}
+
+/* ============ v1.32：客户端登录态 + 心跳（WS 节流核心） ============
+   服务端只在「有客户端登录在线」时才广播远程事件（尤其最耗流量的
+   AI 聊天记录 msgs）。本端策略：
+     · 上线 / 回到前台 → 发 login（服务端随即整包重放全量）；
+     · 在线期间每 60s 发一次 hb 心跳（服务端 150s 无心跳判下线）；
+     · 页面不在前台（切走/切标签）或超过 5 分钟无任何操作 →
+       发 logout（之后不再心跳）＝自动退出登录，服务端随之停播；
+     · 重新回到前台或再次操作 → 自动重新 login。
+   效果：手机没在看的时候，服务端一条消息都不发。 */
+let loggedIn = false, hbTimer = null, lastAct = Date.now(),
+    actBound = false, _lg_tm = 0;
+
+function cliLogin(reason){
+  if (!ws || ws.readyState !== 1){ loggedIn = false; return; }
+  lastAct = Date.now();
+  loggedIn = true;
+  sendJson({t: 'login', fg: !document.hidden});
+  clearInterval(hbTimer);
+  hbTimer = setInterval(cliBeat, HB_SEC * 1000);
+}
+function cliBeat(){
+  if (!loggedIn){ clearInterval(hbTimer); return; }
+  if (!ws || ws.readyState !== 1){
+    loggedIn = false; clearInterval(hbTimer); return;
+  }
+  /* 自身状态自检：不在前台 或 闲置超时 → 停止心跳（＝退出登录） */
+  if (document.hidden){ cliLogout('后台'); return; }
+  if (Date.now() - lastAct > IDLE_MS){ cliLogout('闲置5分钟'); return; }
+  sendJson({t: 'hb', fg: !document.hidden});
+}
+function cliLogout(reason){
+  const was = loggedIn;
+  loggedIn = false;
+  clearInterval(hbTimer);
+  if (was){ try { sendJson({t: 'logout', r: reason || ''}); } catch(e){} }
+}
+function cliRebind(){
+  if (actBound) return;
+  actBound = true;
+  /* 任何真实操作都算「活跃」；闲置退出后一操作即自动重新登录 */
+  ['touchstart', 'mousedown', 'keydown', 'scroll', 'click', 'pointerdown']
+    .forEach(ev => document.addEventListener(ev, () => {
+      lastAct = Date.now();
+      if (!loggedIn && ws && ws.readyState === 1) cliLogin('活跃');
+    }, {passive: true, capture: true}));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) cliLogout('切后台');
+    else { lastAct = Date.now(); if (ws && ws.readyState === 1) cliLogin('回前台'); }
+  });
+  window.addEventListener('pagehide', () => cliLogout('离开页面'));
+  window.addEventListener('pageshow', () => {
+    if (ws && ws.readyState === 1) cliLogin('回到页面');
+  });
+}
+/* 登录后 4 秒仍无快照 → 重发 login（+hello，兼容未支持 login 的旧
+   服务端）。握手首条常被中继丢弃，重发保证服务端确实知道「有人登录」
+   ——否则服务端会一直以为无人在线而停播。 */
+function loginWatch(){
+  clearTimeout(_lg_tm);
+  let n = 0;
+  const tick = () => {
+    if (!S.onLine) return;
+    if (S.snap && Object.keys(S.snap).length) return;
+    if (++n > 4) return;
+    sendJson({t: 'login', fg: !document.hidden});
+    sendJson({t: 'hello'});
+    _lg_tm = setTimeout(tick, 3000);
+  };
+  _lg_tm = setTimeout(tick, 4000);
 }
 
 /* ============ v1.27：频道名（密码）输入弹窗 ============
@@ -2188,9 +2272,12 @@ function pruneSrv(){
 }
 setInterval(pruneSrv, 5000);
 /* 1.13：操控续占心跳——停留在当前操控对象就每 20s 续一次锁
-   （服务端默认 60 秒无操作释放；不发心跳即视为离开） */
-setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
-            20000);
+   （服务端默认 60 秒无操作释放；不发心跳即视为离开）
+   v1.32：仅登录态才续占——后台/闲置已退出登录就不再占着锁，
+   也不再产生流量 */
+setInterval(() => {
+  if (loggedIn && S.onLine && S.cur) sendJson({t: 'ctl_hb'});
+}, 20000);
 
 function renderTop(){
   const s = S.servers[S.cur];
