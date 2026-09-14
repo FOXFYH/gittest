@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.33</title>
+<title>wb远程 v1.34</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -131,13 +131,11 @@ body.fmsg #fexit{display:block;}
   animation:pulse 1s infinite;}
 @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
 .optbtn.picked{opacity:.55;}
-/* ── 1.06：抽屉 文件夹➕ / 防升级开关 ── */
+/* ── 1.06：抽屉 文件夹➕（防升级开关 1.34 移服务端设置页） ── */
 .convo.folder{display:flex; align-items:center;}
 .convo.folder .fname{flex:1; min-width:0; overflow:hidden;
   text-overflow:ellipsis;}
 .fplus{color:var(--blue); font-weight:bold; padding:0 4px 0 12px;}
-#btn_block .st{font-weight:normal; color:var(--gray); font-size:12px;}
-#btn_block.on .st{color:var(--green); font-weight:bold;}
 #finish{background:var(--abg); border-radius:8px; padding:5px 10px;
   margin-bottom:8px;}
 #finish .ft{font-weight:bold; color:var(--green);}
@@ -312,7 +310,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.33</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.34</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -349,11 +347,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div id="opgrid">
     <div class="dmi" id="btn_new" title="新建任务" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="拉起（重启当前目标）" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
-    <div class="dmi" id="btn_block" title="防自动升级" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
+    <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.33 · 登录账号显示</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.34 · 刷新积分按钮</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -731,7 +729,7 @@ const el = {
   td_lock: $('td_lock'),
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
-  td_stat: $('td_stat'), block: $('btn_block'),
+  td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'),
   fexit: $('fexit'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favlist: $('fav_list'),
@@ -869,7 +867,6 @@ function renderAcct(){                     // 1.33：登录账号名（hello/acc
 
 function drawerOpen(){
   el.drawer.classList.add('on'); el.mask.classList.add('on');
-  if (S.onLine) sendCmd('block_stat', null);   // 1.06：开抽屉刷新防升级状态
 }
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
@@ -2154,16 +2151,6 @@ function onEv(kind, v){
         ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
         : '已删除第 ' + (v[1] + 1) + ' 条「我」的消息', 'var(--green)');
       break;
-    case 'block_stat':                     // 1.06：防升级状态/操作结果
-      if (v.ok){
-        S.block = !!v.blocked;
-        renderBlock();
-        flash(v.blocked ? '🚫 自动升级：已封锁' : '自动升级：未封锁',
-              v.blocked ? 'var(--green)' : 'var(--orange)');
-      } else {
-        flash('防升级：' + (v.err || '操作失败'), 'var(--red)');
-      }
-      break;
     case 'task_dlg':                        // 1.08：记忆目录抓取结果（预填）
       if (S.task_open){
         S.task_mem = v.full || '';
@@ -2209,7 +2196,6 @@ function onHello(d){
   }
   S.alive = new Set(d.alive || []);
   renderPorts();
-  if (d.block !== undefined){ S.block = d.block; renderBlock(); }  // 1.06
   if (d.points && d.points !== '—'){
     S.points = d.points;
     el.points.textContent = '积分 ' + d.points;
@@ -2241,7 +2227,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.33 [' + box + ']';
+  document.title = 'wb远程 v1.34 [' + box + ']';
 }
 
 function setOnLine(b){
@@ -2583,22 +2569,10 @@ el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 WorkBuddy 输�
   taskDlgClose();
   if (!wasLock) sendCmd('task_dlg_cancel', null);
 };
-function renderBlock(){                     // 抽屉防升级状态文字
-  const st = el.block.querySelector('.st');
-  el.block.classList.toggle('on', S.block === true);
-  st.textContent = S.block === true ? '已封锁'
-                 : S.block === false ? '未封锁' : '未知';
-}
-el.block.onclick = () => {
+el.refresh_pts.onclick = () => {         /* 1.34：刷新积分（防升级移服务端） */
   if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
-  if (S.block === null){ flash('服务端未定位到 WorkBuddy 安装目录'); return; }
-  const to = !S.block;
-  if (!confirm(to
-    ? '禁止 WorkBuddy 自动升级？\n（清理已下载升级包 + 封锁升级程序，'
-      + '防止改版后本工具操作失灵）'
-    : '恢复 WorkBuddy 自动升级？')) return;
-  flash(to ? '正在封锁自动升级…' : '正在恢复自动升级…', 'var(--blue)');
-  sendCmd('block_update', to);
+  flash('正在刷新积分…', 'var(--blue)');
+  sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
