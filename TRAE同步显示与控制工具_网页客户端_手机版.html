@@ -44,6 +44,12 @@ select{font-size:12px;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* 1.31b：未登录横幅——默认必须隐藏（此前漏了这段 CSS，横幅
+   常驻飘着=误报）。仅快照 login===false 时 JS 加 .on 才显示 */
+#loginbar{display:none; flex:none; padding:6px 12px; font-size:12px;
+  background:#fdecea; color:#c62828; border-bottom:1px solid #f0b9b3;
+  line-height:1.5; white-space:normal;}
+#loginbar.on{display:block;}
 /* ── 消息区 ── */
 #msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   padding:8px 8px 4px; background:#fff;}
