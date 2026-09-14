@@ -317,7 +317,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.26 · AI提问卡可点选作答 · 不再伪装首项</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.27 · 发送/停止按钮状态修正</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -487,6 +487,13 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 选中第一个模型」误导用户。现显示「（模型未知）」占位，恢复
  * 后自动换真值（配合服务端 v1.32 救活升级：同模型重选促重渲染，
  * 冻结很快解除，占位只是短暂过渡）。 */
+
+/* v1.27：发送/停止按钮状态修正——生成中（sendIdle=false）时无论
+ * 远端输入框是否有残留/占位文本，一律显示「停止」（本地输入框中
+ * 有字才显示橙色「插话」）。此前按远端 inputText 是否为空的旧判断，
+ * 在生成期间远端输入框含占位文本时误走「远端残留」分支强制显示
+ * 「发送」，与真实按钮（已是「停止」）不一致。现改为只按 sendIdle
+ * 判定：生成中→停止，空闲+残留→发送，空闲→发送。 */
 
 /* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
  * 在 localStorage（服务端按此 ID 锁定操控者；刷新/重开页面 ID 不变） */
@@ -1445,23 +1452,23 @@ function renderState(snap){
   }
   const idle = snap.sendIdle, inp = snap.inputText || '',
         tail = snap.tail;
-  if (!idle && !inp){                        // 生成中
+  if (!idle){                                // 生成中（含远端残留）→ 停止/插话
     S.gen = true;
     el.state.textContent = '生成中·' + (tail || '输出中');
     el.state.style.color = 'var(--orange)';
     refreshSendBtn();                        // 有本地字→插话，无→停止
-  } else if (idle && !inp){                  // 空闲
+  } else if (inp){                           // 空闲 + 远端残留
+    S.gen = false;
+    el.state.textContent = '输入框待发' + (inp.length > 20 ? '（有残留）'
+      : ': ' + inp.slice(0, 18));
+    el.state.style.color = 'var(--blue)';
+    setSendBtn(false, true);
+  } else {                                   // 空闲
     /* 1.24：空闲时顺带显示当前会话名——整行只写「空闲」太浪费 */
     const ct = (curTitle() || '').trim();
     el.state.textContent = '空闲'
       + (ct ? ' · ' + (ct.length > 14 ? ct.slice(0, 14) + '…' : ct) : '');
     el.state.style.color = 'var(--green)';
-    setSendBtn(false, true);
-  } else {                                   // 输入框待发（远端残留）
-    S.gen = !idle;                           // 生成中残留仍属生成态
-    el.state.textContent = '输入框待发' + (inp.length > 20 ? '（有残留）'
-      : ': ' + inp.slice(0, 18));
-    el.state.style.color = 'var(--blue)';
     setSendBtn(false, true);
   }
   /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
