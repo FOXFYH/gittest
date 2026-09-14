@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""TRAE同步显示与控制工具_服务端    当前版本 1.49
+r"""TRAE同步显示与控制工具_服务端    当前版本 1.50
 
 ★ 本文件是「TRAE同步显示与控制工具」的远程服务端版本（派生自本地版
   v2.15）：本机照旧直连 TRAE（CDP 轮询/命令/导出/附件上传全量保留，
@@ -389,7 +389,7 @@ except ImportError:
 # 软件名统一为 PY 文件名(去 .py), 改名则自动跟随; 弹窗标题(APP_TITLE)同用此名
 APP_NAME = os.path.splitext(os.path.basename(__file__))[0]
 APP_TITLE = APP_NAME
-VERSION = '1.49'
+VERSION = '1.50'
 ORIG_NAME = '原版TRAE'      # 下拉框里的原版入口名
 ORIG_PORT = 9599            # 原版 TRAE 调试端口默认值（1.19 可配置，读 _orig_port()）
 CREATE_NO_WINDOW = 0x08000000
@@ -6309,6 +6309,20 @@ class TraePanelDialog(tk.Toplevel):
                 self._pend_claims.append(hit)   # 消耗一次
                 changed = True
                 continue
+            # 1.50：排队交接——消息已出现在 TRAE 排队条（快照 pend）
+            # ⇒ 发送链路已完成，占位卡的使命到此为止（AI 忙时的普通
+            # 发送同样会被 TRAE 收进排队条，故 switch 之外都适用）。
+            # 本地面板没有队列面板，卡片保留但状态推进到「已排队，
+            # 等待 AI 处理」（诚实反馈，不再长期挂「发送中/排队中…」）；
+            # 手机端有队列面板，本地卡直接撤下交给队列显示
+            # （手机版 v1.31d）。
+            if p['kind'] != 'switch' and p.get('state') != 'queued':
+                q = (self.snap or {}).get('pend') or []
+                if any(_pend_head100(t, (it or {}).get('t') or '',
+                                     head_n)
+                       for it in q if isinstance(it, dict)):
+                    p['state'] = 'queued'
+                    changed = True
             # 1.39：取消 15 秒「未确认」超时——插话要走官方排队，
             # AI 忙起来可能很久后才入列（时间不确定），超时标红
             # 完全不符合实际（用户原话：应该没有限制）。占位只有
