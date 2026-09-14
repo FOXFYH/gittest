@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.26</title>
+<title>wb远程 v1.28</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -157,10 +157,16 @@ body.fmsg #fexit{display:block;}
   background:#fff; border-top:1px solid var(--bd); flex:none;}
 #btn_attach{min-width:46px;}
 #btn_bench{min-width:46px;}
-#ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:260px;
+#ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
-#ent.grow{height:170px;}   /* 聚焦增高（约5倍单行高度+随内容自适应） */
+#ent.grow{height:255px;}   /* 聚焦增高（约7倍单行高度+随内容自适应），对齐 TRAE 输入空间 */
+#input_row.grow{flex-wrap:wrap;}   /* 对齐 TRAE：聚焦时按钮跳顶行，输入框独占一行更大空间 */
+#input_row.grow #btn_attach,
+#input_row.grow #btn_bench,
+#input_row.grow #btn_send{order:1;}
+#input_row.grow #btn_send{margin-left:auto;}
+#input_row.grow #ent{order:2; flex-basis:100%; margin-top:6px;}
 #btn_send{min-width:66px; font-weight:bold; color:var(--blue);}
 #btn_send.stopmode{color:var(--red); border-color:var(--red);}
 #btn_send.intermode{color:var(--orange); border-color:var(--orange);}
@@ -279,7 +285,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.28</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -317,7 +323,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
   <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
   <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.27 · 发送/停止按钮状态修正</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.28 · 加密频道+WS节流</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -503,8 +509,18 @@ if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
   try { localStorage.setItem('wb_webm_uid', MY_ID); } catch(e){}
 }
 const SERVER_ID= '1000000001';
-const WS_URL_DEF = ('wss://free.blr2.piesocket.com/v3/WorkBuddy'
+const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
                     + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+/* 1.45：加密频道——完整频道名 = 前缀(workb) + 客户端填写的密钥。
+   客户端只暴露密钥（如 31415926fF@），前缀由代码自动拼接，真频道名
+   workb31415926fF@ 不落在客户端任何一处,等于一道密码手段。 */
+const CH_PFX = 'workb';
+function channelUrl(){
+  const u = new URLSearchParams(location.search).get('ws');
+  if (u) return u;                     // ?ws= 高级覆盖（不改持久化）
+  const key = (CFG.channel || '').trim() || '31415926fF@';
+  return WS_URL_TMPL.replace('%s', CH_PFX + key);
+}
 const KA_SEC = 25;      // 心跳间隔（秒）
 const RECONNECT = 3;    // 断线重连间隔（秒）
 const FOX_HDR = 57;     // 协议头固定字节数
@@ -522,7 +538,7 @@ function cfgGet(){
 }
 function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
-if (!CFG.ws_url) CFG.ws_url = WS_URL_DEF;
+if (!CFG.channel) CFG.channel = '31415926fF@';   // 1.45：加密频道密钥
 if (!CFG.stats_keep) CFG.stats_keep = 100;
 
 const NET = (function(){
@@ -666,6 +682,7 @@ const el = {
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
+  input_row: $('input_row'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
   launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
@@ -1663,20 +1680,21 @@ function connect(){
   helloTries = 0;    // 1.07：重连后重起握手重试（原不重置——10 次用尽
                      // 后，重连首条 hello 被中继丢弃就永远失联）
   S.lastSrv = 0;    // 旧连接的服务端活动不再作数
-  // ?ws= 参数可临时覆盖服务地址（测试/多环境部署），不改 localStorage
-  const u = new URLSearchParams(location.search).get('ws');
-  ws = new WebSocket(u || CFG.ws_url);
+  ws = new WebSocket(channelUrl());   // 1.45：加密频道（前缀+密钥拼接）
   S.ws = ws;
   ws.onopen = () => {
     setOnLine(true);
     sendHello();               // 上线即拉服务端状态
+    doLogin();                 // 1.45：登录 → 服务端开播并整包重放
     clearInterval(kaTimer);
     kaTimer = setInterval(() => {
       try { ws.send('ping'); statsAdd(0, 4, 0, 1); } catch(e){}
     }, KA_SEC * 1000);
+    startCliHb();              // 1.45：登录态心跳 + 闲置自检
   };
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
+    cliLogout('断线');         // 1.45：断线即退出登录（服务端停播）
     setOnLine(false);
     clearInterval(kaTimer);
     clearTimeout(helloTimer);
@@ -1684,6 +1702,45 @@ function connect(){
   };
   ws.onerror = () => {};
 }
+
+/* ============ 1.45：客户端登录态（WS 节流） ============
+   登录 → 服务端才广播（并整包重放全量）；在线期间每 60s 发一次 hb 心跳；
+   页面切后台 / 闲置 5 分钟 / 断线 → logout（服务端随之停播）。 */
+let cliHbTimer = null, cliLoggedIn = false, cliIdleAt = Date.now();
+function doLogin(){
+  cliIdleAt = Date.now();
+  if (!cliLoggedIn){
+    cliLoggedIn = true;
+    try { sendJson({t: 'login', fg: !document.hidden}); } catch(e){}
+  }
+}
+function cliLogout(reason){
+  if (!cliLoggedIn) return;
+  cliLoggedIn = false;
+  try { sendJson({t: 'logout', r: reason || ''}); } catch(e){}
+}
+function startCliHb(){
+  clearInterval(cliHbTimer);
+  cliHbTimer = setInterval(() => {
+    if (!S.onLine) return;
+    if (cliLoggedIn && !document.hidden) sendJson({t: 'hb', fg: true});
+  }, 60000);
+}
+function cliTouch(){                       // 任意操作 = 在线（续登录）
+  cliIdleAt = Date.now();
+  if (!cliLoggedIn) doLogin();             // 有操作且未登录 → 自动登录
+}
+setInterval(() => {                        // 闲置 5 分钟 → 退登停播
+  if (cliLoggedIn && Date.now() - cliIdleAt > 300000) cliLogout('闲置5分钟');
+}, 15000);
+/* 切后台/回到前台 */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) cliLogout('切后台');
+  else if (S.onLine) doLogin();
+});
+/* 触摸/按键/点击/滚动都算在线 */
+['touchstart', 'keydown', 'mousedown', 'scroll'].forEach(ev =>
+  document.addEventListener(ev, cliTouch, {passive: true}));
 
 function sendHello(){
   /* 握手重试：浏览器 WS 握手完成瞬间立即发的第一条消息可能落在
@@ -2126,7 +2183,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.26 [' + box + ']';
+  document.title = 'wb远程 v1.28 [' + box + ']';
 }
 
 function setOnLine(b){
@@ -2203,17 +2260,22 @@ el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发�
   }
   if (t) cmd('send', t);
 };
-/* 聚焦增高输入框（约5倍单行高度），失焦缩回单行，随内容自动扩展 */
-const ENT_GROW = 170, ENT_MAX = 260;
+/* 聚焦增高输入框（约7倍单行高度），失焦缩回单行，随内容自动扩展（对齐 TRAE） */
+const ENT_GROW = 255, ENT_MAX = 390;
 function entFit(){
   el.ent.style.height = 'auto';
   const h2 = Math.max(el.ent.scrollHeight,
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
-el.ent.addEventListener('focus', () => { el.ent.classList.add('grow'); entFit(); });
-el.ent.addEventListener('blur', () => { el.ent.classList.remove('grow');
-                                         el.ent.style.height = '34px'; });
+el.ent.addEventListener('focus', () => {
+  el.ent.classList.add('grow'); el.input_row.classList.add('grow');   /* 按钮跳顶行 */
+  entFit();
+});
+el.ent.addEventListener('blur', () => {
+  el.ent.classList.remove('grow'); el.input_row.classList.remove('grow');
+  el.ent.style.height = '34px';
+});
 el.ent.addEventListener('input', () => { refreshSendBtn(); entFit(); });
 el.ent.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.isComposing){
