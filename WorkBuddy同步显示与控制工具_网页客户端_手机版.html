@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.29</title>
+<title>wb远程 v1.30</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -312,7 +312,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.29</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.30</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -352,7 +352,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_block" title="防自动升级" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.29 · 发送钮灰态</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.30 · 低频查询</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -2024,11 +2024,10 @@ function onEv(kind, v){
     case 'connected':
       if (v !== S.port) return;
       flash('● 已连接（' + v + '）', 'var(--green)');
-      setTimeout(() => {                      // 界面就绪后再拉积分/模型
-        // v1.17：8s→3s——connected 时服务端快照 eval 已成功一次，
-        // 界面基本可用（服务端 _on_connected 同步缩短到 3s）
-        if (S.port === v){ sendCmd('points', null); sendCmd('model_list', null); }
-      }, 3000);
+      // v1.30：客户端登录/连接不再主动查积分和模型——
+      //   改为服务端低频定时推送（积分在线每10分钟、模型每1小时更新，
+      //   见服务端 _tick_points/_tick_models），连接即查会造成"反复
+      //   重连→反复点头像/点模型"的频繁探测。
       break;
     case 'sent': {                           /* 1.09：服务端阶段回报
         （typed 已进 WorkBuddy 输入框 / clicked 已点发送 / queued 已排队；
