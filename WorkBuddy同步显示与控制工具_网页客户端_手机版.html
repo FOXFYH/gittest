@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.28</title>
+<title>wb远程 v1.29</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -170,6 +170,8 @@ body.fmsg #fexit{display:block;}
 #btn_send{min-width:66px; font-weight:bold; color:var(--blue);}
 #btn_send.stopmode{color:var(--red); border-color:var(--red);}
 #btn_send.intermode{color:var(--orange); border-color:var(--orange);}
+#btn_send:disabled{color:var(--gray); border-color:var(--bd); cursor:default;
+  background:#f2f5f9;}
 /* ── 抽屉（会话 + 菜单） ── */
 #mask{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:29;
   display:none;}
@@ -310,7 +312,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.28</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.29</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -350,7 +352,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_block" title="防自动升级" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.28 · 加密频道+WS节流</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.29 · 发送钮灰态</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -1481,8 +1483,12 @@ function refreshSendBtn(){               // 1.01：生成中打字 → 插话三
     el.send.classList.remove('stopmode');
     el.send.classList.add('intermode');
     el.send.disabled = false;
+  } else if (S.gen){
+    setSendBtn(true, true);           // 生成中、无本地字 → 停止钮
   } else {
-    setSendBtn(S.gen, true);             // 生成中=停止；空闲=发送
+    /* 1.46：空闲灰=需填写文本——本地 #ent 为空则发送钮灰（disabled），
+       填完才激活。对齐远端发送钮「灰→填字→可发送」的语义。 */
+    setSendBtn(false, !!el.ent.value.trim());
   }
 }
 
@@ -1507,14 +1513,14 @@ function renderState(snap){
     el.state.textContent = '输入框待发' + (inp.length > 20 ? '（有残留）'
       : ': ' + inp.slice(0, 18));
     el.state.style.color = 'var(--blue)';
-    setSendBtn(false, true);
+    refreshSendBtn();                  // 1.46：灰态跟随本地文字，不被快照覆盖
   } else {                                   // 空闲
     /* 1.24：空闲时顺带显示当前会话名——整行只写「空闲」太浪费 */
     const ct = (curTitle() || '').trim();
     el.state.textContent = '空闲'
       + (ct ? ' · ' + (ct.length > 14 ? ct.slice(0, 14) + '…' : ct) : '');
     el.state.style.color = 'var(--green)';
-    setSendBtn(false, true);
+    refreshSendBtn();                  // 1.46：空闲灰=本地无文字；填完激活
   }
   /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
      不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容） */
@@ -2211,7 +2217,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.28 [' + box + ']';
+  document.title = 'wb远程 v1.29 [' + box + ']';
 }
 
 function setOnLine(b){
