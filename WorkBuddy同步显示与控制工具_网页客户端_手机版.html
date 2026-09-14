@@ -194,6 +194,14 @@ body.fmsg #fexit{display:block;}
   border-top:1px solid var(--bd); background:#fafbfc;}
 .dmi{flex:none; padding:10px 14px; cursor:pointer;}
 .dmi:active{background:#eef4fb;}
+/* 操作区按钮两两并排（2 列网格）→ 省竖向空间，给会话列表多留位置 */
+#opgrid{flex:none; display:grid; grid-template-columns:1fr 1fr;
+  gap:6px; padding:6px 8px 2px;}
+#opgrid .dmi{display:flex; align-items:center; justify-content:center;
+  text-align:center; padding:11px 6px; min-height:0; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; font-size:12px; border-radius:7px;
+  background:#f2f5f9;}
+#opgrid .dmi:active{background:#e3ecf5;}
 #lbl_ver{flex:none; padding:8px 12px calc(8px + env(safe-area-inset-bottom));
   color:var(--gray); font-size:11px; border-top:1px solid var(--bd);
   background:#fafbfc;}
@@ -336,10 +344,12 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dsec" data-page-node-id="0zAOhFVQ79VNdiCr8Fnrjw">服务端（点击切换操控）</div>
   <div id="srvlist" data-page-node-id="PGBlxfvg8bFmppmtz2w0MO"></div>
   <div class="dsec" data-page-node-id="c3sDv9IscaIa1GP95F52FT">操作</div>
-  <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
-  <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
-  <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
-  <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
+  <div id="opgrid">
+    <div class="dmi" id="btn_new" title="新建任务" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
+    <div class="dmi" id="btn_launch" title="拉起（重启当前目标）" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
+    <div class="dmi" id="btn_block" title="防自动升级" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
+    <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
+  </div>
   <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.28 · 加密频道+WS节流</div>
 </aside>
 
