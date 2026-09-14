@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.31</title>
+<title>wb远程 v1.32</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -312,7 +312,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.31</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.32</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -352,7 +352,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_block" title="防自动升级" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.31 · 取消插话</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.32 · 占位卡超时才出操作</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -696,6 +696,8 @@ const S = {
   pend_seen: {},                     /* 1.22：用户消息首见时刻 */
   pend_head: 100,                    /* 1.23：确认匹配字数（hello/pendcfg 同步） */
   pend_age: 30000,                   /* 1.24：消息出现时限毫秒（30 秒） */
+  pend_send: 30000,                  /* 1.32：发送确认超时毫秒（默认 30 秒，
+                                        pendcfg 同步；超时才显示改写/丢弃/重发） */
   switch_pend: null,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
@@ -1002,8 +1004,8 @@ function pendStat(p){
   if (p.state === 'typed')   return ['已输入 WorkBuddy…', ''];
   if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
   if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
-  /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
-     历史残留兼容，文案不再写死 15 秒 */
+  /* 1.32：超时（默认 30 秒）仍未确认才标「未确认」，此时给出
+     改写/丢弃/重发；正常瞬发直接就撤下卡片了 */
   if (p.state === 'timeout') return ['⚠ 未确认（可丢弃/改写/重发）', 'bad'];
   return [p.kind === 'interject' ? '排队中…' : '发送中…', ''];
 }
@@ -1021,16 +1023,18 @@ function renderPending(){
     let h = '<div class="who">我<span class="pstat">' + esc(st[0])
           + '</span>';
     /* 1.24：任何状态的挂起占位都可「改写」——撤回占位、文本回填
-       输入框重新编辑再发（用户要求的反悔机制）
-       1.25：「丢弃」也常显（占位不再自动超时，真没发出去时手动兜底） */
-    h += '<span class="pacts">'
-       + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
-       + '<button class="pendbtn drop" data-drop="' + p.id
-       + '">丢弃</button></span>';
-    if (p.state === 'timeout')
+     输入框重新编辑再发（用户要求的反悔机制）
+     1.25：「丢弃」也常显（占位不再自动超时，真没发出去时手动兜底）
+     1.32：与用户确认一致——正常瞬发不该被操作按钮打扰，改写/丢弃/
+     重发只在真超时（state==='timeout'，说明没发出去）才出现。 */
+    if (p.state === 'timeout'){
       h += '<span class="pacts">'
+         + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
+         + '<button class="pendbtn drop" data-drop="' + p.id
+         + '">丢弃</button>'
          + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>'
          + '</span>';
+    }
     h += '</div><div class="body">' + esc(p.text) + '</div>';
     d.innerHTML = h;
     wrap.appendChild(d);
@@ -1140,10 +1144,14 @@ function pendReconcile(msgs){
       changed = true;
       return;
     }
-    /* 1.25：不再 15 秒「未确认」超时——插话走 WorkBuddy 官方排队，
-       AI 忙时多久入列都正常（用户原话：应该没有限制）。占位只有
-       两种结局：出现在对话记录里（自动确认撤下），或用户手动
-       「丢弃/改写」。 */
+    /* 1.32：发送确认超时——占位挂够 S.pend_send（默认 30 秒）仍未被
+       快照确认（没出现在对话记录里），判定为「真没发出去」，才进入
+       timeout 态、显示改写/丢弃/重发。正常发送该确认几乎瞬时完成，
+       卡片一闪而过，操作按钮不该打扰，直到真超时才出现。 */
+    if (p.state !== 'timeout' && now - p.ts > S.pend_send){
+      p.state = 'timeout';
+      changed = true;
+    }
     keep.push(p);
   });
   if (changed) S.pending = keep;
@@ -1993,6 +2001,7 @@ function onEv(kind, v){
     case 'pendcfg':                    /* 1.23：确认匹配参数变更即时跟随 */
       if (v && v.head) S.pend_head = Math.max(10, v.head | 0);
       if (v && v.age) S.pend_age = Math.max(5, v.age | 0) * 1000;
+      if (v && v.send) S.pend_send = Math.max(5, v.send | 0) * 1000;
       return;
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
@@ -2167,6 +2176,8 @@ function onHello(d){
     S.pend_head = Math.max(10, d.pendcfg.head | 0);
   if (d.pendcfg && d.pendcfg.age)
     S.pend_age = Math.max(5, d.pendcfg.age | 0) * 1000;
+  if (d.pendcfg && d.pendcfg.send)
+    S.pend_send = Math.max(5, d.pendcfg.send | 0) * 1000;
   /* 1.13：目标正被其他客户端占用时提示（操控指令会被 deny） */
   if (d.lock && d.lock.mine === false && d.lock.id){
     flash('🔒 [' + (d.srv || '远方') + '] 正被 ' + d.lock.id
@@ -2214,7 +2225,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.31 [' + box + ']';
+  document.title = 'wb远程 v1.32 [' + box + ']';
 }
 
 function setOnLine(b){
