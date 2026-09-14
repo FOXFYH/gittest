@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FYH 远程控制面板 v1.01</title>
+<title>FYH 远程控制面板 v1.02</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -101,7 +101,7 @@
 </head>
 <body>
 <header>
-  <h1>FYH 远程控制面板 v1.01</h1>
+  <h1>FYH 远程控制面板 v1.02</h1>
   <span id="wsDot" class="dot off"></span>
   <span id="statusText">未连接</span>
   <button id="logToggle" class="mini">日志</button>
@@ -125,8 +125,9 @@
 <script>
 "use strict";
 // ============================================================
-// FYH 远程控制面板  v1.01
+// FYH 远程控制面板  v1.02
 // ------------------------------------------------------------
+// 1.02   连接后主动发【FYHWHO】在线查询，设备秒回，不再干等30秒广播
 // 1.01   应用清单调整：移除记事本；新增 WorkBuddy同步服务端开关
 // ============================================================
 // ================= 配置（与 FYH统一WS模块 一致） =================
@@ -136,6 +137,7 @@ const WS_URL = "wss://free.blr2.piesocket.com/v3/" + CHANNEL + "?api_key=" + API
 const PREFIX_RC = "【FYHRC】", SUFFIX_RC = "【/FYHRC】";
 const PREFIX_DEV = "【FYHDEV】", SUFFIX_DEV = "【/FYHDEV】";
 const PREFIX_HB = "【FYHHB】", SUFFIX_HB = "【/FYHHB】";
+const PREFIX_WHO = "【FYHWHO】", SUFFIX_WHO = "【/FYHWHO】";
 
 // ================= 工具 =================
 function myId() {
@@ -363,6 +365,7 @@ function connect() {
     dot.className = "dot on";
     st.textContent = "已连接 · " + CHANNEL;
     log("WS 已连接（频道 " + CHANNEL + "）");
+    askDevices(); // 上线立即问"谁在？"，设备秒回，避免干等 30 秒周期广播
   };
   ws.onclose = () => {
     connected = false;
@@ -384,6 +387,17 @@ function sendRC(data) {
     ws.send(foxWrap(PREFIX_RC + JSON.stringify(data) + SUFFIX_RC));
   } catch (e) {
     log("发送失败：" + e.message);
+  }
+}
+
+// 上线即问"谁在线"：设备收到【FYHWHO】会立刻广播【FYHDEV】，网页随之秒显示设备
+function askDevices() {
+  if (!connected) return;
+  try {
+    ws.send(foxWrap(PREFIX_WHO + "{}" + SUFFIX_WHO));
+    log("已发出在线查询，等待设备回应…");
+  } catch (e) {
+    log("在线查询发送失败：" + e.message);
   }
 }
 
