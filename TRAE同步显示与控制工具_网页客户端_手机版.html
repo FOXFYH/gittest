@@ -493,6 +493,10 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <script>
 'use strict';
 /* ================= 手机版网页客户端 v1.31 =================
+ * v1.31d（对齐服务端 v1.50）：排队交接——本地「发送中/排队中…」
+ *   占位卡在消息进入 TRAE 排队条（快照 pend）的瞬间即撤下，交给
+ *   队列面板显示（此前要等它落进聊天记录，会与队列面板重复两张
+ *   卡）。AI 忙时普通发送同样进排队条，故 switch 之外都适用。
  * v1.31（对齐服务端 v1.46）：
  * ① 会话行左侧状态灯——convs 第 4 位（run=蓝·脉动=AI正在聊；
  *    done=绿=刚聊完，服务端跟踪 run→空 转变，保留10分钟；
@@ -1261,6 +1265,19 @@ function pendReconcile(msgs){
       return;
     }
     const t = normTxt(p.text);         /* 1.24：规范化后再比对 */
+    /* 1.31d：排队交接——消息一出现在 TRAE 排队条（快照 pend）就说明
+       发送链路已完成，占位卡（发送中…/排队中…）任务结束，撤下交给
+       队列面板显示（此前要等它落进聊天记录才撤，会与队列面板重复
+       两张卡）。用户原话：变成插话记录时，这张小卡片其实就已经完成
+       了。AI 忙时普通发送同样进排队条，故 switch 之外都适用。 */
+    if (p.kind !== 'switch'){
+      const q = (S.snap && S.snap.pend) || [];
+      let inQ = false;
+      for (const it of q){
+        if (it && pendHead100(t, it.t || '', S.pend_head)){ inQ = true; break; }
+      }
+      if (inQ){ changed = true; return; }
+    }
     let idx = -1;
     for (let i = users.length - 1; i >= 0; i--){
       if (S.pend_claims.indexOf(i) >= 0) continue;
