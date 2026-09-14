@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""TRAE同步显示与控制工具_服务端    当前版本 1.50
+r"""TRAE同步显示与控制工具_服务端    当前版本 1.51
 
 ★ 本文件是「TRAE同步显示与控制工具」的远程服务端版本（派生自本地版
   v2.15）：本机照旧直连 TRAE（CDP 轮询/命令/导出/附件上传全量保留，
@@ -14,6 +14,9 @@ r"""TRAE同步显示与控制工具_服务端    当前版本 1.50
        {'t':'hello', box/port/boxes/alive/conn/points} + 重放最新
        快照/模型列表（客户端连上或掉线重连时秒同步）
   入向 {'t':'hello'}                    请求当前状态
+       {'t':'login','fg':bool}          1.51 客户端登录/回到前台（节流）
+       {'t':'hb','fg':bool}             1.51 心跳（每 60s）
+       {'t':'logout','r':原因}          1.51 退登（后台/闲置，停心跳）
        {'t':'cmd','c':命令,'a':参数}    直投 poller.cmdq 执行
        {'t':'attach_files','files':[{n,d(base64)}]}  附件内容传输
        {'t':'switch_box','box':分身名}  切换目标（服务端复核端口在线）
@@ -21,7 +24,10 @@ r"""TRAE同步显示与控制工具_服务端    当前版本 1.50
   FOX 分段：PieSocket 单消息上限 16KB，>10KB 自动切段，头格式
   【FOXID:14位时间+8位随机+10位发送者ID=cut(NNN/MMM)】（57字节）；
   发送者ID：服务端 1000000001 / 客户端 2000000001（防自己回声）。
-  流量节省：快照按内容指纹去重（无变化不重发）；25s 心跳防超时。
+  流量节省：① 快照按内容指纹去重（无变化不重发）；25s 心跳防超时；
+  ② 1.51 客户端登录态闸门——**无客户端在线时一律不广播远程事件**
+  （最耗流量的 msgs/AI 聊天记录彻底停发），客户端登录/回前台整包重放。
+  详见《WS节流措施汇总.txt》。
 
 ★ 版本号规则(改代码前必读):
   顶部标题栏显示: 软件名(统一为 PY 名) + 版本号;
@@ -389,7 +395,7 @@ except ImportError:
 # 软件名统一为 PY 文件名(去 .py), 改名则自动跟随; 弹窗标题(APP_TITLE)同用此名
 APP_NAME = os.path.splitext(os.path.basename(__file__))[0]
 APP_TITLE = APP_NAME
-VERSION = '1.50'
+VERSION = '1.51'
 ORIG_NAME = '原版TRAE'      # 下拉框里的原版入口名
 ORIG_PORT = 9599            # 原版 TRAE 调试端口默认值（1.19 可配置，读 _orig_port()）
 CREATE_NO_WINDOW = 0x08000000
@@ -1385,6 +1391,14 @@ class _RemoteBridge(threading.Thread):
 
     KA_SEC = 25               # 心跳间隔（秒）
     RECONNECT = 3            # 断线重连间隔（秒）
+    # 1.51：客户端登录/心跳 + 广播闸门（WS 节流）
+    #   客户端登录期间每 60s 发一次 hb（心跳）；超过 LOGIN_TMO 无 hb
+    #   判为下线。**无任何客户端在线时不广播任何远程事件**——尤其
+    #   最耗流量的 msgs（AI 聊天记录，含全部历史）；客户端登录/回到
+    #   前台时再整包重放（send_hello）。
+    HB_SEC = 60              # 客户端心跳间隔（秒）
+    LOGIN_TMO = 150          # 无心跳判下线（秒，2.5× 心跳，容忍丢一拍）
+    PEER_TMO = 150           # 「在线客户端数」统计窗口（与 LOGIN_TMO 对齐）
 
     def __init__(self, realq, dlg):
         threading.Thread.__init__(self, daemon=True)
@@ -1410,6 +1424,12 @@ class _RemoteBridge(threading.Thread):
         self._srv_lock = threading.Lock()
         self.srv_peers = {}
         self._last_ann = 0.0
+        # 1.51：客户端登录表（sender → {'ts','fg'}）——节流核心。
+        #   login/hb 刷新 ts（fg=是否前台）；logout 或超时即移除。
+        #   无人在线 → forward_event 直接丢弃远程事件（不广播）。
+        self._cli_lock = threading.Lock()
+        self._clients = {}
+        self._cli_n = -1
 
     # ---- 1.23：远方服务端注册表 ----
 
@@ -1483,20 +1503,23 @@ class _RemoteBridge(threading.Thread):
         if kind in ('paths_check', 'rcmd', 'remote', 'rev',
                     'srv_peers', 'srv_conflict'):
             return                     # 本地交互事件，不转发
-        if not self.on_line:
-            if kind == 'snap':         # 掉线期只缓存，重连后 hello 重放
-                self._last_snap = val
-            return
+        # 1.51：先无条件更新缓存（掉线期/无人在线都要留最新，供重放）
         if kind == 'snap':
-            fp = hashlib.md5(json.dumps(
-                val, ensure_ascii=False, sort_keys=True)
-                .encode('utf-8')).hexdigest()
-            if fp == self._last_snap_fp:
-                return                 # 无变化不重发（省中继配额）
-            self._last_snap_fp = fp
             self._last_snap = val
         elif kind == 'models':
             self._last_models = val
+        # 1.51：广播闸门——无客户端登录在线时，不广播任何远程事件。
+        #   最耗流量的 msgs（AI 聊天记录，含全部历史消息）在此彻底停发，
+        #   直到有客户端登录（_push_full 整包重放补齐）。
+        if not self.cli_any():
+            return
+        if not self.on_line:
+            return
+        if kind == 'snap':
+            fp = self._snap_fp(val)
+            if fp == self._last_snap_fp:
+                return                 # 无变化不重发（省中继配额）
+            self._last_snap_fp = fp
         # 1.23：报文带 'srv' 源头名——多服务端同频道时客户端/面板
         # 据此过滤（只渲染当前操控的服务端的事件）
         self.send_json({'t': 'ev', 'k': kind, 'v': val,
@@ -1617,6 +1640,8 @@ class _RemoteBridge(threading.Thread):
             self._srv_msg(sender, body)
             return
         self._peer_seen(sender)        # 客户端（'4' 开头等）
+        if self._presence(body, sender):   # 1.51：登录/心跳/退登 → 消费
+            return
         # 1.24：sender 随报文传递（=操控互斥锁的占有者标识）
         self.realq.put(('rcmd', (body, sender)))
 
@@ -1659,6 +1684,8 @@ class _RemoteBridge(threading.Thread):
                 return
         else:
             sid = '?'
+        if self._presence(msg, sid):   # 1.51：登录/心跳/退登（裸 JSON）
+            return
         self.realq.put(('rcmd', (msg, sid)))
 
     def _peer_seen(self, sender):
@@ -1674,12 +1701,93 @@ class _RemoteBridge(threading.Thread):
         now = time.time()
         with self._peer_lock:
             for s in [s for s, t in self._peers.items()
-                      if now - t > 60]:
+                      if now - t > self.PEER_TMO]:
                 del self._peers[s]
             n = len(self._peers)
         if n != self._last_peer_n:
             self._last_peer_n = n
             self.realq.put(('remote_peers', n))
+
+    # ---- 1.51：客户端登录态（WS 节流） ----
+
+    def _cli_touch(self, cid, fg=None):
+        """客户端 login/hb：刷新在线时刻（fg=是否前台）。"""
+        if not cid:
+            return
+        with self._cli_lock:
+            e = self._clients.get(cid) or {}
+            e['ts'] = time.time()
+            if fg is not None:
+                e['fg'] = bool(fg)
+            self._clients[cid] = e
+
+    def _cli_drop(self, cid):
+        """客户端 logout：立即下线（在线客户端数同步回落）。"""
+        with self._cli_lock:
+            self._clients.pop(cid, None)
+        with self._peer_lock:
+            self._peers.pop(cid, None)
+        self._report_peers()
+
+    def _cli_prune(self):
+        """超时（LOGIN_TMO 无心跳）判下线。返回是否有变化。"""
+        now = time.time()
+        with self._cli_lock:
+            dead = [c for c, e in self._clients.items()
+                    if now - e.get('ts', 0) > self.LOGIN_TMO]
+            for c in dead:
+                del self._clients[c]
+        return bool(dead)
+
+    def cli_online(self):
+        """当前在线（已登录且未超时）客户端 sender 列表。"""
+        now = time.time()
+        with self._cli_lock:
+            return [c for c, e in self._clients.items()
+                    if now - e.get('ts', 0) <= self.LOGIN_TMO]
+
+    def cli_any(self):
+        """有客户端在线否——广播闸门的唯一判据。"""
+        return bool(self.cli_online())
+
+    def _snap_fp(self, val):
+        """整包指纹（与 forward_event 同口径）。"""
+        try:
+            return hashlib.md5(json.dumps(
+                val, ensure_ascii=False, sort_keys=True)
+                .encode('utf-8')).hexdigest()
+        except Exception:
+            return None
+
+    def _push_full(self, sender=None):
+        """客户端登录/回到前台：整包重放（含 msgs），并记指纹防下一拍重发。"""
+        self.send_hello(sender)
+        if self._last_snap is not None:
+            self._last_snap_fp = self._snap_fp(self._last_snap)
+
+    def _presence(self, body, sender):
+        """拦截客户端登录类报文（login/hb/logout）。
+        返回 True=已消费（不再当作操控命令投回 uiq）。"""
+        if not body or body[:1] != '{':
+            return False
+        try:
+            d = json.loads(body)
+        except Exception:
+            return False
+        if not isinstance(d, dict):
+            return False
+        t = d.get('t')
+        if t == 'login':
+            self._cli_touch(sender, d.get('fg'))
+            self._push_full(sender)          # 登录即给全量
+            return True
+        if t == 'hb':
+            self._cli_touch(sender, d.get('fg'))
+            return True
+        if t == 'logout':
+            self._cli_drop(sender)
+            return True
+        return False
 
     def _sender(self):
         """唯一发送线程：出向队列 → FOX 分段发送；闲时心跳。"""
@@ -1693,6 +1801,8 @@ class _RemoteBridge(threading.Thread):
                 self.announce()
             if self.srv_prune():
                 self.realq.put(('srv_peers', self.srv_snapshot()))
+            # 1.51：登录态超时修剪（无 hb 超 LOGIN_TMO 判下线 → 闸门关闭）
+            self._cli_prune()
             try:
                 item = self.outq.get(timeout=5)
             except queue.Empty:
