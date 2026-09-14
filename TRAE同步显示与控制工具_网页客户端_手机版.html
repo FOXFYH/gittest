@@ -319,7 +319,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.27</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.28</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -360,7 +360,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.27 · 提问卡单选+连续多问不吞 · 积分预警 · 频道名密码制</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.28 · 上一题回退 · 提问卡单选+连续多问不吞 · 积分预警 · 频道名密码制</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -458,7 +458,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.27 =================
+/* ================= 手机版网页客户端 v1.28 =================
+ * v1.28（对齐服务端 v1.43）：
+ * ① 提问卡新增「⬅ 上一题」按钮（快照 ask.prev 有「上一步」按钮时
+ *    显示）——点它服务端点 TRAE footer「上一步」，回退到上一问；
+ *    回退同时清单选锁。用户实测要求补充。
  * v1.27（对齐服务端 v1.41）：
  * ① 提问卡指纹纳入重画 key——修复 AI 连续多问时第 2 问起被吞
  *    （key 不含 ask，快照变了不重画，页面永远停在第一问）；
@@ -1364,6 +1368,7 @@ function renderMsgs(msgs, finish, opts, ask){
          + 'placeholder="其他：输入你的回答（可不选直接填这里）" '
          + 'maxlength="500"></div>';
     h += '<div class="askfoot">'
+       + (ask.prev ? '<button id="askprev">⬅ 上一题</button>' : '')
        + (ask.cancel ? '<button id="askcancel">取消</button>' : '')
        + '<button id="askgo">' + esc(ask.btn || '下一步') + '</button>'
        + '</div>';
@@ -1403,6 +1408,14 @@ function renderMsgs(msgs, finish, opts, ask){
       cc.disabled = true;
       flash('已取消本次提问…', 'var(--blue)');
       sendCmd('ask_cancel', 0);
+    };
+    /* v1.28：回退上一问（服务端点 TRAE footer「上一步」按钮） */
+    const pv = oc.querySelector('#askprev');
+    if (pv) pv.onclick = () => {
+      pv.disabled = true;
+      S.ask_lock = null;               /* 回退后必然换题，解锁单选 */
+      flash('回到上一题…', 'var(--blue)');
+      sendCmd('ask_prev', 0);
     };
     el.msgs.appendChild(oc);
   } else if (opts.length){
