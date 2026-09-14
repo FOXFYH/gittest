@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""TRAE同步显示与控制工具_服务端    当前版本 1.48
+r"""TRAE同步显示与控制工具_服务端    当前版本 1.49
 
 ★ 本文件是「TRAE同步显示与控制工具」的远程服务端版本（派生自本地版
   v2.15）：本机照旧直连 TRAE（CDP 轮询/命令/导出/附件上传全量保留，
@@ -389,7 +389,7 @@ except ImportError:
 # 软件名统一为 PY 文件名(去 .py), 改名则自动跟随; 弹窗标题(APP_TITLE)同用此名
 APP_NAME = os.path.splitext(os.path.basename(__file__))[0]
 APP_TITLE = APP_NAME
-VERSION = '1.48'
+VERSION = '1.49'
 ORIG_NAME = '原版TRAE'      # 下拉框里的原版入口名
 ORIG_PORT = 9599            # 原版 TRAE 调试端口默认值（1.19 可配置，读 _orig_port()）
 CREATE_NO_WINDOW = 0x08000000
@@ -6721,7 +6721,11 @@ class TraePanelDialog(tk.Toplevel):
         消息时间。不在缓存的用户消息当场记 now（历史消息≈首次
         连接时间，近似值）。"""
         convs = self.snap.get('convs') or []
-        title = next((t for k, t, s in convs if k == 'c' and s), '')
+        # 1.48b：'c' 行第 4 位是状态灯——按位取值（3 元组解包
+        # 每拍 ValueError，消息区整个渲染不出来；同 v1.47 教训
+        # 的第三个漏网消费方，v1.47 只排查了 _render_convs）
+        title = next((r[1] for r in convs
+                      if r and r[0] == 'c' and len(r) > 2 and r[2]), '')
         now = time.strftime('%Y-%m-%d %H:%M:%S')
         out, last, new = [], None, False
         for mv in msgs:
