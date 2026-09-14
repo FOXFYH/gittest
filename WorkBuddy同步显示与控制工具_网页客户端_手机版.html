@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.34</title>
+<title>wb远程 v1.35</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1489,7 +1489,8 @@ function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
 }
 function refreshSendBtn(){               // 1.30：两态——有本地字=发送；生成中无字=停止
   el.send.classList.remove('intermode');
-  if (!S.ready){ setSendBtn(false, false); return; }
+  /* 1.35：按钮可用性只看本地文字——不再因「界面未就绪」误判置灰；
+     任何情况只要有本地文字就能点发送（服务端会在界面跑起来后执行） */
   if (el.ent.value.trim()){
     /* 1.30：有本地字就显示「发送」——无论空闲还是生成中。生成中点发送
        由服务端先暂停本轮生成（点停止键→等空闲）再正常发送。 */
@@ -1508,7 +1509,7 @@ function renderState(snap){
   if (!S.ready){
     el.state.textContent = 'WorkBuddy 界面未就绪';
     el.state.style.color = 'var(--red)';
-    setSendBtn(false, false);
+    refreshSendBtn();                        // 1.35：未就绪也可发，按钮只看本地文字
     return;
   }
   const idle = snap.sendIdle, inp = snap.inputText || '',
@@ -2227,7 +2228,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.34 [' + box + ']';
+  document.title = 'wb远程 v1.35 [' + box + ']';
 }
 
 function setOnLine(b){
