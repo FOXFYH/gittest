@@ -278,6 +278,23 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .tdhint{color:var(--gray); font-size:11px; margin-top:10px; line-height:1.6;}
 .tdstat{color:var(--blue); font-size:12px; margin-top:14px;
   min-height:16px;}
+/* ── 1.45：加密频道密钥输入弹窗（对齐 TRAE，只输密钥非整串频道名）── */
+#chanmask{position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.55);
+  display:flex; align-items:center; justify-content:center;}
+#chanbox{background:#fff; border-radius:14px; padding:20px 18px;
+  width:84vw; max-width:360px; box-shadow:0 6px 30px rgba(0,0,0,.3);}
+#chanbox .ctitle{font-weight:bold; font-size:16px; color:var(--blue);
+  margin-bottom:8px;}
+#chanbox .chint{font-size:12px; color:var(--gray); line-height:1.6;
+  margin-bottom:10px;}
+#chanin{width:100%; box-sizing:border-box; font-size:16px;
+  padding:10px 12px; border:1px solid var(--bd); border-radius:8px;
+  outline:none;}
+#chanin:focus{border-color:var(--blue);}
+#chanbox .cerr{color:var(--red); font-size:12px; min-height:16px;
+  margin:4px 0;}
+#chanok{width:100%; padding:11px 0; font-weight:bold; font-size:15px;
+  color:#fff; background:var(--blue); border:none; border-radius:8px;}
 </style>
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
@@ -391,11 +408,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
     <fieldset data-page-node-id="FFEkTqPDyCvWYOBJYHsezc">
       <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
-      <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">服务地址</label>
+      <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">频道密钥</label>
         <input id="in_wsurl" data-page-node-id="DVptB7LnQ9GbFJNGjINr6s"></div>
       <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
-        与服务端网络页同款地址（两边一致即互通）。修改后保存并重连
-        生效。</span></div>
+        密钥相当于连接密码，由服务端提供（本端只填密钥，前缀自动拼接成
+        完整频道名）。修改后保存并重连生效。</span></div>
     </fieldset>
     <fieldset data-page-node-id="8SKaqjuDG4j8saN4BtSqaW">
       <legend data-page-node-id="bcrQE6cC0XiryhicJJtmZn">流量统计（WebSocket）</legend>
@@ -518,7 +535,7 @@ const CH_PFX = 'workb';
 function channelUrl(){
   const u = new URLSearchParams(location.search).get('ws');
   if (u) return u;                     // ?ws= 高级覆盖（不改持久化）
-  const key = (CFG.channel || '').trim() || '31415926fF@';
+  const key = (CFG.channel || '').trim();   // 首用须先经 channelPrompt 输密钥
   return WS_URL_TMPL.replace('%s', CH_PFX + key);
 }
 const KA_SEC = 25;      // 心跳间隔（秒）
@@ -538,7 +555,8 @@ function cfgGet(){
 }
 function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
-if (!CFG.channel) CFG.channel = '31415926fF@';   // 1.45：加密频道密钥
+// 1.45：加密频道密钥——不硬编码默认值，首次使用由 channelPrompt()
+// 弹窗输入后存本地，此后自动连接。?ws= 覆盖已内置在 channelUrl()。
 if (!CFG.stats_keep) CFG.stats_keep = 100;
 
 const NET = (function(){
@@ -2590,7 +2608,7 @@ el.net.onclick = () => {
 };
 el.netback.onclick = () => el.netpage.classList.remove('on');
 
-el.wsurl.value = CFG.ws_url;
+el.wsurl.value = CFG.channel || '';
 el.keep.value = CFG.stats_keep;
 
 function netDirty(){ el.nsave.disabled = false; }
@@ -2598,8 +2616,8 @@ el.wsurl.oninput = netDirty;
 el.keep.oninput = netDirty;
 el.nsave.onclick = () => {
   const u = el.wsurl.value.trim();
-  if (!/^wss?:\/\//.test(u)){ flash('服务地址须以 ws:// 或 wss:// 开头'); return; }
-  CFG.ws_url = u;
+  if (!u){ flash('频道密钥不能为空'); return; }
+  CFG.channel = u;
   CFG.stats_keep = Math.max(1, parseInt(el.keep.value) || 100);
   cfgSave();
   el.keep.value = CFG.stats_keep;
@@ -2636,9 +2654,48 @@ setInterval(renderToday, 2000);
 setInterval(statsFlush, 30000);
 window.addEventListener('beforeunload', statsFlush);
 
+/* 1.45：加密频道密钥输入弹窗（对齐 TRAE，只输密钥，前缀自动拼）。
+   首次使用（本地无记录）弹全屏输入层，输对才能连上服务端。 */
+function channelPrompt(){
+  let ov = $('chanmask');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'chanmask';
+  ov.innerHTML =
+    '<div id="chanbox">'
+    + '<div class="ctitle">🔑 输入频道密钥</div>'
+    + '<div class="chint">密钥相当于连接密码，由服务端提供'
+    + '（本端只填密钥，前缀自动拼接成完整频道名）。首次输入后将'
+    + '保存在本机，下次自动连接。</div>'
+    + '<input id="chanin" autocomplete="off" autocapitalize="off" '
+    + 'placeholder="输入密钥…">'
+    + '<div class="cerr" id="chanerr"></div>'
+    + '<button id="chanok">保存并连接</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const inp = $('chanin');
+  const err = $('chanerr');
+  setTimeout(() => { try { inp.focus(); } catch(e){} }, 80);
+  const go = () => {
+    const v = (inp.value || '').trim();
+    if (!v){ err.textContent = '频道密钥不能为空'; return; }
+    CFG.channel = v;
+    cfgSave();
+    ov.remove();
+    flash('频道密钥已保存，正在连接…', 'var(--blue)');
+    connect();
+  };
+  $('chanok').onclick = go;
+  inp.onkeydown = e => {
+    if (e.key === 'Enter' && !e.isComposing) go();
+  };
+}
+
 /* ================= 启动 ================= */
 
-connect();
+/* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
+const wsOV = new URLSearchParams(location.search).get('ws');
+if (wsOV || CFG.channel) connect(); else channelPrompt();
 </script>
 </body>
 </html>
