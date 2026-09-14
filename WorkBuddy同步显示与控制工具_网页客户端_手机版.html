@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.35</title>
+<title>wb远程 v1.36</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -322,6 +322,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <button id="btn_fav" title="模型收藏管理" data-page-node-id="QQf0z68kfKCspuI3tgt6md">☆</button>
   </div>
   <div id="statebar" data-page-node-id="CWWwN1Nx4NvBnM1wGfRZ6V">连接中…</div>
+  <div id="qd_row" style="display:none;">插话排队中：<span id="lbl_q" style="color:#c62828;font-weight:bold;">0</span> 条待 AI 处理</div>
 </div>
 
 <div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
@@ -351,7 +352,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.34 · 刷新积分按钮</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.36 · 刷新积分按钮</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -676,7 +677,7 @@ function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
 const S = {
   ws: null, onLine: false, wsOpenAt: 0, lastSrv: 0,
   box: '(未连接)', port: 0, boxes: [], alive: new Set(),
-  points: '—', acct: '', snap: {},
+  points: '—', acct: '', qn: 0, snap: {},
   attach_pending: null,
   model_map: {}, model_busy: false,
   /* 1.15 模型收藏：favs=收藏的模型真名数组（localStorage 持久）；
@@ -2204,6 +2205,10 @@ function onHello(d){
   if (d.acct !== undefined){                       /* 1.33：登录账号名随 hello */
     S.acct = String(d.acct || '');
     renderAcct();
+  }
+  if (d.q !== undefined){                          /* 1.36：插话排队计数随 hello */
+    S.qn = d.q;
+    renderQueue();
   }
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
