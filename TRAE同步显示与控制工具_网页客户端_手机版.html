@@ -156,8 +156,6 @@ body.fmsg #fexit{display:block;}
 .convo.folder .fname{flex:1; min-width:0; overflow:hidden;
   text-overflow:ellipsis;}
 .fplus{color:var(--blue); font-weight:bold; padding:0 4px 0 12px;}
-#btn_block .st{font-weight:normal; color:var(--gray); font-size:12px;}
-#btn_block.on .st{color:var(--green); font-weight:bold;}
 #finish{background:var(--abg); border-radius:8px; padding:5px 10px;
   margin-bottom:8px;}
 #finish .ft{font-weight:bold; color:var(--green);}
@@ -391,14 +389,13 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div id="dmis">
     <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
-    <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
        在服务端 GUI 改就好）——poll_sec 仍由 hello 下发，但网页端
        不再展示/调整。1.33 的历史：档位 0.5~30s，只影响聊天刷新。 -->
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.38 · 流量日志保留天数默认改为10天</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.39 · 移除抽屉防升级按钮（防升级改在服务端操作）</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -829,7 +826,7 @@ const el = {
   td_lock: $('td_lock'),
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
-  td_stat: $('td_stat'), block: $('btn_block'),
+  td_stat: $('td_stat'),
   fexit: $('fexit'),
   acct: $('lbl_acct'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
@@ -991,7 +988,6 @@ function renderAll(){
 
 function drawerOpen(){
   el.drawer.classList.add('on'); el.mask.classList.add('on');
-  if (S.onLine) sendCmd('block_stat', null);   // 1.06：开抽屉刷新防升级状态
 }
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
@@ -2532,16 +2528,6 @@ function onEv(kind, v){
         ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
         : '已删除第 ' + (v[1] + 1) + ' 条「我」的消息', 'var(--green)');
       break;
-    case 'block_stat':                     // 1.06：防升级状态/操作结果
-      if (v.ok){
-        S.block = !!v.blocked;
-        renderBlock();
-        flash(v.blocked ? '🚫 自动升级：已封锁' : '自动升级：未封锁',
-              v.blocked ? 'var(--green)' : 'var(--orange)');
-      } else {
-        flash('防升级：' + (v.err || '操作失败'), 'var(--red)');
-      }
-      break;
     case 'task_dlg':                        // 1.08：记忆目录抓取结果（预填）
       if (S.task_open){
         S.task_mem = v.full || '';
@@ -2589,7 +2575,6 @@ function onHello(d){
   }
   S.alive = new Set(d.alive || []);
   renderPorts();
-  if (d.block !== undefined){ S.block = d.block; renderBlock(); }  // 1.06
   if (d.points && d.points !== '—'){
     S.points = d.points;
     el.points.textContent = '积分 ' + d.points;
@@ -2965,23 +2950,6 @@ el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 TRAE 输入区
   const wasLock = S.task_lock;
   taskDlgClose();
   if (!wasLock) sendCmd('task_dlg_cancel', null);
-};
-function renderBlock(){                     // 抽屉防升级状态文字
-  const st = el.block.querySelector('.st');
-  el.block.classList.toggle('on', S.block === true);
-  st.textContent = S.block === true ? '已封锁'
-                 : S.block === false ? '未封锁' : '未知';
-}
-el.block.onclick = () => {
-  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
-  if (S.block === null){ flash('服务端未定位到 TRAE 安装目录'); return; }
-  const to = !S.block;
-  if (!confirm(to
-    ? '禁止 TRAE 自动升级？\n（清理已下载升级包 + 封锁升级程序，'
-      + '防止改版后本工具操作失灵）'
-    : '恢复 TRAE 自动升级？')) return;
-  flash(to ? '正在封锁自动升级…' : '正在恢复自动升级…', 'var(--blue)');
-  sendCmd('block_update', to);
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
