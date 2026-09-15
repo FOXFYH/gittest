@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程·手机版 v1.41</title>
+<title>TRAE远程·手机版</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2125,6 +2125,18 @@ function diagRender(){
 }
 setInterval(diagRender, 1000);
 
+/* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
+   说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
+const APP_NAME = 'TRAE远程·手机版';
+const VER = '1.42';
+const VER_DESC = '最大化/全屏预警 + 连接诊断';
+function renderVer(box){
+  const tag = box ? ' [' + box + ']' : '';
+  document.title = APP_NAME + ' v' + VER + tag;
+  el.lbl_title.textContent = APP_NAME + ' v' + VER;
+  el.lbl_ver.textContent = 'v' + VER + ' · ' + VER_DESC;
+}
+
 function connect(){
   clearTimeout(reconnectTimer);
   try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
@@ -3192,7 +3204,12 @@ el.netback.onclick = () => el.netpage.classList.remove('on');
 el.netreconn.onclick = () => { diagLog('手动重连', 'warn'); connect(); };
 el.nettest.onclick = diagTest;
 el.netclear.onclick = () => { DIAG.log.length = 0; diagRender(); };
-el.net.onclick = () => { diagRender(); };   // 打开瞬间刷一次（含日志）
+// 1.xx：保存原有打开逻辑，追加诊断刷新（打开瞬间刷一次当前状态）
+const _old_on_net_click = el.net.onclick;
+el.net.onclick = (ev) => {
+  _old_on_net_click && _old_on_net_click.call(el.net, ev);
+  diagRender();
+};
 
 el.wsurl.value = chanGet();          /* v1.27：网络页改存频道名 */
 el.keep.value = CFG.stats_keep;
@@ -3242,6 +3259,7 @@ window.addEventListener('beforeunload', statsFlush);
 
 /* ================= 启动 ================= */
 
+renderVer();                     /* 1.xx：统一版本号（三处同步） */
 renderAcct();                            /* 1.27：账号行先显 — */
 connect();
 </script>
