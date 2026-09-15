@@ -350,7 +350,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.36</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.40</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -1181,16 +1181,16 @@ function renderPending(){
     d.className = 'msg user pend ' + st[1];
     let h = '<div class="who">我<span class="pstat">' + esc(st[0])
           + '</span>';
-    /* 1.35：改写/丢弃/重发只在「⚠ 未确认」后出现（用户：发送到
-       落地就是一瞬间的事，按钮常显没意义）——正常路径 1~3 秒卡片
-       即撤，按钮根本来不及显示；超时（默认 30s，服务端判定后经
-       pendlist 事件推送 state='timeout'）才亮按钮 */
+    /* 1.40：占位卡始终提供「复制」（复制占位里的文字，用户反馈），
+       改写/重发/丢弃仍在超时态才出现（1.35 原语义保留） */
+    h += '<span class="pacts"><button class="pendbtn cp" data-cp="'
+       + p.id + '">📋 复制</button>';
     if (p.state === 'timeout')
-      h += '<span class="pacts">'
-         + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
+      h += '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
          + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>'
          + '<button class="pendbtn drop" data-drop="' + p.id
-         + '">丢弃</button></span>';
+         + '">丢弃</button>';
+    h += '</span>';
     h += '</div><div class="body">' + esc(p.text) + '</div>';
     d.innerHTML = h;
     wrap.appendChild(d);
@@ -1201,6 +1201,12 @@ function renderPending(){
       const gi = parseInt(b.dataset.go || '0');
       const di = parseInt(b.dataset.drop || '0');
       const ei = parseInt(b.dataset.edit || '0');
+      const cpi = parseInt(b.dataset.cp || '0');   // 1.40：复制占位文字
+      if (cpi){
+        const p = S.pending.find(x => x.id === cpi);
+        if (p && p.text) copyText(p.text);
+        return;
+      }
       if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
         const p = S.pending.find(x => x.id === ei);
         if (!p) return;
@@ -1251,6 +1257,17 @@ function pendHead100(sent, shown, n){
   if (Math.min(a.length, b.length) >= 12)
     return a.startsWith(b) || b.startsWith(a);
   return false;
+}
+
+/* 1.40：包含匹配兜底——占位撤下只认「前 N 字相同」时，TRAE 把用户
+   消息包装/改写（如「已收到，正在处理…原话」）会前缀对不上 → 明明
+   文字已出现在对话里，占位框却挂到超时才撤。兜底：发送文本(norm)
+   足够长（≥15）且是渲染文本(norm)的子串即认作已落地；短文本不做
+   包含判定（防「你好」等通用词误配）。 */
+function pendContains(sent, shown_){
+  if (!sent || shown_ === undefined) return false;
+  if (sent.length < 15) return false;
+  return shown_.indexOf(sent) >= 0;
 }
 
 /* 快照到达：同文本用户消息出现 → 该占位已落地，撤下它。
@@ -1306,7 +1323,8 @@ function pendReconcile(msgs){
       if (S.pend_claims.indexOf(i) >= 0) continue;
       const ts0 = S.pend_seen[users[i]];   /* 时限内新消息才认 */
       if (ts0 === undefined || now - ts0 > S.pend_age) continue;
-      if (pendHead100(t, users[i], S.pend_head)){ idx = i; break; }
+      if (pendHead100(t, users[i], S.pend_head)
+          || pendContains(t, users[i])){ idx = i; break; }
     }
     if (idx >= 0){
       S.pend_claims.push(idx);
