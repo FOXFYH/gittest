@@ -424,7 +424,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
-    <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
+    <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
   </div>
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
        在服务端 GUI 改就好）——poll_sec 仍由 hello 下发，但网页端
@@ -492,7 +492,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="page_net" data-page-node-id="oddG8dIObpfpeiicXo0wyz">
   <div class="nhdr" data-page-node-id="SkWX0NpP7LfDsIUv2uU5BW">
     <button id="btn_netback" data-page-node-id="CpHM5colHBIkcO68jwAKhI">‹ 返回</button>
-    <b data-page-node-id="sqtAJ2SqjLlJyH6aFUI87l">网络</b>
+    <b data-page-node-id="sqtAJ2SqjLlJyH6aFUI87l">设置</b>
   </div>
   <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
     <fieldset data-page-node-id="diag_fs">
@@ -510,7 +510,10 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div class="row" style="gap:8px; margin-top:8px;">
         <button id="btn_netreconn" style="flex:1;">立即重连</button>
         <button id="btn_nettest" style="flex:1;">测服务器（5s）</button>
+        <button id="btn_check_fulls" style="flex:1;">检测最大化</button>
       </div>
+      <div class="row"><span class="hint">检测当前是否有窗口最大化/全屏压制原版渲染</span>
+        <b id="lbl_fulls" class="diagv">—</b></div>
     </fieldset>
     <fieldset data-page-node-id="FFEkTqPDyCvWYOBJYHsezc">
       <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
@@ -876,6 +879,7 @@ const el = {
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
+  check_fulls: $('btn_check_fulls'), lbl_fulls: $('lbl_fulls'),
   netclear: $('btn_netclear'),
   bench: $('btn_bench'), benchpage: $('page_bench'),
   benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
@@ -1416,11 +1420,32 @@ function pendSwitchSet(title){
      不重复渲染） */
   if (S.switch_pend && S.switch_pend.title === title){
     S.switch_pend.ts = Date.now();
+    fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
     return;
   }
   S.switch_pend = {title: title, ts: Date.now(),
                    fp0: msgsFp(S.snap.msgs)};
+  fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   renderAll();
+}
+/* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中且消息区空、
+   WS 连通，弹确认框问是否查询最大化压制；用户确认才发 check_fulls
+   （每切换只问一次，不自动查）。 */
+const FULLS_CHECK_DELAY = 15000;
+function fullsCheckRearm(title){
+  clearTimeout(S._fullsCheckTimer);
+  S._fullsCheckTimer = setTimeout(() => fullsCheckFire(title),
+                                  FULLS_CHECK_DELAY);
+}
+function fullsCheckFire(title){
+  if (!S.switch_pend || S.switch_pend.title !== title) return;  // 已落地/已切换
+  const empty = !(S.snap.msgs || []).length
+    && !(el.msgs && el.msgs.querySelector('.msg'));
+  if (!empty) return;                    // 内容已到，不打扰
+  if (!S.onLine) return;                 // 仅 WS 连通时才问（网络正常前提）
+  confirmFulls(
+    '切换对话超过 15 秒仍未载入内容，是否查询是否有窗口最大化/全屏压制原版渲染？',
+    () => sendCmd('check_fulls'));
 }
 function pendSwitchClear(){
   if (!S.switch_pend) return false;
@@ -1448,6 +1473,36 @@ function fullsLater(){                     // 稍后提醒：静默 15 分钟
 function fullsQuiet(){                     // 近期不再提醒：静默 6 小时
   S.fulls_snooze = Date.now() + FULLS_QUIET;
   fullsHide();
+}
+/* 1.xx：通用确认弹窗（轻量覆盖层）——onOk 为空安全。 */
+function confirmFulls(msg, onOk){
+  const old = $('fconfirm');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'fconfirm';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:95;background:'
+    + 'rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:12px;max-width:320px;'
+    + 'width:88%;padding:16px 16px calc(14px);box-sizing:border-box;';
+  const txt = document.createElement('div');
+  txt.style.cssText = 'font-size:14px;line-height:1.6;color:#222;margin-bottom:14px;';
+  txt.textContent = msg;
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+  const mk = (label, cls, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'min-height:36px;padding:4px 14px;border-radius:8px;'
+      + (cls ? 'border-color:var(--blue);background:var(--blue);color:#fff;'
+             : 'color:var(--gray);');
+    b.onclick = () => { ov.remove(); if (fn) fn(); };
+    return b;
+  };
+  row.appendChild(mk('取消', '', null));
+  row.appendChild(mk('查询', 'primary', onOk));
+  box.appendChild(txt); box.appendChild(row); ov.appendChild(box);
+  document.body.appendChild(ov);
 }
 
 function renderMsgs(msgs, finish, opts, ask, pend){
@@ -2573,18 +2628,11 @@ function onEv(kind, v){
         const timedout = Date.now() - S.switch_pend.ts > 12000;
         if ((act && act[1] === S.switch_pend.title && arrived) || !has
             || timedout){
-          /* 1.xx：切换兜底预警——反复切换失败/超时（可能被最大化/全屏
-             压制原版渲染致记录空白）→ 主动弹最大化/全屏预警。成功到达
-             归零计数，连续两次失败才提醒，避免误报。 */
+          /* 1.xx：切换结束判定——成功到达(内容有变)归零失败计数；失败/
+             超时不再自动弹横幅，改由 fullsCheckFire 在 15s 判空后弹确认
+             框问是否查询最大化（被动，经确认才查）。 */
           if (act && act[1] === S.switch_pend.title && arrived){
             S.falls_fail = 0;
-          } else {
-            S.falls_fail = (S.falls_fail || 0) + 1;
-            if (S.falls_fail >= 2){
-              S.falls_fail = 0;
-              fullsShow('切换对话反复失败，可能有窗口最大化/全屏压制原版渲染，'
-                        + '建议检查是否有窗口最大化或全屏');
-            }
           }
           S.switch_pend = null;              // 超时兜底，别一直挂着
         }
@@ -2626,8 +2674,9 @@ function onEv(kind, v){
       renderAll();
       break;
     }
-    case 'fullscreen_warn':                  /* 1.xx：最大化/全屏预警 */
-      if (v && v.on) fullsShow(v.msg);
+    case 'fullscreen_warn':                  /* 1.xx：最大化检测结果（前端主动查出） */
+      if (el.lbl_fulls) el.lbl_fulls.textContent = (v && v.msg) || '—';
+      if (v && v.on) fullsShow(v.msg);   /* 有压制时仍横幅提醒 */
       else fullsHide();
       break;
     case 'pend': {                           /* 1.10：命令受理广播——
@@ -3207,6 +3256,11 @@ el.netback.onclick = () => el.netpage.classList.remove('on');
 /* 1.xx：连接诊断按钮 */
 el.netreconn.onclick = () => { diagLog('手动重连', 'warn'); connect(); };
 el.nettest.onclick = diagTest;
+/* 1.xx：被动查询最大化/全屏——前端发起，服务端即时检测回投一次结果 */
+el.check_fulls.onclick = () => {
+  el.lbl_fulls.textContent = '查询中…';
+  sendCmd('check_fulls');
+};
 el.netclear.onclick = () => { DIAG.log.length = 0; diagRender(); };
 // 1.xx：保存原有打开逻辑，追加诊断刷新（打开瞬间刷一次当前状态）
 const _old_on_net_click = el.net.onclick;
