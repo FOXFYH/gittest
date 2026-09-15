@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>wb远程 v1.37</title>
+<title>wb远程 v1.38</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -310,7 +310,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.37</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">wb远程 v1.38</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -352,7 +352,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.37 · 对话时间显示校正(北京时间) · 发送前自动收起右栏</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.38 · 流量日志保留天数默认改为10天</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -431,7 +431,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div class="row" data-page-node-id="dQdF4c001Jf9DJEAXAcciN"><span id="lbl_today" data-page-node-id="YN59Jot8ToDDSF5i8yCgNy">今日  收 0 B·0 条   发 0 B·0 条</span></div>
       <div class="row" data-page-node-id="AZlqYB0VqLsZX8bjc5lTQT">
         <label data-page-node-id="5o9aSMOjeJkS4irLVTXcgl">保留天数</label>
-        <input id="in_keep" type="number" min="1" max="3650" value="100"
+        <input id="in_keep" type="number" min="1" max="3650" value="10"
           style="width:70px;" data-page-node-id="xCprX30d3pfmORZsYhO2qy">
         <span class="hint" data-page-node-id="d2Z1UJB5cxMl7Kf759pQsB">超期自动清理；30 秒落盘一次。</span>
       </div>
@@ -569,7 +569,7 @@ function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
 // 1.45：加密频道密钥——不硬编码默认值，首次使用由 channelPrompt()
 // 弹窗输入后存本地，此后自动连接。?ws= 覆盖已内置在 channelUrl()。
-if (!CFG.stats_keep) CFG.stats_keep = 100;
+if (!CFG.stats_keep) CFG.stats_keep = 10;
 
 const NET = (function(){
   let d = {};
@@ -587,7 +587,7 @@ function statsAdd(rx, tx, rxn, txn){      // 字节 + 条数（对齐服务端 v
   if (txn) b.txn = (b.txn || 0) + txn;
 }
 function statsFlush(){
-  const keep = Math.max(1, parseInt(CFG.stats_keep) || 100);
+  const keep = Math.max(1, parseInt(CFG.stats_keep) || 10);
   const ks = Object.keys(NET.days).sort();
   if (ks.length > keep)
     ks.slice(0, ks.length - keep).forEach(k => delete NET.days[k]);
@@ -2239,7 +2239,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.37 [' + box + ']';
+  document.title = 'wb远程 v1.38 [' + box + ']';
 }
 
 function setOnLine(b){
@@ -2639,7 +2639,7 @@ el.nsave.onclick = () => {
   const u = el.wsurl.value.trim();
   if (!u){ flash('频道密钥不能为空'); return; }
   CFG.channel = u;
-  CFG.stats_keep = Math.max(1, parseInt(el.keep.value) || 100);
+  CFG.stats_keep = Math.max(1, parseInt(el.keep.value) || 10);
   cfgSave();
   el.keep.value = CFG.stats_keep;
   el.nsave.disabled = true;
@@ -2659,7 +2659,7 @@ function renderToday(){
 function renderNetHist(){
   const tb = el.tnet.querySelector('tbody');
   tb.innerHTML = '';
-  const keep = Math.max(1, parseInt(CFG.stats_keep) || 100);
+  const keep = Math.max(1, parseInt(CFG.stats_keep) || 10);
   const ks = Object.keys(NET.days).sort().reverse().slice(0, keep);
   for (const k of ks){
     const b = NET.days[k] || {};
