@@ -2131,10 +2131,14 @@ const APP_NAME = 'TRAE远程·手机版';
 const VER = '1.42';
 const VER_DESC = '最大化/全屏预警 + 连接诊断';
 function renderVer(box){
-  const tag = box ? ' [' + box + ']' : '';
-  document.title = APP_NAME + ' v' + VER + tag;
-  el.lbl_title.textContent = APP_NAME + ' v' + VER;
-  el.lbl_ver.textContent = 'v' + VER + ' · ' + VER_DESC;
+  try{
+    const tag = box ? ' [' + box + ']' : '';
+    const vm = APP_NAME + ' v' + VER;
+    const vd = 'v' + VER + ' · ' + VER_DESC;
+    document.title = APP_NAME + tag;      /* 地址栏/标签标题不带版本号 */
+    if (el.lbl_title) el.lbl_title.textContent = vm;
+    if (el.lbl_ver) el.lbl_ver.textContent = vd;
+  }catch(e){ /* 版本渲染绝不影响连接 */ }
 }
 
 function connect(){
@@ -2801,7 +2805,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'TRAE远程·手机版 v1.41 [' + box + ']';
+  renderVer(box);
 }
 
 function setOnLine(b){
