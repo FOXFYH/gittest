@@ -228,6 +228,15 @@ th,td{border:1px solid var(--bd); padding:3px 6px; text-align:left;}
 th{background:#eef2f6;}
 td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 #btn_netsave{color:var(--blue); font-weight:bold;}
+/* 1.xx：连接诊断——值着色 + 日志 */
+.diagv{color:var(--blue); font-family:Consolas,monospace; font-weight:bold;}
+.diaglog{max-height:150px; overflow-y:auto; background:#fbfcfe;
+  border:1px solid var(--bd); border-radius:6px; padding:4px 6px;
+  font-size:11px; font-family:Consolas,monospace; line-height:1.6;}
+.diaglog .ok{color:#1a7f37;}
+.diaglog .bad{color:#c62828;}
+.diaglog .warn{color:#b26a00;}
+.diaglog .dim{color:#888;}
 /* ── 工作台浏览页（全屏覆盖，1.01）── */
 #page_bench{position:fixed; inset:0; z-index:40; background:#f2f4f7;
   display:none; flex-direction:column;}
@@ -303,6 +312,18 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   margin:4px 0;}
 #chanok{width:100%; padding:11px 0; font-weight:bold; font-size:15px;
   color:#fff; background:var(--blue); border:none; border-radius:8px;}
+/* 1.xx：最大化/全屏预警条（紧贴顶栏下方，置顶警示） */
+#fullswarn{position:fixed; top:0; left:0; right:0; z-index:1200;
+  background:#fff8e1; border-bottom:1px solid #f0c674; color:#7a5b00;
+  font-size:13px; padding:6px 10px 8px; box-shadow:0 2px 6px rgba(0,0,0,.12);}
+#fullswarn .fsw_row{display:flex; align-items:flex-start; gap:6px; line-height:1.4;}
+#fullswarn b{white-space:nowrap; color:#b26a00;}
+#fullswarn .fsw_btns{display:flex; gap:8px; margin-top:6px;}
+#fullswarn .fsw_btns button{flex:1; padding:7px 0; border:none; border-radius:6px;
+  font-size:13px; font-weight:bold; cursor:pointer;}
+#fullswarn .fsw_btns button:first-child{background:#fff3d6; color:#8a5a00;
+  border:1px solid #e6b04a;}
+#fullswarn .fsw_btns button:last-child{background:#b26a00; color:#fff;}
 </style>
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
@@ -323,6 +344,19 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   </div>
   <div id="statebar" data-page-node-id="CWWwN1Nx4NvBnM1wGfRZ6V">连接中…</div>
   <div id="qd_row" style="display:none;">插话排队中：<span id="lbl_q" style="color:#c62828;font-weight:bold;">0</span> 条待 AI 处理</div>
+</div>
+
+<!-- 1.xx：最大化/全屏预警条（服务端 fullscreen_warn 事件驱动；另由切换
+     反复失败等兜底触发）。「稍后提醒」=15分钟，「近期不要再提醒」=6小时。 -->
+<div id="fullswarn" style="display:none;">
+  <div class="fsw_row">
+    <b>⚠️ 最大化/全屏预警</b>
+    <span id="fsw_txt"></span>
+  </div>
+  <div class="fsw_btns">
+    <button onclick="fullsLater()">稍后提醒（15分钟）</button>
+    <button onclick="fullsQuiet()">近期不要再提醒（6小时）</button>
+  </div>
 </div>
 
 <div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
@@ -418,6 +452,23 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <b data-page-node-id="sqtAJ2SqjLlJyH6aFUI87l">网络</b>
   </div>
   <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
+    <fieldset data-page-node-id="diag_fs">
+      <legend>连接诊断</legend>
+      <div class="row"><span>频道（前缀+密钥）</span><b id="diag_chan" class="diagv">—</b></div>
+      <div class="row"><span>本端登上频道（WS 打通）</span><b id="diag_ws" class="diagv">—</b></div>
+      <div class="row"><span>收到服务器回应</span><b id="diag_srv" class="diagv">—</b></div>
+      <div class="row"><span>最近回应时间</span><b id="diag_last" class="diagv">—</b></div>
+      <div class="row"><span>断线重连 / 出错次数</span><b id="diag_cnt" class="diagv">—</b></div>
+      <div class="row" style="justify-content:space-between;">
+        <span class="hint">事件日志（最近 8 条）</span>
+        <button id="btn_netclear" style="font-size:12px; padding:2px 8px;">清空</button>
+      </div>
+      <div id="diag_log" class="diaglog"></div>
+      <div class="row" style="gap:8px; margin-top:8px;">
+        <button id="btn_netreconn" style="flex:1;">立即重连</button>
+        <button id="btn_nettest" style="flex:1;">测服务器（5s）</button>
+      </div>
+    </fieldset>
     <fieldset data-page-node-id="FFEkTqPDyCvWYOBJYHsezc">
       <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
       <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">频道密钥</label>
@@ -699,6 +750,10 @@ const S = {
   pend_send: 30000,                  /* 1.32：发送确认超时毫秒（默认 30 秒，
                                         pendcfg 同步；超时才显示改写/丢弃/重发） */
   switch_pend: null,
+  /* 1.xx：最大化/全屏预警——fulls_snooze=静默截止时刻（毫秒时间戳，
+     稍后提醒15分钟 / 近期不再提醒6小时）；falls_fail=切换连续失败计数
+     （兜底触发预警用，成功到达归零） */
+  fulls_snooze: 0, falls_fail: 0,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
   servers: {},
@@ -722,6 +777,10 @@ const el = {
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'),
+  diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
+  diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
+  netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
+  netclear: $('btn_netclear'),
   bench: $('btn_bench'), benchpage: $('page_bench'),
   benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
   benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
@@ -732,6 +791,7 @@ const el = {
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'),
   fexit: $('fexit'),
+  fsw: $('fullswarn'), fsw_txt: $('fsw_txt'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favlist: $('fav_list'),
 };
@@ -1210,6 +1270,28 @@ function pendSwitchClear(){
   if (!S.switch_pend) return false;
   S.switch_pend = null;
   return true;
+}
+
+/* ========== 1.xx：最大化/全屏预警条 ========== */
+const FULLS_LATER = 15 * 60 * 1000;    // 稍后提醒：15 分钟后再提醒
+const FULLS_QUIET = 6 * 60 * 60 * 1000; // 近期不要再提醒：6 小时内不再提醒
+function fullsShow(msg){
+  if (Date.now() < S.fulls_snooze) return;   // 静默期内忽略新预警
+  S.fulls_show = true;
+  el.fsw_txt.textContent = msg || '';
+  el.fsw.style.display = 'flex';
+}
+function fullsHide(){
+  S.fulls_show = false;
+  el.fsw.style.display = 'none';
+}
+function fullsLater(){                     // 稍后提醒：静默 15 分钟
+  S.fulls_snooze = Date.now() + FULLS_LATER;
+  fullsHide();
+}
+function fullsQuiet(){                     // 近期不再提醒：静默 6 小时
+  S.fulls_snooze = Date.now() + FULLS_QUIET;
+  fullsHide();
 }
 
 function renderMsgs(msgs, finish, opts, ask){
@@ -1746,6 +1828,60 @@ function syncModel(cur){
 let ws = null, reconnectTimer = null, kaTimer = null;
 let helloTimer = null, helloTries = 0, gotHello = false;
 
+/* ========== 1.xx：连接诊断（网络页） ==========
+   目的：不知道「一直连接中」是我这头死了还是服务端那头死了。
+   记录断线/出错/收到服务端回应，网络页据此判定本端↔服务端两侧状态。 */
+const DIAG = {reconn: 0, err: 0, testAt: 0, testOk: false, log: []};
+function diagLog(txt, cls){
+  DIAG.log.push({t: Date.now(), txt: txt, cls: cls || ''});
+  if (DIAG.log.length > 8) DIAG.log.shift();
+  if (el && el.diag_log) diagRender();
+}
+function diagTest(){                        // 测服务器：发 hello，5s 内等回应
+  DIAG.testAt = Date.now(); DIAG.testOk = false;
+  diagLog('测试：已发送 hello，等 5 秒回应…', 'dim');
+  try { sendJson({t: 'hello', v: 1}); } catch(e){}
+  setTimeout(() => {
+    if (DIAG.testOk) diagLog('测试：收到服务器回应 ✓', 'ok');
+    else diagLog('测试：5 秒内无回应 ✗（服务端未启动？频道不符？）', 'bad');
+    DIAG.testAt = 0;
+  }, 5000);
+}
+function diagRender(){
+  if (!el.diag_ws) return;
+  /* 频道 */
+  el.diag_chan.textContent = CFG && CFG.channel
+    ? (CH_PFX || '') + '•••' + String(CFG.channel).slice(-2) : '未设置';
+  /* 本端登上频道 */
+  if (S.onLine){ el.diag_ws.textContent = '✅ 已连接（登上频道）';
+    el.diag_ws.style.color = '#1a7f37'; }
+  else if (S.wsOpenAt){ el.diag_ws.textContent = '❌ 已断开 · 重连中';
+    el.diag_ws.style.color = '#c62828'; }
+  else { el.diag_ws.textContent = '⏳ 连接中…';
+    el.diag_ws.style.color = '#b26a00'; }
+  /* 服务器回应 */
+  if (S.lastSrv && Date.now() - S.lastSrv < 16000){
+    el.diag_srv.textContent = '✅ 正常（16s 内收到）';
+    el.diag_srv.style.color = '#1a7f37';
+    el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
+  } else if (S.lastSrv){
+    el.diag_srv.textContent = '❌ 超时（最后回应后无消息）';
+    el.diag_srv.style.color = '#c62828';
+    el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
+  } else {
+    el.diag_srv.textContent = '⏳ 尚未收到';
+    el.diag_srv.style.color = '#888';
+    el.diag_last.textContent = '—';
+  }
+  el.diag_cnt.textContent = DIAG.reconn + ' 次 / ' + DIAG.err + ' 次';
+  /* 日志 */
+  el.diag_log.innerHTML = DIAG.log.map(l =>
+    '<div class="' + (l.cls || '') + '">'
+    + new Date(l.t).toLocaleTimeString() + '  ' + l.txt + '</div>').join('')
+    || '<div class="dim">（暂无事件）</div>';
+}
+setInterval(diagRender, 1000);
+
 function connect(){
   clearTimeout(reconnectTimer);
   try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
@@ -1757,6 +1893,7 @@ function connect(){
   ws = new WebSocket(channelUrl());   // 1.45：加密频道（前缀+密钥拼接）
   S.ws = ws;
   ws.onopen = () => {
+    diagLog('WS 已连接（登上频道）', 'ok');
     setOnLine(true);
     sendHello();               // 上线即拉服务端状态
     doLogin();                 // 1.45：登录 → 服务端开播并整包重放
@@ -1768,13 +1905,18 @@ function connect(){
   };
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
+    DIAG.reconn++;
+    diagLog('断线（' + RECONNECT + 's 后重连 #' + DIAG.reconn + '）', 'bad');
     cliLogout('断线');         // 1.45：断线即退出登录（服务端停播）
     setOnLine(false);
     clearInterval(kaTimer);
     clearTimeout(helloTimer);
     reconnectTimer = setTimeout(connect, RECONNECT * 1000);
   };
-  ws.onerror = () => {};
+  ws.onerror = () => {
+    DIAG.err++;
+    diagLog('WS 错误 #' + DIAG.err + '（可能是网络/中继问题）', 'bad');
+  };
 }
 
 /* ============ 1.45：客户端登录态（WS 节流） ============
@@ -2049,9 +2191,24 @@ function onEv(kind, v){
         /* 1.16：到达确认——标题激活还不够（WorkBuddy 先亮标题后加载
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
         const arrived = msgsFp(v.msgs) !== S.switch_pend.fp0;
+        const timedout = Date.now() - S.switch_pend.ts > 12000;
         if ((act && act[1] === S.switch_pend.title && arrived) || !has
-            || Date.now() - S.switch_pend.ts > 12000)
+            || timedout){
+          /* 1.xx：切换兜底预警——反复切换失败/超时（可能被最大化/全屏
+             压制原版渲染致记录空白）→ 主动弹最大化/全屏预警。成功到达
+             归零计数，连续两次失败才提醒，避免误报。 */
+          if (act && act[1] === S.switch_pend.title && arrived){
+            S.falls_fail = 0;
+          } else {
+            S.falls_fail = (S.falls_fail || 0) + 1;
+            if (S.falls_fail >= 2){
+              S.falls_fail = 0;
+              fullsShow('切换对话反复失败，可能有窗口最大化/全屏压制原版渲染，'
+                        + '建议检查是否有窗口最大化或全屏');
+            }
+          }
           S.switch_pend = null;              // 超时兜底，别一直挂着
+        }
       }
       renderAll();
       break;
@@ -2091,6 +2248,10 @@ function onEv(kind, v){
       renderAll();
       break;
     }
+    case 'fullscreen_warn':                  /* 1.xx：最大化/全屏预警 */
+      if (v && v.on) fullsShow(v.msg);
+      else fullsHide();
+      break;
     case 'pend': {                           /* 1.10：命令受理广播——
         别的端（PC 面板）发出的消息也在本机回显占位，多端同看。
         switch 不进气泡：统一走「正在切换」提示条（同目标幂等、
@@ -2200,6 +2361,8 @@ function onEv(kind, v){
 
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
+  diagLog('收到服务器 hello 回应 ✓', 'ok');
+  if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;
   /* 1.23：确认匹配参数（字数/时限）随 hello 同步 */
   if (d.pendcfg && d.pendcfg.head)
     S.pend_head = Math.max(10, d.pendcfg.head | 0);
@@ -2295,6 +2458,7 @@ function renderLink(){
 }
 function srvSeen(){                    // 服务端来向消息：判活 + 即时刷新
   S.lastSrv = Date.now();
+  if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;   // 测服务器：收到即成功
   renderLink();
 }
 setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
@@ -2650,6 +2814,12 @@ el.net.onclick = () => {
   el.netpage.classList.add('on');
 };
 el.netback.onclick = () => el.netpage.classList.remove('on');
+
+/* 1.xx：连接诊断按钮 */
+el.netreconn.onclick = () => { diagLog('手动重连', 'warn'); connect(); };
+el.nettest.onclick = diagTest;
+el.netclear.onclick = () => { DIAG.log.length = 0; diagRender(); };
+el.net.onclick = () => { diagRender(); };   // 打开瞬间刷一次（含日志）
 
 el.wsurl.value = CFG.channel || '';
 el.keep.value = CFG.stats_keep;
