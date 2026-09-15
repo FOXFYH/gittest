@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE同步显示与控制工具_网页客户端_手机版</title>
+<title>TRAE远程·手机版 v1.41</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1771,7 +1771,13 @@ function renderState(snap){
         tail = snap.tail;
   if (!idle && !inp){                        // 生成中
     S.gen = true;
-    el.state.textContent = '生成中·' + (tail || '输出中');
+    /* 1.5x：生成中用「✏️」符号替代「生成中」三字省空间；AI 实时 tail
+       不再逐字显示，只用有无划分两个固定阶段词——空=输出中、有=
+       规划中（原「正在规划下一步」精简为规划中）；并像空闲一样带
+       上当前会话名 */
+    const ct2 = (curTitle() || '').trim();
+    el.state.textContent = '✏️ ' + (tail ? '规划中' : '输出中')
+      + (ct2 ? ' · ' + (ct2.length > 14 ? ct2.slice(0, 14) + '…' : ct2) : '');
     el.state.style.color = 'var(--orange)';
     refreshSendBtn();                        // 有本地字→插话，无→停止
   } else if (idle && !inp){                  // 空闲
@@ -2620,7 +2626,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'TRAE远程·手机版 [' + box + ']';
+  document.title = 'TRAE远程·手机版 v1.41 [' + box + ']';
 }
 
 function setOnLine(b){
