@@ -29,6 +29,35 @@ body{display:flex;flex-direction:column;height:100dvh;padding:8px;gap:8px}
   touch-action:none;user-select:none;-webkit-user-drag:none;background:#fff;border-radius:6px}
 #guide{position:absolute;top:0;bottom:0;width:2px;background:rgba(76,141,255,.9);
   box-shadow:0 0 8px rgba(76,141,255,.9);pointer-events:none;display:none;border-radius:1px}
+/* 拖动时的「实时瞄准层」：本地绘制、零延迟。
+   手指位置 ≈ 拼图块中心（用户按的就是拼图块下方那个箭头把手），
+   所以这条竖线就是拼图块此刻的真实位置——不受镜像延迟影响。 */
+#aim{position:absolute;inset:0;pointer-events:none;display:none;z-index:3}
+#aim .ln{position:absolute;top:0;bottom:0;width:3px;margin-left:-1.5px;
+  background:rgba(34,211,238,.95);box-shadow:0 0 12px rgba(34,211,238,.9);border-radius:2px}
+#aim .bx{position:absolute;top:30%;height:40%;left:0;width:16%;
+  border:2px dashed rgba(34,211,238,.75);border-radius:6px;
+  background:rgba(34,211,238,.08)}
+#aim .cap{position:absolute;top:2px;left:50%;transform:translateX(-50%);
+  color:#22d3ee;font-size:11px;white-space:nowrap;text-shadow:0 0 6px rgba(0,0,0,.9)}
+/* 拖动中把放大插值关掉：边缘更锐利，更好判断有没有对准缺口 */
+#stage.drag #scr{image-rendering:pixelated}
+#tip{position:absolute;left:50%;transform:translateX(-50%);top:8px;z-index:6;
+  background:rgba(12,14,19,.86);border:1px solid var(--line);border-radius:10px;
+  padding:7px 13px;font-size:13px;line-height:1.35;text-align:center;color:var(--tx);
+  pointer-events:none;display:none;max-width:94%;white-space:pre-line}
+#tip.ok{border-color:var(--green);color:#86efac}
+/* 「按住这里」：箭头把手的位置（服务端实测标注）。
+   拖动只认把手，按偏了验证码不会有任何反应——所以必须画出来。 */
+#hk{position:absolute;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;
+  border:2px dashed rgba(245,158,11,.95);background:rgba(245,158,11,.14);
+  pointer-events:none;display:none;z-index:2;
+  animation:hkb 1.6s ease-in-out infinite}
+@keyframes hkb{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.55)}
+  50%{box-shadow:0 0 0 11px rgba(245,158,11,0)}}
+#hk span{position:absolute;left:40px;top:50%;transform:translateY(-50%);
+  font-size:11px;color:#f59e0b;white-space:nowrap;
+  text-shadow:0 0 6px rgba(0,0,0,.95);font-weight:600}
 #hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   color:var(--dim);font-size:13px;text-align:center;padding:20px;line-height:1.9;
   white-space:pre-line}
@@ -64,7 +93,14 @@ button.on{background:var(--green);border-color:var(--green);color:#04220f;font-w
   <div id="wrap">
     <img id="scr" alt="">
     <div id="guide"></div>
+    <div id="aim">
+      <div class="ln"></div>
+      <div class="bx"></div>
+      <div class="cap">拼图块现在在这里</div>
+    </div>
+    <div id="hk"><span>按住这里</span></div>
   </div>
+  <div id="tip"></div>
   <div id="hint">等待电脑端推送画面…</div>
 </div>
 
@@ -81,7 +117,7 @@ button.on{background:var(--green);border-color:var(--green);color:#04220f;font-w
 
 <script>
 /* ==========================================================================
-   滑块镜像 · 手机客户端  v1.00
+   滑块镜像 · 手机客户端  v1.02
    --------------------------------------------------------------------------
    作用：把电脑上 Chrome 里正在弹出的滑块/拼图验证码镜像到手机，
         手指在手机上拖动 → 坐标回传电脑端 → 电脑端用 CDP 真实鼠标事件复现。
@@ -100,7 +136,7 @@ button.on{background:var(--green);border-color:var(--green);color:#04220f;font-w
                 {"t":"f","id":n,"n":N,"i":i,"d":"…"}  大帧分片（>9KB 自动切）
    ========================================================================== */
 
-const VER = '1.01';
+const VER = '1.02';
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
   + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
 /* 默认频道（可在页内「频道」按钮改；改后与服务端设置里的一致即可） */
@@ -117,6 +153,12 @@ const el = {
   ver: document.getElementById('ver'),
   scr: document.getElementById('scr'),
   guide: document.getElementById('guide'),
+  aim: document.getElementById('aim'),
+  aimLn: document.querySelector('#aim .ln'),
+  aimBx: document.querySelector('#aim .bx'),
+  aimCap: document.querySelector('#aim .cap'),
+  hk: document.getElementById('hk'),
+  tip: document.getElementById('tip'),
   wrap: document.getElementById('wrap'),
   stage: document.getElementById('stage'),
   hint: document.getElementById('hint'),
@@ -218,6 +260,7 @@ let lastBytes = 0;
 function handleMsg(m){
   if (m.t === 'st'){
     const v = m.v || '';
+    el.hk.style.display = (v === 'slider') ? 'block' : 'none';
     if (v === 'slider'){ setDot('on', '⚠ 请拖动滑块'); }
     else if (v === 'ok'){ setDot('on', '✓ 验证已通过'); el.guide.style.display='none'; }
     else if (v === 'fail'){ setDot('mid', '↻ 未通过，图已刷新，请再试'); }
@@ -235,13 +278,27 @@ function handleMsg(m){
     el.hint.style.display = 'none';
     el.m_fr.textContent = '第 ' + (m.id || 0) + ' 帧';
     el.m_sz.textContent = (lastBytes/1024).toFixed(1) + ' KB';
+    // 服务端实测的把手位置 + 拼图块相对把手的偏移（都相对这张图归一化）
+    if (m.hx > 0){
+      el.hk.style.left = (m.hx * 100) + '%';
+      el.hk.style.top = (m.hy * 100) + '%';
+      hkNx = m.hx;
+    }
+    if (typeof m.gap === 'number') aimGap = m.gap;
+    // 手指停住 0.3 秒以上时新帧到达 = 画面已追上，明确告诉用户可以判断了
+    if (dragging && !syncShown && Date.now() - lastMoveAt > 320){
+      syncShown = true;
+      tip('✓ 画面已追上手指，对准了就松手', true);
+    }
     return;
   }
 }
 
 /* ---------------- 手指拖动 → 归一化坐标 ---------------- */
 let dragging = false, lastMvAt = 0, downAt = 0, moved = false;
-let rect0 = null;
+let rect0 = null, dragStartNx = 0, lastMoveAt = 0, syncShown = false;
+let aimGap = 0;        // 拼图块中心相对「手指/把手」的偏移（图内归一化，服务端给）
+let hkNx = 0;          // 把手在图内的归一化 x（服务端给）
 
 function norm(ev){
   const r = el.scr.getBoundingClientRect();
@@ -252,19 +309,46 @@ function norm(ev){
   ny = Math.max(0, Math.min(1, ny));
   return [nx, ny];
 }
-function guideTo(nx){
+function guideTo(nx){ el.guide.style.display = 'none'; }
+
+/* 实时瞄准层：本地绘制，零延迟。
+   手指位置 ≈ 拼图块中心，所以这条竖线就是拼图块此刻的真实位置。 */
+function aimTo(nx){
   if (!rect0) return;
-  el.guide.style.display = 'block';
-  el.guide.style.left = (nx * rect0.width) + 'px';
+  const w = rect0.width || 1;
+  // 拼图块真实位置 = 把手位置 + 手指位移 + 偏块偏移。
+  // 服务端永远从把手按下（用户按偏也照样拖得动），所以这里也要以把手为基准，
+  // 否则用户按偏时框会骗人。
+  let cx = (hkNx > 0 ? hkNx + (nx - dragStartNx) : nx) + aimGap;
+  cx = Math.max(0, Math.min(1, cx));
+  el.aim.style.display = 'block';
+  el.aimLn.style.left = (cx * w) + 'px';
+  const bw = 0.16 * w;
+  const bl = Math.max(0, Math.min(w - bw, cx * w - bw / 2));
+  el.aimBx.style.left = bl + 'px';
+  el.aimBx.style.width = bw + 'px';
+  const dp = Math.round((nx - dragStartNx) * w);
+  el.aimCap.textContent = '拖动 ' + (dp >= 0 ? '+' : '') + dp + 'px';
+}
+
+function tip(text, ok){
+  if (!text){ el.tip.style.display = 'none'; return; }
+  el.tip.textContent = text;
+  el.tip.className = ok ? 'ok' : '';
+  el.tip.style.display = 'block';
 }
 
 el.scr.addEventListener('pointerdown', function(ev){
   if (!connected) return;
   ev.preventDefault();
   dragging = true; moved = false; downAt = Date.now();
+  lastMoveAt = Date.now(); syncShown = false;
+  el.stage.classList.add('drag');
   try { el.scr.setPointerCapture(ev.pointerId); } catch(e){}
   const p = norm(ev);
-  guideTo(p[0]);
+  dragStartNx = p[0];
+  aimTo(p[0]);
+  tip('按住不放，慢慢往右拖\n青框对准缺口了再松手', false);
   send({t:'drag', e:'s', x:+p[0].toFixed(5), y:+p[1].toFixed(5)});
 }, {passive:false});
 
@@ -273,7 +357,9 @@ el.scr.addEventListener('pointermove', function(ev){
   ev.preventDefault();
   const now = Date.now();
   const p = norm(ev);
+  lastMoveAt = now; syncShown = false;
   guideTo(p[0]);
+  aimTo(p[0]);
   if (now - lastMvAt < MV_MIN_MS) return;
   lastMvAt = now; moved = true;
   send({t:'drag', e:'m', x:+p[0].toFixed(5), y:+p[1].toFixed(5)});
@@ -287,7 +373,10 @@ function endDrag(ev){
   const quick = (Date.now() - downAt) < 260 && !moved;
   send({t:'drag', e:'d', x:+p[0].toFixed(5), y:+p[1].toFixed(5)});
   if (quick) send({t:'click', x:+p[0].toFixed(5), y:+p[1].toFixed(5)});
-  setTimeout(function(){ el.guide.style.display = 'none'; }, 400);
+  el.stage.classList.remove('drag');
+  el.aim.style.display = 'none';
+  tip('已松手，正在判结果…\n没通过会自动换新图（约 20 秒）', false);
+  setTimeout(function(){ if (!dragging) tip(null); }, 4500);
 }
 el.scr.addEventListener('pointerup', endDrag, {passive:false});
 el.scr.addEventListener('pointercancel', endDrag, {passive:false});
