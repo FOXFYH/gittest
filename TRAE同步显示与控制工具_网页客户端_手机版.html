@@ -352,7 +352,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="hdr" data-page-node-id="3NXZTSsMw0XB2tCHw9aMLw">
   <div class="h1row" data-page-node-id="TcbCGeYpNGRz1A2VXlOyHO">
     <button id="btn_menu" data-page-node-id="eBBsdTIylqTzVnCErTgDrC">☰</button>
-    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.35</span>
+    <span class="title" data-page-node-id="4DgOYaqJsNwoDk25fui7p0">TRAE远程·手机版 v1.36</span>
     <span id="lbl_srv" data-page-node-id="Lpr98GHF8G0kJNvMoJawCM">操控:—</span>
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
@@ -397,7 +397,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
        在服务端 GUI 改就好）——poll_sec 仍由 hello 下发，但网页端
        不再展示/调整。1.33 的历史：档位 0.5~30s，只影响聊天刷新。 -->
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.35 · 发送卡即时确认(超时30s才亮改写/丢弃) · 登录不触发积分/模型查询 · 登录心跳节流 · 会话状态灯 · 插话队列 · 上一题回退</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.36 · 对话时间显示校正(北京时间)</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -930,10 +930,16 @@ function timesGet(){
   try { return JSON.parse(localStorage.getItem(LS_TM)) || {}; }
   catch(e){ return {}; }
 }
-function fmtTime(iso){                    // 今天 HH:MM，往日 MM-DD HH:MM
+function fmtTime(iso){                    // 今天 HH:MM，往日 MM-DD HH:MM（本地时区）
   if (!iso) return '';
-  const d = iso.slice(0,10), hm = iso.slice(11,16);
-  return d === new Date().toLocaleDateString('sv') ? hm : d.slice(5) + ' ' + hm;
+  const t = new Date(iso);                // toISOString 的 UTC 串 -> 按本机时区解析
+  if (isNaN(t)) return iso.slice(11,16);  // 兜底：解析失败按原样（UTC 片段）
+  const p2 = n => (n < 10 ? '0' : '') + n;
+  const hm = p2(t.getHours()) + ':' + p2(t.getMinutes());
+  const now = new Date();
+  const sameDay = t.getFullYear() === now.getFullYear()
+    && t.getMonth() === now.getMonth() && t.getDate() === now.getDate();
+  return sameDay ? hm : p2(t.getMonth() + 1) + '-' + p2(t.getDate()) + ' ' + hm;
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
