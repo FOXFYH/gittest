@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>滑块镜像 v1.00</title>
+<title>滑块镜像</title>
 <style>
 :root{
   --bg:#12141a; --panel:#1c1f27; --line:#2c313d; --tx:#e8ecf3; --dim:#8b93a5;
@@ -126,6 +126,7 @@ const el = {
   m_ping: document.getElementById('m_ping')
 };
 el.ver.textContent = 'v' + VER;
+document.title = '滑块镜像 v' + VER;      // 标题跟着版本号走，别写死（会过期）
 
 /* ---------------- 频道 ---------------- */
 function chanGet(){
