@@ -1892,7 +1892,7 @@ function renderVer(box){
     const tag = box ? ' [' + box + ']' : '';
     const vm = APP_NAME + ' v' + VER;
     const vd = 'v' + VER + ' · ' + VER_DESC;
-    document.title = vm + tag;
+    document.title = APP_NAME + tag;      /* 地址栏/标签标题不带版本号 */
     if (el.lbl_title) el.lbl_title.textContent = vm;
     if (el.lbl_ver) el.lbl_ver.textContent = vd;
   }catch(e){ /* 版本渲染绝不影响连接 */ }
