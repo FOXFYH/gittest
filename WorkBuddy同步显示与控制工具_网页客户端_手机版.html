@@ -1033,19 +1033,17 @@ function renderPending(){
     d.className = 'msg user pend ' + st[1];
     let h = '<div class="who">我<span class="pstat">' + esc(st[0])
           + '</span>';
-    /* 1.24：任何状态的挂起占位都可「改写」——撤回占位、文本回填
-     输入框重新编辑再发（用户要求的反悔机制）
-     1.25：「丢弃」也常显（占位不再自动超时，真没发出去时手动兜底）
-     1.32：与用户确认一致——正常瞬发不该被操作按钮打扰，改写/丢弃/
-     重发只在真超时（state==='timeout'，说明没发出去）才出现。 */
+    /* 1.39：占位卡始终提供「复制」（复制占位里的文字，用户反馈），
+       改写/丢弃/重发仍只在真超时（state==='timeout'）才出现。 */
+    h += '<span class="pacts"><button class="pendbtn cp" data-cp="'
+       + p.id + '">📋 复制</button>';
     if (p.state === 'timeout'){
-      h += '<span class="pacts">'
-         + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
+      h += '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
          + '<button class="pendbtn drop" data-drop="' + p.id
          + '">丢弃</button>'
-         + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>'
-         + '</span>';
+         + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>';
     }
+    h += '</span>';
     h += '</div><div class="body">' + esc(p.text) + '</div>';
     d.innerHTML = h;
     wrap.appendChild(d);
@@ -1056,6 +1054,12 @@ function renderPending(){
       const gi = parseInt(b.dataset.go || '0');
       const di = parseInt(b.dataset.drop || '0');
       const ei = parseInt(b.dataset.edit || '0');
+      const cpi = parseInt(b.dataset.cp || '0');   // 1.39：复制占位文字
+      if (cpi){
+        const p = S.pending.find(x => x.id === cpi);
+        if (p && p.text) copyText(p.text);
+        return;
+      }
       if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
         const p = S.pending.find(x => x.id === ei);
         if (!p) return;
@@ -1108,6 +1112,17 @@ function pendHead100(sent, shown, n){
   return false;
 }
 
+/* 1.39：包含匹配兜底——占位撤下只认「前 N 字相同」时，WorkBuddy 把
+   用户消息包装/改写（如「已收到，正在处理…原话」、任务归纳成标题）会
+   导致前缀对不上 → 明明文字已出现在对话里，占位框却挂到超时才撤。
+   此处兜底：发送文本(norm)足够长（≥15）且是渲染文本(norm)的子串，
+   即认作已落地。短文本不做包含判定（防「你好」等通用词误配）。 */
+function pendContains(sent, shown_){
+  if (!sent || shown_ === undefined) return false;
+  if (sent.length < 15) return false;
+  return shown_.indexOf(sent) >= 0;
+}
+
 /* 快照到达：同文本用户消息出现 → 该占位已落地，撤下它。
    用 pend_claims 记住已被认领的消息下标（连发相同文本也不会误判）；
    换会话则清空认领记录。返回 true 表示待确认集有变化需重画。
@@ -1148,7 +1163,8 @@ function pendReconcile(msgs){
       if (S.pend_claims.indexOf(i) >= 0) continue;
       const ts0 = S.pend_seen[users[i]];   /* 时限内新消息才认 */
       if (ts0 === undefined || now - ts0 > S.pend_age) continue;
-      if (pendHead100(t, users[i], S.pend_head)){ idx = i; break; }
+      if (pendHead100(t, users[i], S.pend_head)
+          || pendContains(t, users[i])){ idx = i; break; }
     }
     if (idx >= 0){
       S.pend_claims.push(idx);
@@ -2239,7 +2255,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.38 [' + box + ']';
+  document.title = 'wb远程 v1.39 [' + box + ']';
 }
 
 function setOnLine(b){
