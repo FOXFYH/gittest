@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>滑块镜像 v1.00</title>
+<style>
+:root{
+  --bg:#12141a; --panel:#1c1f27; --line:#2c313d; --tx:#e8ecf3; --dim:#8b93a5;
+  --blue:#4c8dff; --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--tx);
+  font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  overscroll-behavior:none;touch-action:manipulation}
+body{display:flex;flex-direction:column;height:100dvh;padding:8px;gap:8px}
+#bar{display:flex;align-items:center;gap:8px;background:var(--panel);
+  border:1px solid var(--line);border-radius:12px;padding:8px 10px;flex:0 0 auto}
+#dot{width:9px;height:9px;border-radius:50%;background:var(--red);flex:0 0 auto}
+#dot.on{background:var(--green)}
+#dot.mid{background:var(--amber)}
+#stt{flex:1 1 auto;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ver{color:var(--dim);font-size:11px;flex:0 0 auto}
+#stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;
+  background:#0c0e13;border:1px solid var(--line);border-radius:12px;overflow:hidden;position:relative}
+#wrap{position:relative;line-height:0;max-width:100%;max-height:100%}
+#scr{display:block;max-width:100%;max-height:100%;width:auto;height:auto;
+  touch-action:none;user-select:none;-webkit-user-drag:none;background:#fff;border-radius:6px}
+#guide{position:absolute;top:0;bottom:0;width:2px;background:rgba(76,141,255,.9);
+  box-shadow:0 0 8px rgba(76,141,255,.9);pointer-events:none;display:none;border-radius:1px}
+#hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:var(--dim);font-size:13px;text-align:center;padding:20px;line-height:1.9}
+#tools{display:flex;gap:8px;flex:0 0 auto;flex-wrap:wrap}
+button{flex:1 1 auto;min-width:72px;background:var(--panel);color:var(--tx);
+  border:1px solid var(--line);border-radius:10px;padding:11px 8px;font-size:13px;
+  font-family:inherit;cursor:pointer}
+button:active{background:#2a2f3c}
+button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+button.on{background:var(--green);border-color:var(--green);color:#04220f;font-weight:600}
+#meta{flex:0 0 auto;color:var(--dim);font-size:11px;display:flex;gap:10px;flex-wrap:wrap;
+  padding:0 4px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;
+  justify-content:center;z-index:99;padding:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:18px;width:100%;max-width:380px}
+.card h3{margin:0 0 6px;font-size:16px}
+.card p{margin:0 0 12px;color:var(--dim);font-size:12px;line-height:1.7}
+.card input{width:100%;background:#0f1116;border:1px solid var(--line);color:var(--tx);
+  border-radius:9px;padding:12px;font-size:15px;font-family:inherit;margin-bottom:10px}
+.card .err{color:var(--red);font-size:12px;min-height:16px;margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <div id="dot"></div>
+  <div id="stt">正在初始化…</div>
+  <div id="ver">v1.00</div>
+</div>
+
+<div id="stage">
+  <div id="wrap">
+    <img id="scr" alt="">
+    <div id="guide"></div>
+  </div>
+  <div id="hint">等待电脑端推送画面…</div>
+</div>
+
+<div id="tools">
+  <button id="b_rc" class="pri">重新连接</button>
+  <button id="b_full">看整页</button>
+  <button id="b_rf">刷新验证码</button>
+  <button id="b_ch">频道</button>
+</div>
+
+<div id="meta">
+  <span id="m_ch"></span><span id="m_fr"></span><span id="m_sz"></span><span id="m_ping"></span>
+</div>
+
+<script>
+/* ==========================================================================
+   滑块镜像 · 手机客户端  v1.00
+   --------------------------------------------------------------------------
+   作用：把电脑上 Chrome 里正在弹出的滑块/拼图验证码镜像到手机，
+        手指在手机上拖动 → 坐标回传电脑端 → 电脑端用 CDP 真实鼠标事件复现。
+
+   协议（走 PieSocket 免费中继，与服务端同频道）：
+     手机→电脑： {"t":"hello"}               上线
+                {"t":"hb"}                  心跳（10s）
+                {"t":"drag","e":"s|m|d","x":0.12,"y":0.83}
+                                            拖动（x,y 为图内归一化坐标 0~1）
+                {"t":"click","x":..,"y":..} 单击
+                {"t":"refresh"}             请求刷新验证码
+                {"t":"mode","v":"crop|full"} 切换 局部/整页 镜像
+     电脑→手机： {"t":"st","v":"wait|slider|ok|fail|err","msg":"…"}
+                {"t":"fr","id":n,"w":W,"h":H,"tx":..,"ty":..,"tw":..,"th":..,
+                 "q":jpeg质量,"img":"base64"}      一帧画面
+                {"t":"f","id":n,"n":N,"i":i,"d":"…"}  大帧分片（>9KB 自动切）
+   ========================================================================== */
+
+const VER = '1.00';
+const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
+  + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+/* 默认频道（可在页内「频道」按钮改；改后与服务端设置里的一致即可） */
+const DEF_CH = 'fh_slider_9f3c7a2e';
+const KA_SEC = 25;          // WS 保活心跳（秒）
+const HB_SEC = 10;          // 业务心跳（秒）
+const RECONNECT = 3;        // 断线重连间隔（秒）
+const LS_CH = 'fh_slider_ch';
+const MV_MIN_MS = 26;       // 拖动事件最小间隔（毫秒，约 38Hz）
+
+const el = {
+  dot: document.getElementById('dot'),
+  stt: document.getElementById('stt'),
+  ver: document.getElementById('ver'),
+  scr: document.getElementById('scr'),
+  guide: document.getElementById('guide'),
+  wrap: document.getElementById('wrap'),
+  stage: document.getElementById('stage'),
+  hint: document.getElementById('hint'),
+  m_ch: document.getElementById('m_ch'),
+  m_fr: document.getElementById('m_fr'),
+  m_sz: document.getElementById('m_sz'),
+  m_ping: document.getElementById('m_ping')
+};
+el.ver.textContent = 'v' + VER;
+
+/* ---------------- 频道 ---------------- */
+function chanGet(){
+  try { return (localStorage.getItem(LS_CH) || '').trim() || DEF_CH; }
+  catch(e){ return DEF_CH; }
+}
+function chanSet(c){ try { localStorage.setItem(LS_CH, c); } catch(e){} }
+function wsUrlOf(c){ return WS_URL_TMPL.replace('%s', c); }
+
+/* ---------------- 连接 ---------------- */
+let ws = null, connected = false, kaT = null, hbT = null, rcT = null;
+let lastFrameId = 0, rxBytes = 0, rxCount = 0, lastRxAt = 0, pingMs = -1;
+
+function setDot(cls, text){
+  el.dot.className = cls || '';
+  if (text != null) el.stt.textContent = text;
+}
+
+function connect(){
+  try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
+  ws = null; connected = false;
+  const ch = chanGet();
+  el.m_ch.textContent = '频道 ' + ch;
+  setDot('mid', '正在连接中继…');
+  let sock;
+  try { sock = new WebSocket(wsUrlOf(ch)); }
+  catch(e){ setDot('', '地址非法：' + e.message); return; }
+  const helloAt = Date.now();
+  sock.onopen = function(){
+    ws = sock; connected = true;
+    pingMs = Date.now() - helloAt;
+    el.m_ping.textContent = '握手 ' + pingMs + 'ms';
+    setDot('on', '已连上中继，等待电脑端…');
+    el.hint.style.display = '';
+    el.hint.textContent = '已连接。电脑端打开验证码时会自动推图过来。';
+    send({t:'hello'});
+    startKA(); startHB();
+  };
+  sock.onmessage = function(ev){
+    lastRxAt = Date.now();
+    rxCount++; rxBytes += (ev.data || '').length;
+    handleRaw(ev.data);
+  };
+  sock.onclose = function(){
+    if (ws !== sock) return;
+    connected = false; ws = null;
+    stopKA(); stopHB();
+    setDot('', '中继断开，' + RECONNECT + ' 秒后重连…');
+    clearTimeout(rcT);
+    rcT = setTimeout(connect, RECONNECT * 1000);
+  };
+  sock.onerror = function(){ /* onclose 会兜底 */ };
+}
+
+function send(o){
+  if (!ws || ws.readyState !== 1) return false;
+  try { ws.send(JSON.stringify(o)); return true; } catch(e){ return false; }
+}
+
+function startKA(){ stopKA(); kaT = setInterval(function(){ send({t:'ka'}); }, KA_SEC*1000); }
+function stopKA(){ if (kaT) { clearInterval(kaT); kaT = null; } }
+function startHB(){ stopHB(); hbT = setInterval(function(){ send({t:'hb'}); }, HB_SEC*1000); }
+function stopHB(){ if (hbT) { clearInterval(hbT); hbT = null; } }
+
+/* ---------------- 大帧分片重组 ---------------- */
+const FRAG = {};
+function handleRaw(raw){
+  let m;
+  try { m = JSON.parse(raw); } catch(e){ return; }
+  if (!m || typeof m !== 'object') return;
+
+  if (m.t === 'f'){                       // 分片
+    let e = FRAG[m.id];
+    if (!e || e.n !== m.n){ e = FRAG[m.id] = {n:m.n, parts:new Array(m.n)}; }
+    if (m.i >= 0 && m.i < m.n) e.parts[m.i] = m.d;
+    let got = 0;
+    for (let i=0;i<e.n;i++) if (typeof e.parts[i] === 'string') got++;
+    if (got === e.n){
+      const full = e.parts.join('');
+      delete FRAG[m.id];
+      try { handleMsg(JSON.parse(full)); } catch(err){}
+    }
+    return;
+  }
+  handleMsg(m);
+}
+
+let lastBytes = 0;
+function handleMsg(m){
+  if (m.t === 'st'){
+    const v = m.v || '';
+    if (v === 'slider'){ setDot('on', '⚠ 验证码已推送，请在图上拖动滑块'); }
+    else if (v === 'ok'){ setDot('on', '✓ 验证已通过'); el.guide.style.display='none'; }
+    else if (v === 'fail'){ setDot('mid', '↻ 未通过，图已刷新，请再试'); }
+    else if (v === 'wait'){ setDot('on', '电脑端就绪，等待验证码弹出…'); }
+    else { setDot('mid', m.msg || '电脑端状态：' + v); }
+    if (m.msg) el.stt.textContent = m.msg;
+    return;
+  }
+  if (m.t === 'fr'){
+    if (!m.img) return;
+    if (m.id && m.id < lastFrameId) return;      // 丢旧帧
+    if (m.id) lastFrameId = m.id;
+    lastBytes = Math.floor((m.img.length * 3) / 4);
+    el.scr.src = 'data:image/jpeg;base64,' + m.img;
+    el.hint.style.display = 'none';
+    el.m_fr.textContent = '第 ' + (m.id || 0) + ' 帧';
+    el.m_sz.textContent = (lastBytes/1024).toFixed(1) + ' KB';
+    return;
+  }
+}
+
+/* ---------------- 手指拖动 → 归一化坐标 ---------------- */
+let dragging = false, lastMvAt = 0, downAt = 0, moved = false;
+let rect0 = null;
+
+function norm(ev){
+  const r = el.scr.getBoundingClientRect();
+  rect0 = r;
+  let nx = (ev.clientX - r.left) / (r.width || 1);
+  let ny = (ev.clientY - r.top) / (r.height || 1);
+  nx = Math.max(0, Math.min(1, nx));
+  ny = Math.max(0, Math.min(1, ny));
+  return [nx, ny];
+}
+function guideTo(nx){
+  if (!rect0) return;
+  el.guide.style.display = 'block';
+  el.guide.style.left = (nx * rect0.width) + 'px';
+}
+
+el.scr.addEventListener('pointerdown', function(ev){
+  if (!connected) return;
+  ev.preventDefault();
+  dragging = true; moved = false; downAt = Date.now();
+  try { el.scr.setPointerCapture(ev.pointerId); } catch(e){}
+  const p = norm(ev);
+  guideTo(p[0]);
+  send({t:'drag', e:'s', x:+p[0].toFixed(5), y:+p[1].toFixed(5)});
+}, {passive:false});
+
+el.scr.addEventListener('pointermove', function(ev){
+  if (!dragging) return;
+  ev.preventDefault();
+  const now = Date.now();
+  const p = norm(ev);
+  guideTo(p[0]);
+  if (now - lastMvAt < MV_MIN_MS) return;
+  lastMvAt = now; moved = true;
+  send({t:'drag', e:'m', x:+p[0].toFixed(5), y:+p[1].toFixed(5)});
+}, {passive:false});
+
+function endDrag(ev){
+  if (!dragging) return;
+  dragging = false;
+  try { ev.preventDefault(); } catch(e){}
+  const p = norm(ev);
+  const quick = (Date.now() - downAt) < 260 && !moved;
+  send({t:'drag', e:'d', x:+p[0].toFixed(5), y:+p[1].toFixed(5)});
+  if (quick) send({t:'click', x:+p[0].toFixed(5), y:+p[1].toFixed(5)});
+  setTimeout(function(){ el.guide.style.display = 'none'; }, 400);
+}
+el.scr.addEventListener('pointerup', endDrag, {passive:false});
+el.scr.addEventListener('pointercancel', endDrag, {passive:false});
+
+/* 禁止整页滚动/缩放干扰拖动 */
+document.addEventListener('touchmove', function(e){
+  if (dragging) e.preventDefault();
+}, {passive:false});
+document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+
+/* ---------------- 按钮 ---------------- */
+document.getElementById('b_rc').onclick = function(){
+  lastFrameId = 0;
+  connect();
+};
+let fullMode = false;
+document.getElementById('b_full').onclick = function(){
+  fullMode = !fullMode;
+  this.className = fullMode ? 'on' : '';
+  this.textContent = fullMode ? '看局部' : '看整页';
+  send({t:'mode', v: fullMode ? 'full' : 'crop'});
+};
+document.getElementById('b_rf').onclick = function(){
+  send({t:'refresh'});
+  setDot('mid', '已请求刷新验证码…');
+};
+document.getElementById('b_ch').onclick = channelPrompt;
+
+function channelPrompt(){
+  let d = document.createElement('div');
+  d.className = 'modal';
+  d.innerHTML = '<div class="card"><h3>连接频道</h3>'
+    + '<p>频道名相当于连接密码，必须与电脑端服务端里显示的完全一致。'
+    + '改完会自动重连。</p>'
+    + '<input id="chi" placeholder="输入频道名…">'
+    + '<div class="err" id="che"></div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="cok" class="pri">保存并重连</button>'
+    + '<button id="cno">取消</button></div></div>';
+  document.body.appendChild(d);
+  const inp = d.querySelector('#chi');
+  inp.value = chanGet();
+  d.querySelector('#cno').onclick = function(){ d.remove(); };
+  d.querySelector('#cok').onclick = function(){
+    const v = inp.value.trim().replace(/\s/g, '');
+    if (!v){ d.querySelector('#che').textContent = '不能为空'; return; }
+    chanSet(v); d.remove(); lastFrameId = 0;
+    connect();
+  };
+  setTimeout(function(){ inp.focus(); }, 60);
+}
+
+/* 断线期间定时提示 */
+setInterval(function(){
+  if (!connected) return;
+  if (lastRxAt && Date.now() - lastRxAt > 90000){
+    setDot('mid', '长时间无数据，可点「重新连接」');
+  }
+}, 15000);
+
+window.addEventListener('pageshow', function(){ if (!ws) connect(); });
+window.addEventListener('focus', function(){ if (!ws) connect(); });
+
+connect();
+</script>
+</body>
+</html>
