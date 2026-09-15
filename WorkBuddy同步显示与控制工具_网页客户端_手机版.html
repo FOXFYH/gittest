@@ -386,7 +386,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_net" title="网络页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.38 · 流量日志保留天数默认改为10天</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m"></div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -780,7 +780,7 @@ const el = {
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
-  netclear: $('btn_netclear'),
+  netclear: $('btn_netclear'), lbl_title: $('lbl_title'), lbl_ver: $('lbl_ver'),
   bench: $('btn_bench'), benchpage: $('page_bench'),
   benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
   benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
@@ -1882,6 +1882,18 @@ function diagRender(){
 }
 setInterval(diagRender, 1000);
 
+/* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
+   说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
+const APP_NAME = 'wb远程';
+const VER = '1.41';
+const VER_DESC = '最大化/全屏预警 + 连接诊断';
+function renderVer(box){
+  const tag = box ? ' [' + box + ']' : '';
+  document.title = APP_NAME + ' v' + VER + tag;
+  el.lbl_title.textContent = APP_NAME + ' v' + VER;
+  el.lbl_ver.textContent = 'v' + VER + ' · ' + VER_DESC;
+}
+
 function connect(){
   clearTimeout(reconnectTimer);
   try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
@@ -2424,7 +2436,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.40 [' + box + ']';
+  renderVer(box);
 }
 
 function setOnLine(b){
@@ -2819,7 +2831,12 @@ el.netback.onclick = () => el.netpage.classList.remove('on');
 el.netreconn.onclick = () => { diagLog('手动重连', 'warn'); connect(); };
 el.nettest.onclick = diagTest;
 el.netclear.onclick = () => { DIAG.log.length = 0; diagRender(); };
-el.net.onclick = () => { diagRender(); };   // 打开瞬间刷一次（含日志）
+// 1.xx：保存原有打开逻辑，追加诊断刷新（打开瞬间刷一次当前状态）
+const _old_on_net_click = el.net.onclick;
+el.net.onclick = (ev) => {
+  _old_on_net_click && _old_on_net_click.call(el.net, ev);
+  diagRender();
+};
 
 el.wsurl.value = CFG.channel || '';
 el.keep.value = CFG.stats_keep;
@@ -2906,6 +2923,8 @@ function channelPrompt(){
 
 /* ================= 启动 ================= */
 
+/* 1.xx：统一版本号渲染 → 标题栏（三个地方：title / 菜单栏 / 底部） */
+renderVer();
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
 renderAcct();                                    /* 1.33：账号行首显 — */
