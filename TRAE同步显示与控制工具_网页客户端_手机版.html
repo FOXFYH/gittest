@@ -392,12 +392,13 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
     <div class="dmi" id="btn_block" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🚫 防自动升级：<span class="st" data-page-node-id="RgkXs4epmquf9uvKEcDlin">未知</span></div>
+    <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">🌐 网络页</div>
   </div>
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
        在服务端 GUI 改就好）——poll_sec 仍由 hello 下发，但网页端
        不再展示/调整。1.33 的历史：档位 0.5~30s，只影响聊天刷新。 -->
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.36 · 对话时间显示校正(北京时间)</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.37 · 对话时间显示校正(北京时间) · 抽屉新增「刷新积分」</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -815,7 +816,8 @@ const el = {
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
-  launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
+  launch: $('btn_launch'), refresh_pts: $('btn_refresh_pts'),
+  net: $('btn_net'), netpage: $('page_net'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'),
@@ -3016,6 +3018,12 @@ el.file.onchange = async () => {
    服务端 export_full 处理保留不影响（无人触发即不执行） —— */
 
 /* ================= 网络页 ================= */
+
+el.refresh_pts.onclick = () => {         /* 刷新积分：委托服务端立刻查一次 */
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  flash('正在刷新积分…', 'var(--blue)');
+  sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
+};
 
 el.net.onclick = () => {
   drawerClose();
