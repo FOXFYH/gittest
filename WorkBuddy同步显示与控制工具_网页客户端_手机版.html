@@ -1539,7 +1539,13 @@ function renderState(snap){
         tail = snap.tail;
   if (!idle){                                // 生成中（含远端残留）→ 停止/插话
     S.gen = true;
-    el.state.textContent = '生成中·' + (tail || '输出中');
+    /* 1.5x：生成中用「✏️」符号替代「生成中」三字省空间；AI 实时 tail
+       不再逐字显示，只用有无划分两个固定阶段词——空=输出中、有=
+       规划中（原「正在规划下一步」精简为规划中）；并像空闲一样带
+       上当前会话名 */
+    const ct3 = (curTitle() || '').trim();
+    el.state.textContent = '✏️ ' + (tail ? '规划中' : '输出中')
+      + (ct3 ? ' · ' + (ct3.length > 14 ? ct3.slice(0, 14) + '…' : ct3) : '');
     el.state.style.color = 'var(--orange)';
     refreshSendBtn();                        // 有本地字→插话，无→停止
   } else if (inp){                           // 空闲 + 远端残留
@@ -2255,7 +2261,7 @@ function applySwitch(box, port){
                      + ' …）</div>';
   renderAttach([]);
   el.model.value = '';
-  document.title = 'wb远程 v1.39 [' + box + ']';
+  document.title = 'wb远程 v1.40 [' + box + ']';
 }
 
 function setOnLine(b){
