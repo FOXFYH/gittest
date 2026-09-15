@@ -398,7 +398,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
        在服务端 GUI 改就好）——poll_sec 仍由 hello 下发，但网页端
        不再展示/调整。1.33 的历史：档位 0.5~30s，只影响聊天刷新。 -->
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.37 · 对话时间显示校正(北京时间) · 抽屉新增「刷新积分」</div>
+  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m">v1.38 · 流量日志保留天数默认改为10天</div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -477,7 +477,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div class="row" data-page-node-id="dQdF4c001Jf9DJEAXAcciN"><span id="lbl_today" data-page-node-id="YN59Jot8ToDDSF5i8yCgNy">今日  收 0 B·0 条   发 0 B·0 条</span></div>
       <div class="row" data-page-node-id="AZlqYB0VqLsZX8bjc5lTQT">
         <label data-page-node-id="5o9aSMOjeJkS4irLVTXcgl">保留天数</label>
-        <input id="in_keep" type="number" min="1" max="3650" value="100"
+        <input id="in_keep" type="number" min="1" max="3650" value="10"
           style="width:70px;" data-page-node-id="xCprX30d3pfmORZsYhO2qy">
         <span class="hint" data-page-node-id="d2Z1UJB5cxMl7Kf759pQsB">超期自动清理；30 秒落盘一次。</span>
       </div>
@@ -651,7 +651,7 @@ function cfgGet(){
 }
 function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
-if (!CFG.stats_keep) CFG.stats_keep = 100;
+if (!CFG.stats_keep) CFG.stats_keep = 10;
 /* v1.27：频道名存独立键（旧 CFG.ws_url 含旧公开频道，直接作废） */
 try { if (CFG.ws_url) delete CFG.ws_url; } catch(e){}
 function chanGet(){
@@ -683,7 +683,7 @@ function statsAdd(rx, tx, rxn, txn){      // 字节 + 条数（对齐服务端 v
   if (txn) b.txn = (b.txn || 0) + txn;
 }
 function statsFlush(){
-  const keep = Math.max(1, parseInt(CFG.stats_keep) || 100);
+  const keep = Math.max(1, parseInt(CFG.stats_keep) || 10);
   const ks = Object.keys(NET.days).sort();
   if (ks.length > keep)
     ks.slice(0, ks.length - keep).forEach(k => delete NET.days[k]);
@@ -3042,7 +3042,7 @@ el.nsave.onclick = () => {
   const ch = el.wsurl.value.trim();
   if (!ch){ flash('频道名不能为空'); return; }
   chanSet(ch);
-  CFG.stats_keep = Math.max(1, parseInt(el.keep.value) || 100);
+  CFG.stats_keep = Math.max(1, parseInt(el.keep.value) || 10);
   cfgSave();
   el.keep.value = CFG.stats_keep;
   el.nsave.disabled = true;
@@ -3062,7 +3062,7 @@ function renderToday(){
 function renderNetHist(){
   const tb = el.tnet.querySelector('tbody');
   tb.innerHTML = '';
-  const keep = Math.max(1, parseInt(CFG.stats_keep) || 100);
+  const keep = Math.max(1, parseInt(CFG.stats_keep) || 10);
   const ks = Object.keys(NET.days).sort().reverse().slice(0, keep);
   for (const k of ks){
     const b = NET.days[k] || {};
