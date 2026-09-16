@@ -863,6 +863,7 @@ const S = {
 
 const $ = id => document.getElementById(id);
 const el = {
+  lbl_title: $('lbl_title'), lbl_ver: $('lbl_ver'),
   menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
@@ -2188,8 +2189,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.43';
-const VER_DESC = '占位卡消除匹配优化（短文本/排队条/回显时限）';
+const VER = '1.44';
+const VER_DESC = '修复版本号显示：el补回lbl_title/lbl_ver键（原缺键致界面版本号不渲染）';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
