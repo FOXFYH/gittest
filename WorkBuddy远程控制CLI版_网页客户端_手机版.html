@@ -598,10 +598,11 @@ const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
    客户端只暴露密钥（如 31415926fF@），前缀由代码自动拼接，真频道名
    workb31415926fF@ 不落在客户端任何一处,等于一道密码手段。 */
 const CH_PFX = 'workb';
+const CH_KEY_DEF = 'cliv1';   // CLI版默认频道密钥（与CLI服务端 config.channel_key 一致）
 function channelUrl(){
   const u = new URLSearchParams(location.search).get('ws');
   if (u) return u;                     // ?ws= 高级覆盖（不改持久化）
-  const key = (CFG.channel || '').trim();   // 首用须先经 channelPrompt 输密钥
+  const key = (CFG.channel || '').trim() || CH_KEY_DEF;
   return WS_URL_TMPL.replace('%s', CH_PFX + key);
 }
 const KA_SEC = 25;      // 心跳间隔（秒）
@@ -612,7 +613,7 @@ const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/
 
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
-const LS_CFG = 'wb_webm_cfg', LS_NET = 'wb_webm_net',
+const LS_CFG = 'wb_cli_cfg', LS_NET = 'wb_webm_net',
       LS_TM = 'wb_webm_times', LS_SRV = 'wb_webm_srv';
 
 function cfgGet(){
@@ -621,8 +622,9 @@ function cfgGet(){
 }
 function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
-// 1.45：加密频道密钥——不硬编码默认值，首次使用由 channelPrompt()
-// 弹窗输入后存本地，此后自动连接。?ws= 覆盖已内置在 channelUrl()。
+// 频道密钥：默认固定 cliv1（直连 CLI 服务端）；设置页手动填过则用之覆盖。
+// ?ws= 覆盖已内置在 channelUrl()。CFG 用独立键 wb_cli_cfg，不继承
+// 兄弟项目（WorkBuddy同步显示与控制工具）网页端记忆的旧密钥。
 if (!CFG.stats_keep) CFG.stats_keep = 10;
 
 const NET = (function(){
@@ -1940,7 +1942,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.01';
+const VER = '1.03';
 const VER_DESC = 'CLI版网页客户端';
 function renderVer(box){
   try{
@@ -2983,10 +2985,10 @@ function channelPrompt(){
 
 /* 1.xx：统一版本号渲染 → 标题栏（三个地方：title / 菜单栏 / 底部） */
 renderVer();
-/* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
+/* 频道密钥：默认固定 cliv1 → 无需首用弹窗，直接连接（?ws= 仍可覆盖） */
 const wsOV = new URLSearchParams(location.search).get('ws');
 renderAcct();                                    /* 1.33：账号行首显 — */
-if (wsOV || CFG.channel) connect(); else channelPrompt();
+connect();
 </script>
 </body>
 </html>
