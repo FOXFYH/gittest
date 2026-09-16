@@ -1326,11 +1326,12 @@ function pendHead100(sent, shown, n){
 /* 1.40：包含匹配兜底——占位撤下只认「前 N 字相同」时，TRAE 把用户
    消息包装/改写（如「已收到，正在处理…原话」）会前缀对不上 → 明明
    文字已出现在对话里，占位框却挂到超时才撤。兜底：发送文本(norm)
-   足够长（≥15）且是渲染文本(norm)的子串即认作已落地；短文本不做
-   包含判定（防「你好」等通用词误配）。 */
+   是渲染文本(norm)的子串即认作已落地；仅空/单字符不做包含判定。
+   匹配安全由「首见时刻 ≥ 占位发起时刻」的时间门托底（见 pendReconcile），
+   短文本含子串也不会去匹配历史老消息。 */
 function pendContains(sent, shown_){
   if (!sent || shown_ === undefined) return false;
-  if (sent.length < 15) return false;
+  if (sent.length < 2) return false;
   return shown_.indexOf(sent) >= 0;
 }
 
@@ -1378,15 +1379,19 @@ function pendReconcile(msgs){
       const q = (S.snap && S.snap.pend) || [];
       let inQ = false;
       for (const it of q){
-        if (it && pendHead100(t, it.t || '', S.pend_head)){ inQ = true; break; }
+        if (it && (pendHead100(t, it.t || '', S.pend_head)
+                   || pendContains(t, it.t || ''))){ inQ = true; break; }
       }
       if (inQ){ changed = true; return; }
     }
     let idx = -1;
     for (let i = users.length - 1; i >= 0; i--){
       if (S.pend_claims.indexOf(i) >= 0) continue;
-      const ts0 = S.pend_seen[users[i]];   /* 时限内新消息才认 */
-      if (ts0 === undefined || now - ts0 > S.pend_age) continue;
+      const ts0 = S.pend_seen[users[i]];   /* 回显首见时刻 */
+      /* 1.43：以占位发起时刻为门——消息首见须在本占位发起之后
+         （容 2s）才认领：比固定 N 秒更精准，超长消息晚回显也能撤，
+         且绝不误配占位之前的历史老消息 */
+      if (ts0 === undefined || ts0 + 2000 < (p.ts || now)) continue;
       if (pendHead100(t, users[i], S.pend_head)
           || pendContains(t, users[i])){ idx = i; break; }
     }
@@ -2183,8 +2188,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.42';
-const VER_DESC = '最大化/全屏预警 + 连接诊断';
+const VER = '1.43';
+const VER_DESC = '占位卡消除匹配优化（短文本/排队条/回显时限）';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
