@@ -323,6 +323,27 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 #bfoot{flex:none; padding:6px 12px calc(6px + env(safe-area-inset-bottom));
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
+/* ── 1.45：谷歌分身状态页（全屏覆盖）——服务端外挂
+   「谷歌分身助手转接器」推送：历史积分+登录状态，立刻实测=真实访问 ── */
+#page_prof{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_prof.on{display:flex;}
+.profhint{flex:none; padding:6px 12px; font-size:12px; color:var(--blue);
+  background:#eef4fb; border-bottom:1px solid var(--bd);}
+#prof_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:8px; overscroll-behavior:contain;}
+.prof_card{border:1px solid var(--bd); border-radius:8px; background:#fff;
+  margin-bottom:8px; padding:8px 10px;}
+.prof_row1{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+.prof_name{font-weight:bold; color:var(--blue);}
+.prof_st{font-size:12px; padding:0 6px; border-radius:10px;
+  background:#ecf5ec; color:var(--green);}
+.prof_st.down{background:#fdecea; color:var(--red);}
+.prof_st.unk{background:#f1f1f1; color:var(--gray);}
+.prof_acc{font-size:12px; color:#555;}
+.prof_row2{display:flex; flex-wrap:wrap; margin-top:4px; font-size:12px;
+  color:#333; gap:2px 10px;}
+.prof_pts{color:#7c4dff; font-weight:bold;}
 /* ── 1.15：模型收藏管理页（全屏覆盖）── */
 #page_fav{position:fixed; inset:0; z-index:40; background:#f2f4f7;
   display:none; flex-direction:column;}
@@ -425,6 +446,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_launch" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（重启当前目标）</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
+    <div class="dmi" id="btn_prof" title="谷歌分身助手：各分身积分与登录状态">👥 分身状态</div>
   </div>
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
        在服务端 GUI 改就好）——poll_sec 仍由 hello 下发，但网页端
@@ -543,6 +565,21 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <span id="lbl_netflash" data-page-node-id="IJ1J8pTZbXPsxZWok11Svr"></span>
     </div>
   </div>
+</div>
+
+<!-- v1.45：谷歌分身状态页（服务端外挂「谷歌分身助手转接器」推送：
+     历史积分+登录状态；立刻实测=真实访问谷歌分身助手，耗时数分钟） -->
+<div id="page_prof">
+  <div class="nhdr">
+    <button id="btn_profback">‹ 返回</button>
+    <b>👥 分身状态</b>
+    <button id="btn_profref" style="margin-left:auto; color:var(--blue);
+      font-weight:bold;">立刻实测</button>
+  </div>
+  <div id="prof_hint" class="profhint"></div>
+  <div id="prof_list"></div>
+  <div id="bfoot">显示「谷歌分身助手」管理的历史积分与登录状态；
+    立刻实测=真开无界面 Chrome 读官方用量页，耗时数分钟属正常。</div>
 </div>
 
 <script>
@@ -896,6 +933,9 @@ const el = {
   acct: $('lbl_acct'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favlist: $('fav_list'),
+  prof: $('btn_prof'), profpage: $('page_prof'),
+  profback: $('btn_profback'), profref: $('btn_profref'),
+  profhint: $('prof_hint'), proflist: $('prof_list'),
 };
 
 let flashTimer = null;
@@ -2189,8 +2229,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.44';
-const VER_DESC = '修复版本号显示：el补回lbl_title/lbl_ver键（原缺键致界面版本号不渲染）';
+const VER = '1.45';
+const VER_DESC = '新增「分身状态」页：展示谷歌分身助手各分身积分/登录状态 + 立刻实测';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2645,6 +2685,18 @@ function onEv(kind, v){
       }
       renderAll();
       break;
+    }
+    case 'profiles': {
+      /* v1.45：分身状态数据（服务端外挂「谷歌分身助手转接器」推送） */
+      S.profiles = v;
+      if (el.profpage.classList.contains('on')) renderProf();
+      return;
+    }
+    case 'profiles_run': {
+      /* v1.45：立刻实测状态（on=true 开始 / on=false 结束） */
+      S.prof_run = !!(v && v.on);
+      if (el.profpage.classList.contains('on')) renderProf();
+      return;
     }
     case 'dead':
       flash('✘ 未连接（' + v + '）', 'var(--red)');
@@ -3274,6 +3326,54 @@ el.net.onclick = (ev) => {
   _old_on_net_click && _old_on_net_click.call(el.net, ev);
   diagRender();
 };
+
+/* ================= 分身状态页（v1.45） ================= */
+
+function renderProf(){
+  if (!el.profpage.classList.contains('on')) return;
+  const d = S.profiles;
+  const run = !!S.prof_run;
+  el.profref.disabled = run;
+  el.profref.textContent = run ? '实测中…' : '立刻实测';
+  const hint = d
+    ? ('管理分身 ' + d.count + ' 个 · 已实测 ' + d.checked + ' 个 · 最近实测 ' +
+       (d.last_refresh || '—') +
+       (run ? ' · 正在实测（真实访问网页，耗时数分钟）' : ''))
+    : '（无数据）';
+  el.profhint.textContent = hint;
+  const list = (d && d.profiles) || [];
+  let html = '';
+  for (const p of list){
+    const st = p.status || '未实测';
+    const cls = st === '已登录' ? '' : (st === '掉线' ? ' down' : ' unk');
+    html += '<div class="prof_card"><div class="prof_row1">' +
+      '<span class="prof_name">' + esc(p.name) + '</span>' +
+      '<span class="prof_st' + cls + '">' + esc(st) + '</span>' +
+      '<span class="prof_acc">' + esc(p.account || '') + '</span></div>' +
+      '<div class="prof_row2">' +
+      '<span>总积分 <b class="prof_pts">' + esc(p.points || '—') + '</b></span>' +
+      '<span>月积分 ' + esc(p.monthly || '—') + '</span>' +
+      '<span>最近到期 ' + esc(p.expire || '—') + '</span>' +
+      '<span>实测 ' + esc(p.time || '—') + '</span>' +
+      '</div></div>';
+  }
+  el.proflist.innerHTML = html || '<div class="empty">（暂无分身数据）</div>';
+}
+
+el.prof.onclick = () => {
+  drawerClose();
+  sendCmd('profiles');              // 拉一次当前数据
+  renderProf();
+  el.profpage.classList.add('on');
+};
+el.profback.onclick = () => el.profpage.classList.remove('on');
+el.profref.onclick = () => {
+  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  sendCmd('profiles_refresh');      // 真实访问谷歌分身助手（后台）
+  S.prof_run = true;
+  renderProf();
+};
+
 
 el.wsurl.value = chanGet();          /* v1.27：网络页改存频道名 */
 el.keep.value = CFG.stats_keep;
