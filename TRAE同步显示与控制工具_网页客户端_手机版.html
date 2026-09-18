@@ -2232,8 +2232,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.46';
-const VER_DESC = '分身状态页支持逐分身实测';
+const VER = '1.47';
+const VER_DESC = '分身实测支持停止与取代';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2696,8 +2696,10 @@ function onEv(kind, v){
       return;
     }
     case 'profiles_run': {
-      /* v1.45：立刻实测状态（on=true 开始 / on=false 结束） */
+      /* v1.45：立刻实测状态（on=true 开始 / on=false 结束）。
+         v1.47：结束带 stopped=true 表示「被停止」，用户可确认停止成功。 */
       S.prof_run = !!(v && v.on);
+      if (v && !v.on && v.stopped) flash('已停止本次实测', 'var(--orange)');
       if (el.profpage.classList.contains('on')) renderProf();
       return;
     }
@@ -3336,8 +3338,8 @@ function renderProf(){
   if (!el.profpage.classList.contains('on')) return;
   const d = S.profiles;
   const run = !!S.prof_run;
-  el.profref.disabled = run;
-  el.profref.textContent = run ? '实测中…' : '全量实测';
+  el.profref.disabled = false;
+  el.profref.textContent = run ? '停止' : '全量实测';
   const hint = d
     ? ('管理分身 ' + d.count + ' 个 · 已实测 ' + d.checked + ' 个 · 最近实测 ' +
        (d.last_refresh || '—') +
@@ -3354,8 +3356,7 @@ function renderProf(){
     html += '<div class="prof_card"><div class="prof_row1">' +
       '<span class="prof_name">' + esc(p.name) + '</span>' +
       '<span class="prof_st' + cls + '">' + esc(st) + '</span>' +
-      '<button class="prof_test" data-n="' + qn + '"' +
-      (run ? ' disabled' : '') + ' onclick="profTest(' +
+      '<button class="prof_test" data-n="' + qn + '" onclick="profTest(' +
       qn + ')">实测</button>' +
       '<span class="prof_acc">' + esc(p.account || '') + '</span></div>' +
       '<div class="prof_row2">' +
@@ -3368,10 +3369,11 @@ function renderProf(){
   el.proflist.innerHTML = html || '<div class="empty">（暂无分身数据）</div>';
 }
 
-/* v1.46：单测指定分身（不占用全量实测） */
+/* v1.46：单测指定分身。
+   v1.47：取代机制——若已在实测，服务端 start_refresh 会自动终止旧的
+   改测本分身（即便在跑也可再点，直接取代，不再拒绝）。 */
 function profTest(name){
   if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
-  if (S.prof_run){ flash('已有实测在跑，请等待完成'); return; }
   sendCmd('profiles_refresh', [name]);   /* 传数组 → 服务端精确实测该分身 */
   S.prof_run = true;
   renderProf();
@@ -3387,6 +3389,9 @@ el.prof.onclick = () => {
 el.profback.onclick = () => el.profpage.classList.remove('on');
 el.profref.onclick = () => {
   if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  /* v1.47：运行中为「停止」；空闲为「全量实测」。停止成功与否由
+     profiles_run stopped 事件反馈。 */
+  if (S.prof_run){ sendCmd('profiles_stop'); flash('正在停止…'); return; }
   sendCmd('profiles_refresh');      // 真实访问谷歌分身助手（后台）
   S.prof_run = true;
   renderProf();
