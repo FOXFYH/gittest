@@ -1401,9 +1401,6 @@ function renderMsgs(msgs, finish, opts, ask){
       ui++;
       acts += '<button class="mact ed" data-k="edit" data-i="' + i
             + '">✎ 重编</button>';
-      acts += '<button class="mact rs" data-k="msg_resend" data-mi="' + ui + '">↻ 重发</button>';
-      acts += '<button class="mact ers" data-k="msg_edit_resend" data-mi="' + ui + '">✎重发</button>';
-      acts += '<button class="mact rg" data-k="msg_regen" data-mi="' + ui + '">⟲ 重生成</button>';
       if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
                       + ui + '">↩ 回退</button>';
       if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
@@ -1423,14 +1420,6 @@ function renderMsgs(msgs, finish, opts, ask){
       b.onclick = e => {
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
-        if (k === 'msg_resend'){ flash('正在重发…', 'var(--blue)'); sendCmd('msg_resend', mi); return; }
-        if (k === 'msg_regen'){ flash('正在重新生成…', 'var(--blue)'); sendCmd('msg_regen', mi); return; }
-        if (k === 'msg_edit_resend'){
-          const src = msgs[parseInt(b.dataset.i)] ? (msgs[parseInt(b.dataset.i)][1] || '') : '';
-          const nt = prompt('改写后重发：', src);
-          if (nt === null) return;
-          flash('正在改写重发…', 'var(--blue)'); sendCmd('msg_edit_resend', [mi, nt]); return;
-        }
         if (k === 'copy'){
           copyText(msgs[parseInt(b.dataset.i)][1]);
           return;
@@ -1951,7 +1940,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.16';
+const VER = '1.17';
 const VER_DESC = 'CLI会话控制 + 消息补救 + 积分账号';
 function renderVer(box){
   try{
