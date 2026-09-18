@@ -586,10 +586,10 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 /* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
  * 在 localStorage（服务端按此 ID 锁定操控者；刷新/重开页面 ID 不变） */
-let MY_ID = localStorage.getItem('wb_webm_uid');
+let MY_ID = localStorage.getItem('wb_cli_uid');
 if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
   MY_ID = '4' + String(Math.floor(100000000 + Math.random() * 900000000));
-  try { localStorage.setItem('wb_webm_uid', MY_ID); } catch(e){}
+  try { localStorage.setItem('wb_cli_uid', MY_ID); } catch(e){}
 }
 const SERVER_ID= '1000000001';
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
@@ -598,11 +598,10 @@ const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
    客户端只暴露密钥（如 31415926fF@），前缀由代码自动拼接，真频道名
    workb31415926fF@ 不落在客户端任何一处,等于一道密码手段。 */
 const CH_PFX = 'workb';
-const CH_KEY_DEF = 'cliv1';   // CLI版默认频道密钥（与CLI服务端 config.channel_key 一致）
 function channelUrl(){
   const u = new URLSearchParams(location.search).get('ws');
   if (u) return u;                     // ?ws= 高级覆盖（不改持久化）
-  const key = (CFG.channel || '').trim() || CH_KEY_DEF;
+  const key = (CFG.channel || '').trim();   // 首用须先经 channelPrompt 输密钥
   return WS_URL_TMPL.replace('%s', CH_PFX + key);
 }
 const KA_SEC = 25;      // 心跳间隔（秒）
@@ -613,8 +612,8 @@ const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/
 
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
-const LS_CFG = 'wb_cli_cfg', LS_NET = 'wb_webm_net',
-      LS_TM = 'wb_webm_times', LS_SRV = 'wb_webm_srv';
+const LS_CFG = 'wb_cli_cfg', LS_NET = 'wb_cli_net',
+      LS_TM = 'wb_cli_times', LS_SRV = 'wb_cli_srv';
 
 function cfgGet(){
   try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
@@ -622,9 +621,8 @@ function cfgGet(){
 }
 function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
-// 频道密钥：默认固定 cliv1（直连 CLI 服务端）；设置页手动填过则用之覆盖。
-// ?ws= 覆盖已内置在 channelUrl()。CFG 用独立键 wb_cli_cfg，不继承
-// 兄弟项目（WorkBuddy同步显示与控制工具）网页端记忆的旧密钥。
+// 1.45：加密频道密钥——不硬编码默认值，首次使用由 channelPrompt()
+// 弹窗输入后存本地，此后自动连接。?ws= 覆盖已内置在 channelUrl()。
 if (!CFG.stats_keep) CFG.stats_keep = 10;
 
 const NET = (function(){
@@ -892,7 +890,7 @@ function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
   let lastU = '';
   for (const m of msgs){
-    if (m[0] === 'u'){
+    if (m[0] === 'u' || m[0] === 'user'){
       const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
       if (!cache[k]) cache[k] = new Date().toISOString().slice(0,19);
       lastU = cache[k];
@@ -1208,7 +1206,7 @@ function pendReconcile(msgs){
   const now = Date.now();
   const users = [];
   (msgs || []).forEach(m => {
-    if (m && m[0] === 'u'){
+    if (m && (m[0] === 'u' || m[0] === 'user')){
       const ut = normTxt(m[1]);          /* 1.24：规范化后再登记/比对 */
       if (ut && !(ut in S.pend_seen)) S.pend_seen[ut] = now;
       users.push(ut);
@@ -1392,7 +1390,7 @@ function renderMsgs(msgs, finish, opts, ask){
   const times = resolveTimes(msgs);
   let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
   msgs.forEach((m, i) => {
-    const user = m[0] === 'u';
+    const user = m[0] === 'u' || m[0] === 'user';
     let acts = '';
     /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息——把
        文本回填输入框改完再发；WorkBuddy 端无法真撤回已入列的消息，
@@ -1403,6 +1401,9 @@ function renderMsgs(msgs, finish, opts, ask){
       ui++;
       acts += '<button class="mact ed" data-k="edit" data-i="' + i
             + '">✎ 重编</button>';
+      acts += '<button class="mact rs" data-k="msg_resend" data-mi="' + ui + '">↻ 重发</button>';
+      acts += '<button class="mact ers" data-k="msg_edit_resend" data-mi="' + ui + '">✎重发</button>';
+      acts += '<button class="mact rg" data-k="msg_regen" data-mi="' + ui + '">⟲ 重生成</button>';
       if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
                       + ui + '">↩ 回退</button>';
       if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
@@ -1422,6 +1423,14 @@ function renderMsgs(msgs, finish, opts, ask){
       b.onclick = e => {
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
+        if (k === 'msg_resend'){ flash('正在重发…', 'var(--blue)'); sendCmd('msg_resend', mi); return; }
+        if (k === 'msg_regen'){ flash('正在重新生成…', 'var(--blue)'); sendCmd('msg_regen', mi); return; }
+        if (k === 'msg_edit_resend'){
+          const src = msgs[parseInt(b.dataset.i)] ? (msgs[parseInt(b.dataset.i)][1] || '') : '';
+          const nt = prompt('改写后重发：', src);
+          if (nt === null) return;
+          flash('正在改写重发…', 'var(--blue)'); sendCmd('msg_edit_resend', [mi, nt]); return;
+        }
         if (k === 'copy'){
           copyText(msgs[parseInt(b.dataset.i)][1]);
           return;
@@ -1742,17 +1751,17 @@ function renderAttach(items){
 
 /* ===== 1.15：模型收藏 =====
  * 官方模型列表经常变更（改名/下架），收藏按「模型真名」存
- * localStorage（wb_webm_fav_models），跨服务端通用。有收藏时
+ * localStorage（wb_cli_fav_models），跨服务端通用。有收藏时
  * 下拉只列收藏项 + 当前模型占位；收藏失效标 ⚠ 并弹提醒。 */
 
 function loadFavs(){
-  try { return JSON.parse(localStorage.getItem('wb_webm_fav_models')
+  try { return JSON.parse(localStorage.getItem('wb_cli_fav_models')
     || '[]') || []; } catch(e){ return []; }
 }
 S.favs = loadFavs();            // 1.15：启动即载入收藏（localStorage）
 function saveFavs(a){
   S.favs = a;
-  try { localStorage.setItem('wb_webm_fav_models', JSON.stringify(a)); }
+  try { localStorage.setItem('wb_cli_fav_models', JSON.stringify(a)); }
   catch(e){}
 }
 function modelDisp(e){          // e=[name,trail,restricted] → 下拉显示文本
@@ -1942,8 +1951,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.03';
-const VER_DESC = 'CLI版网页客户端';
+const VER = '1.16';
+const VER_DESC = 'CLI会话控制 + 消息补救 + 积分账号';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2985,10 +2994,10 @@ function channelPrompt(){
 
 /* 1.xx：统一版本号渲染 → 标题栏（三个地方：title / 菜单栏 / 底部） */
 renderVer();
-/* 频道密钥：默认固定 cliv1 → 无需首用弹窗，直接连接（?ws= 仍可覆盖） */
+/* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
 renderAcct();                                    /* 1.33：账号行首显 — */
-connect();
+if (wsOV || CFG.channel) connect(); else channelPrompt();
 </script>
 </body>
 </html>
