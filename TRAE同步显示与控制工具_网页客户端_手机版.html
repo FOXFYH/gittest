@@ -1520,6 +1520,20 @@ function msgsFp(msgs){
   return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
     + (m[3] || 0) + (m[4] || 0)).join('#');
 }
+const SWITCH_HANG_MS = 12000;   /* v1.51：切换条墙钟兜底时长（见 switchHangClear） */
+function switchHangClear(title){
+  /* v1.51：撤条判定块只在 snap 到达时执行；但服务端对 snap 去重，
+     目标内容静止时不再转发 → 判定块不再跑 → 「切换中」永挂。
+     这里用真定时器到点强制撤条，兑现 L2746「超时兜底，别一直挂着」
+     注释本意。正常切换在 12s 内走 snap 直接撤，不受影响。 */
+  if (S._swHangTimer) clearTimeout(S._swHangTimer);
+  S._swHangTimer = setTimeout(() => {
+    if (S.switch_pend && S.switch_pend.title === title){
+      S.switch_pend = null;
+      renderAll();
+    }
+  }, SWITCH_HANG_MS);
+}
 function pendSwitchSet(title){
   title = title || '';
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
@@ -1527,11 +1541,13 @@ function pendSwitchSet(title){
   if (S.switch_pend && S.switch_pend.title === title){
     S.switch_pend.ts = Date.now();
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
+    switchHangClear(title);             /* v1.51：重新 arm 12s 兜底 */
     return;
   }
   S.switch_pend = {title: title, ts: Date.now(),
                    fp0: msgsFp(S.snap.msgs)};
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
+  switchHangClear(title);               /* v1.51：12s 墙钟兜底拉条 */
   renderAll();
 }
 /* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中且消息区空、
@@ -2290,8 +2306,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.50';
-const VER_DESC = '主/副双频道切换';
+const VER = '1.51';
+const VER_DESC = '切换「Cli wb」悬挂修复';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
