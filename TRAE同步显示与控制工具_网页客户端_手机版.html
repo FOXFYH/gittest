@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.49</title>
+<title>TRAE远程 v1.50</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -300,6 +300,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 #btn_netsave{color:var(--blue); font-weight:bold;}
 /* 1.xx：连接诊断——值着色 + 日志 */
 .diagv{color:var(--blue); font-family:Consolas,monospace; font-weight:bold;}
+.wanchor{flex:1; min-width:0; word-break:break-all; color:#555; font-family:Consolas,monospace; font-size:11px; line-height:1.35;}
 .diaglog{max-height:150px; overflow-y:auto; background:#fbfcfe;
   border:1px solid var(--bd); border-radius:6px; padding:4px 6px;
   font-size:11px; font-family:Consolas,monospace; line-height:1.6;}
@@ -548,6 +549,22 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
         频道名相当于密码，与服务端「设置→远程服务」处显示的一致才能
         连上。修改后保存并重连生效。</span></div>
+      <!-- v1.50：主/副频道切换（本地临时生效，副频道恢复主频道自动切回） -->
+      <div class="row" data-page-node-id="DC01dualChan0">
+        <label data-page-node-id="DC01dualChan1">当前频道</label>
+        <b id="lbl_chan_q" class="diagv" data-page-node-id="DC01dualChan2">—</b></div>
+      <div class="row btw" data-page-node-id="DC01dualChan3">
+        <button id="btn_chan_main" style="flex:1;" data-page-node-id="DC01dualChan4">主频道</button>
+        <button id="btn_chan_back" style="flex:1;" data-page-node-id="DC01dualChan5">副频道</button>
+      </div>
+      <div class="row" data-page-node-id="DC01dualChan6"><span class="hint" data-page-node-id="DC01dualChan7">
+        主频道异常/限流时可临时切副频道兜底；此后每分钟探测主频道，恢复即自动切回。
+        切换仅本次生效，不改变长期设置。</span></div>
+      <!-- v1.50：双通道地址显示（WS1 主 / WS2 副，随频道名实时刷新） -->
+      <div class="row" data-page-node-id="DC01dualChan8"><label data-page-node-id="DC01dualChan9">WS1 主</label>
+        <span id="lbl_ws1" class="wanchor" data-page-node-id="DC01dualChanA">—</span></div>
+      <div class="row" data-page-node-id="DC01dualChanB"><label data-page-node-id="DC01dualChanC">WS2 副</label>
+        <span id="lbl_ws2" class="wanchor" data-page-node-id="DC01dualChanD">—</span></div>
     </fieldset>
     <fieldset data-page-node-id="8SKaqjuDG4j8saN4BtSqaW">
       <legend data-page-node-id="bcrQE6cC0XiryhicJJtmZn">流量统计（WebSocket）</legend>
@@ -731,6 +748,10 @@ const SERVER_ID= '1000000001';
  * 首次使用弹窗输入（localStorage 持久），网络页可改。 */
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
                      + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+/* v1.50：副频道（WS2，新集群 s20307.nyc1）——备用兜底/翻倍流量配额。
+ * 与服务端一致：副频道走独立模板，但频道名沿用主频道同名 */
+const WS_URL_TMPL2 = ('wss://s20307.nyc1.piesocket.com/v3/%s'
+                      + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
 const KA_SEC = 25;      // WS 链路心跳间隔（秒，保活）
 const RECONNECT = 3;    // 断线重连间隔（秒）
 /* v1.32：客户端登录态节流参数 */
@@ -744,7 +765,9 @@ const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/
 
 const LS_CFG = 'trae_webm_cfg', LS_NET = 'trae_webm_net',
       LS_TM = 'trae_webm_times', LS_SRV = 'trae_webm_srv',
-      LS_CH = 'trae_webm_channel';
+      LS_CH = 'trae_webm_channel',
+      /* v1.50：副频道名 + 当前选中频道（main/backup，本地落盘、不固化） */
+      LS_CH2 = 'trae_webm_channel2', LS_SEL = 'trae_webm_selct';
 
 function cfgGet(){
   try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
@@ -755,17 +778,33 @@ let CFG = cfgGet();
 if (!CFG.stats_keep) CFG.stats_keep = 10;
 /* v1.27：频道名存独立键（旧 CFG.ws_url 含旧公开频道，直接作废） */
 try { if (CFG.ws_url) delete CFG.ws_url; } catch(e){}
-function chanGet(){
-  try { return (localStorage.getItem(LS_CH) || '').trim(); }
-  catch(e){ return ''; }
+function curSel(){
+  /* 当前选中频道：'main' 主频道（默认）/ 'backup' 副频道。本地落盘，不固化。 */
+  try { return (localStorage.getItem(LS_SEL) === 'backup') ? 'backup' : 'main'; }
+  catch(e){ return 'main'; }
 }
-function chanSet(ch){
-  try { localStorage.setItem(LS_CH, ch); } catch(e){}
+function chanGet(sel){
+  /* sel: 'main'|'backup'；缺省用当前选中。副频道名未单独设置时沿用主频道名。 */
+  const s = sel || curSel();
+  const key = (s === 'backup') ? LS_CH2 : LS_CH;
+  let v;
+  try { v = (localStorage.getItem(key) || '').trim(); } catch(e){ v = ''; }
+  if (!v && s === 'backup'){
+    try { v = (localStorage.getItem(LS_CH) || '').trim(); } catch(e){ v = ''; }
+  }
+  return v;
 }
-function wsUrlOf(ch){
+function chanSet(ch, sel){
+  const s = sel || curSel();
+  const key = (s === 'backup') ? LS_CH2 : LS_CH;
+  try { localStorage.setItem(key, ch); } catch(e){}
+}
+function wsUrlOf(ch, sel){
+  const s = sel || curSel();
+  const tmpl = (s === 'backup') ? WS_URL_TMPL2 : WS_URL_TMPL;
   /* 不做 URL 编码：'@' 在路径段合法，且须与服务端裸字串完全一致，
      两端才能进同一频道 */
-  return WS_URL_TMPL.replace('%s', ch);
+  return tmpl.replace('%s', ch);
 }
 
 const NET = (function(){
@@ -927,6 +966,8 @@ const el = {
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'),
+  lbl_chan_q: $('lbl_chan_q'), btn_chan_main: $('btn_chan_main'),
+  btn_chan_back: $('btn_chan_back'), lbl_ws1: $('lbl_ws1'), lbl_ws2: $('lbl_ws2'),
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
@@ -2212,9 +2253,10 @@ function diagTest(){                        // 测服务器：发 hello，5s 内
 }
 function diagRender(){
   if (!el.diag_ws) return;
-  /* 频道 */
+  /* 频道（v1.50：标注主/副） */
   const ch = (typeof chanGet === 'function') ? chanGet() : '';
-  el.diag_chan.textContent = ch ? '•••' + ch.slice(-2) : '未设置';
+  const selM = (typeof curSel === 'function') ? curSel() : 'main';
+  el.diag_chan.textContent = ch ? (selM === 'backup' ? '副' : '主') + ':' + ch.slice(-2) : '未设置';
   /* 本端登上频道 */
   if (S.onLine){ el.diag_ws.textContent = '✅ 已连接（登上频道）';
     el.diag_ws.style.color = '#1a7f37'; }
@@ -2248,8 +2290,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.49';
-const VER_DESC = '会话「完成未查看」橙灯';
+const VER = '1.50';
+const VER_DESC = '主/副双频道切换';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2271,12 +2313,13 @@ function connect(){
   S.lastSrv = 0;    // 旧连接的服务端活动不再作数
   // ?ws= 参数可临时覆盖服务地址（测试/多环境部署），不改 localStorage
   const qp = new URLSearchParams(location.search).get('ws');
-  let ch = chanGet();
+  const cSel = curSel();                 // v1.50：按当前选中频道连接
+  let ch = chanGet(cSel);
   if (!ch && !qp){
     channelPrompt();                    // v1.27：首次使用必须先输频道名
     return;
   }
-  ws = new WebSocket(qp || wsUrlOf(ch));
+  ws = new WebSocket(qp || wsUrlOf(ch, cSel));
   S.ws = ws;
   ws.onopen = () => {
     diagLog('WS 已连接（登上频道）', 'ok');
@@ -2426,6 +2469,7 @@ function channelPrompt(){
     if (!v){ err.textContent = '频道名不能为空'; return; }
     chanSet(v);
     ov.remove();
+    chanRender();                       // 刷新双通道地址
     flash('频道名已保存，正在连接…', 'var(--blue)');
     connect();
   };
@@ -3428,12 +3472,76 @@ el.nsave.onclick = () => {
   cfgSave();
   el.keep.value = CFG.stats_keep;
   el.nsave.disabled = true;
+  chanRender();
   statsFlush(); renderNetHist();
   el.nflash.textContent = '已保存';
   el.nflash.style.color = 'var(--green)';
   setTimeout(() => el.nflash.textContent = '', 3000);
   connect();                                  // 重连生效
 };
+
+/* ============ v1.50：主/副频道切换 + 自动切回探测 ============ */
+function chanRender(){
+  if (!el.lbl_chan_q) return;
+  const s = curSel();
+  const ch = chanGet(s) || '未设置';
+  el.lbl_chan_q.textContent = (s === 'backup' ? '副' : '主') + ' • ' + ch;
+  el.lbl_chan_q.style.color = (s === 'backup') ? '#b26a00' : 'var(--green)';
+  if (el.btn_chan_main) el.btn_chan_main.style.fontWeight = (s === 'main') ? 'bold' : 'normal';
+  if (el.btn_chan_back) el.btn_chan_back.style.fontWeight = (s === 'backup') ? 'bold' : 'normal';
+  /* 双通道地址显示（WS1 主 / WS2 副，随频道名实时刷新） */
+  if (el.lbl_ws1 || el.lbl_ws2){
+    const c1 = chanGet('main');
+    const c2 = chanGet('backup');
+    if (el.lbl_ws1) el.lbl_ws1.textContent = c1 ? wsUrlOf(c1, 'main') : '未设置频道名';
+    if (el.lbl_ws2) el.lbl_ws2.textContent = c2 ? wsUrlOf(c2, 'backup') : '未设置频道名';
+  }
+}
+function setSel(sel){
+  try { localStorage.setItem(LS_SEL, sel); } catch(e){}
+  chanRender();
+}
+let probeTimer = null;
+function stopProbe(){ if (probeTimer){ clearTimeout(probeTimer); probeTimer = null; } }
+function startProbe(){
+  /* 处于副频道时：等 60s 后开始每分钟探测主频道，恢复即自动切回。
+     探测用临时连接，不 login、不心跳，不耗流量配额。 */
+  if (curSel() !== 'backup') return;
+  stopProbe();
+  const tick = () => {
+    if (curSel() !== 'backup'){ stopProbe(); return; }   // 已切回/停用
+    const ch = chanGet('main');
+    if (!ch){ stopProbe(); return; }
+    let p = null;
+    try{
+      p = new WebSocket(wsUrlOf(ch, 'main'));
+      p.onopen = () => {
+        try { p.close(); } catch(e){}
+        stopProbe();
+        setSel('main');
+        flash('主频道已恢复，自动切回 ✓', 'var(--green)');
+        connect();
+      };
+      p.onclose = () => {};
+      p.onerror = () => { try { if (p) p.close(); } catch(e){} };
+    }catch(e){}
+    probeTimer = setTimeout(tick, 60 * 1000);
+  };
+  probeTimer = setTimeout(tick, 60 * 1000);
+}
+function switchChan(sel){
+  if (sel === curSel()){ flash((sel === 'backup' ? '已处于副频道' : '已处于主频道')); return; }
+  const ch = chanGet(sel);
+  if (!ch){ flash('⚠ 未设置频道名'); return; }
+  setSel(sel);
+  flash((sel === 'backup' ? '已切副频道，重连中…' : '已切回主频道，重连中…'), 'var(--blue)');
+  if (sel === 'backup') startProbe();   // 副频道就位 → 开始探测主频道
+  else stopProbe();
+  connect();                            // 重连到所选频道，自动回连
+}
+if (el.btn_chan_main) el.btn_chan_main.onclick = () => switchChan('main');
+if (el.btn_chan_back) el.btn_chan_back.onclick = () => switchChan('backup');
+chanRender();
 
 function renderToday(){
   const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
@@ -3465,6 +3573,7 @@ window.addEventListener('beforeunload', statsFlush);
 renderVer();                     /* 1.xx：统一版本号（三处同步） */
 renderAcct();                            /* 1.27：账号行先显 — */
 connect();
+startProbe();                            /* v1.50：若此前切在副频道，恢复主频道探测 */
 </script>
 </body>
 </html>
