@@ -187,7 +187,18 @@ body.fmsg #fexit{display:block;}
 #convs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   padding:4px 0;}
 .convo{padding:8px 14px; cursor:pointer; white-space:nowrap;
-  overflow:hidden; text-overflow:ellipsis; color:#333;}
+  display:flex; align-items:center; gap:6px;}
+/* 1.31：会话状态灯（行首）——对齐 TRAE 原生四态 */
+.stdot{flex:none; width:8px; height:8px; border-radius:50%;
+  display:inline-block; vertical-align:middle;}
+.stdot-run{background:#1a73e8; animation:stdotp 1.1s ease-in-out infinite;}
+.stdot-uread{background:#f57c00;}
+.stdot-fail{background:#d93025;}
+.stdot-stop{background:#9e9e9e;}
+@keyframes stdotp{0%,100%{opacity:1; transform:scale(1);}
+  50%{opacity:.35; transform:scale(.72);}}
+.convo > span:last-child{flex:1; min-width:0; overflow:hidden;
+  text-overflow:ellipsis; color:#333;}
 .convo.folder{color:#0d47a1; font-weight:bold; font-size:13px;}
 .convo.item.act{background:#e3effb; color:var(--blue); font-weight:bold;}
 .dsec{flex:none; padding:6px 12px 2px; color:var(--gray); font-size:12px;
@@ -914,7 +925,7 @@ function curTitle(){
 
 function renderAll(){
   const snap = S.snap;
-  renderConvs(snap.convs || []);
+  renderConvs(snap.convs || [], snap.conv_unread);
   /* 1.24：过滤「安装 WorkBuddy」类安装引导按钮（误点无意义；
      服务端已滤，此处双保险兼容旧服务端）。1.25：diff 审查
      （N 个文件待审查/全部撤销/全部保留）与「后台命令正在运行」
@@ -943,13 +954,20 @@ function drawerOpen(){
 }
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
-function renderConvs(rows){
-  const key = rows.map(r => r.join('|')).join('#');
+function renderConvs(rows, conv_unread){
+  /* v1.49：conv_unread=服务端快照顶层可选字段「完成-未查看」标题列表。
+     旧服务端/无该字段时回退旧行为。清单参与指纹——unread 变化也要重绘。 */
+  const ur = new Set(Array.isArray(conv_unread) ? conv_unread : []);
+  const key = rows.map(r => r.join('|')).join('#')
+    + '#ur:' + Array.from(ur).sort().join('|');
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
   let inFolder = false, idx = 0;
-  for (const [kind, title, flag, disp] of rows){
+  /* 1.31：按位取值（兼容旧 4 元组）——r[4]=状态灯 run/done/fail/stop/'' */
+  for (const r of rows){
+    const kind = r[0], title = r[1] || '', flag = r[2],
+          disp = r[3] || '', st = r[4] || '';
     if (kind === 'f'){
       const d = document.createElement('div');
       d.className = 'convo folder';
@@ -982,7 +1000,18 @@ function renderConvs(rows){
       const d = document.createElement('div');
       d.className = 'convo item' + (flag ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
-      d.textContent = disp || title;
+      /* 1.31：对齐原版状态灯口径——只在这几种显示灯：
+         run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且展示名(disp||title)
+         在 conv_unread → 橙「完成未查看」灯；done 已读 → 无灯（移除原绿点）。 */
+      const uread = (st === 'done') && ur.has(disp || title);
+      if (st === 'run' || st === 'fail' || st === 'stop' || uread){
+        const dot = document.createElement('span');
+        dot.className = 'stdot ' + (uread ? 'stdot-uread' : 'stdot-' + st);
+        d.appendChild(dot);
+      }
+      const tspan = document.createElement('span');
+      tspan.textContent = disp || title;
+      d.appendChild(tspan);
       const i = idx;
       /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
       let lpTimer = null, lpFired = false;
@@ -1943,7 +1972,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.20';
+const VER = '1.21';
 const VER_DESC = 'CLI会话控制 + 消息补救 + 积分账号';
 function renderVer(box){
   try{
