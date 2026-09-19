@@ -903,8 +903,10 @@ function resolveTimes(msgs){
   return out;
 }
 function curTitle(){
+  /* 1.5x：convs 每行 ['c', sid, is_current, 显示名]——展示名在 r[3]（服务端
+     host.snap 追加，避免侧栏/状态栏拿 sid 当会话名显乱码）；有则优先，无则回退 r[1]。 */
   const convs = (S.snap.convs || []);
-  for (const r of convs) if (r[0] === 'c' && r[2]) return r[1];
+  for (const r of convs) if (r[0] === 'c' && r[2]) return (r[3] || '').trim() || r[1];
   return '当前会话';
 }
 
@@ -1676,13 +1678,14 @@ function renderState(snap){
         tail = snap.tail;
   if (!idle){                                // 生成中（含远端残留）→ 停止/插话
     S.gen = true;
-    /* 1.5x：生成中用「✏️」符号替代「生成中」三字省空间；AI 实时 tail
-       不再逐字显示，只用有无划分两个固定阶段词——空=输出中、有=
-       规划中（原「正在规划下一步」精简为规划中）；并像空闲一样带
-       上当前会话名 */
+    /* 1.5x：生成中不再只给「规划中/输出中」两个固定词——服务端 make_snap
+       会随 CLI 台账实时追加的分步 reasoning 持续更新 tail（推理片段），
+       状态栏顺带展示该实时预告，让生成过程可见（CSS ellipsis 自动截断）。 */
     const ct3 = (curTitle() || '').trim();
-    el.state.textContent = '✏️ ' + (tail ? '规划中' : '输出中')
-      + (ct3 ? ' · ' + (ct3.length > 14 ? ct3.slice(0, 14) + '…' : ct3) : '');
+    let g = '✏️ ' + (tail ? '规划中' : '输出中');
+    const tpre = (tail || '').trim();
+    if (tpre) g += ' · ' + tpre;
+    el.state.textContent = g + (ct3 ? ' · ' + ct3 : '');
     el.state.style.color = 'var(--orange)';
     refreshSendBtn();                        // 有本地字→插话，无→停止
   } else if (inp){                           // 空闲 + 远端残留
@@ -1940,7 +1943,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.19';
+const VER = '1.20';
 const VER_DESC = 'CLI会话控制 + 消息补救 + 积分账号';
 function renderVer(box){
   try{
