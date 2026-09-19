@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.48</title>
+<title>TRAE远程 v1.49</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -252,8 +252,7 @@ body.fmsg #fexit{display:block;}
 .stdot{flex:none; width:8px; height:8px; border-radius:50%;
   display:inline-block; vertical-align:middle;}
 .stdot-run{background:#1a73e8; animation:stdotp 1.1s ease-in-out infinite;}
-.stdot-done{background:#2e7d32;}
-/* v1.48：会话「完成未查看」橙灯（st=='done' 且标题在 snap.conv_unread） */
+/* v1.49：完成已读=无灯（移除原 done 绿）；完成未读=橙灯 */
 .stdot-uread{background:#f57c00;}
 .stdot-fail{background:#d93025;}
 .stdot-stop{background:#9e9e9e;}
@@ -589,7 +588,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 
 <script>
 'use strict';
-/* ================= 手机版网页客户端 v1.48 =================
+/* ================= 手机版网页客户端 v1.49 =================
+ * v1.49（对齐服务端 v1.77）：完成状态灯对齐原版——st=='done' 且标题在
+ *   快照顶层可选字段 conv_unread → 行首橙色 ●（.stdot-uread，#f57c00）；
+ *   done 已读 → 无灯（移除原常亮 done 绿 .stdot-done）。run 蓝/fail 红/
+ *   stop 灰不变；点进会话由服务端清 unread，前端只按快照渲染。
  * v1.48（对齐服务端 v1.75）：会话「完成未查看」橙灯——st=='done' 且
  *   标题在快照顶层可选字段 conv_unread → 行首橙色 ●（.stdot-uread，
  *   色值 #f57c00，优先于 done 绿）。点进会话由服务端清 unread，前端
@@ -1107,7 +1110,7 @@ function drawerOpen(){
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
 function renderConvs(rows, conv_unread){
-  /* v1.48：conv_unread=服务端快照顶层可选字段「完成-未查看」标题列表。
+  /* v1.49：conv_unread=服务端快照顶层可选字段「完成-未查看」标题列表。
      旧服务端/无该字段时回退旧行为。清单参与指纹——unread 变化也要重绘。 */
   const ur = new Set(Array.isArray(conv_unread) ? conv_unread : []);
   const key = rows.map(r => r.join('|')).join('#')
@@ -1151,12 +1154,11 @@ function renderConvs(rows, conv_unread){
       const d = document.createElement('div');
       d.className = 'convo item' + (flag ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
-      /* 1.31：状态灯放行首（用户要求：TRAE 在右侧，我们搬左侧）
-         run=蓝·脉动(进行中) done=绿(刚完成) fail=红 stop=灰 无=空闲 */
-      /* v1.48：st=='done' 且标题在 conv_unread → 橙色「完成未查看」灯，
-         优先于绿（对齐服务端 _render_convs 渲染口径） */
+      /* v1.49：对齐原版状态灯口径——只在这几种显示灯：
+         run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且标题在
+         conv_unread → 橙「完成未查看」灯；done 已读 → 无灯（移除原绿点）。 */
       const uread = (st === 'done') && ur.has(title);
-      if (st || uread){
+      if (st === 'run' || st === 'fail' || st === 'stop' || uread){
         const dot = document.createElement('span');
         dot.className = 'stdot ' + (uread ? 'stdot-uread' : 'stdot-' + st);
         d.appendChild(dot);
@@ -2246,7 +2248,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.48';
+const VER = '1.49';
 const VER_DESC = '会话「完成未查看」橙灯';
 function renderVer(box){
   try{
