@@ -170,7 +170,20 @@ body.fmsg #fexit{display:block;}
   max-width:82vw; text-align:center;}
 #warnbox.on{opacity:1; transform:translateX(-50%) translateY(-50%)
   scale(1);}
-/* ── 1.27：频道名输入弹窗 ── */
+/* 1.86：切换会话失败弹窗——不干扰（可继续打字），仅「会话切换
+  失败」+一个「确认」键（立刻消除），3 秒自动消失，不啰嗦 */
+#swfbox{position:fixed; left:50%; top:38%; transform:translateX(-50%)
+  translateY(-50%) scale(.9); z-index:61; background:#ffebee;
+  border:2px solid #c62828; border-radius:12px; padding:14px 22px;
+  text-align:center; box-shadow:0 4px 18px rgba(198,40,40,.35);
+  opacity:0; pointer-events:none; transition:opacity .18s, transform .18s;}
+#swfbox.on{opacity:1; transform:translateX(-50%) translateY(-50%)
+  scale(1); pointer-events:auto;}
+#swfbox .t{font-size:16px; font-weight:bold; color:#c62828;}
+#swfbox button{margin-top:12px; min-width:88px; padding:6px 14px;
+  font-size:14px; color:#fff; background:#c62828; border:0;
+  border-radius:8px; cursor:pointer;}
+#swfbox button:active{background:#a01515;}/* ── 1.27：频道名输入弹窗 ── */
 #chanmask{position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.55);
   display:flex; align-items:center; justify-content:center;}
 #chanbox{background:#fff; border-radius:14px; padding:20px 18px;
@@ -1014,6 +1027,24 @@ function warnFlash(msg){
   t.classList.add('on');
   clearTimeout(warnTimer);
   warnTimer = setTimeout(() => t.classList.remove('on'), 2000);
+}
+
+/* 1.86：切换会话失败弹窗——悬浮不干扰（不挡打字），「会话切换
+  失败」+一个「确认」键立刻消除，3 秒自动消失，无其他按钮 */
+let swfTimer = null;
+function switchFail(title){
+  let t = $('swfbox');
+  if (!t){
+    t = document.createElement('div');
+    t.id = 'swfbox';
+    t.innerHTML = '<div class="t">⚠ 会话切换失败</div>'
+      + '<button>确认</button>';
+    t.querySelector('button').onclick = () => t.classList.remove('on');
+    document.body.appendChild(t);
+  }
+  t.classList.add('on');
+  clearTimeout(swfTimer);
+  swfTimer = setTimeout(() => t.classList.remove('on'), 3000);
 }
 
 /* 1.27：登录账号名显示（抽屉「登录账号」行） */
@@ -2306,8 +2337,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.51';
-const VER_DESC = '切换「Cli wb」悬挂修复';
+const VER = '1.52';
+const VER_DESC = '切换会话失败浮窗提醒';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2865,6 +2896,9 @@ function onEv(kind, v){
       break;
     case 'switched':
       applySwitch(v[0], v[1]);
+      break;
+    case 'switch_fail':          /* 1.86：切换失败浮窗提醒 */
+      switchFail(v);
       break;
     case 'booterr':
     case 'boot_noop':
