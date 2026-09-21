@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.50</title>
+<title>TRAE远程 v1.53</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -444,6 +444,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
   <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
   <textarea id="ent" placeholder="输入消息…" rows="1"></textarea>
+  <button id="btn_take" title="取回 TRAE 输入框残留到此处并清空（编辑不丢）" data-page-node-id="k3pV7nZfJdQx2tRwA5cLm1">⇪</button>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
   <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
@@ -971,7 +972,8 @@ const el = {
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
   input_row: $('input_row'),
-  attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
+  attach: $('btn_attach'), ent: $('ent'), take: $('btn_take'),
+  send: $('btn_send'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
   launch: $('btn_launch'), refresh_pts: $('btn_refresh_pts'),
@@ -2337,8 +2339,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.52';
-const VER_DESC = '切换会话失败浮窗提醒';
+const VER = '1.53';
+const VER_DESC = '取回残留/取出编辑直接回填输入框';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2824,6 +2826,31 @@ function onEv(kind, v){
          自查（积分 10 分钟/有人在线，模型 60 分钟），hello 重放缓存。
          客户端零触发，避免每次上线都打断 TRAE 开菜单。 */
       break;
+    case 'pend_edit_out': {                /* 1.53：取出编辑成功——直接回填
+        （服务端主动读回 TRAE 输入框文本推送，不依赖快照时机，
+        切走会话也不丢） */
+      S.qedit = null;
+      const t = (typeof v === 'string' ? v : '').trim();
+      if (t){
+        el.ent.value = t;
+        refreshSendBtn();
+        try { el.ent.focus(); } catch(e2){}
+        flash('已取出排队消息，可修改后重新发送', 'var(--blue)');
+      }
+      break;
+    }
+    case 'input_take_out': {               /* 1.53：取回残留成功——文本回填本端 */
+      const t = (typeof v === 'string' ? v : '').trim();
+      if (t){
+        el.ent.value = t;
+        refreshSendBtn();
+        try { el.ent.focus(); } catch(e2){}
+        flash('已取回残留，可修改后重新发送', 'var(--blue)');
+      } else {
+        flash('TRAE 输入框无残留', 'var(--red)');
+      }
+      break;
+    }
     case 'sent': {                           /* 1.09：服务端阶段回报
         （typed 已进 TRAE 输入框 / clicked 已点发送 / queued 已排队；
         旧版服务端发纯文本也兼容——只当 unknown 状态处理） */
@@ -3284,6 +3311,11 @@ function benchRender(v){
     box.appendChild(d);
   }
 }
+el.take.onclick = () => {         // 1.53：取回残留——TRAE 输入框文本取回本端+清空
+  if (!S.onLine){ flash('⚠ 服务端未连接，无法取回'); return; }
+  flash('正在取回 TRAE 输入框残留…', 'var(--blue)');
+  sendCmd('input_take');
+};
 el.bench.onclick = () => {
   if (!S.onLine){ flash('⚠ 服务端未连接，无法浏览工作台'); return; }
   S.bench_mode = 'ins';
