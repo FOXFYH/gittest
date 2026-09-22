@@ -48,7 +48,10 @@
         clear=document.getElementById('clear'), log=document.getElementById('log'),
         state=document.getElementById('state'), voiceSel=document.getElementById('voice');
 
-  let ws=null, audio=null, pieces={}, pendingTotal=0, playing=false;
+  let ws=null, audio=null, pieces={}, pendingTotal=0;
+  let genState=false;   // 生成中
+  let playing=false;    // 播放中
+  let going=false;      // 已有可播音频
 
   function logm(m){ log.textContent=m; }
   function setState(s, cls){ state.textContent=s; state.style.color=cls||'#2d7ff9'; }
@@ -62,7 +65,7 @@
     ws.onerror=()=>{ setState('连接错误','#e5484d'); };
     ws.onmessage=ev=>{
       let d; try{d=JSON.parse(ev.data);}catch(e){return;}
-      if(d.t==='tts_error'){ logm('电脑端错误:'+(d.error||'')); resetBtn(); return; }
+      if(d.t==='tts_error'){ genState=false; resetBtn(); logm('电脑端错误:'+(d.error||'')); return; }
       if(d.t==='tts_audio'){
         pieces[d.idx]=Uint8Array.from(atob(d.b64),c=>c.charCodeAt(0));
         pendingTotal=d.total;
@@ -84,17 +87,25 @@
     logm('你收到完整音频 '+Math.round(blob.length/1024)+'KB，正在播放');
     if(audio){audio.pause();}
     audio=new Audio(URL.createObjectURL(new Blob([blob],{type:'audio/mpeg'})));
-    playing=true; play.textContent='■ 停止'; play.classList.add('stop');
-    audio.onended=()=>{resetBtn();playing=false;logm('播放完毕');};
-    audio.onerror=()=>{resetBtn();playing=false;logm('播放失败');};
-    audio.play().catch(()=>{logm('需要再点一次播放'); playing=false;});
+    genState=false; going=true; playing=true;
+    play.textContent='⏸ 暂停'; play.classList.add('stop');
+    audio.onended=()=>{ going=false; playing=false; resetBtn(); logm('播放完毕'); };
+    audio.onerror=()=>{ going=true; playing=false; play.textContent='▶ 播放'; play.classList.remove('stop'); logm('播放失败'); };
+    audio.play().catch(()=>{ playing=true; });
+  }
+
+  // 播放/暂停切换（仅当已拿到可播音频）
+  function togglePlay(){
+    if(playing){ audio.pause(); playing=false; play.textContent='▶ 播放'; play.classList.remove('stop'); logm('已暂停'); return; }
+    if(audio){ playing=true; play.textContent='⏸ 暂停'; play.classList.add('stop'); audio.play(); logm('继续播放'); }
   }
 
   play.onclick=()=>{
-    if(playing){ audio.pause(); playing=false; pieces={}; resetBtn(); logm('已停止'); return; }
+    if(genState){ logm('正在生成中，请稍候…'); return; }      // 生成中不可点
+    if(going){ togglePlay(); return; }                          // 已有音频 → 播放/暂停
     const text=txt.value.trim(); if(!text){logm('请先输入文字');return;}
     if(!ws||ws.readyState!==1){ logm('WS 未连接，重连中…'); setState('重连…','#f59e0b'); connect(); return; }
-    pieces={}; play.textContent='⏳ 发送中'; logm('已发送到电脑，等待转语音…');
+    pieces={}; genState=true; play.classList.add('stop'); play.textContent='⏳ 生成中…'; logm('已发送到电脑，等待转语音…');
     ws.send(JSON.stringify({t:'tts',text:text,voice:voiceSel.value}));
   };
   clear.onclick=()=>{txt.value='';logm('已清空');};
