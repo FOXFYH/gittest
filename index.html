@@ -2,71 +2,97 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FYH 工具导航</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>网页版文字转语音</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
-    background: #f5f5f5; color: #333; font-size: 14px;
-    min-height: 100vh; padding: 24px 16px 48px;
-  }
-  .wrap { max-width: 720px; margin: 0 auto; }
-  header {
-    background: #2d2d2d; color: #eee; padding: 12px 16px; border-radius: 8px;
-    display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
-  }
-  header h1 { font-size: 16px; font-weight: 600; }
-  header a { color: #bbb; font-size: 12px; text-decoration: none; }
-  header a:hover { color: #fff; }
-  .group { margin-bottom: 20px; }
-  .group-title {
-    font-size: 12px; color: #888; font-weight: 600; letter-spacing: 1px;
-    margin: 0 2px 8px;
-  }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-  .card {
-    display: flex; align-items: center; justify-content: space-between;
-    background: #fff; border: 1px solid #ddd; border-radius: 8px;
-    padding: 10px 12px; text-decoration: none; color: #333;
-    transition: border-color .15s;
-  }
-  .card:hover { border-color: #333; }
-  .card .name { font-size: 14px; font-weight: 500; }
-  .card .tag { font-size: 11px; color: #999; margin-left: 8px; white-space: nowrap; }
-  footer { margin-top: 28px; text-align: center; color: #aaa; font-size: 12px; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f5f6f8; color:#222; min-height:100vh; display:flex; flex-direction:column; }
+  header { background:#fff; padding:14px 16px; font-size:18px; font-weight:600; border-bottom:1px solid #eee; }
+  header span { color:#888; font-size:12px; font-weight:400; margin-left:8px; }
+  main { flex:1; padding:16px; display:flex; flex-direction:column; gap:14px; max-width:760px; width:100%; margin:0 auto; }
+  textarea { width:100%; min-height:180px; border:1px solid #ddd; border-radius:12px; padding:14px; font-size:16px; line-height:1.6; resize:vertical; background:#fff; outline:none; }
+  textarea:focus { border-color:#2d7ff9; }
+  .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .btn { border:none; border-radius:10px; padding:12px 18px; font-size:16px; font-weight:500; cursor:pointer; flex:1; min-width:0; }
+  .btn.primary { background:#2d7ff9; color:#fff; }
+  .btn.primary:active { background:#1f66d6; }
+  .btn.stop { background:#e5484d; color:#fff; }
+  .btn.ghost { background:#fff; color:#333; border:1px solid #ddd; }
+  #status { font-size:13px; color:#888; min-height:18px; }
+  .voicerow { display:flex; align-items:center; gap:10px; font-size:13px; color:#555; }
+  .voicerow select { flex:1; padding:8px; border:1px solid #ddd; border-radius:8px; font-size:14px; background:#fff; }
+  footer { text-align:center; padding:12px; font-size:12px; color:#aaa; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>FYH 工具导航</h1>
-    <a href="https://github.com/FOXFYH" target="_blank" rel="noopener">GitHub 主页</a>
-  </header>
-
-  <div class="group">
-    <div class="group-title">远程控制</div>
-    <div class="grid">
-      <a class="card" href="TRAE同步显示与控制工具_网页客户端_手机版.html"><span class="name">TRAE 远程控制</span><span class="tag">TRAE</span></a>
-      <a class="card" href="WorkBuddy同步显示与控制工具_网页客户端_手机版.html"><span class="name">WorkBuddy 远程控制</span><span class="tag">WorkBuddy</span></a>
-      <a class="card" href="wbcli.html"><span class="name">WorkBuddy CLI 远程控制</span><span class="tag">CLI</span></a>
-      <a class="card" href="FYH.html"><span class="name">FYH 远程控制</span><span class="tag">FYH</span></a>
+  <header>网页版文字转语音<span>FYH-GITHUB-TTS-TEST</span></header>
+  <main>
+    <textarea id="txt" placeholder="在这里输入或粘贴你想朗读的文字，然后点右下角按钮播放…"></textarea>
+    <div class="toolbar">
+      <button class="btn primary" id="play">▶ 播放</button>
+      <button class="btn ghost" id="clear">清空</button>
     </div>
-  </div>
-
-  <div class="group">
-    <div class="group-title">工具站点</div>
-    <div class="grid">
-      <a class="card" href="https://github.foxf.eu.cc/" target="_blank" rel="noopener"><span class="name">域名测试站</span><span class="tag">fyhtest</span></a>
-      <a class="card" href="https://foxfyh.github.io/a/" target="_blank" rel="noopener"><span class="name">文心售后专网</span><span class="tag">a</span></a>
-      <a class="card" href="https://foxfyh.github.io/kuaisujishiben/" target="_blank" rel="noopener"><span class="name">快速记事</span><span class="tag">记事</span></a>
-      <a class="card" href="https://foxfyh.github.io/pyin/" target="_blank" rel="noopener"><span class="name">拼音工具</span><span class="tag">拼音</span></a>
-      <a class="card" href="https://foxfyh.github.io/b/" target="_blank" rel="noopener"><span class="name">思维导图编辑器</span><span class="tag">b</span></a>
-      <a class="card" href="https://foxfyh.github.io/c/" target="_blank" rel="noopener"><span class="name">挑战答题</span><span class="tag">c</span></a>
+    <div class="voicerow">
+      音色
+      <select id="voice">
+        <option value="">自动选择(中文)</option>
+      </select>
     </div>
-  </div>
+    <div id="status"></div>
+  </main>
+  <footer>纯前端 · 浏览器自带语音 · 无需联网后端</footer>
 
-  <footer>FOXFYH 个人工具入口</footer>
-</div>
+<script>
+  const txt = document.getElementById('txt');
+  const play = document.getElementById('play');
+  const clear = document.getElementById('clear');
+  const status = document.getElementById('status');
+  const voiceSel = document.getElementById('voice');
+
+  function log(m){ status.textContent = m; }
+  function syn(){
+    try { speechSynthesis.cancel(); speechSynthesis.resume(); } catch(e){}
+  }
+
+  // 填充音色下拉
+  function loadVoices(){
+    const vs = speechSynthesis.getVoices();
+    const zh = vs.filter(v => /zh|yue/i.test(v.lang));
+    voiceSel.innerHTML = '<option value="">自动选择(中文)</option>';
+    (zh.length?zh:vs).forEach(v=>{
+      const o=document.createElement('option');
+      o.value=v.name; o.textContent=v.name+' ('+v.lang+')';
+      voiceSel.appendChild(o);
+    });
+  }
+  if(speechSynthesis.onvoiceschanged!==undefined)
+    speechSynthesis.onvoiceschanged=loadVoices;
+  loadVoices();
+
+  let speaking=false;
+  play.addEventListener('click',()=>{
+    const text=txt.value.trim();
+    if(!text){ log('请先输入文字'); return; }
+    // 手势触发，自动播放合法
+    play.classList.add('stop');
+    play.textContent='⏸ 停止';
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang='zh-CN'; u.rate=1; u.pitch=1;
+    const vn=voiceSel.value;
+    const vs=speechSynthesis.getVoices();
+    const v=vn?vs.find(x=>x.name===vn):vs.find(x=>/zh|yue/i.test(x.lang));
+    if(v) u.voice=v;
+    u.onstart=()=>{ speaking=true; log('正在朗读…'); };
+    u.onend=()=>{ speaking=false; play.classList.remove('stop'); play.textContent='▶ 播放'; log('播放结束'); };
+    u.onerror=e=>{ speaking=false; play.classList.remove('stop'); play.textContent='▶ 播放'; log('出错:'+ (e&&e.error||'unknown')); };
+    syn(); speechSynthesis.speak(u);
+  });
+
+  // 切角色/停止逻辑
+  play.addEventListener('click',()=>{
+    if(speaking){ speechSynthesis.cancel(); speaking=false; play.classList.remove('stop'); play.textContent='▶ 播放'; log('已停止'); }
+  });
+  clear.addEventListener('click',()=>{ txt.value=''; log('已清空'); });
+</script>
 </body>
 </html>
