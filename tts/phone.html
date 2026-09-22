@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>本地语音 - 手机端</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f5f6f8;color:#222;min-height:100vh;display:flex;flex-direction:column;max-width:520px;margin:0 auto}
+  header{background:#fff;padding:14px 16px;font-size:18px;font-weight:600;border-bottom:1px solid #eee;display:flex;align-items:center;gap:8px}
+  #state{font-size:11px;color:#2d7ff9;background:#e8f1ff;border-radius:6px;padding:2px 8px}
+  main{flex:1;padding:16px;display:flex;flex-direction:column;gap:12px}
+  textarea{width:100%;min-height:150px;border:1px solid #ddd;border-radius:12px;padding:14px;font-size:16px;line-height:1.6;resize:vertical;background:#fff;outline:none}
+  textarea:focus{border-color:#2d7ff9}
+  .row{display:flex;gap:10px}
+  .btn{border:none;border-radius:12px;padding:14px;font-size:16px;font-weight:600;cursor:pointer;flex:1}
+  .play{background:#2d7ff9;color:#fff}
+  .play:active{background:#1f66d6}
+  .play.stop{background:#e5484d}
+  .clear{background:#fff;color:#333;border:1px solid #ddd}
+  select{width:100%;padding:11px;border:1px solid #ddd;border-radius:10px;font-size:14px;background:#fff}
+  #log{font-size:12px;color:#888;min-height:18px;word-break:break-all}
+  footer{text-align:center;padding:12px;font-size:11px;color:#aaa}
+</style>
+</head>
+<body>
+  <header>本地语音 <span id="state">未连接</span></header>
+  <main>
+    <textarea id="txt" placeholder="输入文字，发送到电脑转成语音…"></textarea>
+    <select id="voice">
+      <option value="zh-CN-YunxiNeural">中文·云希(男)</option>
+      <option value="zh-CN-XiaoxiaoNeural">中文·晓晓(女)</option>
+      <option value="zh-CN-YunyangNeural">中文·云扬(新闻)</option>
+      <option value="en-US-AriaNeural">English·Aria(女)</option>
+      <option value="en-US-GuyNeural">English·Guy(男)</option>
+    </select>
+    <div class="row">
+      <button class="btn play" id="play">▶ 播放</button>
+      <button class="btn clear" id="clear">清空</button>
+    </div>
+    <div id="log"></div>
+  </main>
+  <footer>手机 → PieSocket WS → 电脑 edge-tts → 分片回传 → 手机播放</footer>
+
+<script>
+  const WS = "wss://free.blr2.piesocket.com/v3/TRAETTS31415926fF@?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
+  const txt=document.getElementById('txt'), play=document.getElementById('play'),
+        clear=document.getElementById('clear'), log=document.getElementById('log'),
+        state=document.getElementById('state'), voiceSel=document.getElementById('voice');
+
+  let ws=null, audio=null, pieces={}, pendingTotal=0, playing=false;
+
+  function logm(m){ log.textContent=m; }
+  function setState(s, cls){ state.textContent=s; state.style.color=cls||'#2d7ff9'; }
+  function resetBtn(){ play.textContent='▶ 播放'; play.classList.remove('stop'); }
+
+  // ---- 连接 WS ----
+  function connect(){
+    try { ws=new WebSocket(WS); } catch(e){ setState('连接失败','#e5484d'); return; }
+    ws.onopen=()=>{ setState('已连接·可发送','#16a34a'); };
+    ws.onclose=()=>{ setState('已断开','#888'); };
+    ws.onerror=()=>{ setState('连接错误','#e5484d'); };
+    ws.onmessage=ev=>{
+      let d; try{d=JSON.parse(ev.data);}catch(e){return;}
+      if(d.t==='tts_error'){ logm('电脑端错误:'+(d.error||'')); resetBtn(); return; }
+      if(d.t==='tts_audio'){
+        pieces[d.idx]=Uint8Array.from(atob(d.b64),c=>c.charCodeAt(0));
+        pendingTotal=d.total;
+        let got=Object.keys(pieces).length;
+        logm('接收音频分片 '+got+'/'+d.total+'…');
+        if(got>=d.total){ assembleAndPlay(); }
+      }
+    };
+  }
+
+  function assembleAndPlay(){
+    let blob=new Uint8Array(0);
+    for(let i=1;i<=pendingTotal;i++){
+      if(!pieces[i]) return;
+      let merged=new Uint8Array(blob.length+pieces[i].length);
+      merged.set(blob,0); merged.set(pieces[i],blob.length);
+      blob=merged;
+    }
+    logm('你收到完整音频 '+Math.round(blob.length/1024)+'KB，正在播放');
+    if(audio){audio.pause();}
+    audio=new Audio(URL.createObjectURL(new Blob([blob],{type:'audio/mpeg'})));
+    playing=true; play.textContent='■ 停止'; play.classList.add('stop');
+    audio.onended=()=>{resetBtn();playing=false;logm('播放完毕');};
+    audio.onerror=()=>{resetBtn();playing=false;logm('播放失败');};
+    audio.play().catch(()=>{logm('需要再点一次播放'); playing=false;});
+  }
+
+  play.onclick=()=>{
+    if(playing){ audio.pause(); playing=false; pieces={}; resetBtn(); logm('已停止'); return; }
+    const text=txt.value.trim(); if(!text){logm('请先输入文字');return;}
+    if(!ws||ws.readyState!==1){ logm('WS 未连接，重连中…'); setState('重连…','#f59e0b'); connect(); return; }
+    pieces={}; play.textContent='⏳ 发送中'; logm('已发送到电脑，等待转语音…');
+    ws.send(JSON.stringify({t:'tts',text:text,voice:voiceSel.value}));
+  };
+  clear.onclick=()=>{txt.value='';logm('已清空');};
+
+  connect();
+</script>
+</body>
+</html>
