@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Text to Speech</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:#f5f6f8; color:#222; min-height:100vh; display:flex; flex-direction:column; }
+  header { background:#fff; padding:14px 16px; font-size:18px; font-weight:600; border-bottom:1px solid #eee; display:flex; align-items:baseline; }
+  header span { color:#888; font-size:12px; font-weight:400; margin-left:8px; }
+  main { flex:1; padding:16px; display:flex; flex-direction:column; gap:14px; max-width:760px; width:100%; margin:0 auto; }
+  textarea { width:100%; min-height:180px; border:1px solid #ddd; border-radius:12px; padding:14px; font-size:16px; line-height:1.6; resize:vertical; background:#fff; outline:none; }
+  textarea:focus { border-color:#2d7ff9; }
+  .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .btn { border:none; border-radius:10px; padding:12px 18px; font-size:16px; font-weight:500; cursor:pointer; flex:1; min-width:0; }
+  .btn.primary { background:#2d7ff9; color:#fff; }
+  .btn.primary:active { background:#1f66d6; }
+  .btn.stop { background:#e5484d; color:#fff; }
+  .btn.ghost { background:#fff; color:#333; border:1px solid #ddd; }
+  #status { font-size:13px; color:#888; min-height:18px; }
+  .voicerow { display:flex; align-items:center; gap:10px; font-size:13px; color:#555; }
+  .voicerow select { flex:1; padding:8px; border:1px solid #ddd; border-radius:8px; font-size:14px; background:#fff; }
+  footer { text-align:center; padding:12px; font-size:12px; color:#aaa; }
+  #probe { font-size:12px; color:#666; background:#fffbe6; border:1px solid #e7dca2; border-radius:8px; padding:8px 10px; display:none; }
+</style>
+</head>
+<body>
+  <header>Text to Speech</header>
+  <main>
+    <div id="probe"></div>
+    <textarea id="txt" placeholder="Type or paste the text you want to read aloud, then tap the Play button above…"></textarea>
+    <div class="toolbar">
+      <button class="btn primary" id="play">▶ Play</button>
+      <button class="btn ghost" id="clear">Clear</button>
+    </div>
+    <div class="voicerow">
+      Voice
+      <select id="voice">
+        <option value="">Auto (English)</option>
+      </select>
+    </div>
+    <div id="status"></div>
+  </main>
+  <footer>Pure front-end &middot; browser TTS (SpeechSynthesis API)</footer>
+
+<script>
+  const txt = document.getElementById('txt');
+  const play = document.getElementById('play');
+  const clear = document.getElementById('clear');
+  const status = document.getElementById('status');
+  const voiceSel = document.getElementById('voice');
+  const probe = document.getElementById('probe');
+
+  function log(m){ status.textContent = m; }
+
+  function syn(){ try { speechSynthesis.cancel(); speechSynthesis.resume(); } catch(e){} }
+
+  const probeMsgs = [];
+  function p(m){ probeMsgs.push(m); probe.textContent = probeMsgs.join('\n'); }
+
+  //---- 环境探针：引擎是否可用 / 语音是否为空 ----
+  function probeEng(){
+    try {
+      const avail = typeof speechSynthesis !== 'undefined';
+      p('speechSynthesis supported: ' + (avail?'YES':'NO'));
+      if(!avail) return;
+      const voices = speechSynthesis.getVoices();
+      p('voices loaded: ' + voices.length);
+      const en = voices.filter(v=>/^en/i.test(v.lang));
+      p('english voices: ' + en.length);
+    } catch(e){ p('probe err: '+e.message); }
+  }
+  if(typeof speechSynthesis !== 'undefined' && speechSynthesis.onvoiceschanged!==undefined)
+    speechSynthesis.onvoiceschanged = probeEng;
+
+  function loadVoices(){
+    const vs = speechSynthesis.getVoices();
+    const en = vs.filter(v => /^en/i.test(v.lang));
+    voiceSel.innerHTML = '<option value="">Auto (English)</option>';
+    (en.length?en:vs).forEach(v=>{
+      const o=document.createElement('option');
+      o.value=v.name; o.textContent=v.name+' ('+v.lang+')';
+      voiceSel.appendChild(o);
+    });
+    probeEng();
+  }
+  if(typeof speechSynthesis !== 'undefined' && speechSynthesis.onvoiceschanged!==undefined)
+    speechSynthesis.onvoiceschanged = loadVoices;
+  loadVoices();
+
+  let speaking=false;
+  function clickPlay(){
+    if(speaking){ speechSynthesis.cancel(); speaking=false; play.classList.remove('stop'); play.textContent='▶ Play'; log('Stopped'); return; }
+    const text=txt.value.trim();
+    if(!text){ log('Please enter some text'); return; }
+    // 探针：点播放后监听引擎状态
+    try {
+      p('clicking play...');
+      // speaking 状态通过 utterance onstart/onend 确认
+    } catch(e){}
+    play.classList.add('stop'); play.textContent='⏸ Stop';
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang='en-US'; u.rate=1; u.pitch=1;
+    const vn=voiceSel.value;
+    const vs=speechSynthesis.getVoices();
+    const v=vn?vs.find(x=>x.name===vn):vs.find(x=>/^en/i.test(x.lang));
+    if(v) u.voice=v;
+    p('utterance created; voice='+(v?v.name:'auto'));
+    u.onstart=()=>{ speaking=true; p('engine ONSTART (speaking started)'); log('Speaking…'); };
+    u.onend=()=>{ speaking=false; p('engine ONEND (finished)'); play.classList.remove('stop'); play.textContent='▶ Play'; log('Finished'); };
+    u.onerror=e=>{ speaking=false; p('engine ERROR: '+(e.error||'unknown')); play.classList.remove('stop'); play.textContent='▶ Play'; log('Error: '+(e&&e.error||'unknown')); };
+    syn(); speechSynthesis.speak(u);
+  }
+  play.addEventListener('click', clickPlay);
+  clear.addEventListener('click',()=>{ txt.value=''; log('Cleared'); });
+</script>
+</body>
+</html>
