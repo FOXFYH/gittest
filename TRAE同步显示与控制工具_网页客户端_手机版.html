@@ -2190,6 +2190,15 @@ function rebuildModelOptions(){
 
 function checkFavInvalid(){
   /* models 事件后核对：收藏不在官方列表 → 弹提醒（每次新失效才提醒） */
+  /* v1.54：官方列表为空 ≠ 收藏失效。空列表只说明服务端还没采到模型
+     （采集被遮罩吞掉、界面未就绪、或断线重放前）——原实现会把全部收藏
+     判成「已失效」并弹提醒，逼用户去删好收藏（2026-09-22 现场：服务端
+     重放空列表 → 整页收藏被标 ⚠）。列表为空时直接静默，等真列表到了
+     再核。 */
+  if (!(S.models_full || []).length){
+    S.fav_invalid = [];
+    return;
+  }
   const names = S.model_names || new Set();
   const inv = (S.favs || []).filter(fn => !names.has(fn));
   const fresh = inv.filter(fn => !S.fav_warned.includes(fn));
@@ -2218,8 +2227,11 @@ function renderFavPage(){
       + '连接服务端后会自动加载）</span>', 'empty'));
   }
   const names = new Set((S.models_full || []).map(e => e[0]));
-  /* 失效收藏单列一节：红字 + 点击移除 */
-  for (const fn of (S.favs || [])){
+  /* 失效收藏单列一节：红字 + 点击移除。
+     v1.54：只在【官方列表已到手】时判失效——列表为空时把全部收藏列成
+     「⚠ 已失效 + ✕ 移除」是误伤（用户会照删）；此时上面已给「尚未获取
+     到官方模型列表」提示，这里直接不渲染这一节。 */
+  for (const fn of (names.size ? (S.favs || []) : [])){
     if (names.has(fn)) continue;
     const d = mk('<span class="fmark">⚠ 已失效</span>'
       + '<span class="fname">' + esc(fn) + '</span>'
@@ -2339,8 +2351,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.53';
-const VER_DESC = '取回残留/取出编辑直接回填输入框';
+const VER = '1.54';
+const VER_DESC = '空模型列表不再误报收藏失效';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
