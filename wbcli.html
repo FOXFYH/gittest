@@ -784,6 +784,10 @@ const S = {
   pend_send: 30000,                  /* 1.32：发送确认超时毫秒（默认 30 秒，
                                         pendcfg 同步；超时才显示改写/丢弃/重发） */
   switch_pend: null,
+  /* 1.28：切换即时反馈——switched 已确认、snap 未到期间的轻占位
+     {title, ts}；snap 到达即清。与 switch_pend 互补：switch_pend 管
+     「点击→switched」段，loadingConv 管「switched→snap」段 */
+  loadingConv: null,
   /* F7：切换失败观察——超时兜底重拉 hello 后，下一拍仍未激活目标
      会话时轻提示「切换未完成」（一次性，消费即清） */
   _swFail: null,
@@ -1495,6 +1499,7 @@ function renderMsgs(msgs, finish, opts, ask){
   /* 1.09：待确认占位 + 切换在途条参与指纹（状态推进/撤下要重画） */
   key += '#pend:' + pendSig()
        + (S.switch_pend ? '#sw:' + S.switch_pend.title : '')
+       + (S.loadingConv ? '#ld:' + S.loadingConv.title : '')
        + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80);
   if (key === S.msgs_key) return;
   S.msgs_key = key;
@@ -1508,7 +1513,7 @@ function renderMsgs(msgs, finish, opts, ask){
       - el.msgs.clientHeight < 200;
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
-  if (empty && !S.pending.length && !S.switch_pend){
+  if (empty && !S.pending.length && !S.switch_pend && !S.loadingConv){
     el.msgs.innerHTML =
       '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
@@ -1518,6 +1523,12 @@ function renderMsgs(msgs, finish, opts, ask){
     sw.className = 'switching';
     sw.textContent = '正在切换到「' + S.switch_pend.title + '」…';
     el.msgs.appendChild(sw);
+  }
+  if (S.loadingConv){                    // 1.28：switched 已确认、snap 未到
+    const ld = document.createElement('div');
+    ld.className = 'switching';
+    ld.textContent = '正在加载「' + S.loadingConv.title + '」…';
+    el.msgs.appendChild(ld);
   }
   if (empty){ renderPending(); return; }
   const times = resolveTimes(msgs);
@@ -1868,6 +1879,10 @@ function renderState(snap){
     el.state.textContent = '正在切换「' + S.switch_pend.title + '」…';
     el.state.style.color = 'var(--blue)';
   }
+  if (S.loadingConv){                    // 1.28：snap 未到 → 加载占位
+    el.state.textContent = '正在加载「' + S.loadingConv.title + '」…';
+    el.state.style.color = 'var(--blue)';
+  }
 }
 
 function renderAttach(items){
@@ -2118,8 +2133,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.27';
-const VER_DESC = '性能大优化：消息指纹哈希化/mdHtml缓存/时间戳写盘降频/rAF合并渲染/状态缓存，生成中不重建整区、静止零重绘';
+const VER = '1.28';
+const VER_DESC = '切换即时反馈：收到 switched 立即撤在途条+目标加载占位（loadingConv），感知切换延迟降到 <300ms；snap 到达自动接真内容';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2394,6 +2409,7 @@ function switchSrv(nm){
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.pending = []; S.switch_pend = null; S._swFail = null;
+  S.loadingConv = null;               /* 1.28：换服务端，加载占位作废 */
   S.pend_claims = []; S.pend_conv = '';
   S.busy = false; S.model_busy = false;
   S.points = '—'; el.points.textContent = '积分 —';
@@ -2522,12 +2538,14 @@ function onEv(kind, v){
           S.switch_pend = null;              // 超时兜底，别一直挂着
         }
       }
+      S.loadingConv = null;                   // 1.28：snap 到达，撤加载占位
       scheduleRenderAll();                   // F4：snap 合并进 rAF 渲染
       break;
     }
     case 'dead':
       flash('✘ 未连接（' + v + '）', 'var(--red)');
       S.snap = {};
+      S.loadingConv = null;                   // 1.28：断了还挂占位没意义
       renderState({});
       S.attach_pending = null;
       renderAttach([]);
@@ -2602,9 +2620,22 @@ function onEv(kind, v){
         v[0] === v[1] ? 'var(--green)' : 'var(--red)');
       syncModel(v[1]);
       break;
-    case 'switched':
-      applySwitch(v[0], v[1]);
+    case 'switched': {
+      /* 1.28：切换即时反馈——服务端 set_current 完成即确认切换：
+         立即撤在途条（applySwitch 清 switch_pend），目标内容未到则
+         上「正在加载」占位，不等 snap（1.2s±抖）才动 */
+      const swT = (S.switch_pend && S.switch_pend.title) || '';
+      /* snap 先于 switched 到达（新端口内容已在手）→ 保留快照直接
+         渲染，不重复占位 */
+      const hasTarget = !!(S.snap && S.snap._port === v[1]
+        && (S.snap.convs || []).some(r => r[0] === 'c' && r[2]));
+      applySwitch(v[0], v[1], hasTarget);
+      S.loadingConv = (swT && !hasTarget)
+        ? {title: swT, ts: Date.now()} : null;
+      S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
+      scheduleRenderAll();
       break;
+    }
     case 'booterr':
     case 'boot_noop':
       S.busy = false;
@@ -2641,7 +2672,9 @@ function onEv(kind, v){
         });
         renderAll();
       }
-      if (S.switch_pend){ S.switch_pend = null; renderAll(); }
+      if (S.switch_pend || S.loadingConv){
+        S.switch_pend = null; S.loadingConv = null; renderAll();
+      }
       document.querySelectorAll('.optbtn.picked').forEach(b => {
         b.disabled = false;
         b.classList.remove('picked');
@@ -2721,13 +2754,17 @@ function onHello(d){
   if (d.conn) onEv('connected', S.port);
 }
 
-function applySwitch(box, port){
+function applySwitch(box, port, keepSnap){
   S.box = box; S.port = port;
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
-  S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  /* 1.28：keepSnap=true（snap 先于 switched 到达、内容已是新目标）时
+     保留现有快照直接渲染，避免旧内容被清后白等下一拍 */
+  S.snap = keepSnap ? S.snap : {};
+  S.convs_key = null; S.msgs_key = null;
   S.attach_pending = null; S.model_busy = false;
   /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
   S.pending = []; S.switch_pend = null;
+  S.loadingConv = null;                     /* 1.28：换目标，旧占位作废 */
   S.pend_claims = []; S.pend_conv = '';
   S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
                        // 原不重置，boot 一次 S.busy 永卡 true 锁死目标切换
