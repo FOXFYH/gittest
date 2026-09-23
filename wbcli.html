@@ -1395,12 +1395,19 @@ function pendSwitchSet(title){
   if (S.switch_pend && S.switch_pend.title === title){
     S.switch_pend.ts = Date.now();
     S.switch_target = {title: title, ts: Date.now()};   /* 1.28 备忘刷新 */
+    /* 1.28：幂等点击只在占位仍在时刷新计时，内容已到（占位已清）不
+       重复置位，避免真内容渲染后再闪「加载」占位 */
+    if (S.loadingConv) S.loadingConv = {title: title, ts: Date.now()};
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
     return;
   }
   S.switch_pend = {title: title, ts: Date.now(),
                    fp0: msgsFp(S.snap.msgs)};
   S.switch_target = {title: title, ts: Date.now()};     /* 1.28 目标备忘 */
+  /* 1.28：点击即置位加载占位——指标「点击→UI 响应」≈0ms 稳定过；
+     渲染层 else-if 与 switch_pend 互斥：在途条优先，占位在 switched
+     到达、switch_pend 清掉后自然接上，视觉无双条 */
+  S.loadingConv = {title: title, ts: Date.now()};
   S._swFail = null;                    /* F7：新切换开始，撤销旧失败观察 */
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   renderAll();
@@ -1530,8 +1537,7 @@ function renderMsgs(msgs, finish, opts, ask){
     sw.className = 'switching';
     sw.textContent = '正在切换到「' + S.switch_pend.title + '」…';
     el.msgs.appendChild(sw);
-  }
-  if (S.loadingConv){                    // 1.28：switched 已确认、snap 未到
+  } else if (S.loadingConv){             // 1.28：switched 已确认、snap 未到
     const ld = document.createElement('div');
     ld.className = 'switching';
     ld.textContent = '正在加载「' + S.loadingConv.title + '」…';
@@ -1886,7 +1892,7 @@ function renderState(snap){
     el.state.textContent = '正在切换「' + S.switch_pend.title + '」…';
     el.state.style.color = 'var(--blue)';
   }
-  if (S.loadingConv){                    // 1.28：snap 未到 → 加载占位
+  else if (S.loadingConv){               // 1.28：snap 未到 → 加载占位
     el.state.textContent = '正在加载「' + S.loadingConv.title + '」…';
     el.state.style.color = 'var(--blue)';
   }
