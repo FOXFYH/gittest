@@ -31,7 +31,7 @@ select{font-size:12px;}
 .h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 #lbl_rlink{margin-left:auto; font-weight:bold; font-size:12px;
-  white-space:nowrap;}
+  white-space:nowrap; cursor:pointer;}
 /* 1.12：当前操控的服务端（点击进抽屉切换） */
 #lbl_srv{font-weight:bold; font-size:12px; color:var(--blue);
   white-space:nowrap; max-width:34%; overflow:hidden;
@@ -455,8 +455,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <fieldset data-page-node-id="diag_fs">
       <legend>连接诊断</legend>
       <div class="row"><span>频道（前缀+密钥）</span><b id="diag_chan" class="diagv">—</b></div>
-      <div class="row"><span>本端登上频道（WS 打通）</span><b id="diag_ws" class="diagv">—</b></div>
-      <div class="row"><span>收到服务器回应</span><b id="diag_srv" class="diagv">—</b></div>
+      <div class="row"><span>本端连上中转（网页↔中转的连线）</span><b id="diag_ws" class="diagv">—</b></div>
+      <div class="row"><span>收到电脑端回应</span><b id="diag_srv" class="diagv">—</b></div>
       <div class="row"><span>最近回应时间</span><b id="diag_last" class="diagv">—</b></div>
       <div class="row"><span>断线重连 / 出错次数</span><b id="diag_cnt" class="diagv">—</b></div>
       <div class="row" style="justify-content:space-between;">
@@ -466,7 +466,10 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div id="diag_log" class="diaglog"></div>
       <div class="row" style="gap:8px; margin-top:8px;">
         <button id="btn_netreconn" style="flex:1;">立即重连</button>
-        <button id="btn_nettest" style="flex:1;">测服务器（5s）</button>
+        <button id="btn_nettest" style="flex:1;">测电脑端回应（5s）</button>
+      </div>
+      <div class="row" style="gap:8px; margin-top:8px;">
+        <button id="btn_diagcopy" style="flex:1;">📋 复制诊断信息</button>
         <button id="btn_check_fulls" style="flex:1;">检测最大化</button>
       </div>
       <div class="row"><span class="hint">检测当前是否有窗口最大化/全屏压制原版渲染</span>
@@ -582,6 +585,22 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 有字才显示橙色「插话」）。此前按远端 inputText 是否为空的旧判断，
  * 在生成期间远端输入框含占位文本时误走「远端残留」分支强制显示
  * 「发送」，与真实按钮（已是「停止」）不一致。现改为只按 sendIdle
+ * v1.42（对齐 TRAE 手机版 1.57~1.61，两套工具体验统一）：
+ *   ① 掉线体验——**主动下线只剩「页面在前台且闲置 5 分钟」一条**。
+ *      切后台 / 锁屏 / 切标签 / 关页面一律不再下线（旧版切走即登出，
+ *      回来要重登 + 整包重放，频繁切换必掉线）；回前台 cliResume()
+ *      秒续（链路活且心跳新鲜只补一个 hb，不重放全量），链路已断则
+ *      ensureConnect() 立刻重连，不再干等 3 秒定时器。
+ *   ② 修两个真 bug——拆旧连接改走 teardownWs()「全套清理」（旧版只摘
+ *      onclose：泄漏 kaTimer/cliHbTimer，且旧 onerror 会把「关闭旧连接」
+ *      这个动作本身记成一次出错，错误数虚高）；「立即重连」在连接新鲜时
+ *      只提示、不再自断好连接。
+ *   ③ 提示改白话——WS坏了→连接已断开、连接成功→已连接、服务器未启动→
+ *      服务器无响应、⚠服务端未连接→⚠还没连上，稍后再试；新增
+ *      「连不上服务器」一档（连续 3 次连都没连上 = 网络/中继不可用）；
+ *      状态灯改两级阈值（20s/60s）；诊断面板新增「📋 复制诊断信息」；
+ *      事件日志留 60 条（面板铺 25，复制取全量）；顶栏状态文字可点直接
+ *      进诊断页；诊断面板标签与按钮一并改白话。
  * 判定：生成中→停止，空闲+残留→发送，空闲→发送。 */
 
 /* 1.13：操控互斥唯一标识——'4' 开头 10 位，首次访问生成并持久保存
@@ -604,8 +623,15 @@ function channelUrl(){
   const key = (CFG.channel || '').trim();   // 首用须先经 channelPrompt 输密钥
   return WS_URL_TMPL.replace('%s', CH_PFX + key);
 }
-const KA_SEC = 25;      // 心跳间隔（秒）
+const KA_SEC = 25;      // 链路保活间隔（秒，防止中继判空闲掐线）
 const RECONNECT = 3;    // 断线重连间隔（秒）
+/* 1.42：状态灯的「服务端沉默」两级阈值（承接 TRAE 1.59）——
+   旧的 16s 单阈值太敏感，手机后台被冻 / 中继抖一下就误报故障 */
+const SRV_IDLE_MS = 20000;      // ≤20s 有消息 = 正常
+const SRV_DEAD_MS = 60000;      // ≥60s 无消息 = 报「服务器无响应」
+const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 150s 无心跳判下线
+const IDLE_MS = 5 * 60 * 1000;  // 闲置超 5 分钟才退出登录（1.42 起唯一的下线条件）
+const FAIL_ALERT = 3;           // 连续 N 次「压根没连上」→ 判为连不上服务器
 const FOX_HDR = 57;     // 协议头固定字节数
 const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
 const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
@@ -730,6 +756,12 @@ function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
 
 const S = {
   ws: null, onLine: false, wsOpenAt: 0, lastSrv: 0,
+  /* 1.42：本次断线是否发生在「页面不可见（切后台/锁屏）」期间——
+     顶栏据此区分「后台被掐，回来自动补」与「前台真断了」 */
+  dropByHide: false,
+  /* 1.42：连续多少次「压根没连上就断」（连上过一次即清零）——
+     用来区分「偶尔抖一下」与「服务端/中继整个不可用」 */
+  failStreak: 0,
   box: '(未连接)', port: 0, boxes: [], alive: new Set(),
   points: '—', acct: '', qn: 0, snap: {},
   attach_pending: null,
@@ -784,7 +816,8 @@ const el = {
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
   check_fulls: $('btn_check_fulls'), lbl_fulls: $('lbl_fulls'),
-  netclear: $('btn_netclear'), lbl_title: $('lbl_title'), lbl_ver: $('lbl_ver'),
+  netclear: $('btn_netclear'), diagcopy: $('btn_diagcopy'),
+  lbl_title: $('lbl_title'), lbl_ver: $('lbl_ver'),
   bench: $('btn_bench'), benchpage: $('page_bench'),
   benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
   benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
@@ -962,7 +995,7 @@ function renderConvs(rows){
       p.title = '在此文件夹内新建对话（隶属文件夹工作区）';
       p.onclick = e => {
         e.stopPropagation();
-        if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+        if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
         if (S.task_open) return;
         drawerClose();
         /* 1.11：统一新建弹窗（锁定模式）——创建才真正点组内新建 */
@@ -1037,7 +1070,7 @@ function convMenuOpen(title){
         if (!confirm('确认删除会话「' + title + '」？\n此操作不可恢复。')){
           return;
         }
-        if (!S.onLine){ flash('⚠ 服务端未连接', 'var(--red)'); return; }
+        if (!S.onLine){ flash('⚠ 还没连上，稍后再试', 'var(--red)'); return; }
         flash('正在删除「' + title + '」…', 'var(--red)');
         sendCmd('conv_del', [title]);
         return;
@@ -1889,16 +1922,16 @@ let helloTimer = null, helloTries = 0, gotHello = false;
 const DIAG = {reconn: 0, err: 0, testAt: 0, testOk: false, log: []};
 function diagLog(txt, cls){
   DIAG.log.push({t: Date.now(), txt: txt, cls: cls || ''});
-  if (DIAG.log.length > 8) DIAG.log.shift();
+  if (DIAG.log.length > 60) DIAG.log.shift();   // 1.42：8→60，够看清一整轮故障过程
   if (el && el.diag_log) diagRender();
 }
 function diagTest(){                        // 测服务器：发 hello，5s 内等回应
   DIAG.testAt = Date.now(); DIAG.testOk = false;
-  diagLog('测试：已发送 hello，等 5 秒回应…', 'dim');
+  diagLog('测试：已向电脑端发问，等 5 秒回应…', 'dim');
   try { sendJson({t: 'hello', v: 1}); } catch(e){}
   setTimeout(() => {
-    if (DIAG.testOk) diagLog('测试：收到服务器回应 ✓', 'ok');
-    else diagLog('测试：5 秒内无回应 ✗（服务端未启动？频道不符？）', 'bad');
+    if (DIAG.testOk) diagLog('测试：收到电脑端回应 ✓', 'ok');
+    else diagLog('测试：5 秒内无回应 ✗（电脑端没在跑？频道不符？）', 'bad');
     DIAG.testAt = 0;
   }, 5000);
 }
@@ -1907,17 +1940,24 @@ function diagRender(){
   /* 频道 */
   el.diag_chan.textContent = CFG && CFG.channel
     ? (CH_PFX || '') + '•••' + String(CFG.channel).slice(-2) : '未设置';
-  /* 本端登上频道 */
-  if (S.onLine){ el.diag_ws.textContent = '✅ 已连接（登上频道）';
+  /* 本端连上中转 */
+  if (S.onLine){ el.diag_ws.textContent = '✅ 已连上中转';
     el.diag_ws.style.color = '#1a7f37'; }
+  else if (S.failStreak >= FAIL_ALERT){
+    el.diag_ws.textContent = '❌ 连不上中转（已连续 ' + S.failStreak + ' 次）';
+    el.diag_ws.style.color = '#c62828'; }
   else if (S.wsOpenAt){ el.diag_ws.textContent = '❌ 已断开 · 重连中';
     el.diag_ws.style.color = '#c62828'; }
   else { el.diag_ws.textContent = '⏳ 连接中…';
     el.diag_ws.style.color = '#b26a00'; }
-  /* 服务器回应 */
-  if (S.lastSrv && Date.now() - S.lastSrv < 16000){
-    el.diag_srv.textContent = '✅ 正常（16s 内收到）';
+  /* 电脑端回应（1.42：两级阈值，别把网络抖动当故障） */
+  if (S.lastSrv && Date.now() - S.lastSrv < SRV_IDLE_MS){
+    el.diag_srv.textContent = '✅ 正常（' + (SRV_IDLE_MS / 1000) + 's 内收到）';
     el.diag_srv.style.color = '#1a7f37';
+    el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
+  } else if (S.lastSrv && Date.now() - S.lastSrv < SRV_DEAD_MS){
+    el.diag_srv.textContent = '⏳ 暂时没动静（后台被冻 / 中继抖了一下）';
+    el.diag_srv.style.color = '#b26a00';
     el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
   } else if (S.lastSrv){
     el.diag_srv.textContent = '❌ 超时（最后回应后无消息）';
@@ -1929,19 +1969,25 @@ function diagRender(){
     el.diag_last.textContent = '—';
   }
   el.diag_cnt.textContent = DIAG.reconn + ' 次 / ' + DIAG.err + ' 次';
-  /* 日志 */
-  el.diag_log.innerHTML = DIAG.log.map(l =>
-    '<div class="' + (l.cls || '') + '">'
-    + new Date(l.t).toLocaleTimeString() + '  ' + l.txt + '</div>').join('')
-    || '<div class="dim">（暂无事件）</div>';
+  /* 日志：数据留 60 条（复制可取全量），面板只铺最近 25 条免得滚动太长 */
+  const _seen = DIAG.log.slice(-25);
+  el.diag_log.innerHTML =
+    (DIAG.log.length > _seen.length
+      ? '<div class="dim">… 面板仅显示最近 25 条（共 ' + DIAG.log.length
+        + ' 条；点「📋 复制诊断信息」可取全量）</div>'
+      : '')
+    + (_seen.map(l =>
+        '<div class="' + (l.cls || '') + '">'
+        + new Date(l.t).toLocaleTimeString() + '  ' + l.txt + '</div>').join('')
+       || '<div class="dim">（暂无事件）</div>');
 }
 setInterval(diagRender, 1000);
 
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.41';
-const VER_DESC = '最大化/全屏预警 + 连接诊断';
+const VER = '1.42';
+const VER_DESC = '切后台不再下线（只留闲置5分钟）+ 回前台秒续 + 提示改白话';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -1953,9 +1999,22 @@ function renderVer(box){
   }catch(e){ /* 版本渲染绝不影响连接 */ }
 }
 
+function teardownWs(){
+  /* 1.42：拆旧连接必须「全套清理」。只摘 onclose 会留下三重后患：
+     ① 旧的保活/心跳定时器继续用全局 ws 发 ping（每重连一次泄漏一组）
+     ② 旧 onerror 把「关掉旧连接」这个动作本身记成一次出错（数字虚高）
+     ③ 登录态残留 */
+  clearTimeout(reconnectTimer);  reconnectTimer = null;
+  try {
+    if (ws){ ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null; ws.close(); }
+  } catch(e){}
+  clearInterval(kaTimer);     kaTimer = null;
+  clearInterval(cliHbTimer);  cliHbTimer = null;
+  clearTimeout(helloTimer);   helloTimer = null;
+  cliLoggedIn = false;
+}
 function connect(){
-  clearTimeout(reconnectTimer);
-  try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
+  teardownWs();
   setOnLine(false);
   gotHello = false;
   helloTries = 0;    // 1.07：重连后重起握手重试（原不重置——10 次用尽
@@ -1963,8 +2022,12 @@ function connect(){
   S.lastSrv = 0;    // 旧连接的服务端活动不再作数
   ws = new WebSocket(channelUrl());   // 1.45：加密频道（前缀+密钥拼接）
   S.ws = ws;
+  /* 1.42：本次连接是否真的打开过——没打开就断 = 压根连不上（网络/中继） */
+  let _openOk = false;
   ws.onopen = () => {
-    diagLog('WS 已连接（登上频道）', 'ok');
+    _openOk = true;                    // 1.42：本次连接真的打开过
+    S.failStreak = 0;                  // 1.42：连上了就清零失败计数
+    diagLog('已连上中转服务器', 'ok');
     setOnLine(true);
     sendHello();               // 上线即拉服务端状态
     doLogin();                 // 1.45：登录 → 服务端开播并整包重放
@@ -1977,53 +2040,98 @@ function connect(){
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
     DIAG.reconn++;
-    diagLog('断线（' + RECONNECT + 's 后重连 #' + DIAG.reconn + '）', 'bad');
+    /* 1.42：记下是否「切后台/锁屏期间被系统掐断」，顶栏文案据此区分 */
+    S.dropByHide = !!document.hidden;
+    /* 1.42：压根没连上就断了 → 累加失败次数（连上过则不计） */
+    if (!_openOk){
+      S.failStreak++;
+      if (S.failStreak === FAIL_ALERT){
+        diagLog('已连续 ' + S.failStreak + ' 次连不上中转服务器——'
+                + '请检查手机网络，或核对频道设置是否与电脑端一致', 'bad');
+      }
+    }
+    diagLog((S.dropByHide ? '后台断线（回来自动补）'
+                          : '断线（' + RECONNECT + 's 后重连 #' + DIAG.reconn + '）'),
+            'bad');
     cliLogout('断线');         // 1.45：断线即退出登录（服务端停播）
     setOnLine(false);
     clearInterval(kaTimer);
     clearTimeout(helloTimer);
+    clearInterval(cliHbTimer);
     reconnectTimer = setTimeout(connect, RECONNECT * 1000);
   };
   ws.onerror = () => {
     DIAG.err++;
-    diagLog('WS 错误 #' + DIAG.err + '（可能是网络/中继问题）', 'bad');
+    diagLog('连接出错 #' + DIAG.err + '（网络或中转问题）', 'bad');
   };
 }
 
-/* ============ 1.45：客户端登录态（WS 节流） ============
-   登录 → 服务端才广播（并整包重放全量）；在线期间每 60s 发一次 hb 心跳；
-   页面切后台 / 闲置 5 分钟 / 断线 → logout（服务端随之停播）。 */
+/* ============ 客户端登录态（WS 节流） ============
+   登录 → 服务端才广播（并整包重放全量）；在线期间每 60s 发一次 hb 心跳。
+   1.42：**主动下线只剩一条——「页面在前台且闲置 5 分钟」**。
+   切后台 / 锁屏 / 切标签 / 关页面一律不再下线：那些是手机的省电动作，
+   一下线反而要整包重放更费流量，回前台还得干等重连。 */
 let cliHbTimer = null, cliLoggedIn = false, cliIdleAt = Date.now();
+let cliLastBeat = 0;           /* 1.42：最后一次成功发出登录心跳的时刻 */
 function doLogin(){
   cliIdleAt = Date.now();
   if (!cliLoggedIn){
     cliLoggedIn = true;
     try { sendJson({t: 'login', fg: !document.hidden}); } catch(e){}
   }
+  cliLastBeat = Date.now();
 }
 function cliLogout(reason){
   if (!cliLoggedIn) return;
   cliLoggedIn = false;
+  if (cliHbTimer){ clearInterval(cliHbTimer); cliHbTimer = null; }
   try { sendJson({t: 'logout', r: reason || ''}); } catch(e){}
 }
 function startCliHb(){
   clearInterval(cliHbTimer);
   cliHbTimer = setInterval(() => {
-    if (!S.onLine) return;
-    if (cliLoggedIn && !document.hidden) sendJson({t: 'hb', fg: true});
-  }, 60000);
+    if (!S.onLine || !cliLoggedIn) return;
+    /* 1.42：后台也照发（保活）——发得出去就发，被系统冻结也无害 */
+    try { sendJson({t: 'hb', fg: !document.hidden}); cliLastBeat = Date.now(); } catch(e){}
+  }, HB_SEC * 1000);
 }
 function cliTouch(){                       // 任意操作 = 在线（续登录）
   cliIdleAt = Date.now();
   if (!cliLoggedIn) doLogin();             // 有操作且未登录 → 自动登录
 }
-setInterval(() => {                        // 闲置 5 分钟 → 退登停播
-  if (cliLoggedIn && Date.now() - cliIdleAt > 300000) cliLogout('闲置5分钟');
+setInterval(() => {                        // 1.42：仅「前台且闲置」才退登停播
+  if (!document.hidden && cliLoggedIn && Date.now() - cliIdleAt > IDLE_MS)
+    cliLogout('闲置5分钟');
 }, 15000);
-/* 切后台/回到前台 */
+/* 1.42：回前台/回页面 —— 能省则省地续上（不无脑整包重放） */
+function cliResume(){
+  cliIdleAt = Date.now();                  // 回前台视为一次操作
+  if (!ws || ws.readyState !== 1){         // 链路已断 → 立刻重连（不等 3 秒）
+    ensureConnect();
+    return;
+  }
+  const stale = !cliLastBeat || (Date.now() - cliLastBeat > 120000);
+  if (cliLoggedIn && !stale){
+    /* 没断线、心跳也新鲜 → 只补一个心跳，秒续，免重放 */
+    try { sendJson({t: 'hb', fg: true}); cliLastBeat = Date.now(); } catch(e){}
+  } else {
+    /* 服务端可能已按「150 秒无心跳」把我们判下线 → 重新登录（整包重放） */
+    cliLoggedIn = false;
+    doLogin();
+  }
+}
+function ensureConnect(){
+  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+  clearTimeout(reconnectTimer);
+  connect();
+}
+/* 1.42：切后台/锁屏不再主动下线；回前台自动续上 */
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) cliLogout('切后台');
-  else if (S.onLine) doLogin();
+  if (document.hidden) return;             // 只是切走，什么都不做
+  cliResume();
+});
+window.addEventListener('pageshow', () => {  // 从浏览器缓存(bfcache)返回
+  if (!document.hidden) cliResume();
 });
 /* 触摸/按键/点击/滚动都算在线 */
 ['touchstart', 'keydown', 'mousedown', 'scroll'].forEach(ev =>
@@ -2494,32 +2602,57 @@ function applySwitch(box, port){
 
 function setOnLine(b){
   S.onLine = b;
-  if (b) S.wsOpenAt = Date.now();
+  if (b){ S.wsOpenAt = Date.now(); S.dropByHide = false; }  // 1.42：连上即清断线标记
   renderLink();
 }
 
-/* 1.07：顶栏状态灯 = 与服务端的连接状况（不再显示无意义的
-   「自身是否在线」——客户端自己显然在运行）。判活依据：收到
-   服务端任何来向消息（hello 应答 / 每 6s 一轮的 ports 广播 /
-   快照…）即算活着；16s 无任何消息判「服务器未启动」（阈值
-   覆盖连续 2 轮 ports 丢失）。 */
+/* 1.42：顶栏状态灯 = 与服务端的连接状况，全部由本端算出（不是服务器推的）。
+   判活依据：收到服务端任何来向消息（hello 应答 / 每 6s 一轮的 ports 广播 /
+   快照…）即算活着。1.59 起分两级：20~60 秒只提示「同步暂停中…」，
+   满 60 秒才提示「服务器无响应」——前端只能证明「没收到」，
+   不能断言对端进程没启动。
+   1.61 起文案去黑话：「WS坏了」→「连接已断开」；并新增「连不上服务器」一档，
+   直指网络或中继服务不可用。 */
+const LINKDOC = {
+  '连接中…':    '正在连中转服务器（第一次连，或刚点过重连）',
+  '连接已断开': '连上过，现在断了——会自动重连，通常几秒内恢复',
+  '连不上服务器': '连着连不上，多为网络或中转服务不可用；可到诊断页查网络/频道',
+  '重连中…':    '刚才切到别的 App，被手机掐断了——回到本页会自动接上',
+  '已连接':     '连接正常，可以发指令、收消息',
+  '同步暂停中…': '连接在，但一小会儿没听到服务器动静（后台被冻/中继抖）',
+  '服务器无响应': '已连上，但 1 分钟没收到服务器消息——可能电脑端没在跑'
+};
 function renderLink(){
   let txt, col;
   if (!S.onLine){
-    if (S.wsOpenAt){ txt = 'WS坏了'; col = 'var(--red)'; }   // 曾连上后断开
+    if (S.failStreak >= FAIL_ALERT){
+      /* 1.42：反复「连都没连上」→ 直说连不上，别让用户猜 */
+      txt = '连不上服务器'; col = 'var(--red)';
+    }
+    else if (S.wsOpenAt){
+      /* 1.42：切后台被系统掐断的，不算故障——回前台会立刻自动重连，
+         文案降级为「重连中…」；只有前台真断了才报红「连接已断开」 */
+      if (S.dropByHide){ txt = '重连中…'; col = 'var(--orange)'; }
+      else { txt = '连接已断开'; col = 'var(--red)'; }
+    }
     else { txt = '连接中…'; col = 'var(--gray)'; }           // 首次未连过
   } else {
     const gap = Date.now() - (S.lastSrv || S.wsOpenAt);
-    if (S.lastSrv && gap < 16000){
-      txt = '连接成功'; col = 'var(--green)';
-    } else if (gap < 16000){                   // 刚连上，等服务端应答
+    if (S.lastSrv && gap < SRV_IDLE_MS){
+      txt = '已连接'; col = 'var(--green)';
+    } else if (gap < SRV_IDLE_MS){             // 刚连上，等服务端应答
       txt = '连接中…'; col = 'var(--gray)';
+    } else if (gap < SRV_DEAD_MS){
+      /* 1.42：20~60 秒没动静 —— 多半是手机后台被冻/中继抖了一下，
+         服务端未必有问题，用灰字中性提示，不报故障 */
+      txt = '同步暂停中…'; col = 'var(--gray)';
     } else {
-      txt = '服务器未启动'; col = 'var(--orange)';
+      txt = '服务器无响应'; col = 'var(--orange)';   // 1.42：60s 无消息才提示
     }
   }
-  el.rlink.textContent = txt;
+  el.rlink.textContent = '🌐' + txt;
   el.rlink.style.color = col;
+  el.rlink.title = LINKDOC[txt] || '';       // 1.42：白话解释（长按可见）
 }
 function srvSeen(){                    // 服务端来向消息：判活 + 即时刷新
   S.lastSrv = Date.now();
@@ -2535,7 +2668,7 @@ function renderPorts(){
 /* ================= 命令 ================= */
 
 function cmd(c, a){
-  if (!S.onLine){ flash('⚠ 服务端未连接，命令未发出'); return; }
+  if (!S.onLine){ flash('⚠ 还没连上，命令未发出'); return; }
   /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
      清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
   if ((c === 'send' || c === 'interject') && typeof a === 'string'
@@ -2586,7 +2719,7 @@ el.ent.addEventListener('keydown', e => {
 });
 el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并入）
   drawerClose();
-  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   if (!S.snap || !S.snap.online){ flash('⚠ WorkBuddy 未在线'); return; }
   if (S.task_open) return;
   taskDlgOpen();
@@ -2595,7 +2728,7 @@ el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并�
 };
 el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 boot
   drawerClose();                  // 本就先杀再拉——原在线时本地拦下，
-  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }   // WorkBuddy 卡死救不了）
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }   // WorkBuddy 卡死救不了）
   const online = S.snap && S.snap.online;
   if (!confirm(online
     ? '要重启当前目标 ' + S.box + ' 的 WorkBuddy 吗？\n'
@@ -2611,7 +2744,7 @@ el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 b
 el.box.onchange = () => {                 // 切换目标：在线直接切/离线确认拉起
   const box = el.box.value;
   if (box === S.box || S.busy){ el.box.value = S.box; return; }
-  if (!S.onLine){ flash('⚠ 服务端未连接'); el.box.value = S.box; return; }
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); el.box.value = S.box; return; }
   if (S.alive.has(box)){
     flash('正在切换到 ' + box + '…', 'var(--blue)');
     sendJson({t: 'switch_box', box: box});
@@ -2658,7 +2791,7 @@ el.dclose.onclick = drawerClose;
    （目录行 ✅ 选定子目录；头钮 ✅ 选定当前浏览目录；文件隐藏） —— */
 
 function benchReq(rel){
-  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   el.benchlist.innerHTML = '<div class="brow empty">读取中…</div>';
   sendJson({t: 'bench_ls', p: rel || ''});
 }
@@ -2740,7 +2873,7 @@ function benchRender(v){
   }
 }
 el.bench.onclick = () => {
-  if (!S.onLine){ flash('⚠ 服务端未连接，无法浏览工作台'); return; }
+  if (!S.onLine){ flash('⚠ 还没连上，无法浏览工作台'); return; }
   S.bench_mode = 'ins';
   benchModeUI();
   el.benchpage.classList.add('on');
@@ -2833,7 +2966,7 @@ el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 WorkBuddy 输�
   if (!wasLock) sendCmd('task_dlg_cancel', null);
 };
 el.refresh_pts.onclick = () => {         /* 1.34：刷新积分（防升级移服务端） */
-  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   flash('正在刷新积分…', 'var(--blue)');
   sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
 };
@@ -2846,7 +2979,7 @@ el.file.onchange = async () => {
   el.file.value = '';
   if (!files.length) return;
   if (S.attach_pending){ flash('📎 正在附加上一批，请稍候…', 'var(--orange)'); return; }
-  if (!S.onLine){ flash('⚠ 服务端未连接'); return; }
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   const arr = [];
   for (const f of files){
     if (f.size > 6 * 1024 * 1024){
@@ -2873,17 +3006,53 @@ el.file.onchange = async () => {
 
 /* ================= 网络页 ================= */
 
-el.net.onclick = () => {
+function openDiagPage(){
   drawerClose();
   renderToday(); renderNetHist();
   el.netpage.classList.add('on');
-};
+}
+el.net.onclick = openDiagPage;
+/* 1.42：点顶栏状态文字 → 直接进诊断页（看不懂那几个字时就点它） */
+el.rlink.onclick = openDiagPage;
 el.netback.onclick = () => el.netpage.classList.remove('on');
 
 /* 1.xx：连接诊断按钮 */
-el.netreconn.onclick = () => { diagLog('手动重连', 'warn'); connect(); };
+el.netreconn.onclick = () => {
+  /* 1.42：连接正新鲜时点它 = 自己把好连接掐断（观感「频繁掉线」）——
+     先判新鲜度，正常就只提示、不动手 */
+  if (S.onLine && S.lastSrv && Date.now() - S.lastSrv < SRV_IDLE_MS){
+    diagLog('连接正常，已跳过重连', 'dim');
+    flash('连接正常，无需重连', 'var(--green)');
+    return;
+  }
+  diagLog('手动重连', 'warn');
+  connect();
+};
 el.nettest.onclick = diagTest;
 el.netclear.onclick = () => { DIAG.log.length = 0; diagRender(); };
+/* 1.42：一键复制诊断信息（直接粘给 AI 排查，省得截图） */
+el.diagcopy.onclick = () => {
+  const T = v => (v == null ? '—' : String(v));
+  const lines = [
+    '【' + APP_NAME + ' 诊断 v' + VER + '】' + new Date().toLocaleString(),
+    '频道：' + T(el.diag_chan && el.diag_chan.textContent),
+    '本端连上中转：' + T(el.diag_ws && el.diag_ws.textContent),
+    '收到电脑端回应：' + T(el.diag_srv && el.diag_srv.textContent),
+    '最近回应：' + T(el.diag_last && el.diag_last.textContent),
+    '断线/出错：' + T(el.diag_cnt && el.diag_cnt.textContent),
+    '前台可见：' + (!document.hidden) + '   登录态：' + cliLoggedIn
+      + '   空闲：' + Math.round((Date.now() - cliIdleAt) / 1000) + 's'
+      + '   末次心跳：' + (cliLastBeat
+          ? Math.round((Date.now() - cliLastBeat) / 1000) + 's前' : '—'),
+    '框：' + T(S.box) + '   端口：' + T(S.port)
+      + '   在线端：' + S.alive.size + '/' + S.boxes.length,
+    '设备：' + navigator.userAgent,
+    '—— 事件日志（' + DIAG.log.length + ' 条）——'
+  ];
+  DIAG.log.forEach(l =>
+    lines.push(new Date(l.t).toLocaleTimeString() + '  ' + l.txt));
+  copyText(lines.join('\n'));
+};
 /* 1.xx：被动查询最大化/全屏——前端发起，服务端即时检测回投一次结果 */
 el.check_fulls.onclick = () => {
   el.lbl_fulls.textContent = '查询中…';
