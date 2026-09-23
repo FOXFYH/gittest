@@ -784,6 +784,9 @@ const S = {
   pend_send: 30000,                  /* 1.32：发送确认超时毫秒（默认 30 秒，
                                         pendcfg 同步；超时才显示改写/丢弃/重发） */
   switch_pend: null,
+  /* F7：切换失败观察——超时兜底重拉 hello 后，下一拍仍未激活目标
+     会话时轻提示「切换未完成」（一次性，消费即清） */
+  _swFail: null,
   /* 1.xx：最大化/全屏预警——fulls_snooze=静默截止时刻（毫秒时间戳，
      稍后提醒15分钟 / 近期不再提醒6小时）；falls_fail=切换连续失败计数
      （兜底触发预警用，成功到达归零） */
@@ -871,9 +874,16 @@ function copyFallback(t, done){
 
 /* ================= Markdown 轻量渲染（AI 消息） ================= */
 
+/* F3：mdHtml 结果缓存——生成中历史消息文本不变，同文本直接复用渲染
+   结果；上限 600 条，超出按插入序淘汰最早一项，防内存无限涨。 */
+const MD_HTML_MAX = 600;
+const _mdHtml = new Map();
 function mdHtml(text){
+  text = String(text);
+  const hit = _mdHtml.get(text);                 // F3：同文本命中缓存
+  if (hit !== undefined) return hit;
   const out = [];
-  const parts = String(text).split(/```/);       // 奇数下标=代码块
+  const parts = text.split(/```/);               // 奇数下标=代码块
   for (let i = 0; i < parts.length; i++){
     if (i % 2 === 1){                            // 代码块
       let c = parts[i];
@@ -896,7 +906,11 @@ function mdHtml(text){
       '<a href="$2" target="_blank" rel="noopener">$1</a>');
     out.push(s);
   }
-  return out.join('');
+  const html = out.join('');
+  if (_mdHtml.size >= MD_HTML_MAX)               // F3：淘汰最早插入项
+    _mdHtml.delete(_mdHtml.keys().next().value);
+  _mdHtml.set(text, html);
+  return html;
 }
 
 /* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
@@ -906,10 +920,29 @@ function djb2(s){
   for (let i = 0; i < s.length; i++) h = (h*33 ^ s.charCodeAt(i)) >>> 0;
   return h.toString(16).padStart(8, '0').slice(0, 10);
 }
+/* F2：时间缓存——localStorage 只读一次入内存，仅当出现新消息时间戳
+   时才标记脏；写盘防抖 5s 合并一次，生成中不再每帧全量 setItem。 */
+let _tmCache = null, _tmDirty = false, _tmTimer = 0;
 function timesGet(){
-  try { return JSON.parse(localStorage.getItem(LS_TM)) || {}; }
-  catch(e){ return {}; }
+  if (!_tmCache){
+    try { _tmCache = JSON.parse(localStorage.getItem(LS_TM)) || {}; }
+    catch(e){ _tmCache = {}; }
+  }
+  return _tmCache;
 }
+function timesDirty(){
+  if (_tmDirty) return;
+  _tmDirty = true;
+  clearTimeout(_tmTimer);
+  _tmTimer = setTimeout(timesFlush, 5000);
+}
+function timesFlush(){
+  clearTimeout(_tmTimer);
+  if (!_tmDirty) return;
+  _tmDirty = false;
+  try { localStorage.setItem(LS_TM, JSON.stringify(_tmCache)); } catch(e){}
+}
+window.addEventListener('pagehide', () => timesFlush());   // 离开前兜底落盘
 function fmtTime(iso){                    // 今天 HH:MM，往日 MM-DD HH:MM（本地时区）
   if (!iso) return '';
   const t = new Date(iso);                // toISOString 的 UTC 串 -> 按本机时区解析
@@ -927,22 +960,32 @@ function resolveTimes(msgs){
   for (const m of msgs){
     if (m[0] === 'u' || m[0] === 'user'){
       const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
-      if (!cache[k]) cache[k] = new Date().toISOString().slice(0,19);
+      if (!cache[k]) { cache[k] = new Date().toISOString().slice(0,19); timesDirty(); }
       lastU = cache[k];
       out.push(fmtTime(cache[k]));
     } else {
       out.push(fmtTime(lastU));           // AI 消息沿用其提问时间
     }
   }
-  localStorage.setItem(LS_TM, JSON.stringify(cache));
   return out;
 }
+/* F5：curTitle 结果缓存——renderMsgs/resolveTimes/renderState 每帧共调
+   多次，convs 状态不变则直接复用上一次结果，不再反复遍历。 */
+let _ctSig = '', _ctVal = '';
 function curTitle(){
   /* 1.5x：convs 每行 ['c', sid, is_current, 显示名]——展示名在 r[3]（服务端
      host.snap 追加，避免侧栏/状态栏拿 sid 当会话名显乱码）；有则优先，无则回退 r[1]。 */
   const convs = (S.snap.convs || []);
-  for (const r of convs) if (r[0] === 'c' && r[2]) return (r[3] || '').trim() || r[1];
-  return '当前会话';
+  let sig = 'n' + convs.length;
+  for (const r of convs) sig += '|' + r[0] + ':' + (r[1] || '') + ':'
+                              + (r[2] ? 1 : 0) + ':' + (r[3] || '');
+  if (sig === _ctSig) return _ctVal;
+  _ctSig = sig;
+  _ctVal = (() => {
+    for (const r of convs) if (r[0] === 'c' && r[2]) return (r[3] || '').trim() || r[1];
+    return '当前会话';
+  })();
+  return _ctVal;
 }
 
 /* ================= 渲染 ================= */
@@ -967,6 +1010,26 @@ function renderAll(){
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
   renderAcct();
+}
+
+/* F4：renderAll 合并节流——snap 连续到达（每 2s 一拍）合并进 rAF 一帧
+   渲染；同一帧内重复调度直接复用（跳过），渲染顺序不变、取最新快照。 */
+let _rafTick = 0;
+function scheduleRenderAll(){
+  if (_rafTick) return;
+  _rafTick = requestAnimationFrame(() => {
+    _rafTick = 0;
+    renderAll();
+    /* F7：切换超时重拉 hello 后仍未到目标 → 渲染完成后再轻提示一次
+       （放在 renderAll 之后，避免被 renderState 立刻盖掉） */
+    if (S._swFail){
+      const f = S._swFail; S._swFail = null;
+      const cv = (S.snap.convs || []);
+      const act = cv.find(r => r[0] === 'c' && r[2]);
+      if (!act || act[1] !== f.title)
+        flash('⚠ 切换未完成，会话可能已不存在', 'var(--orange)');
+    }
+  });
 }
 
 function renderAcct(){                     // 1.33：登录账号名（hello/account 更新）
@@ -1327,6 +1390,7 @@ function pendSwitchSet(title){
   }
   S.switch_pend = {title: title, ts: Date.now(),
                    fp0: msgsFp(S.snap.msgs)};
+  S._swFail = null;                    /* F7：新切换开始，撤销旧失败观察 */
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   renderAll();
 }
@@ -1407,12 +1471,22 @@ function confirmFulls(msg, onOk){
   document.body.appendChild(ov);
 }
 
+/* F1：单条消息指纹——m[1] 只取 len+首尾各 24 字符做 djb2（生成中文本
+   变化集中在尾部/长度，均会被捕获），每帧 key 计算从 O(总字符数) 降到
+   O(消息条数)；角色、rev/del 标志、消息条数照常进 key。 */
+function msgKey(m){
+  const t = m[1] || '';
+  const L = t.length;
+  return m[0] + ':' + djb2(L + '|' + t.slice(0, 24)
+    + '|' + (L > 48 ? t.slice(L - 24) : ''))
+    + ':' + (m[3] || 0) + (m[4] || 0);
+}
 function renderMsgs(msgs, finish, opts, ask){
   opts = opts || [];
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
-     与 opts（选项卡答完即销毁） */
-  let key = msgs.map(m => m[0] + ':' + m[1] + ':' + (m[3] || 0)
-                              + (m[4] || 0)).join('#');
+     与 opts（选项卡答完即销毁）；F1：消息文本指纹哈希化 */
+  let key = 'n' + msgs.length + '#'              // F1：条数显式进 key（增删必重画）
+          + msgs.map(msgKey).join('#');
   if (finish)
     key += '#fin:' + (finish.inLast ? 'L' : '-') + '|'
            + (finish.files || []).join('|') + '~'
@@ -1728,20 +1802,29 @@ function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
   el.send.classList.toggle('stopmode', stop);
   el.send.disabled = !enabled;
 }
+/* F5：发送钮状态守卫——只在「停止/可发/置灰」三态翻转时才刷 DOM
+   （textContent/class/disabled 共 4 处），同态直接跳过，不再每帧
+   无条件赋值。 */
+let _sbKey = '';
 function refreshSendBtn(){               // 1.30：两态——有本地字=发送；生成中无字=停止
   el.send.classList.remove('intermode');
   /* 1.35：按钮可用性只看本地文字——不再因「界面未就绪」误判置灰；
      任何情况只要有本地文字就能点发送（服务端会在界面跑起来后执行） */
+  let stop, enabled;
   if (el.ent.value.trim()){
     /* 1.30：有本地字就显示「发送」——无论空闲还是生成中。生成中点发送
        由服务端先暂停本轮生成（点停止键→等空闲）再正常发送。 */
-    setSendBtn(false, true);
+    stop = false; enabled = true;
   } else if (S.gen){
-    setSendBtn(true, true);           // 生成中、无本地字 → 停止钮
+    stop = true; enabled = true;           // 生成中、无本地字 → 停止钮
   } else {
     /* 1.46：空闲灰=需填写文本——本地 #ent 为空则发送钮灰（disabled） */
-    setSendBtn(false, false);
+    stop = false; enabled = false;
   }
+  const key = (stop ? 'S' : 's') + (enabled ? '1' : '0');
+  if (key === _sbKey) return;              // F5：状态没翻转，跳过赋值
+  _sbKey = key;
+  setSendBtn(stop, enabled);
 }
 
 function renderState(snap){
@@ -2035,8 +2118,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.26';
-const VER_DESC = '切换会话不再闪「界面未就绪」：切换索引与广播同源、越界兜底刷新，超时/迟到主动拉即时全量';
+const VER = '1.27';
+const VER_DESC = '性能大优化：消息指纹哈希化/mdHtml缓存/时间戳写盘降频/rAF合并渲染/状态缓存，生成中不重建整区、静止零重绘';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2310,7 +2393,7 @@ function switchSrv(nm){
   setCur(nm);
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
-  S.pending = []; S.switch_pend = null;
+  S.pending = []; S.switch_pend = null; S._swFail = null;
   S.pend_claims = []; S.pend_conv = '';
   S.busy = false; S.model_busy = false;
   S.points = '—'; el.points.textContent = '积分 —';
@@ -2428,15 +2511,18 @@ function onEv(kind, v){
           if (act && act[1] === S.switch_pend.title && arrived){
             S.falls_fail = 0;
           }
-          S.switch_pend = null;              // 超时兜底，别一直挂着
           /* 1.xx：超时/迟到（目标快照没按时到）→ 主动拉即时全量，
              避免界面停留在旧内容/「未就绪」观感等 12s 才缓过来 */
           if (timedout && !arrived){
+            /* F7：记录待观察目标——下一拍渲染后若仍未激活该会话
+               （switch_pend 已清、act 未到目标），轻提示「切换未完成」 */
+            S._swFail = {title: S.switch_pend.title};
             try { sendJson({t: 'hello'}); } catch(e){}
           }
+          S.switch_pend = null;              // 超时兜底，别一直挂着
         }
       }
-      renderAll();
+      scheduleRenderAll();                   // F4：snap 合并进 rAF 渲染
       break;
     }
     case 'dead':
