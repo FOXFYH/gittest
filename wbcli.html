@@ -72,6 +72,17 @@ body.fmsg #fexit{display:block;}
 .msg .body pre code{background:none; padding:0;}
 .msg .body h1,.msg .body h2,.msg .body h3{margin:4px 0 2px; font-size:14px;}
 .msg .body a{color:var(--blue);}
+/* ── 思维过程（AI 消息内，灰色斜体、可折叠/长截断）── */
+.msg.agent .think{font-style:italic; margin:1px 0 4px;}
+.msg.agent .think .thinkh{display:inline-flex; align-items:center; gap:4px;
+  cursor:pointer; color:var(--gray); font-size:12px; white-space:nowrap;
+  background:rgba(0,0,0,.05); padding:1px 8px; border-radius:4px;
+  margin-bottom:3px; user-select:none;}
+.msg.agent .think .thinkh:active{background:rgba(0,0,0,.1);}
+.msg.agent .think .thinkb{font-size:12px; color:#9a9a9a;
+  white-space:pre-wrap; word-break:break-word; line-height:1.55;
+  max-height:76px; overflow:hidden;}
+.msg.agent .think.open .thinkb{max-height:none;}
 .empty{color:#999; text-align:center; padding:30px 0;}
 /* ── 1.25：会话操作菜单（长按会话行） ── */
 #convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
@@ -751,6 +762,7 @@ const S = {
   favs: [], models_full: [], fav_invalid: [], fav_warned: [],
   model_names: new Set(),
   convs_key: null, msgs_key: null,
+  thinkOpen: false,          /* 思维块是否展开（默认折叠=截断） */
   busy: false, gen: false, ready: false, bench: null,
   bench_mode: 'ins',
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
@@ -1393,7 +1405,8 @@ function renderMsgs(msgs, finish, opts, ask){
   key += '#opt:' + opts.map(o => o.t).join('|');
   /* 1.09：待确认占位 + 切换在途条参与指纹（状态推进/撤下要重画） */
   key += '#pend:' + pendSig()
-       + (S.switch_pend ? '#sw:' + S.switch_pend.title : '');
+       + (S.switch_pend ? '#sw:' + S.switch_pend.title : '')
+       + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80);
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -1419,6 +1432,9 @@ function renderMsgs(msgs, finish, opts, ask){
   }
   if (empty){ renderPending(); return; }
   const times = resolveTimes(msgs);
+  let lastAgent = -1;
+  for (let i = msgs.length - 1; i >= 0; i--)
+    if (msgs[i][0] !== 'u' && msgs[i][0] !== 'user'){ lastAgent = i; break; }
   let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
   msgs.forEach((m, i) => {
     const user = m[0] === 'u' || m[0] === 'user';
@@ -1439,10 +1455,21 @@ function renderMsgs(msgs, finish, opts, ask){
     }
     const d = document.createElement('div');
     d.className = 'msg ' + (user ? 'user' : 'agent');
+    /* 1.5x：思维过程——紧贴 AI 回答内部展示最一段思考(snap.plan)，
+       灰色斜体「💭 思考」小标题可点击折叠/展开；生成中实时更新，完成后保留。 */
+    let think = '';
+    if (!user && i === lastAgent && S.snap && S.snap.plan
+        && String(S.snap.plan).trim()){
+      const to = S.thinkOpen ? ' open' : '';
+      think = '<div class="think' + to + '">'
+            + '<div class="thinkh">💭 思考<span class="caret">'
+            + (S.thinkOpen ? '▾' : '▸') + '</span></div>'
+            + '<div class="thinkb">' + esc(S.snap.plan) + '</div></div>';
+    }
     let h = '<div class="who">' + (user ? '我' : 'WorkBuddy')
           + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
-          + '</div><div class="body">'
+          + '</div>' + think + '<div class="body">'
           + (user ? esc(m[1]) : mdHtml(m[1])) + '</div>';
     d.innerHTML = h;
     /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
@@ -1475,6 +1502,14 @@ function renderMsgs(msgs, finish, opts, ask){
         sendCmd(k, mi);
       };
     });
+    /* 1.5x：思维块折叠/展开交互（记住状态，快照重画后仍保持） */
+    const thinkH = d.querySelector('.thinkh');
+    if (thinkH) thinkH.onclick = () => {
+      S.thinkOpen = !S.thinkOpen;
+      thinkH.parentElement.classList.toggle('open', S.thinkOpen);
+      const cp = thinkH.querySelector('.caret');
+      if (cp) cp.textContent = S.thinkOpen ? '▾' : '▸';
+    };
     el.msgs.appendChild(d);
   });
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 WorkBuddy
@@ -1707,13 +1742,11 @@ function renderState(snap){
         tail = snap.tail;
   if (!idle){                                // 生成中（含远端残留）→ 停止/插话
     S.gen = true;
-    /* 1.5x：生成中不再只给「规划中/输出中」两个固定词——服务端 make_snap
-       会随 CLI 台账实时追加的分步 reasoning 持续更新 tail（推理片段），
-       状态栏顺带展示该实时预告，让生成过程可见（CSS ellipsis 自动截断）。 */
+    /* 状态条 = 「规划中/输出中」+ 当前会话名。思维过程(reasoning/tail)
+       不再挤进状态条，而是实时展示在其 AI 回答消息内部的「💭 思考」
+       折叠块里（见 renderMsgs）——生成中随 snap.plan 实时更新，完成后保留。 */
     const ct3 = (curTitle() || '').trim();
     let g = '✏️ ' + (tail ? '规划中' : '输出中');
-    const tpre = (tail || '').trim();
-    if (tpre) g += ' · ' + tpre;
     el.state.textContent = g + (ct3 ? ' · ' + ct3 : '');
     el.state.style.color = 'var(--orange)';
     refreshSendBtn();                        // 有本地字→插话，无→停止
@@ -1972,7 +2005,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.21';
+const VER = '1.22';
 const VER_DESC = 'CLI会话控制 + 消息补救 + 积分账号';
 function renderVer(box){
   try{
