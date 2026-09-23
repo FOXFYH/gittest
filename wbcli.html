@@ -2634,13 +2634,15 @@ function onEv(kind, v){
          上「正在加载」占位，不等 snap（1.2s±抖）才动 */
       const swT = (S.switch_pend && S.switch_pend.title)
                || (S.switch_target && S.switch_target.title) || '';
-      /* snap 先于 switched 到达（快照已含目标会话激活=正文已是新目标）
-         → 保留快照直接渲染，不重复占位。注意：仅当激活会话就是目标
-         标题才算（单盒子单端口场景下旧快照 _port 相同、激活的是旧
-         会话，绝不能保留旧内容渲染） */
+      /* snap 先于 switched 到达（快照已是新目标）→ 保留快照直接渲染，
+         不重复占位。判定用 snap.title===目标标题 为主信号（快照顶层
+         title=当前会话 sid，比 convs 的 act 标记更快就位、更可靠）；
+         convs act 匹配仅作旧服务端兜底。单盒子单端口场景下旧快照
+         _port 相同、title 是旧会话，绝不可保留旧内容渲染 */
       const hasTarget = !!(swT && S.snap && S.snap._port === v[1]
-        && (S.snap.convs || []).some(r => r[0] === 'c' && r[2]
-             && ((r[3] || r[1]) === swT)));
+        && (String(S.snap.title || '') === swT
+            || (S.snap.convs || []).some(r => r[0] === 'c' && r[2]
+                 && ((r[3] || r[1]) === swT))));
       applySwitch(v[0], v[1], hasTarget);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now()} : null;
