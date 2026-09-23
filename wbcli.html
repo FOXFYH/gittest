@@ -2625,10 +2625,13 @@ function onEv(kind, v){
          立即撤在途条（applySwitch 清 switch_pend），目标内容未到则
          上「正在加载」占位，不等 snap（1.2s±抖）才动 */
       const swT = (S.switch_pend && S.switch_pend.title) || '';
-      /* snap 先于 switched 到达（新端口内容已在手）→ 保留快照直接
-         渲染，不重复占位 */
-      const hasTarget = !!(S.snap && S.snap._port === v[1]
-        && (S.snap.convs || []).some(r => r[0] === 'c' && r[2]));
+      /* snap 先于 switched 到达（快照已含目标会话激活=正文已是新目标）
+         → 保留快照直接渲染，不重复占位。注意：仅当激活会话就是目标
+         标题才算（单盒子单端口场景下旧快照 _port 相同、激活的是旧
+         会话，绝不能保留旧内容渲染） */
+      const hasTarget = !!(swT && S.snap && S.snap._port === v[1]
+        && (S.snap.convs || []).some(r => r[0] === 'c' && r[2]
+             && ((r[3] || r[1]) === swT)));
       applySwitch(v[0], v[1], hasTarget);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now()} : null;
