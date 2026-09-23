@@ -1129,7 +1129,8 @@ function renderConvs(rows, conv_unread){
         if (!flag){
           pendSwitchSet(title);        /* 1.09：切换在途提示（0.8~6s）*/
           flash('正在切换到「' + title + '」…', 'var(--blue)');
-          sendCmd('switch', i);
+          sendCmd('switch', title);    /* 1.29：传 sid(即 title) 根治索引错位，
+                                         不再传索引 i（会话增删会整体偏移） */
           drawerClose();
         }
       };
@@ -2146,8 +2147,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.28';
-const VER_DESC = '切换即时反馈：收到 switched 立即撤在途条+目标加载占位（loadingConv），感知切换延迟降到 <300ms；snap 到达自动接真内容';
+const VER = '1.29';
+const VER_DESC = '切换改传 sid（会话ID）根治索引错位：会话增删后磁盘排序与前端列表偏移会静默切错会话——此前传索引；1.28 保留的切换即时反馈/占位机制不变';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
