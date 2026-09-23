@@ -2315,7 +2315,7 @@ let helloTimer = null, helloTries = 0, gotHello = false;
 const DIAG = {reconn: 0, err: 0, testAt: 0, testOk: false, log: []};
 function diagLog(txt, cls){
   DIAG.log.push({t: Date.now(), txt: txt, cls: cls || ''});
-  if (DIAG.log.length > 8) DIAG.log.shift();
+  if (DIAG.log.length > 60) DIAG.log.shift();   // 1.60：8→60，够看清一整轮故障过程
   if (el && el.diag_log) diagRender();
 }
 function diagTest(){                        // 测服务器：发 hello，5s 内等回应
@@ -2364,18 +2364,25 @@ function diagRender(){
   }
   el.diag_cnt.textContent = DIAG.reconn + ' 次 / ' + DIAG.err + ' 次';
   /* 日志 */
-  el.diag_log.innerHTML = DIAG.log.map(l =>
-    '<div class="' + (l.cls || '') + '">'
-    + new Date(l.t).toLocaleTimeString() + '  ' + l.txt + '</div>').join('')
-    || '<div class="dim">（暂无事件）</div>';
+  /* 日志：数据留 60 条（复制可取全量），面板只铺最近 25 条免得滚动太长 */
+  const _seen = DIAG.log.slice(-25);
+  el.diag_log.innerHTML =
+    (DIAG.log.length > _seen.length
+      ? '<div class="dim">… 面板仅显示最近 25 条（共 ' + DIAG.log.length
+        + ' 条；点「📋 复制诊断信息」可取全量）</div>'
+      : '')
+    + (_seen.map(l =>
+        '<div class="' + (l.cls || '') + '">'
+        + new Date(l.t).toLocaleTimeString() + '  ' + l.txt + '</div>').join('')
+       || '<div class="dim">（暂无事件）</div>');
 }
 setInterval(diagRender, 1000);
 
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.59';
-const VER_DESC = '状态灯不再误报「服务器未启动」+ 诊断一键复制';
+const VER = '1.60';
+const VER_DESC = '重连不再泄漏心跳/不再虚报错误 + 「立即重连」防误点 + 诊断日志留 60 条';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2387,9 +2394,29 @@ function renderVer(box){
   }catch(e){ /* 版本渲染绝不影响连接 */ }
 }
 
-function connect(){
+/* 1.60：统一「拆旧连接」。
+   原来只摘了 onclose，留下三个后患（用户「频繁掉线」观感的主因之一）：
+     ① 旧连接的 kaTimer / hbTimer 停不掉 → 定时器泄漏，越重连越多个心跳在跑；
+     ② 旧连接的 onerror 还活着 → 关它时把「WS 错误」计数刷高（数字虚高，
+        会误判成中继不稳）；关闭旧连接过程中也会触发 onerror。
+     ③ 若保留旧 onclose，会再排一次重连定时器 → 叠加连接风暴。
+   现在：四个回调全摘 + 定时器全停，再 close。 */
+function teardownWs(){
+  try {
+    if (ws){
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+      ws.close();
+    }
+  } catch(e){}
+  clearInterval(kaTimer);  kaTimer = null;
+  clearInterval(hbTimer);  hbTimer = null;
+  clearTimeout(helloTimer);
   clearTimeout(reconnectTimer);
-  try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
+  loggedIn = false;
+}
+
+function connect(){
+  teardownWs();
   setOnLine(false);
   gotHello = false;
   helloTries = 0;    // 1.07：重连后重起握手重试（原不重置——10 次用尽
@@ -3558,7 +3585,15 @@ el.net.onclick = () => {
 el.netback.onclick = () => el.netpage.classList.remove('on');
 
 /* 1.xx：连接诊断按钮 */
-el.netreconn.onclick = () => { diagLog('手动重连', 'warn'); connect(); };
+el.netreconn.onclick = () => {
+  /* 1.60：连接本来好好的时候点这个按钮 = 自己把好连接掐断
+     （用户误点 → 「一切回来就断线」观感的元凶）→ 先判新鲜度：
+     已在线、且 SRV_IDLE_MS 内还听得到服务端动静，就别重连。 */
+  const fresh = S.onLine && S.lastSrv && (Date.now() - S.lastSrv < SRV_IDLE_MS);
+  if (fresh){ diagLog('连接正常，已跳过重连（免得自断）', 'ok'); return; }
+  diagLog('手动重连', 'warn');
+  connect();
+};
 el.nettest.onclick = diagTest;
 /* 1.xx：被动查询最大化/全屏——前端发起，服务端即时检测回投一次结果 */
 el.check_fulls.onclick = () => {
