@@ -1562,6 +1562,9 @@ function switchHangClear(title){
   if (S._swHangTimer) clearTimeout(S._swHangTimer);
   S._swHangTimer = setTimeout(() => {
     if (S.switch_pend && S.switch_pend.title === title){
+      /* 1.87：墙钟超时到点尚未确认到达 → 不再静默撤条，弹失败提醒
+         （snap 可能因指纹去重不再转发、判定块不再跑，这里兜底提醒） */
+      switchFail(title);
       S.switch_pend = null;
       renderAll();
     }
@@ -2351,8 +2354,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.54';
-const VER_DESC = '空模型列表不再误报收藏失效';
+const VER = '1.55';
+const VER_DESC = '切换会话失败时弹出显眼提醒（不再静默撤条）';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2796,13 +2799,16 @@ function onEv(kind, v){
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
         const arrived = msgsFp(v.msgs) !== S.switch_pend.fp0;
         const timedout = Date.now() - S.switch_pend.ts > 12000;
-        if ((act && act[1] === S.switch_pend.title && arrived) || !has
-            || timedout){
+        const arrivedOk = act && act[1] === S.switch_pend.title && arrived;
+        if (arrivedOk || !has || timedout){
           /* 1.xx：切换结束判定——成功到达(内容有变)归零失败计数；失败/
-             超时不再自动弹横幅，改由 fullsCheckFire 在 15s 判空后弹确认
-             框问是否查询最大化（被动，经确认才查）。 */
-          if (act && act[1] === S.switch_pend.title && arrived){
+             超时不静默：1.87 起在「列表找不着」或「12s超时仍未到达」这
+             两种真正的失败场景弹出「⚠ 会话切换失败」显眼提醒（同一目标
+             只弹一次：撤条后 switch_pend 已清，后续 snap 不再进本分支）。 */
+          if (arrivedOk){
             S.falls_fail = 0;
+          } else {
+            switchFail(S.switch_pend.title);
           }
           S.switch_pend = null;              // 超时兜底，别一直挂着
         }
