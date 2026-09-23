@@ -2035,8 +2035,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.25';
-const VER_DESC = '切后台不再下线（只留闲置5分钟）+ 回前台秒续 + 提示改白话';
+const VER = '1.26';
+const VER_DESC = '切换会话不再闪「界面未就绪」：切换索引与广播同源、越界兜底刷新，超时/迟到主动拉即时全量';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2429,6 +2429,11 @@ function onEv(kind, v){
             S.falls_fail = 0;
           }
           S.switch_pend = null;              // 超时兜底，别一直挂着
+          /* 1.xx：超时/迟到（目标快照没按时到）→ 主动拉即时全量，
+             避免界面停留在旧内容/「未就绪」观感等 12s 才缓过来 */
+          if (timedout && !arrived){
+            try { sendJson({t: 'hello'}); } catch(e){}
+          }
         }
       }
       renderAll();
