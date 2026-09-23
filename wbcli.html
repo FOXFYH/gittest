@@ -784,6 +784,11 @@ const S = {
   pend_send: 30000,                  /* 1.32：发送确认超时毫秒（默认 30 秒，
                                         pendcfg 同步；超时才显示改写/丢弃/重发） */
   switch_pend: null,
+  /* 1.28：切换目标备忘——点击/pend 时记录 {title, ts}。服务端
+     set_current 内先 refresh_snap 推快照、后广播 switched（同通道保序），
+     快照常先于 switched 到达并把 switch_pend 撤掉；switched 到达时
+     靠此备忘仍能拿到目标标题（判 keepSnap / 占位），避免竞态漏配 */
+  switch_target: null,
   /* 1.28：切换即时反馈——switched 已确认、snap 未到期间的轻占位
      {title, ts}；snap 到达即清。与 switch_pend 互补：switch_pend 管
      「点击→switched」段，loadingConv 管「switched→snap」段 */
@@ -1389,11 +1394,13 @@ function pendSwitchSet(title){
      不重复渲染） */
   if (S.switch_pend && S.switch_pend.title === title){
     S.switch_pend.ts = Date.now();
+    S.switch_target = {title: title, ts: Date.now()};   /* 1.28 备忘刷新 */
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
     return;
   }
   S.switch_pend = {title: title, ts: Date.now(),
                    fp0: msgsFp(S.snap.msgs)};
+  S.switch_target = {title: title, ts: Date.now()};     /* 1.28 目标备忘 */
   S._swFail = null;                    /* F7：新切换开始，撤销旧失败观察 */
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   renderAll();
@@ -2410,6 +2417,7 @@ function switchSrv(nm){
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.pending = []; S.switch_pend = null; S._swFail = null;
   S.loadingConv = null;               /* 1.28：换服务端，加载占位作废 */
+  S.switch_target = null;             /* 1.28：目标备忘作废 */
   S.pend_claims = []; S.pend_conv = '';
   S.busy = false; S.model_busy = false;
   S.points = '—'; el.points.textContent = '积分 —';
@@ -2624,7 +2632,8 @@ function onEv(kind, v){
       /* 1.28：切换即时反馈——服务端 set_current 完成即确认切换：
          立即撤在途条（applySwitch 清 switch_pend），目标内容未到则
          上「正在加载」占位，不等 snap（1.2s±抖）才动 */
-      const swT = (S.switch_pend && S.switch_pend.title) || '';
+      const swT = (S.switch_pend && S.switch_pend.title)
+               || (S.switch_target && S.switch_target.title) || '';
       /* snap 先于 switched 到达（快照已含目标会话激活=正文已是新目标）
          → 保留快照直接渲染，不重复占位。注意：仅当激活会话就是目标
          标题才算（单盒子单端口场景下旧快照 _port 相同、激活的是旧
@@ -2676,7 +2685,8 @@ function onEv(kind, v){
         renderAll();
       }
       if (S.switch_pend || S.loadingConv){
-        S.switch_pend = null; S.loadingConv = null; renderAll();
+        S.switch_pend = null; S.loadingConv = null;
+        S.switch_target = null; renderAll();
       }
       document.querySelectorAll('.optbtn.picked').forEach(b => {
         b.disabled = false;
@@ -2768,6 +2778,7 @@ function applySwitch(box, port, keepSnap){
   /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
   S.pending = []; S.switch_pend = null;
   S.loadingConv = null;                     /* 1.28：换目标，旧占位作废 */
+  S.switch_target = null;                   /* 1.28：目标备忘随切换消费/作废 */
   S.pend_claims = []; S.pend_conv = '';
   S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
                        // 原不重置，boot 一次 S.busy 永卡 true 锁死目标切换
