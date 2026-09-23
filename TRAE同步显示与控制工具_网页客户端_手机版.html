@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.53</title>
+<title>TRAE远程 v1.56</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -926,6 +926,9 @@ function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
 
 const S = {
   ws: null, onLine: false, wsOpenAt: 0, lastSrv: 0,
+  /* 1.57：本次断线是否发生在「页面不可见（切后台/锁屏）」期间——
+     用于顶栏文案区分「后台断的，回来自动补」与「前台真断了」 */
+  dropByHide: false,
   box: '(未连接)', port: 0, boxes: [], alive: new Set(),
   points: '—', snap: {},
   attach_pending: null,
@@ -1008,11 +1011,11 @@ const el = {
 };
 
 let flashTimer = null;
-function flash(msg, color){
+function flash(msg, color, ms){
   el.state.textContent = msg;
   el.state.style.color = color || 'var(--red)';
   clearTimeout(flashTimer);
-  if (msg) flashTimer = setTimeout(() => renderState(S.snap), 4000);
+  if (msg) flashTimer = setTimeout(() => renderState(S.snap), ms || 4000);
 }
 
 /* 1.27：积分预警 toast——页面中上部大字提醒，2 秒后自动消失
@@ -2022,7 +2025,7 @@ el.msgs.addEventListener('touchmove', e => {
   if (e.touches[0].clientY - fTouchY < -24){   // 到底后继续上拽
     fAtBottom = false;
     exitFmsg();
-    flash('已回到最新', 'var(--green)');
+    flash('已回到最新', 'var(--green)', 500);
   }
 }, {passive: true});
 el.msgs.addEventListener('wheel', e => {
@@ -2031,7 +2034,7 @@ el.msgs.addEventListener('wheel', e => {
   const m = el.msgs;
   if (e.deltaY > 0 && m.scrollHeight - m.scrollTop - m.clientHeight < 4){
     exitFmsg();
-    flash('已回到最新', 'var(--green)');
+    flash('已回到最新', 'var(--green)', 500);
   }
 }, {passive: true});
 
@@ -2354,8 +2357,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.55';
-const VER_DESC = '切换会话失败时弹出显眼提醒（不再静默撤条）';
+const VER = '1.57';
+const VER_DESC = '切后台不再下线（只保留闲置5分钟）；回前台秒续、断链立即重连';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2400,17 +2403,30 @@ function connect(){
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
     DIAG.reconn++;
-    diagLog('断线（' + RECONNECT + 's 后重连 #' + DIAG.reconn + '）', 'bad');
+    /* 1.57：记下是否「切后台期间被系统掐断」，顶栏文案据此区分 */
+    S.dropByHide = !!document.hidden;
+    diagLog((S.dropByHide ? '后台断线（回来自动补）'
+                          : '断线（' + RECONNECT + 's 后重连 #' + DIAG.reconn + '）'),
+            'bad');
     setOnLine(false);
     clearInterval(kaTimer);
     clearTimeout(helloTimer);
-    loggedIn = false; clearInterval(hbTimer);   // v1.32：断线＝退出登录
+    loggedIn = false; clearInterval(hbTimer);   // 断线＝退出登录
+    lastBeatOk = 0;                             // 1.57：心跳计时重置
     reconnectTimer = setTimeout(connect, RECONNECT * 1000);
   };
   ws.onerror = () => {
     DIAG.err++;
     diagLog('WS 错误 #' + DIAG.err + '（可能是网络/中继问题）', 'bad');
   };
+}
+
+/* 1.57：立即重连（回前台专用）——不再干等 RECONNECT 那 3 秒定时器；
+   正在连接 / 已连上则什么也不做。 */
+function ensureConnect(){
+  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+  clearTimeout(reconnectTimer);
+  connect();
 }
 
 function sendHello(){
@@ -2434,13 +2450,21 @@ function sendHello(){
      · 重新回到前台或再次操作 → 自动重新 login。
    效果：手机没在看的时候，服务端一条消息都不发。 */
 let loggedIn = false, hbTimer = null, lastAct = Date.now(),
-    actBound = false, _lg_tm = 0;
+    actBound = false, _lg_tm = 0,
+    lastBeatOk = 0;            /* 1.57：最后一次成功发出登录心跳的时刻 */
 
+/* ==== 1.57 下线语义（用户明确要求，v1.32 那套苛刻条件已全部移除）====
+   下线条件**只剩一条**：页面在前台 且 超过 IDLE_MS(5 分钟) 没有任何操作。
+   切后台 / 锁屏 / 切标签 / 关页面 **一律不再主动下线** —— 频繁在多个 App
+   之间切换时，不再每次回来都重登 + 整包重放。
+   页面被系统冻结期间心跳发不出去 → 服务端 150s 无心跳自会判下线（天然兜底）；
+   回到前台时若发现「心跳已停太久」本端会主动重发 login 补登记 + 重放。 */
 function cliLogin(reason){
   if (!ws || ws.readyState !== 1){ loggedIn = false; return; }
   lastAct = Date.now();
   loggedIn = true;
   sendJson({t: 'login', fg: !document.hidden});
+  lastBeatOk = Date.now();
   clearInterval(hbTimer);
   hbTimer = setInterval(cliBeat, HB_SEC * 1000);
 }
@@ -2449,16 +2473,31 @@ function cliBeat(){
   if (!ws || ws.readyState !== 1){
     loggedIn = false; clearInterval(hbTimer); return;
   }
-  /* 自身状态自检：不在前台 或 闲置超时 → 停止心跳（＝退出登录） */
-  if (document.hidden){ cliLogout('后台'); return; }
-  if (Date.now() - lastAct > IDLE_MS){ cliLogout('闲置5分钟'); return; }
+  /* 唯一的自检：仅「前台且闲置超时」才退出登录；后台不算下线 */
+  if (!document.hidden && Date.now() - lastAct > IDLE_MS){
+    cliLogout('闲置5分钟'); return;
+  }
   sendJson({t: 'hb', fg: !document.hidden});
+  lastBeatOk = Date.now();
 }
 function cliLogout(reason){
   const was = loggedIn;
   loggedIn = false;
   clearInterval(hbTimer);
   if (was){ try { sendJson({t: 'logout', r: reason || ''}); } catch(e){} }
+}
+/* 1.57：回前台统一入口——秒续优先，其次重登，最后立即重连
+     · 链路活着且心跳没断太久 → 只补一个 hb（秒续，不重放、省流量）
+     · 心跳已停 >120s（服务端 150s 就会踢掉）或本端已离线 → 重发 login 重放
+     · 链路已断 → 立刻重连（不等 3s 定时器），onopen 里自会 login   */
+function cliResume(reason){
+  if (ws && ws.readyState === 1){
+    const stale = !lastBeatOk || (Date.now() - lastBeatOk > 120000);
+    if (!loggedIn || stale) cliLogin(reason || '回前台');
+    else { sendJson({t: 'hb', fg: true}); lastBeatOk = Date.now(); }
+  } else {
+    ensureConnect();
+  }
 }
 function cliRebind(){
   if (actBound) return;
@@ -2469,14 +2508,14 @@ function cliRebind(){
       lastAct = Date.now();
       if (!loggedIn && ws && ws.readyState === 1) cliLogin('活跃');
     }, {passive: true, capture: true}));
+  /* 1.57：切走什么都不做（不再主动下线）；回来时秒续 / 立即重连。
+     pagehide 的「离开页面即下线」也已移除——关掉网页后由服务端
+     150s 无心跳超时兜底。 */
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) cliLogout('切后台');
-    else { lastAct = Date.now(); if (ws && ws.readyState === 1) cliLogin('回前台'); }
+    if (document.hidden) return;      // 切后台：不再下线
+    cliResume('回前台');              // 回前台：秒续或立即重连
   });
-  window.addEventListener('pagehide', () => cliLogout('离开页面'));
-  window.addEventListener('pageshow', () => {
-    if (ws && ws.readyState === 1) cliLogin('回到页面');
-  });
+  window.addEventListener('pageshow', () => cliResume('回到页面'));
 }
 /* ========= 1.33：AI 文本刷新间隔（服务端 poll_sec）=========
    只控制「AI 文本快照」的刷新节奏（＝流量开关，0.5~30s）。点击/
@@ -2995,6 +3034,19 @@ function onEv(kind, v){
       flash(v[0] === 'revert'
         ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
         : '已删除第 ' + (v[1] + 1) + ' 条「我」的消息', 'var(--green)');
+      /* v1.56：撤回体验对齐原版——原版撤回后会把被撤回的话取回输入框，
+         服务端已随 snap 广播到 S.snap.inputText（先于 msg_act 到达），
+         这里回填到本端输入框，让网页版输入框与原版一致。 */
+      if (v[0] === 'revert'){
+        try {
+          const t = ((S.snap && S.snap.inputText) || '').trim();
+          if (t){
+            el.ent.value = t;
+            refreshSendBtn();
+            try { el.ent.focus(); } catch(e2){}
+          }
+        } catch(e3){}
+      }
       break;
     case 'task_dlg':                        // 1.08：记忆目录抓取结果（预填）
       if (S.task_open){
@@ -3077,7 +3129,7 @@ function applySwitch(box, port){
 
 function setOnLine(b){
   S.onLine = b;
-  if (b) S.wsOpenAt = Date.now();
+  if (b){ S.wsOpenAt = Date.now(); S.dropByHide = false; }  // 1.57：连上即清断线标记
   renderLink();
 }
 
@@ -3089,7 +3141,12 @@ function setOnLine(b){
 function renderLink(){
   let txt, col;
   if (!S.onLine){
-    if (S.wsOpenAt){ txt = 'WS坏了'; col = 'var(--red)'; }   // 曾连上后断开
+    if (S.wsOpenAt){
+      /* 1.57：切后台被系统掐断的，不算故障——回前台会立刻自动重连，
+         文案降级为「重连中…」，只有前台真断了才报红「WS坏了」 */
+      if (S.dropByHide){ txt = '重连中…'; col = 'var(--orange)'; }
+      else { txt = 'WS坏了'; col = 'var(--red)'; }
+    }
     else { txt = '连接中…'; col = 'var(--gray)'; }           // 首次未连过
   } else {
     const gap = Date.now() - (S.lastSrv || S.wsOpenAt);
