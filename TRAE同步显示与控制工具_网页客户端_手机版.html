@@ -771,6 +771,13 @@ const WS_URL_TMPL2 = ('wss://s20307.nyc1.piesocket.com/v3/%s'
                       + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
 const KA_SEC = 25;      // WS 链路心跳间隔（秒，保活）
 const RECONNECT = 3;    // 断线重连间隔（秒）
+/* 1.59：状态灯判活阈值 —— 原来硬编码 16s，手机端太敏感：
+   切后台、中继抖一下、或服务端某轮广播没到，就立刻喊「服务器未启动」，
+   而电脑上其实一切正常。改成两级：
+     20s 无消息  → 「同步暂停中…」（灰、中性，不吓人）
+     60s 仍无消息 → 「服务器无响应」（橙，才值得看一眼电脑） */
+const SRV_IDLE_MS = 20000;
+const SRV_DEAD_MS = 60000;
 /* v1.32：客户端登录态节流参数 */
 const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 150s 无心跳判下线
 const IDLE_MS = 5 * 60 * 1000;  // 超过 5 分钟无任何操作 → 视为退出登录
@@ -2334,13 +2341,20 @@ function diagRender(){
     el.diag_ws.style.color = '#c62828'; }
   else { el.diag_ws.textContent = '⏳ 连接中…';
     el.diag_ws.style.color = '#b26a00'; }
-  /* 服务器回应 */
-  if (S.lastSrv && Date.now() - S.lastSrv < 16000){
-    el.diag_srv.textContent = '✅ 正常（16s 内收到）';
+  /* 服务器回应（1.59：两级判定，别把网络抖动当故障） */
+  const srvGap = S.lastSrv ? Date.now() - S.lastSrv : -1;
+  if (S.lastSrv && srvGap < SRV_IDLE_MS){
+    el.diag_srv.textContent = '✅ 正常（' + (SRV_IDLE_MS / 1000) + 's 内收到）';
     el.diag_srv.style.color = '#1a7f37';
     el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
+  } else if (S.lastSrv && srvGap < SRV_DEAD_MS){
+    el.diag_srv.textContent = '⚠ ' + Math.round(srvGap / 1000)
+      + 's 无新消息（抖动/后台，再等等）';
+    el.diag_srv.style.color = '#b26a00';
+    el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
   } else if (S.lastSrv){
-    el.diag_srv.textContent = '❌ 超时（最后回应后无消息）';
+    el.diag_srv.textContent = '❌ ' + Math.round(srvGap / 1000)
+      + 's 无消息（服务器可能没在跑）';
     el.diag_srv.style.color = '#c62828';
     el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
   } else {
@@ -2360,8 +2374,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.58';
-const VER_DESC = '切后台不再下线（只留闲置5分钟）；回前台秒续 + 诊断一键复制';
+const VER = '1.59';
+const VER_DESC = '状态灯不再误报「服务器未启动」+ 诊断一键复制';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3139,8 +3153,11 @@ function setOnLine(b){
 /* 1.07：顶栏状态灯 = 与服务端的连接状况（不再显示无意义的
    「自身是否在线」——客户端自己显然在运行）。判活依据：收到
    服务端任何来向消息（hello 应答 / 每 6s 一轮的 ports 广播 /
-   快照…）即算活着；16s 无任何消息判「服务器未启动」（阈值
-   覆盖连续 2 轮 ports 丢失）。 */
+   快照…）即算活着。
+   1.59：阈值从硬编码 16s 改成两级 SRV_IDLE_MS(20s) / SRV_DEAD_MS(60s)。
+   16s 只够容忍丢 2 轮广播，手机切后台或中继抖一下就误报
+   「服务器未启动」；现在 20~60s 只显示中性的「同步暂停中…」，
+   满 60s 才提示服务器无响应。*/
 function renderLink(){
   let txt, col;
   if (!S.onLine){
@@ -3153,12 +3170,16 @@ function renderLink(){
     else { txt = '连接中…'; col = 'var(--gray)'; }           // 首次未连过
   } else {
     const gap = Date.now() - (S.lastSrv || S.wsOpenAt);
-    if (S.lastSrv && gap < 16000){
+    if (S.lastSrv && gap < SRV_IDLE_MS){
       txt = '连接成功'; col = 'var(--green)';
-    } else if (gap < 16000){                   // 刚连上，等服务端应答
+    } else if (gap < SRV_IDLE_MS){             // 刚连上，等服务端应答
       txt = '连接中…'; col = 'var(--gray)';
+    } else if (gap < SRV_DEAD_MS){
+      /* 1.59：20~60 秒没动静 —— 多半是手机后台被冻/中继抖了一下，
+         服务端未必有问题，用灰字中性提示，不报故障 */
+      txt = '同步暂停中…'; col = 'var(--gray)';
     } else {
-      txt = '服务器未启动'; col = 'var(--orange)';
+      txt = '服务器无响应'; col = 'var(--orange)';   // 1.59：60s 无消息才提示
     }
   }
   el.rlink.textContent = txt;
