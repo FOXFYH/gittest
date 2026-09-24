@@ -1127,8 +1127,11 @@ function renderConvs(rows, conv_unread){
       d.onclick = () => {
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
         if (!flag){
-          pendSwitchSet(title);        /* 1.09：切换在途提示（0.8~6s）*/
-          flash('正在切换到「' + title + '」…', 'var(--blue)');
+          pendSwitchSet(title, disp); /* 1.09：切换在途提示（0.8~6s）
+                                         1.32：传展示名，提示不再显示原始 sid */
+          flash('正在切换到「'
+            + (disp && disp !== title ? disp : '新会话') + '」…',
+            'var(--blue)');
           sendCmd('switch', title);    /* 1.29：传 sid(即 title) 根治索引错位，
                                          不再传索引 i（会话增删会整体偏移） */
           drawerClose();
@@ -1389,26 +1392,38 @@ function msgsFp(msgs){
   return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
     + (m[3] || 0) + (m[4] || 0)).join('#');
 }
-function pendSwitchSet(title){
+function pendSwitchSet(title, disp){
   title = title || '';
+  disp = disp || '';
+  /* 1.32：展示名口径——优先调用方给的 disp（renderConvs 的真名）；
+     未传则从快照 convs 按 sid 查 r[3] 兜底（pend 广播/他端切换路径）；
+     仍无名(空或==sid)时显示「新会话」，绝不把原始 sid 当名字给人看。
+     身份匹配仍全用 title(sid)，disp 只作展示。 */
+  if (!disp){
+    const rows = (S.snap && Array.isArray(S.snap.convs)) ? S.snap.convs : [];
+    const row = rows.find(r => r && r[0] === 'c' && r[1] === title);
+    if (row) disp = row[3] || '';
+  }
+  const view = (disp && disp !== title) ? disp : '新会话';
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
      不重复渲染） */
   if (S.switch_pend && S.switch_pend.title === title){
     S.switch_pend.ts = Date.now();
-    S.switch_target = {title: title, ts: Date.now()};   /* 1.28 备忘刷新 */
+    S.switch_pend.disp = view;
+    S.switch_target = {title: title, ts: Date.now(), disp: view};   /* 1.28 备忘刷新 */
     /* 1.28：幂等点击只在占位仍在时刷新计时，内容已到（占位已清）不
        重复置位，避免真内容渲染后再闪「加载」占位 */
-    if (S.loadingConv) S.loadingConv = {title: title, ts: Date.now()};
+    if (S.loadingConv) S.loadingConv = {title: title, ts: Date.now(), disp: view};
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
     return;
   }
   S.switch_pend = {title: title, ts: Date.now(),
-                   fp0: msgsFp(S.snap.msgs)};
-  S.switch_target = {title: title, ts: Date.now()};     /* 1.28 目标备忘 */
+                   fp0: msgsFp(S.snap.msgs), disp: view};
+  S.switch_target = {title: title, ts: Date.now(), disp: view};     /* 1.28 目标备忘 */
   /* 1.28：点击即置位加载占位——指标「点击→UI 响应」≈0ms 稳定过；
      渲染层 else-if 与 switch_pend 互斥：在途条优先，占位在 switched
      到达、switch_pend 清掉后自然接上，视觉无双条 */
-  S.loadingConv = {title: title, ts: Date.now()};
+  S.loadingConv = {title: title, ts: Date.now(), disp: view};
   S._swFail = null;                    /* F7：新切换开始，撤销旧失败观察 */
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   renderAll();
@@ -1536,12 +1551,12 @@ function renderMsgs(msgs, finish, opts, ask){
   if (S.switch_pend){                    // 1.09：切换在途提示条
     const sw = document.createElement('div');
     sw.className = 'switching';
-    sw.textContent = '正在切换到「' + S.switch_pend.title + '」…';
+    sw.textContent = '正在切换到「' + (S.switch_pend.disp || '新会话') + '」…';
     el.msgs.appendChild(sw);
   } else if (S.loadingConv){             // 1.28：switched 已确认、snap 未到
     const ld = document.createElement('div');
     ld.className = 'switching';
-    ld.textContent = '正在加载「' + S.loadingConv.title + '」…';
+    ld.textContent = '正在加载「' + (S.loadingConv.disp || '新会话') + '」…';
     el.msgs.appendChild(ld);
   }
   if (empty){ renderPending(); return; }
@@ -1890,11 +1905,11 @@ function renderState(snap){
   /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
      不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容） */
   if (S.switch_pend){
-    el.state.textContent = '正在切换「' + S.switch_pend.title + '」…';
+    el.state.textContent = '正在切换「' + (S.switch_pend.disp || '新会话') + '」…';
     el.state.style.color = 'var(--blue)';
   }
   else if (S.loadingConv){               // 1.28：snap 未到 → 加载占位
-    el.state.textContent = '正在加载「' + S.loadingConv.title + '」…';
+    el.state.textContent = '正在加载「' + (S.loadingConv.disp || '新会话') + '」…';
     el.state.style.color = 'var(--blue)';
   }
 }
@@ -2147,8 +2162,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.31';
-const VER_DESC = '新建对话修复：普通模式创建=真正新建会话（原零操作）+会话名取真（不再被原始sid占位）';
+const VER = '1.32';
+const VER_DESC = '切换会话提示显示真名（原显示原始sid）+未命名会话兜底「新会话」';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2656,7 +2671,7 @@ function onEv(kind, v){
                  && ((r[3] || r[1]) === swT))));
       applySwitch(v[0], v[1], hasTarget);
       S.loadingConv = (swT && !hasTarget)
-        ? {title: swT, ts: Date.now()} : null;
+        ? {title: swT, ts: Date.now(), disp: swD} : null;
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
       scheduleRenderAll();
       break;
