@@ -2147,8 +2147,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.30';
-const VER_DESC = '登录/重连骨架先行：会话列表/模型/状态秒显示，正文随后补齐';
+const VER = '1.31';
+const VER_DESC = '新建对话修复：普通模式创建=真正新建会话（原零操作）+会话名取真（不再被原始sid占位）';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3158,10 +3158,12 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
     el.td_stat.textContent = '正在设置工作目录…';
     flash('正在设置工作目录…', 'var(--blue)');
     sendCmd('task_dir_set', S.task_cur);
-  } else {
-    taskDlgClose();
-    flash('✅ 新建任务就绪', 'var(--green)');
   }
+  /* 1.31：CLI 的「新建」= 真正创建新会话（原普通模式只闪"就绪"零操作，
+     导致第二个新建起不来——目录分支保留 task_dir_set 后再创建） */
+  taskDlgClose();
+  flash('正在新建对话…', 'var(--blue)');
+  sendCmd('new_task_in', null);
 };
 el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 WorkBuddy 输入区
   直接关；普通模式 Esc×2 关 WorkBuddy 输入区 */
