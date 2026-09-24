@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.64</title>
+<title>TRAE远程 v1.65</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2470,8 +2470,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.64';
-const VER_DESC = '顶栏状态改「动词·两维」：频道→链接频道·重试N；服务器→等待服务器回应/超时，不再用失联等静止词';
+const VER = '1.65';
+const VER_DESC = '连接三段式分开：频道已连→「同步中…」等服务端，不再与握手共用「链接频道…」';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3314,7 +3314,7 @@ const LINKDOC = {
 function renderLink(){
   let txt, col, doc;
   if (!S.onLine){
-    /* 1.64：频道没连上——不论首次/断线/连不上，一律"动词式"显示重试第几次。
+    /* 1.65：频道没连上——不论首次/断线/连不上，一律"动词式"显示重试第几次。
        不再用「失联/已断开/连不上」这类静止判定词；N 复用 DIAG.reconn。 */
     const n = DIAG.reconn || 0;
     if (n > 0){ txt = '链接频道·重试' + n; col = 'var(--orange)'; }
