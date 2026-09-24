@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.62</title>
+<title>TRAE远程 v1.63</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2470,8 +2470,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.62';
-const VER_DESC = '历史全屏补状态提醒（撤回/回退在历史里看得见结果）+ 撤回后回填输入框更稳';
+const VER = '1.63';
+const VER_DESC = '登录轻启动：连上先出框架（会话列表/模型/状态），正文轮询内补齐，不整包重放、不闪空';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2959,6 +2959,13 @@ function onEv(kind, v){
     }
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
+      /* 1.xx：登录轻启动——服务端 hello 只发「框架版」快照（无 msgs，
+         正文由登录后第一拍常规快照轮询补齐）。此时若直接 S.snap=v，
+         消息区会因 msgs 缺失闪成空白再跳回正文（大会话尤其明显）。
+         故框架版只刷列表/模型/状态，正文用旧值兜底，免闪空。 */
+      if (v.msgs === undefined && S.snap && Array.isArray(S.snap.msgs)){
+        v.msgs = S.snap.msgs;
+      }
       S.snap = v;
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
       if (S.qedit !== null && S.qedit !== undefined){
