@@ -2524,6 +2524,10 @@ function onEv(kind, v){
       return;
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
+      /* 1.xx：骨架快照（登录连上先发框架、无 msgs）→ 用旧正文兜底，
+         不闪空；带 msgs 的下一拍正常快照到达后自然补齐。 */
+      if (!('msgs' in v) && S.snap && Array.isArray(S.snap.msgs))
+        v.msgs = S.snap.msgs;
       S.snap = v;
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
       if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
