@@ -3325,7 +3325,7 @@ function renderLink(){
     if (S.lastSrv && gap < SRV_IDLE_MS){
       txt = '已连接'; col = 'var(--green)';
     } else if (gap < SRV_IDLE_MS){             // 频道通、刚连上，等服务端应答
-      txt = '链接频道…'; col = 'var(--gray)';
+      txt = '同步中…'; col = 'var(--gray)';
     } else if (gap < SRV_DEAD_MS){
       /* 频道已通，但 20~60 秒没听到服务端动静——后台被冻/中继抖，
          工作仍在做，中性提示不报故障 */
