@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.65</title>
+<title>TRAE远程 v1.66</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2398,7 +2398,7 @@ let helloTimer = null, helloTries = 0, gotHello = false;
 /* ========== 1.xx：连接诊断（网络页） ==========
    目的：不知道「一直连接中」是我这头死了还是服务端那头死了。
    记录断线/出错/收到服务端回应，网络页据此判定本端↔服务端两侧状态。 */
-const DIAG = {reconn: 0, err: 0, testAt: 0, testOk: false, log: []};
+const DIAG = {reconn: 0, reconnActive: false, err: 0, testAt: 0, testOk: false, log: []};
 function diagLog(txt, cls){
   DIAG.log.push({t: Date.now(), txt: txt, cls: cls || ''});
   if (DIAG.log.length > 60) DIAG.log.shift();   // 1.60：8→60，够看清一整轮故障过程
@@ -2470,8 +2470,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.65';
-const VER_DESC = '连接三段式分开：频道已连→「同步中…」等服务端，不再与握手共用「链接频道…」';
+const VER = '1.66';
+const VER_DESC = '重试计数按「轮」管理：成功连上=本轮结束计数归零，断后先显示「重试中…」再按次累加';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2526,6 +2526,7 @@ function connect(){
   ws.onopen = () => {
     _openOk = true;
     S.failStreak = 0;                 // 1.61：连上了就清零
+    DIAG.reconn = 0; DIAG.reconnActive = false;   // 1.66：成功连上=一轮结束，重试计数归零
     diagLog('已连上中转服务器', 'ok');
     setOnLine(true);
     clearInterval(kaTimer);
@@ -2539,7 +2540,10 @@ function connect(){
   };
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
-    DIAG.reconn++;
+    /* 1.66：重试计数只在「重试这条连接再次失败」时递增；本轮首断不
+       立即编号（顶栏先显示"重试中…"，让这一轮的重试计数从0起算） */
+    if (DIAG.reconnActive) DIAG.reconn++;
+    DIAG.reconnActive = true;
     /* 1.57：记下是否「切后台期间被系统掐断」，顶栏文案据此区分 */
     S.dropByHide = !!document.hidden;
     /* 1.61：压根没连上就断了 → 累加失败次数（连上过则不计） */
@@ -3318,8 +3322,9 @@ function renderLink(){
        不再用「失联/已断开/连不上」这类静止判定词；N 复用 DIAG.reconn。 */
     const n = DIAG.reconn || 0;
     if (n > 0){ txt = '链接频道·重试' + n; col = 'var(--orange)'; }
+    else if (DIAG.reconnActive){ txt = '链接频道·重试中…'; col = 'var(--gray)'; } // 1.66：本轮首断先显示重试中，不编号
     else { txt = '链接频道…'; col = 'var(--gray)'; }   // 首次，还没断过
-    doc = '频道没连上，正在自动重试（第 ' + n + ' 次）——通常几秒内恢复';
+    doc = '频道没连上，正在自动重试（第 ' + (n || 1) + ' 次）——通常几秒内恢复';
   } else {
     const gap = Date.now() - (S.lastSrv || S.wsOpenAt);
     if (S.lastSrv && gap < SRV_IDLE_MS){
