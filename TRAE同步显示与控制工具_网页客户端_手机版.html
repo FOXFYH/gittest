@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.61</title>
+<title>TRAE远程 v1.62</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -63,6 +63,28 @@ body.fmsg #input_row{ display:none; }
   padding:2px 14px; min-height:34px;
   box-shadow:0 2px 8px rgba(21,101,192,.25);}
 body.fmsg #fexit{display:block;}
+/* 1.62：历史全屏的「状态提醒」——全屏把顶栏与状态条都藏了
+   （body.fmsg #hdr,#statebar{display:none}），在历史里撤回/回退时
+   操作结果（正在回退…/已回退…/已取回…）与连接状态全都看不见，
+   手机上无从观察同步是否成功。补两件：
+   ① #fbar：常驻顶部细条，镜像 #statebar 的文案与颜色；
+   ② #ftoast：浮动吐司（JS 动态创建），全屏下把 flash 的每条提示
+      放大居中显示，确保撤回结果一眼可见。 */
+#fbar{display:none; position:fixed; left:0; right:0; top:0; z-index:35;
+  padding:4px 10px calc(4px + env(safe-area-inset-top)); text-align:center;
+  font-size:12px; line-height:1.4; background:rgba(255,255,255,.96);
+  border-bottom:1px solid var(--bd); box-shadow:0 1px 4px rgba(0,0,0,.06);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+body.fmsg #fbar{display:block;}
+body.fmsg #msgs{padding-top:30px;}
+#ftoast{position:fixed; left:50%; top:calc(34px + env(safe-area-inset-top));
+  transform:translateX(-50%); max-width:90%; z-index:41; padding:8px 16px;
+  border-radius:16px; background:rgba(24,24,24,.9); color:#fff;
+  font-size:13.5px; line-height:1.5; text-align:center;
+  white-space:pre-wrap; word-break:break-word; opacity:0;
+  pointer-events:none; border:2px solid transparent;
+  transition:opacity .18s; box-shadow:0 4px 14px rgba(0,0,0,.3);}
+#ftoast.on{opacity:1;}
 .msg{border-radius:8px; padding:5px 10px; margin:0 0 8px;}
 .msg.user{background:var(--ubg);}
 .msg.agent{background:var(--abg);}
@@ -449,6 +471,9 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
 
+<!-- 1.62：历史全屏下的常驻状态条（镜像 #statebar，全屏时钉在顶部） -->
+<div id="fbar"></div>
+
 <button id="fexit" title="退出历史全屏">↓ 回到最新</button>
 
 <div id="mask" data-page-node-id="I7viH7nT9Joec3kgqGKfLl"></div>
@@ -623,6 +648,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <script>
 'use strict';
 /* ================= 手机版网页客户端 v1.49 =================
+ * v1.62：历史全屏「状态提醒」——全屏把顶栏/状态条藏了，在历史里
+ *   撤回/回退时 flash 提示与连接状态全看不见。补 #fbar（常驻顶部细条，
+ *   镜像 #statebar 文案/颜色）+ #ftoast（浮动吐司，放大显示操作结果）；
+ *   并把「撤回后回填输入框」改为等快照读到 TRAE 输入框有字再回填
+ *   （原来只赌 msg_act 到达时机，易落空）。
  * v1.49（对齐服务端 v1.77）：完成状态灯对齐原版——st=='done' 且标题在
  *   快照顶层可选字段 conv_unread → 行首橙色 ●（.stdot-uread，#f57c00）；
  *   done 已读 → 无灯（移除原常亮 done 绿 .stdot-done）。run 蓝/fail 红/
@@ -1030,8 +1060,34 @@ let flashTimer = null;
 function flash(msg, color, ms){
   el.state.textContent = msg;
   el.state.style.color = color || 'var(--red)';
+  fbarSync();
+  /* 1.62：全屏下 #statebar 不可见 -> 提示同步吐司一份，
+     撤回/回退等操作的结果在历史全屏里也看得见 */
+  if (msg && document.body.classList.contains('fmsg'))
+    ftoast(msg, color, Math.max(ms || 4000, 3400));
   clearTimeout(flashTimer);
   if (msg) flashTimer = setTimeout(() => renderState(S.snap), ms || 4000);
+}
+/* 1.62：#fbar 镜像 #statebar；#ftoast 为全屏浮动吐司 */
+function fbarSync(){
+  const fb = $('fbar');
+  if (!fb || !el.state) return;
+  fb.textContent = el.state.textContent || '';
+  fb.style.color = el.state.style.color || 'var(--gray)';
+}
+let ftoastTimer = null;
+function ftoast(msg, color, ms){
+  let t = $('ftoast');
+  if (!t){
+    t = document.createElement('div');
+    t.id = 'ftoast';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.borderColor = color || 'rgba(255,255,255,.65)';
+  t.classList.add('on');
+  clearTimeout(ftoastTimer);
+  ftoastTimer = setTimeout(() => t.classList.remove('on'), ms || 3400);
 }
 
 /* 1.27：积分预警 toast——页面中上部大字提醒，2 秒后自动消失
@@ -1193,6 +1249,7 @@ function renderAll(){
   renderMsgs(snap.msgs || [], snap.finish, opts0, snap.ask || null,
              snap.pend || []);
   renderState(snap);
+  revertRefill(snap);              // 1.62：撤回后把被撤回的话补回输入框
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
 }
@@ -1784,6 +1841,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
           flash('正在删除…', 'var(--blue)');
         }
         sendCmd(k, mi);
+        /* 1.62：撤回发起后记下时刻——TRAE 会把被撤回的那条话放回它
+           自己的输入框，等下一次快照读到再回填本端（见 revertRefill） */
+        if (k === 'rewind') S.revertPend = Date.now();
       };
     });
     el.msgs.appendChild(d);
@@ -2072,6 +2132,24 @@ function refreshSendBtn(){               // 1.01：生成中打字 → 插话三
   }
 }
 
+/* 1.62：撤回后把被撤回的话回填本端输入框。TRAE 把那条话放回它自己的
+   输入框后，快照 inputText 才会带上它；不赌单次时机，改为「撤回发起后
+   60 秒内，一旦快照读到输入框有字就回填一次」。本端输入框已有字时不
+   覆盖（用户可能正在改），只在全屏（看不到输入行）时额外吐司告知。 */
+function revertRefill(snap){
+  if (!S.revertPend) return;
+  if (Date.now() - S.revertPend > 60000){ S.revertPend = 0; return; }
+  const t = ((snap && snap.inputText) || '').trim();
+  if (!t) return;
+  S.revertPend = 0;
+  if (!el.ent.value.trim()){
+    el.ent.value = t;
+    refreshSendBtn();
+  }
+  const pv = t.length > 40 ? t.slice(0, 40) + '…' : t;
+  flash('↩ 已撤回并取回：' + pv, 'var(--blue)', 6000);
+}
+
 function renderState(snap){
   S.gen = false;
   S.ready = !!(snap && snap.online);
@@ -2079,6 +2157,7 @@ function renderState(snap){
     el.state.textContent = 'TRAE 界面未就绪';
     el.state.style.color = 'var(--red)';
     setSendBtn(false, false);
+    fbarSync();                            // 1.62：全屏状态条跟随
     return;
   }
   const idle = snap.sendIdle, inp = snap.inputText || '',
@@ -2125,6 +2204,7 @@ function renderState(snap){
       el.loginbar.classList.remove('on');
     }
   }
+  fbarSync();                              // 1.62：全屏状态条镜像 #statebar
 }
 
 function renderAttach(items){
@@ -2390,8 +2470,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.61';
-const VER_DESC = '状态提示改白话（WS坏了→连接已断开）+ 连不上中继单独提示 + 点状态进诊断';
+const VER = '1.62';
+const VER_DESC = '历史全屏补状态提醒（撤回/回退在历史里看得见结果）+ 撤回后回填输入框更稳';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3099,9 +3179,10 @@ function onEv(kind, v){
       flash(v[0] === 'revert'
         ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
         : '已删除第 ' + (v[1] + 1) + ' 条「我」的消息', 'var(--green)');
-      /* v1.56：撤回体验对齐原版——原版撤回后会把被撤回的话取回输入框，
-         服务端已随 snap 广播到 S.snap.inputText（先于 msg_act 到达），
-         这里回填到本端输入框，让网页版输入框与原版一致。 */
+      /* v1.56：撤回体验对齐原版——原版撤回后会把被撤回的话取回输入框。
+         1.62：不再只赌「msg_act 到达时 S.snap.inputText 已有字」（快照与
+         msg_act 的到达时机偶有偏差 -> 回填落空、看不出同步结果）；此处
+         有字就回填，没字交给下一次快照的 revertRefill() 补上。 */
       if (v[0] === 'revert'){
         try {
           const t = ((S.snap && S.snap.inputText) || '').trim();
@@ -3109,6 +3190,8 @@ function onEv(kind, v){
             el.ent.value = t;
             refreshSendBtn();
             try { el.ent.focus(); } catch(e2){}
+            S.revertPend = 0;
+            ftoast('↩ 已取回被撤回的话（见输入框）', 'var(--blue)', 5000);
           }
         } catch(e3){}
       }
