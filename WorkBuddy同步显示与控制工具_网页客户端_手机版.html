@@ -2361,6 +2361,13 @@ function onEv(kind, v){
       return;
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
+      /* 登录轻启动——服务端 hello 只发「框架版」快照（无 msgs，正文由
+         登录后第一拍常规快照轮询补齐）。此时若直接 S.snap=v，消息区会因
+         msgs 缺失闪成空白再跳回正文（大会话尤其明显）。故框架版只刷列表/
+         模型/状态，正文用旧值兜底，免闪空。 */
+      if (v.msgs === undefined && S.snap && Array.isArray(S.snap.msgs)){
+        v.msgs = S.snap.msgs;
+      }
       S.snap = v;
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
       if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
