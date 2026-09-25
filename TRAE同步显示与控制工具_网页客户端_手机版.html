@@ -2687,8 +2687,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.78';
-const VER_DESC = '全新架构v1.3（服务端2.22+网页1.78）：主界面顶部/底部各约两行空白根治——1.75 只清了全屏横幅那处 env(safe-area-inset-*)，主界面 #hdr 顶栏与 #input_row 输入行两处漏网（手机上 env≈44px 凭空撑白，PC 上 env=0 测不出）；本次把全站 8 处 env 留白一次清干净（#hdr/#input_row/#ftoast/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody），页面统一满屏到边；1.77 未登录提醒横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制+输入框恒钉底）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.79';
+const VER_DESC = '全新架构v1.3（服务端2.23+网页1.79）：输入框大小框分工——1.79 放大态（编辑中）恒钉底部、永远看得见最后一个字，收起态（主界面平时那条单行小框）停在开头、看得见第一个字，一前一后凑出前后概况（1.76 曾把两态都钉底部，小框只看得见尾巴）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3619,10 +3619,15 @@ function entFit(){
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
-/* 1.76：输入框视线恒钉底部——打字中 / 收起输入法后都不跳回开头，
-   保证永远看得到最后一个字（原失焦后 scrollTop 归零，尾巴看不见） */
-function entToBottom(){
-  const pin = () => { try { el.ent.scrollTop = el.ent.scrollHeight; }
+/* 1.79：大小框各司其职（用户口径）——
+   放大态（聚焦/编辑中，grow）：视线恒钉底部，永远看得到最后一个字
+     （1.76 修的「失焦后 scrollTop 归零、尾巴看不见」保留）；
+   收起态（主界面平时那条单行小框）：停在开头，看得到第一个字，
+   与放大框一前一后凑出「头+尾」前后概况。
+   （1.76 曾把两种状态都钉底部 → 小框只看得见尾巴。） */
+function entPin(){
+  const grow = el.ent.classList.contains('grow');
+  const pin = () => { try { el.ent.scrollTop = grow ? el.ent.scrollHeight : 0; }
                       catch(e){} };
   pin();
   requestAnimationFrame(pin);
@@ -3630,22 +3635,22 @@ function entToBottom(){
 }
 if (window.visualViewport){   /* 输入法弹出/收起都会动视口尺寸 */
   window.visualViewport.addEventListener('resize', () => {
-    if (document.activeElement === el.ent) entToBottom();
+    if (document.activeElement === el.ent) entPin();
   });
 }
 el.ent.addEventListener('focus', () => {
   el.ent.classList.add('grow');
   el.input_row.classList.add('grow');   /* 1.27：按钮跳顶行 */
-  entFit(); entToBottom();
+  entFit(); entPin();
 });
 el.ent.addEventListener('blur', () => {
   el.ent.classList.remove('grow');
   el.input_row.classList.remove('grow');
   el.ent.style.height = '34px';
-  entToBottom();      /* 1.76：缩回单行也停在最后一行，不跳回开头 */
+  entPin();           /* 1.79：缩回单行 → 停在开头，看得到第一个字 */
 });
 el.ent.addEventListener('input', () => { refreshSendBtn(); entFit();
-  entToBottom(); });
+  entPin(); });
 el.ent.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.isComposing){
     e.preventDefault(); el.send.click();
