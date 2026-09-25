@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.67</title>
+<title>TRAE远程 v1.68</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1203,16 +1203,25 @@ function timesGet(){
   try { return JSON.parse(localStorage.getItem(LS_TM)) || {}; }
   catch(e){ return {}; }
 }
-function fmtTime(iso){                    // 今天 HH:MM，往日 MM-DD HH:MM（本地时区）
+function fmtTime(iso){                    // 北京时间 + 完整日期（YYYY-MM-DD HH:MM）
   if (!iso) return '';
-  const t = new Date(iso);                // toISOString 的 UTC 串 -> 按本机时区解析
-  if (isNaN(t)) return iso.slice(11,16);  // 兜底：解析失败按原样（UTC 片段）
-  const p2 = n => (n < 10 ? '0' : '') + n;
-  const hm = p2(t.getHours()) + ':' + p2(t.getMinutes());
-  const now = new Date();
-  const sameDay = t.getFullYear() === now.getFullYear()
-    && t.getMonth() === now.getMonth() && t.getDate() === now.getDate();
-  return sameDay ? hm : p2(t.getMonth() + 1) + '-' + p2(t.getDate()) + ' ' + hm;
+  /* 历史缓存是 toISOString().slice(0,19) 的「无时区 UTC 串」（丢 .000Z），
+     Date.parse 会按本机时区解释 → 显示比北京慢 8 小时（v1.36 只改了
+     fmtTime 的 getHours 分支、没改缓存写入端，故当时「改了没效果」）。
+     这里对无时区尾缀的串显式补 Z 按 UTC 解析，旧缓存一并自动纠正。 */
+  let ms;
+  if (typeof iso === 'number') ms = iso;
+  else {
+    const s = String(iso);
+    const bare = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(s);
+    ms = Date.parse(bare ? s + '.000Z' : s);
+  }
+  if (isNaN(ms)) return '';               // 解析失败不显示错误时间
+  /* 统一显示北京时间(UTC+8)墙钟——手机时区若被切走，这里显式 +8
+     对齐消息真实时刻，显示不随本机时区漂移 */
+  const bj = new Date(ms + 8 * 3600 * 1000);
+  const s = bj.toISOString();             // epoch+8h 的 UTC 表示 = 北京墙钟
+  return s.slice(0, 10) + ' ' + s.slice(11, 16);
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -2478,8 +2487,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.67';
-const VER_DESC = '进历史全屏的提示吐司只闪 0.5s 收起；重试计数按「轮」管理：成功连上=归零、断后先显示「重试中…」再按次累加';
+const VER = '1.68';
+const VER_DESC = '消息时间统一显示为北京时间·带完整日期（YYYY-MM-DD HH:MM）：修复历史缓存 toISOString 丢时区标记致慢 8 小时（v1.36 未修净，旧缓存自动纠正）；进历史全屏的提示吐司只闪 0.5s 收起；重试计数按「轮」管理：成功连上=归零、断后先显示「重试中…」再按次累加';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
