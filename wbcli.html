@@ -165,9 +165,13 @@ body.fmsg #fexit{display:block;}
   padding:6px 8px;
   background:#fff; border-top:1px solid var(--bd); flex:none;}
 /* 1.39：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
-#btn_attach,#btn_bench{width:36px; min-width:36px;
+#btn_attach,#btn_bench,#btn_copy{width:36px; min-width:36px;
   height:36px; min-height:36px; padding:0; flex:none; font-size:15px;
   display:inline-flex; align-items:center; justify-content:center;}
+/* 1.40：📋 复制 只在输入框放大态出现，小态隐藏（省地方）。
+   本版不做「取回」⇩ 按钮（用户口径：CLI 版不需要那个按钮）。 */
+#btn_copy{display:none;}
+#input_row.grow #btn_copy{display:inline-flex; order:1;}
 #ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
@@ -393,7 +397,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
   <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
   <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
-  <textarea id="ent" placeholder="输入消息…" rows="1"></textarea>
+  <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
+  <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
   <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
@@ -835,6 +840,7 @@ const el = {
   acct: $('lbl_acct'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
+  copy: $('btn_copy'),                       /* 1.40：复制输入框内容（放大态） */
   input_row: $('input_row'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
@@ -2367,8 +2373,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.39';
-const VER_DESC = '1.39 输入框小按钮统一正方形36×36(原📎/📂是46×36扁条)；输入框视线恒钉底部——打字/失焦/输入法composition起落都钉到底，永远看得到最后一个字；主界面上下约两行空白根治——清掉样式块7处 env(safe-area-inset-*) 安全区留白(#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody)，页面满屏到边；1.38 第二行删掉「目标框」下拉（本部署服务端只注册单个框，下拉恒一项、无切换价值），腾出的宽度全给模型下拉；1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
+const VER = '1.40';
+const VER_DESC = '1.40 输入口对齐 TRAE（1.79~1.82）：打开大框即在正文后铺3个空行（输入法盖住的3行让给空行、正文往上滚可看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、也不点亮发送钮）；大小框分工——放大态视线钉底看最后一个字、收起态回开头看第一个字；输入法「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走右侧按钮，桌面硬件键盘仍 Enter 发送）；新增 📋 复制按钮（仅放大态显示，复用 1.24 copyText）；本版不做「取回」⇩ 按钮（用户口径：CLI 版不需要）；1.39 输入框小按钮统一正方形36×36(原📎/📂是46×36扁条)；输入框视线恒钉底部——打字/失焦/输入法composition起落都钉到底，永远看得到最后一个字；主界面上下约两行空白根治——清掉样式块7处 env(safe-area-inset-*) 安全区留白(#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody)，页面满屏到边；1.38 第二行删掉「目标框」下拉（本部署服务端只注册单个框，下拉恒一项、无切换价值），腾出的宽度全给模型下拉；1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3117,10 +3123,28 @@ function entFit(){
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
-/* 1.39：输入框视线恒钉底部——打字中 / 收起输入法后都不跳回开头，
-   保证永远看得到最后一个字（原失焦后 scrollTop 归零，尾巴看不见） */
-function entToBottom(){
-  const pin = () => { try { el.ent.scrollTop = el.ent.scrollHeight; }
+/* 1.40：打开大输入框即在正文后铺 3 个空行（对齐 TRAE 1.82）——
+   输入法弹出会盖住大框（255px≈9 行）最下面约 3 行，正文一长就被吞掉、
+   又滚不出来（下面没内容可滚）。预留 3 个空行后，被盖住的是空行，正文
+   往上滚就能看全；正文仍从第一行起写、光标落正文末尾（＝空行之前）。
+   只补末尾、不动正文里用户自己敲的空行；不足 3 行才补、已够不动（幂等）。
+   ⚠ 空行是**内容**，故发送与空值判断一律走 value.trim()——空行不会
+   被当正文发出去，也不会点亮发送按钮；发送后 value='' 连空行一起清掉。 */
+const ENT_PAD = 3;                       /* 底部预留空行数 */
+function entPadOpen(){
+  try{
+    const v = el.ent.value || '';
+    const real = v.replace(/\n+$/, '').length;  /* 正文实际长度（末尾空行不算） */
+    el.ent.value = v.slice(0, real) + '\n'.repeat(ENT_PAD);
+    el.ent.setSelectionRange(real, real);       /* 光标落正文末尾＝第一行起写 */
+  }catch(e){}
+}
+/* 1.40：大小框分工（对齐 TRAE 1.79/1.80）——放大态（grow）视线钉底、
+   看得到最后一个字；收起态（单行小框）回到开头、看得到第一个字，一前一后
+   凑出前后概况（1.39 是两态都钉底，小框只看得见尾巴）。 */
+function entPin(){
+  const grow = el.ent.classList.contains('grow');
+  const pin = () => { try { el.ent.scrollTop = grow ? el.ent.scrollHeight : 0; }
                       catch(e){} };
   pin();
   requestAnimationFrame(pin);
@@ -3128,27 +3152,45 @@ function entToBottom(){
 }
 if (window.visualViewport){   /* 输入法弹出/收起都会动视口尺寸 */
   window.visualViewport.addEventListener('resize', () => {
-    if (document.activeElement === el.ent) entToBottom();
+    if (document.activeElement === el.ent) entPin();
   });
 }
 el.ent.addEventListener('focus', () => {
   el.ent.classList.add('grow'); el.input_row.classList.add('grow');   /* 按钮跳顶行 */
-  entFit(); entToBottom();
+  entPadOpen();          /* 1.40：铺 3 个空行 + 光标落正文末尾 */
+  entFit(); entPin();
 });
 el.ent.addEventListener('blur', () => {
   el.ent.classList.remove('grow'); el.input_row.classList.remove('grow');
   el.ent.style.height = '34px';
-  entToBottom();      /* 1.39：缩回单行也停在最后一行，不跳回开头 */
+  entPin();           /* 1.40：缩回单行 → 停在开头，看得到第一个字 */
 });
 el.ent.addEventListener('input', () => { refreshSendBtn(); entFit();
-  entToBottom(); });
-el.ent.addEventListener('compositionstart', entToBottom);   /* 1.39：输入法起笔钉底 */
-el.ent.addEventListener('compositionend', entToBottom);     /* 1.39：输入法落字钉底 */
+  entPin(); });
+el.ent.addEventListener('compositionstart', entPin);   /* 输入法起笔钉底 */
+el.ent.addEventListener('compositionend', entPin);     /* 输入法落字钉底 */
+/* 1.40：输入法的「换行」键不再被当成「发送」（对齐 TRAE 1.81）——
+   软键盘那个换行键发出来的就是一个普通 Enter，且收到时组字早已结束
+   （isComposing 已是 false），旧的 !e.isComposing 挡不住 → 被
+   preventDefault 掐掉换行、直接发了消息。故按输入方式分流：触摸设备
+   Enter 一律放行去换行（发送只走右侧发送按钮，与输入法「换行」字样
+   一致）；桌面硬件键盘保留 Enter 发送。e.shiftKey 恒换行；keyCode 229
+   为安卓中文输入法组字中的「处理中」标记，一并放行。 */
+const _softKb = window.matchMedia
+  ? window.matchMedia('(pointer: coarse)').matches
+  : ('ontouchstart' in window);
 el.ent.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.isComposing){
-    e.preventDefault(); el.send.click();
-  }
+  const isEnter = (e.key === 'Enter' || e.keyCode === 13);
+  if (!isEnter) return;
+  if (e.isComposing || e.keyCode === 229 || e.shiftKey) return;
+  if (_softKb) return;       /* 软键盘的换行键 → 换行，不抢去发送 */
+  e.preventDefault(); el.send.click();
 });
+el.copy.onclick = () => {        // 1.40：一键复制输入框内容（放大态小工具）
+  const t = el.ent.value;
+  if (!t.trim()){ flash('输入框是空的，没东西可复制'); return; }
+  copyText(t);                   // 复用 1.24 的 copyText（含非安全上下文兜底）
+};
 el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并入）
   drawerClose();
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
