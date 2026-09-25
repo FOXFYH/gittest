@@ -24,8 +24,7 @@ input,select{font:inherit; border:1px solid var(--bd); border-radius:6px;
   padding:4px 6px; background:#fff; min-height:36px;}
 select{font-size:12px;}
 /* ── 顶栏（两行 + 状态条） ── */
-#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);
-  padding-top:env(safe-area-inset-top);}
+#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);}
 .h1row{display:flex; align-items:center; gap:6px; padding:2px 8px;}
 #btn_menu{min-width:42px; font-size:17px; padding:4px 10px;}
 .h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
@@ -77,7 +76,7 @@ body.fmsg #fexit{display:block;}
 #convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
   display:flex; align-items:flex-end; justify-content:center;}
 .cmsheet{background:#fff; border-radius:14px 14px 0 0; width:100%;
-  max-width:420px; padding:10px 14px calc(14px + env(safe-area-inset-bottom));}
+  max-width:420px; padding:10px 14px 14px;}
 .cmsheet .cmtitle{font-size:13px; color:var(--gray); margin:2px 2px 8px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .cmsheet button{display:block; width:100%; text-align:left; padding:12px 10px;
@@ -151,10 +150,12 @@ body.fmsg #fexit{display:block;}
 .chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
   padding:0 2px;}
 #input_row{display:flex; gap:6px; align-items:center;
-  padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+  padding:6px 8px;
   background:#fff; border-top:1px solid var(--bd); flex:none;}
-#btn_attach{min-width:46px;}
-#btn_bench{min-width:46px;}
+/* 1.47：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
+#btn_attach,#btn_bench{width:36px; min-width:36px; height:36px; min-height:36px;
+  padding:0; flex:none; font-size:15px;
+  display:inline-flex; align-items:center; justify-content:center;}
 #ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
@@ -210,11 +211,11 @@ body.fmsg #fexit{display:block;}
   display:none; flex-direction:column;}
 #page_net.on{display:flex;}
 .nhdr{flex:none; display:flex; align-items:center; gap:8px;
-  padding:6px 10px calc(6px + env(safe-area-inset-top));
+  padding:6px 10px;
   background:#fff; border-bottom:1px solid var(--bd);}
 .nhdr b{color:var(--blue); font-size:15px;}
 .nbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:10px 10px calc(10px + env(safe-area-inset-bottom));}
+  padding:10px 10px;}
 fieldset{border:1px solid var(--bd); border-radius:8px;
   padding:8px 10px; margin-bottom:12px; background:#fff;}
 legend{color:var(--blue); font-weight:bold; padding:0 6px;}
@@ -251,7 +252,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .brow.up{color:var(--gray);}
 .brow.empty{color:#999; cursor:default;}
 .brow .plus{float:right; color:var(--blue); font-weight:bold;}
-#bfoot{flex:none; padding:6px 12px calc(6px + env(safe-area-inset-bottom));
+#bfoot{flex:none; padding:6px 12px;
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
 /* ── 1.15：模型收藏管理页（全屏覆盖）── */
@@ -283,7 +284,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   display:none; flex-direction:column;}
 #page_taskdlg.on{display:flex;}
 .tdbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:14px 14px calc(14px + env(safe-area-inset-bottom));}
+  padding:14px 14px;}
 .tdsec{font-size:12px; color:var(--gray); margin:4px 0 8px;}
 .tdpick{background:#fff; border:1px solid var(--bd); border-radius:8px;
   padding:13px 14px; cursor:pointer; color:var(--blue); font-weight:bold;}
@@ -2150,8 +2151,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.46';
-const VER_DESC = '1.46 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.45 冷启动按上次服务端版本号拼缓存键——骨架/历史缓存真能秒开；全新架构（服务端1.55+网页1.46）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
+const VER = '1.47';
+const VER_DESC = '1.47 输入行小图标统一正方形36×36（原 📎/📂 是46×36扁条）；输入框视线恒钉底部——打完字/收起输入法永远看得到最后一个字（原失焦后scrollTop归零看不见尾巴）；主界面上下不留空白——#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody 共7处 env(safe-area-inset-*) 留白一次清干净（手机上env≈44px凭空撑白，PC上env=0测不出），页面统一满屏到边；1.46 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.45 冷启动按上次服务端版本号拼缓存键——骨架/历史缓存真能秒开；全新架构（服务端1.55+网页1.46）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2877,15 +2878,34 @@ function entFit(){
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
+/* 1.47：输入框视线恒钉底部——打字中 / 收起输入法后都不跳回开头，
+   保证永远看得到最后一个字（对齐 TRAE 1.76） */
+function entToBottom(){
+  const pin = () => { try { el.ent.scrollTop = el.ent.scrollHeight; }
+                      catch(e){} };
+  pin();
+  requestAnimationFrame(pin);
+  setTimeout(pin, 130);   /* 等输入法收起动画结束再钉一次 */
+}
+if (window.visualViewport){   /* 输入法弹出/收起都会动视口尺寸 */
+  window.visualViewport.addEventListener('resize', () => {
+    if (document.activeElement === el.ent) entToBottom();
+  });
+}
 el.ent.addEventListener('focus', () => {
   el.ent.classList.add('grow'); el.input_row.classList.add('grow');   /* 按钮跳顶行 */
-  entFit();
+  entFit(); entToBottom();
 });
 el.ent.addEventListener('blur', () => {
   el.ent.classList.remove('grow'); el.input_row.classList.remove('grow');
   el.ent.style.height = '34px';
+  entToBottom();      /* 1.47：缩回单行也停在最后一行，不跳回开头 */
 });
-el.ent.addEventListener('input', () => { refreshSendBtn(); entFit(); });
+el.ent.addEventListener('input', () => { refreshSendBtn(); entFit();
+  entToBottom(); });
+/* 1.47：输入法组合态变化（拼音上屏/候选收起）也重新钉底 */
+el.ent.addEventListener('compositionstart', entToBottom);
+el.ent.addEventListener('compositionend', entToBottom);
 el.ent.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.isComposing){
     e.preventDefault(); el.send.click();
