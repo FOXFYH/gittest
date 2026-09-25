@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.73</title>
+<title>TRAE远程 v1.74</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -408,6 +408,12 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .fhint{padding:10px 14px; color:var(--gray); font-size:12px;
   line-height:1.6;}
 #btn_fav{flex:none; min-width:34px;}
+/* 1.74：收藏页「刷新模型」按钮——右侧圆角小按钮，配合 nhdr 标题 */
+#page_fav .nhdr b{flex:1; min-width:0;}
+#btn_favrefresh{flex:none; margin-left:auto; font-size:12px;
+  padding:4px 10px; border:1px solid var(--bd); border-radius:14px;
+  background:#fff; color:var(--blue); cursor:pointer; white-space:nowrap;}
+#btn_favrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
 /* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
    bench 覆盖本页，选定后回来）── */
 #page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
@@ -550,6 +556,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="nhdr">
     <button id="btn_favback">‹ 返回</button>
     <b>☆ 模型收藏</b>
+    <button id="btn_favrefresh" title="重新读取官方模型列表（改版/下架后点此更新）">↻ 刷新模型</button>
   </div>
   <div class="fhint">点模型行收藏 ★ / 取消 ☆（立即生效并持久保存）。
     有收藏后，顶栏模型下拉只显示收藏的模型；当前对话选中的非收藏
@@ -1062,6 +1069,7 @@ const el = {
   fsw: $('fullswarn'), fsw_txt: $('fsw_txt'),
   acct: $('lbl_acct'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
+  favrefresh: $('btn_favrefresh'),
   favlist: $('fav_list'),
   prof: $('btn_prof'), profpage: $('page_prof'),
   profback: $('btn_profback'), profref: $('btn_profref'),
@@ -2650,8 +2658,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.73';
-const VER_DESC = '全新架构v1.3（服务端2.21+网页1.73）：全屏顶部横幅修成真一行——1.72 把刘海安全区误放底部 padding 导致横幅底下多出两行空白遮挡，1.73 移到顶部，整条压成超窄一行。1.72 起进全屏不再弹0.5s悬浮窗+顶栏flash重复提醒，只保留顶部横幅；1.71 起版本简介移到设置页底部；1.70 起本地缓存秒开+双版本号键+请求式历史增量';
+const VER = '1.74';
+const VER_DESC = '全新架构v1.3（服务端2.21+网页1.74）：模型收藏管理页新增「↻ 刷新模型」按钮——官方模型改名/下架后点此立即重拉最新列表（发 model_list 命令，服务端 CDP 重读）。1.73 修全屏横幅安全区误放底部导致的三行空白bug；1.72 起进全屏去0.5s悬浮窗+顶栏flash重复提醒只留顶部横幅；1.71 起版本简介移到设置页底部；1.70 起本地缓存秒开+双版本号键+请求式历史增量';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3659,6 +3667,14 @@ el.model.onchange = () => {
 
 el.fav.onclick = () => { renderFavPage(); el.favpage.classList.add('on'); };
 el.favback.onclick = () => el.favpage.classList.remove('on');
+/* 1.74：收藏页「刷新模型」——发 model_list 命令让服务端 CDP 重拉
+   最新官方模型列表；结果经 models 事件回来自动刷新本页与下拉。 */
+el.favrefresh.onclick = () => {
+  const b = el.favrefresh;
+  b.disabled = true; b.textContent = '刷新中…';
+  renderFavPage(); sendCmd('model_list', null);
+  setTimeout(() => { b.disabled = false; b.textContent = '↻ 刷新模型'; }, 1200);
+};
 
 /* —— 抽屉 —— */
 
