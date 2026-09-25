@@ -273,6 +273,10 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .fhint{padding:10px 14px; color:var(--gray); font-size:12px;
   line-height:1.6;}
 #btn_fav{flex:none; min-width:34px;}
+#btn_favrefresh{flex:none; margin-left:auto; font-size:12px;
+  padding:4px 10px; border:1px solid var(--bd); border-radius:14px;
+  background:#fff; color:var(--blue); cursor:pointer; white-space:nowrap;}
+#btn_favrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
 /* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
    bench 覆盖本页，选定后回来）── */
 #page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
@@ -437,6 +441,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="nhdr">
     <button id="btn_favback">‹ 返回</button>
     <b>☆ 模型收藏</b>
+    <button id="btn_favrefresh" title="重新读取官方模型列表（改版/下架后点此更新）">↻ 刷新模型</button>
   </div>
   <div class="fhint">点模型行收藏 ★ / 取消 ☆（立即生效并持久保存）。
     有收藏后，顶栏模型下拉只显示收藏的模型；当前对话选中的非收藏
@@ -793,6 +798,10 @@ const S = {
      conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
   servers: {},
   cur: null,
+  /* 1.44 新架构：服务端版本号 + 请求式历史游标/缓存
+     （本地秒显 + 账本增量；双版本号键 = 网页VER|服务端VER） */
+  srvVer: '0', histConv: '', histMsgs: null, histRaw: [],
+  histVer: 0, histHave: 0, histLoadingPrev: false,
 };
 
 /* ================= DOM 快捷 ================= */
@@ -830,7 +839,7 @@ const el = {
   fexit: $('fexit'),
   fsw: $('fullswarn'), fsw_txt: $('fsw_txt'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
-  favlist: $('fav_list'),
+  favlist: $('fav_list'), favrefresh: $('btn_favrefresh'),
 };
 
 let flashTimer = null;
@@ -941,10 +950,151 @@ function curTitle(){
   return '当前会话';
 }
 
+/* ============ 1.44 新架构：本地缓存 + 请求式历史 ============
+   骨架：localStorage 秒出会话列表；历史：localStorage 秒出当前会话消息。
+   双版本号键 = '网页VER|服务端VER'（hello.d.ver），任一变化即清空重下。
+   请求式历史：发 {t:'req',id,c:'hist'|'hist_prev',...} → {t:'res',id,k,v}。
+   直播仍走快照（snap 每拍全文），缓存只在快照未到达前兜底秒显。 */
+const LS_SKEL = 'wb_webm_skel';          /* 骨架缓存（会话列表） */
+const LS_HIST = 'wb_webm_hist';          /* 历史消息缓存（按会话） */
+let cacheKey = null, reqSeq = 0, skelLastSave = 0;
+const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
+function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
+function checkVerBump(){
+  /* 首次定键 / 版本变化 → 清空本地骨架与历史缓存（改版重下） */
+  const k = cacheKeyNow();
+  if (cacheKey !== null && cacheKey !== k){
+    try { localStorage.removeItem(LS_SKEL);
+          localStorage.removeItem(LS_HIST); } catch(e){}
+    S.histConv = ''; S.histMsgs = null; S.histRaw = [];
+  }
+  cacheKey = k;
+}
+/* —— 骨架缓存：打开页面即秒显会话列表（不用等连上） —— */
+function skelCacheSave(snap){
+  if (!snap || !Array.isArray(snap.convs) || !snap.convs.length) return;
+  const now = Date.now();
+  if (now - skelLastSave < 2000) return;      /* 节流：2 秒内只写一次 */
+  skelLastSave = now;
+  try {
+    const o = {key: cacheKeyNow(), ts: now, convs: snap.convs};
+    localStorage.setItem(LS_SKEL, JSON.stringify(o));
+  } catch(e){}
+}
+function skelCacheLoad(){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SKEL) || 'null');
+    if (!o || o.key !== cacheKeyNow()) return null;
+    return o;
+  } catch(e){ return null; }
+}
+/* —— 历史缓存：按 (端口|会话标题) 存账本记录 + 游标 —— */
+function histCacheRead(conv){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
+    if (!o || o.key !== cacheKeyNow()) return null;
+    const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
+    if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
+    return e;
+  } catch(e){ return null; }
+}
+function histCacheWrite(conv, ver, have_seq, msgs){
+  try {
+    let o = null;
+    try { o = JSON.parse(localStorage.getItem(LS_HIST) || 'null'); } catch(e){}
+    if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow(), convs: {}};
+    if (!o.convs) o.convs = {};
+    o.convs['p' + S.port + '|' + (conv || '')] =
+      {ver: ver | 0, have_seq: have_seq | 0, msgs: msgs};
+    localStorage.setItem(LS_HIST, JSON.stringify(o));
+  } catch(e){}
+}
+function ledToArr(r){
+  return [r.role === 'u' ? 'u' : 'a', r.text || '', r.tm || '',
+          r.can_rev ? 1 : 0, r.can_del ? 1 : 0];
+}
+/* —— 请求式历史 —— */
+function reqHist(conv, have_seq, ver){
+  const id = ++reqSeq;
+  S_reqs[id] = {conv: conv || '', ts: Date.now()};
+  sendJson({t: 'req', id: id, c: 'hist', conv: conv || '',
+            have_seq: have_seq | 0, ver: ver | 0});
+}
+function reqHistPrev(conv, from_seq, count){
+  const id = ++reqSeq;
+  S_reqs[id] = {conv: conv || '', ts: Date.now()};
+  sendJson({t: 'req', id: id, c: 'hist_prev', conv: conv || '',
+            from_seq: from_seq | 0, count: count | 30});
+}
+function onRes(id, k, v){
+  const rq = S_reqs[id];
+  if (rq) delete S_reqs[id];
+  if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
+  if (k === 'hist') applyHist(rq ? rq.conv : '', v);
+  else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || []);
+}
+function applyHist(conv, v){
+  if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
+  const inc = v.msgs || [];
+  if (v.rebuild){                              /* 版本不符：整体重建 */
+    S.histRaw = inc.slice();
+    S.histMsgs = inc.map(ledToArr);
+    S.histVer = v.ver | 0;
+  } else {                                     /* 游标增量：只补新段 */
+    if (!Array.isArray(S.histRaw)) S.histRaw = [];
+    if (!Array.isArray(S.histMsgs)) S.histMsgs = [];
+    for (const r of inc){
+      if (S.histRaw.some(x => x.seq === r.seq)) continue;
+      S.histRaw.push(r);
+      S.histMsgs.push(ledToArr(r));
+    }
+    S.histVer = v.ver | 0;
+  }
+  S.histHave = S.histRaw.length
+    ? S.histRaw[S.histRaw.length - 1].seq : 0;
+  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
+  renderAll();
+}
+function prependHist(conv, older){
+  S.histLoadingPrev = false;
+  if (conv !== S.histConv) return;
+  if (!Array.isArray(older) || !older.length) return;
+  const h = el.msgs.scrollHeight;              /* 保阅读位置 */
+  S.histRaw = older.concat(S.histRaw || []);
+  S.histMsgs = S.histRaw.map(ledToArr);
+  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
+  renderAll();
+  el.msgs.scrollTop = el.msgs.scrollHeight - h;
+}
+/* —— 会话历史打开：秒显本地 + 发请求式增量 —— */
+function ensureHist(){
+  if (S.switch_pend) return;                   /* 切换在途：等快照定论 */
+  const title = curTitle();
+  if (!title || title === S.histConv) return;
+  S.histConv = title;
+  S.histMsgs = null; S.histRaw = []; S.histVer = 0; S.histHave = 0;
+  S.histLoadingPrev = false;
+  const c = histCacheRead(title);
+  if (c){                                       /* 本地秒显历史 */
+    S.histRaw = c.msgs.slice();
+    S.histMsgs = c.msgs.map(ledToArr);
+    S.histVer = c.ver | 0; S.histHave = c.have_seq | 0;
+  }
+  renderAll();                                  /* 秒显（快照未到达前） */
+  reqHist(title, S.histHave, S.histVer);        /* 游标增量补新/重建 */
+}
+function curMsgs(){
+  /* 直播权威=快照（每拍全文）；缓存只在快照尚无 msgs 时兜底秒显 */
+  if (S.snap && Array.isArray(S.snap.msgs)) return S.snap.msgs;
+  return (S.histMsgs && S.histMsgs.length) ? S.histMsgs : [];
+}
+
 /* ================= 渲染 ================= */
 
 function renderAll(){
   const snap = S.snap;
+  skelCacheSave(snap);                 /* 1.44：骨架缓存写回（秒开列表） */
+  ensureHist();                        /* 1.44：本地历史秒开+请求式增量 */
   renderConvs(snap.convs || []);
   /* 1.24：过滤「安装 WorkBuddy」类安装引导按钮（误点无意义；
      服务端已滤，此处双保险兼容旧服务端）。1.25：diff 审查
@@ -958,7 +1108,7 @@ function renderAll(){
       if (/^(全部)?(撤销|保留)$/.test(t)) return false;
       return true;
     });
-  renderMsgs(snap.msgs || [], snap.finish, opts0, snap.ask || null);
+  renderMsgs(curMsgs(), snap.finish, opts0, snap.ask || null);
   renderState(snap);
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
@@ -1632,6 +1782,15 @@ el.msgs.addEventListener('scroll', () => {
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
+  /* 1.44 新架构：接近顶部且本地缓存还有更老 → 从账本向前补拉 */
+  if (m.scrollTop < 60 && !S.histLoadingPrev
+      && S.histRaw && S.histRaw.length){
+    const first = S.histRaw[0];
+    if (first && first.seq > 1){
+      S.histLoadingPrev = true;
+      reqHistPrev(S.histConv, first.seq, 30);
+    }
+  }
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到
      最新」、切换会话。手指怎么滑都不退（鬼打墙根因）。
      进入门槛降为 0.6 屏：一开始往上找历史就进全屏，
@@ -1986,8 +2145,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.43';
-const VER_DESC = '登录/重连骨架先行：会话列表/模型/状态秒显示，正文随后补齐';
+const VER = '1.44';
+const VER_DESC = '全新架构（服务端1.55+网页1.44）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2190,6 +2349,7 @@ function handleBody(body){
     return;
   }
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
+  if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
   if (d.t === 'hello') onHello(d);
 }
 
@@ -2542,6 +2702,8 @@ function onEv(kind, v){
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
   diagLog('收到服务器 hello 回应 ✓', 'ok');
+  /* 1.44 新架构：服务端版本号 → 双版本号缓存键，任一变化清本地缓存 */
+  if (d.ver !== undefined){ S.srvVer = String(d.ver || '0'); checkVerBump(); }
   if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;
   /* 1.23：确认匹配参数（字数/时限）随 hello 同步 */
   if (d.pendcfg && d.pendcfg.head)
@@ -2785,6 +2947,14 @@ el.model.onchange = () => {
 
 el.fav.onclick = () => { renderFavPage(); el.favpage.classList.add('on'); };
 el.favback.onclick = () => el.favpage.classList.remove('on');
+/* 1.44：↻ 重新读取官方模型列表（改版/下架后点此更新）——发 model_list
+   命令；结果经 models 事件回来自动刷新本页与下拉。 */
+el.favrefresh.onclick = () => {
+  const b = el.favrefresh;
+  b.disabled = true; b.textContent = '刷新中…';
+  renderFavPage(); sendCmd('model_list', null);
+  setTimeout(() => { b.disabled = false; b.textContent = '↻ 刷新模型'; }, 1200);
+};
 
 /* —— 抽屉 —— */
 
@@ -3159,6 +3329,11 @@ function channelPrompt(){
 
 /* 1.xx：统一版本号渲染 → 标题栏（三个地方：title / 菜单栏 / 底部） */
 renderVer();
+/* 1.44 新架构：骨架秒出——本地缓存的会话列表直接渲染，不用等连上 */
+{
+  const sk = skelCacheLoad();
+  if (sk && sk.convs && sk.convs.length) renderConvs(sk.convs);
+}
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
 renderAcct();                                    /* 1.33：账号行首显 — */
