@@ -970,28 +970,55 @@ function timesFlush(){
   try { localStorage.setItem(LS_TM, JSON.stringify(_tmCache)); } catch(e){}
 }
 window.addEventListener('pagehide', () => timesFlush());   // 离开前兜底落盘
-function fmtTime(iso){                    // 今天 HH:MM，往日 MM-DD HH:MM（本地时区）
-  if (!iso) return '';
-  const t = new Date(iso);                // toISOString 的 UTC 串 -> 按本机时区解析
-  if (isNaN(t)) return iso.slice(11,16);  // 兜底：解析失败按原样（UTC 片段）
-  const p2 = n => (n < 10 ? '0' : '') + n;
-  const hm = p2(t.getHours()) + ':' + p2(t.getMinutes());
-  const now = new Date();
-  const sameDay = t.getFullYear() === now.getFullYear()
-    && t.getMonth() === now.getMonth() && t.getDate() === now.getDate();
-  return sameDay ? hm : p2(t.getMonth() + 1) + '-' + p2(t.getDate()) + ' ' + hm;
+/* 1.36：时间统一为「北京时间(UTC+8) 精确到秒」。
+   服务端两路时间(快照 msgs[2] / 历史增量 tm)都是 jsonl timestamp，
+   毫秒或秒级原样透传；tsParse 统一转 Date，再按 UTC+8 显示。 */
+function tsParse(v){
+  if (v === null || v === undefined || v === '') return null;
+  let d;
+  const sv = String(v).trim();
+  if (typeof v === 'number' || /^\d+$/.test(sv)){
+    let n = (typeof v === 'number') ? v : parseInt(sv, 10);
+    if (n < 1e11) n *= 1000;              // 秒级时间戳 → 毫秒
+    d = new Date(n);
+  } else {
+    d = new Date(sv);
+  }
+  return isNaN(d.getTime()) ? null : d;
+}
+function bjParts(d){                       // UTC+8 平移后取 UTC 各值=北京时区值
+  const b = new Date(d.getTime() + 8 * 3600 * 1000);
+  return {y:b.getUTCFullYear(), mo:b.getUTCMonth(), dd:b.getUTCDate(),
+          h:b.getUTCHours(), mi:b.getUTCMinutes(), s:b.getUTCSeconds()};
+}
+function fmtTime(v){                       // 今天 HH:MM:SS，往日 MM-DD HH:MM:SS
+  const d = tsParse(v);
+  if (!d) return '';
+  const b = bjParts(d), n = bjParts(new Date());
+  const p2 = x => (x < 10 ? '0' : '') + x;
+  const hms = p2(b.h) + ':' + p2(b.mi) + ':' + p2(b.s);
+  const sameDay = b.y === n.y && b.mo === n.mo && b.dd === n.dd;
+  return sameDay ? hms : p2(b.mo + 1) + '-' + p2(b.dd) + ' ' + hms;
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
   let lastU = '';
   for (const m of msgs){
-    if (m[0] === 'u' || m[0] === 'user'){
+    const isU = (m[0] === 'u' || m[0] === 'user');
+    const sv = tsParse(m[2]);              // 服务端真实时间优先
+    if (sv){
+      const s = fmtTime(sv);
+      if (isU) lastU = s;
+      out.push(s);
+      continue;
+    }
+    if (isU){
       const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
       if (!cache[k]) { cache[k] = new Date().toISOString().slice(0,19); timesDirty(); }
       lastU = cache[k];
       out.push(fmtTime(cache[k]));
     } else {
-      out.push(fmtTime(lastU));           // AI 消息沿用其提问时间
+      out.push(fmtTime(lastU));            // 无服务端时间时，AI 沿用其提问时间
     }
   }
   return out;
@@ -2342,8 +2369,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.35';
-const VER_DESC = '1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
+const VER = '1.36';
+const VER_DESC = '1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
