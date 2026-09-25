@@ -202,9 +202,9 @@ body.fmsg #fexit{display:block;}
   overflow:hidden; text-overflow:ellipsis; font-size:12px; border-radius:7px;
   background:#f2f5f9;}
 #opgrid .dmi:active{background:#e3ecf5;}
-#lbl_ver{flex:none; padding:8px 12px calc(8px + env(safe-area-inset-bottom));
-  color:var(--gray); font-size:11px; border-top:1px solid var(--bd);
-  background:#fafbfc;}
+/* 1.46：升级简介从左侧抽屉底部挪到「设置」页底部（给会话列表让出高度） */
+#lbl_ver{padding:10px 0 0; margin-top:4px; color:var(--gray);
+  font-size:11px; line-height:1.55; border-top:1px solid var(--bd);}
 /* ── 网络页（全屏覆盖） ── */
 #page_net{position:fixed; inset:0; z-index:40; background:#f2f4f7;
   display:none; flex-direction:column;}
@@ -390,7 +390,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m"></div>
 </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
@@ -507,6 +506,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <button id="btn_netsave" disabled data-page-node-id="G2KG6btlv2PooEaIfnNKMJ">保存</button>
       <span id="lbl_netflash" data-page-node-id="IJ1J8pTZbXPsxZWok11Svr"></span>
     </div>
+    <!-- 1.46：升级简介（原在左侧抽屉底部，挪来设置页底部给会话列表让高度） -->
+    <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m"></div>
   </div>
 </div>
 
