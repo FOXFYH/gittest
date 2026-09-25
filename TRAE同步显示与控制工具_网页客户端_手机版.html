@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.82</title>
+<title>TRAE远程 v1.83</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2687,8 +2687,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.82';
-const VER_DESC = '全新架构v1.3（服务端2.23+网页1.82）：1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.83';
+const VER_DESC = '全新架构v1.3（服务端2.23+网页1.83）：1.83 修「放大态专属按钮点不动」——⇩取回/📋复制只在放大态可见（#input_row.grow #btn_x），点下去先让输入框失焦→blur 摘掉 grow→按钮当场 display:none，浏览器派发 click 时它已不在渲染树，onclick 永不触发（用户报「我点了，没效果」）；改为 pointerdown（早于失焦）动手 + preventDefault 保住焦点（框不收起、钮不消失），click 仅作无 PointerEvent 老环境/键盘兜底（400ms 去重）；取回按钮同源缺陷一并修；复制判空由 !t 改 !t.trim()（1.82 起框内恒有 3 个空行，!t 恒假会假报已复制）；1.82 打开大框即在正文后铺 3 个空行（输入法盖住的是空行、正文可滚看全，光标落正文末尾＝从第一行起写）；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3853,16 +3853,40 @@ function benchRender(v){
     box.appendChild(d);
   }
 }
-el.take.onclick = () => {         // 1.53：取回残留——TRAE 输入框文本取回本端+清空
+/* 1.83：放大态专属按钮（⇩取回 / 📋复制）在手机上点不动 —— 根治。
+   病根：这两个按钮只在「放大态」可见（#input_row.grow #btn_x{
+   display:inline-flex}），而点它们的**第一件事就是让输入框失焦**：
+   blur 处理器摘掉 grow → 按钮当场 display:none；等浏览器真去派发 click
+   时它已不在渲染树，click 永远到不了 onclick（用户原话"我点了，没效果"）。
+   对策：改在 pointerdown（早于失焦）动手，并 preventDefault 保住焦点 ——
+   输入框不收起、按钮不消失；click 留作无 PointerEvent 老环境/键盘的兜底，
+   400ms 内去重防重复触发。
+   （同源缺陷：btn_take 原本也是这个写法，一并修。） */
+function bindGrowBtn(btn, run){
+  let last = 0;
+  const fire = () => {
+    const now = Date.now();
+    if (now - last < 400) return;      /* pointerdown 与后续 click 去重 */
+    last = now;
+    run();
+  };
+  if (window.PointerEvent){
+    btn.addEventListener('pointerdown', e => { e.preventDefault(); fire(); });
+  }
+  btn.addEventListener('click', fire);
+}
+bindGrowBtn(el.take, () => {      // 1.53：取回残留——TRAE 输入框文本取回本端+清空
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试，无法取回'); return; }
   flash('正在取回 TRAE 输入框残留…', 'var(--blue)');
   sendCmd('input_take');
-};
-el.copy.onclick = () => {         // 1.76：一键复制输入框内容（放大态小工具）
+});
+bindGrowBtn(el.copy, () => {      // 1.76：一键复制输入框内容（放大态小工具）
   const t = el.ent.value;
-  if (!t){ flash('输入框是空的，没东西可复制'); return; }
+  /* 1.83：判空必须走 trim —— 1.82 起框内恒有 3 个空行，`!t` 恒为假，
+     空框点复制会假报"已复制"。 */
+  if (!t.trim()){ flash('输入框是空的，没东西可复制'); return; }
   copyText(t);
-};
+});
 el.bench.onclick = () => {
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试，无法浏览工作台'); return; }
   S.bench_mode = 'ins';
