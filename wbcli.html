@@ -38,8 +38,7 @@ select{font-size:12px;}
   text-overflow:ellipsis; cursor:pointer;}
 .h2row{display:flex; align-items:center; gap:5px; padding:0 8px 2px;
   flex-wrap:wrap;}
-#cmb_box{flex:1; max-width:42%; min-width:0;}
-#cmb_model{flex:2; min-width:0;}
+#cmb_model{flex:1; min-width:0;}
 #lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:1px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
@@ -366,7 +365,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
   <div class="h2row" data-page-node-id="euyPvOhmsEx2BKClFKwgAN">
-    <select id="cmb_box" data-page-node-id="avZdj3ZBchVnC6JODiSw44"></select>
     <span id="lbl_ports" data-page-node-id="zBgT5txMkCBKKMlkXhsbis">在线 —</span>
     <span id="lbl_points" data-page-node-id="yFYp8ovoyEJEqbf3s1uUjI">积分 —</span>
     <select id="cmb_model" data-page-node-id="QQf0z68kfKCspuI3tgt6mc"></select>
@@ -830,7 +828,7 @@ const S = {
 
 const $ = id => document.getElementById(id);
 const el = {
-  menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
+  menu: $('btn_menu'), rlink: $('lbl_rlink'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   acct: $('lbl_acct'),
@@ -2368,8 +2366,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.37';
-const VER_DESC = '1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
+const VER = '1.38';
+const VER_DESC = '1.38 第二行删掉「目标框」下拉（本部署服务端只注册单个框，下拉恒一项、无切换价值），腾出的宽度全给模型下拉；1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2654,7 +2652,6 @@ function switchSrv(nm){
   S.acct = ''; renderAcct();
   S.alive = new Set(); S.boxes = [];
   el.model.innerHTML = ''; S.model_map = {};
-  el.box.innerHTML = '';
   S.box = '(未连接)'; S.port = 0;
   el.convs.innerHTML = '';
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
@@ -2670,15 +2667,9 @@ function applySrvEntry(){
   /* 用名册缓存恢复当前服务端的基础状态（hello 应答再补全） */
   const s = S.servers[S.cur];
   if (!s) return;
-  if (s.boxes && s.boxes.length){
-    S.boxes = s.boxes;
-    el.box.innerHTML = '';
-    for (const b of s.boxes){
-      const o = document.createElement('option');
-      o.value = b; o.textContent = b;
-      el.box.appendChild(o);
-    }
-  }
+  /* 1.38：第二行「目标框」下拉已删（本部署只有单个框，无切换需求）——
+     名册里仍记 boxes 供「在线 x/y」计数，只不再渲染下拉。 */
+  if (s.boxes && s.boxes.length) S.boxes = s.boxes;
   if (s.alive){ S.alive = new Set(s.alive); renderPorts(); }
   if (s.box && s.port && s.box !== S.box) applySwitch(s.box, s.port);
 }
@@ -2975,15 +2966,9 @@ function onHello(d){
     renderSrvList();          // 清单同步显示 🔒 标记
   }
   const boxes = (d.boxes || []).filter(Boolean);
-  if (boxes.length && JSON.stringify(boxes) !== JSON.stringify(S.boxes)){
+  /* 1.38：只更新计数源，不再重建下拉（元素已删） */
+  if (boxes.length && JSON.stringify(boxes) !== JSON.stringify(S.boxes))
     S.boxes = boxes;
-    el.box.innerHTML = '';
-    for (const b of boxes){
-      const o = document.createElement('option');
-      o.value = b; o.textContent = b;
-      el.box.appendChild(o);
-    }
-  }
   S.alive = new Set(d.alive || []);
   renderPorts();
   if (d.points && d.points !== '—'){
@@ -3020,7 +3005,6 @@ function applySwitch(box, port, keepSnap){
   S.pend_claims = []; S.pend_conv = '';
   S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
                        // 原不重置，boot 一次 S.busy 永卡 true 锁死目标切换
-  el.box.value = box;
   el.convs.innerHTML = '';
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
                      + ' …）</div>';
@@ -3170,24 +3154,9 @@ el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 b
                : '正在请求服务端拉起 ' + S.box + '…', 'var(--blue)');
   sendJson({t: 'boot', box: S.box});
 };
-el.box.onchange = () => {                 // 切换目标：在线直接切/离线确认拉起
-  const box = el.box.value;
-  if (box === S.box || S.busy){ el.box.value = S.box; return; }
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); el.box.value = S.box; return; }
-  if (S.alive.has(box)){
-    flash('正在切换到 ' + box + '…', 'var(--blue)');
-    sendJson({t: 'switch_box', box: box});
-  } else {
-    if (!confirm('[' + box + '] 在服务端未带调试端口运行。\n\n'
-      + '要请求服务端重启该 WorkBuddy 并带端口吗？\n'
-      + '（服务端正在运行的该 WorkBuddy 会先关闭）')){
-      el.box.value = S.box; return;
-    }
-    S.busy = true;
-    flash('正在请求服务端拉起 ' + box + '…', 'var(--blue)');
-    sendJson({t: 'boot', box: box});
-  }
-};
+/* 1.38：删除「目标框下拉 + onchange 切换」——本部署服务端只注册单个框，
+   下拉永远只有一项、无切换价值，占位还挤掉模型下拉的宽度。S.box 仍由
+   服务端 hello 下发（见 applySwitch / onEv），拉起与重启继续用它。 */
 el.model.onchange = () => {
   const name = S.model_map[el.model.value];
   if (!name || S.model_busy) return;
