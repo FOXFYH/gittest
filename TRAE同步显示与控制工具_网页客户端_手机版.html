@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.77</title>
+<title>TRAE远程 v1.78</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -24,8 +24,10 @@ input,select{font:inherit; border:1px solid var(--bd); border-radius:6px;
   padding:4px 6px; background:#fff; min-height:36px;}
 select{font-size:12px;}
 /* ── 顶栏（两行 + 状态条） ── */
-#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);
-  padding-top:env(safe-area-inset-top);}
+/* 1.78：清掉 #hdr 的 padding-top:env(safe-area-inset-top)——主界面顶部
+   凭空多出的约两行空白元凶（手机/模拟器 env≈44px，PC=0 测不出）。
+   1.75 只清了全屏横幅那处，主界面这处漏网，现一并根治。 */
+#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);}
 .h1row{display:flex; align-items:center; gap:6px; padding:4px 8px;}
 #btn_menu{min-width:42px; font-size:17px; padding:4px 10px;}
 .h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
@@ -74,7 +76,12 @@ body.fmsg #fexit{display:block;}
    返回约两行高非零值，无论放上还是放下 padding 都会凭空撑出两行空白
    （1.72 文字在第1行、底下两行空；1.73 文字掉第3行、上面两行空）。
    历史全屏时顶栏/状态条已隐藏，无需避让刘海，故直接不用安全区，
-   横幅固定 2px 上下 padding，压成真正一行，不挡消息区。 */
+   横幅固定 2px 上下 padding，压成真正一行，不挡消息区。
+   1.78：同一病根扩大治理——上次只清了这一处，主界面 #hdr 顶栏与
+   #input_row 输入行两处漏网（用户看到的顶部/底部各约两行空白）。
+   本次把全站 8 处 env 安全区留白一次清干净：#hdr / #input_row /
+   #ftoast / .cmsheet / .nhdr / .nbody / #bfoot / .tdbody，
+   页面统一满屏到边，不再凭空撑白。 */
 #fbar{display:none; position:fixed; left:0; right:0; top:0; z-index:35;
   padding:2px 8px; text-align:center;
   font-size:11px; line-height:1.2; background:rgba(255,255,255,.96);
@@ -82,7 +89,7 @@ body.fmsg #fexit{display:block;}
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 body.fmsg #fbar{display:block;}
 body.fmsg #msgs{padding-top:22px;}
-#ftoast{position:fixed; left:50%; top:calc(34px + env(safe-area-inset-top));
+#ftoast{position:fixed; left:50%; top:34px;
   transform:translateX(-50%); max-width:90%; z-index:41; padding:8px 16px;
   border-radius:16px; background:rgba(24,24,24,.9); color:#fff;
   font-size:13.5px; line-height:1.5; text-align:center;
@@ -110,7 +117,7 @@ body.fmsg #msgs{padding-top:22px;}
 #convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
   display:flex; align-items:flex-end; justify-content:center;}
 .cmsheet{background:#fff; border-radius:14px 14px 0 0; width:100%;
-  max-width:420px; padding:10px 14px calc(14px + env(safe-area-inset-bottom));}
+  max-width:420px; padding:10px 14px 14px;}
 .cmsheet .cmtitle{font-size:13px; color:var(--gray); margin:2px 2px 8px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .cmsheet button{display:block; width:100%; text-align:left; padding:12px 10px;
@@ -249,8 +256,10 @@ body.fmsg #msgs{padding-top:22px;}
 .chip.ok{background:#e3f0fb; color:var(--blue);}
 .chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
   padding:0 2px;}
+/* 1.78：输入行底部同样去掉 env(safe-area-inset-bottom)——主界面底部
+   约两行空白元凶；固定 6px 上下留白，输入行顶到屏幕下缘。 */
 #input_row{display:flex; gap:6px; align-items:center;
-  padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+  padding:6px 8px;
   background:#fff; border-top:1px solid var(--bd); flex:none;}
 /* 1.76：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
 #btn_attach,#btn_bench,#btn_take,#btn_copy{width:36px; min-width:36px;
@@ -326,11 +335,11 @@ body.fmsg #msgs{padding-top:22px;}
   display:none; flex-direction:column;}
 #page_net.on{display:flex;}
 .nhdr{flex:none; display:flex; align-items:center; gap:8px;
-  padding:6px 10px calc(6px + env(safe-area-inset-top));
+  padding:6px 10px;
   background:#fff; border-bottom:1px solid var(--bd);}
 .nhdr b{color:var(--blue); font-size:15px;}
 .nbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:10px 10px calc(10px + env(safe-area-inset-bottom));}
+  padding:10px;}
 fieldset{border:1px solid var(--bd); border-radius:8px;
   padding:8px 10px; margin-bottom:12px; background:#fff;}
 legend{color:var(--blue); font-weight:bold; padding:0 6px;}
@@ -368,7 +377,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .brow.up{color:var(--gray);}
 .brow.empty{color:#999; cursor:default;}
 .brow .plus{float:right; color:var(--blue); font-weight:bold;}
-#bfoot{flex:none; padding:6px 12px calc(6px + env(safe-area-inset-bottom));
+#bfoot{flex:none; padding:6px 12px;
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
 /* ── 1.45：谷歌分身状态页（全屏覆盖）——服务端外挂
@@ -426,7 +435,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   display:none; flex-direction:column;}
 #page_taskdlg.on{display:flex;}
 .tdbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:14px 14px calc(14px + env(safe-area-inset-bottom));}
+  padding:14px;}
 .tdsec{font-size:12px; color:var(--gray); margin:4px 0 8px;}
 .tdpick{background:#fff; border:1px solid var(--bd); border-radius:8px;
   padding:13px 14px; cursor:pointer; color:var(--blue); font-weight:bold;}
@@ -2678,8 +2687,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.77';
-const VER_DESC = '全新架构v1.3（服务端2.22+网页1.77）：未登录提醒修活——1.31 就设计的顶部「TRAE 未登录」横幅因 el 映射漏挂 loginbar 键从未亮过，现补键修活，并加「连续未登录满 60 秒才确诊」门槛（与服务端钉钉报警同门槛，拖一拍瞬断不误报，每 5 秒复核）；1.76 输入行改版（📎/📂/⇩/📋 方形小按钮 + 放大态专属取回/复制 + 输入框恒钉底）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.78';
+const VER_DESC = '全新架构v1.3（服务端2.22+网页1.78）：主界面顶部/底部各约两行空白根治——1.75 只清了全屏横幅那处 env(safe-area-inset-*)，主界面 #hdr 顶栏与 #input_row 输入行两处漏网（手机上 env≈44px 凭空撑白，PC 上 env=0 测不出）；本次把全站 8 处 env 留白一次清干净（#hdr/#input_row/#ftoast/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody），页面统一满屏到边；1.77 未登录提醒横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制+输入框恒钉底）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
