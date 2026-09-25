@@ -960,6 +960,7 @@ const LS_HIST = 'wb_webm_hist';          /* 历史消息缓存（按会话） */
 let cacheKey = null, reqSeq = 0, skelLastSave = 0;
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
+const LS_SRVV = 'wb_webm_srvver';        /* 服务端版本号持久化（供冷启动拼键） */
 function checkVerBump(){
   /* 首次定键 / 版本变化 → 清空本地骨架与历史缓存（改版重下） */
   const k = cacheKeyNow();
@@ -969,6 +970,9 @@ function checkVerBump(){
     S.histConv = ''; S.histMsgs = null; S.histRaw = [];
   }
   cacheKey = k;
+  /* 1.45：持久化服务端版本号——冷启动先按上次的键读骨架缓存秒显，等 hello
+     回来若服务端确实升版，checkVerBump 再清一次（双版本号铁律不破）。 */
+  try { localStorage.setItem(LS_SRVV, S.srvVer || '0'); } catch(e){}
 }
 /* —— 骨架缓存：打开页面即秒显会话列表（不用等连上） —— */
 function skelCacheSave(snap){
@@ -2145,8 +2149,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.44';
-const VER_DESC = '全新架构（服务端1.55+网页1.44）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
+const VER = '1.45';
+const VER_DESC = '1.45 冷启动按上次服务端版本号拼缓存键——骨架/历史缓存真能秒开；全新架构（服务端1.55+网页1.45）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3329,7 +3333,11 @@ function channelPrompt(){
 
 /* 1.xx：统一版本号渲染 → 标题栏（三个地方：title / 菜单栏 / 底部） */
 renderVer();
-/* 1.44 新架构：骨架秒出——本地缓存的会话列表直接渲染，不用等连上 */
+/* 1.45 新架构：骨架秒出——先取上次的服务端版本号拼缓存键（否则冷启动键是
+   'VER|0'，永远读不到旧缓存），本地会话列表直接渲染，不用等连上；
+   hello 到达若服务端版本变了，checkVerBump 会再清缓存重下。 */
+try { S.srvVer = localStorage.getItem(LS_SRVV) || '0'; } catch(e){}
+checkVerBump();
 {
   const sk = skelCacheLoad();
   if (sk && sk.convs && sk.convs.length) renderConvs(sk.convs);
