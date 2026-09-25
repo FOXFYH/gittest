@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.72</title>
+<title>TRAE远程 v1.73</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -71,9 +71,12 @@ body.fmsg #fexit{display:block;}
    ② #ftoast：浮动吐司（JS 动态创建），全屏下把 flash 的每条提示
       放大居中显示，确保撤回结果一眼可见。 */
 /* 1.72：横幅改超窄一行——进全屏不再弹悬浮窗/顶栏 flash，只留这
-   条常驻细横幅提示状态（用户要求：只占一行、不挡消息区） */
+   条常驻细横幅提示状态（用户要求：只占一行、不挡消息区）
+   1.72b 修：env(safe-area-inset-top) 原误放在底部 padding，会把
+   刘海安全区数值撑成底部两大行空白（文字在第一行、底下两行空）；
+   移到顶部 padding（顶部让给刘海/状态栏，底部仅 1px），整条压成一行 */
 #fbar{display:none; position:fixed; left:0; right:0; top:0; z-index:35;
-  padding:1px 8px calc(1px + env(safe-area-inset-top)); text-align:center;
+  padding:calc(1px + env(safe-area-inset-top)) 8px 1px; text-align:center;
   font-size:11px; line-height:1.2; background:rgba(255,255,255,.96);
   border-bottom:1px solid var(--bd); box-shadow:0 1px 4px rgba(0,0,0,.06);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -2647,8 +2650,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.72';
-const VER_DESC = '全新架构v1.3（服务端2.21+网页1.72）：进历史全屏不再弹0.5s悬浮窗+顶栏flash重复提醒，只保留顶部超窄一行横幅提示状态（更少遮挡消息区）。1.71 起版本简介移到设置页底部；1.70 起本地缓存秒开+双版本号键+请求式历史增量';
+const VER = '1.73';
+const VER_DESC = '全新架构v1.3（服务端2.21+网页1.73）：全屏顶部横幅修成真一行——1.72 把刘海安全区误放底部 padding 导致横幅底下多出两行空白遮挡，1.73 移到顶部，整条压成超窄一行。1.72 起进全屏不再弹0.5s悬浮窗+顶栏flash重复提醒，只保留顶部横幅；1.71 起版本简介移到设置页底部；1.70 起本地缓存秒开+双版本号键+请求式历史增量';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
