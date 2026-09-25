@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.79</title>
+<title>TRAE远程 v1.80</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2687,8 +2687,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.79';
-const VER_DESC = '全新架构v1.3（服务端2.23+网页1.79）：输入框大小框分工——1.79 放大态（编辑中）恒钉底部、永远看得见最后一个字，收起态（主界面平时那条单行小框）停在开头、看得见第一个字，一前一后凑出前后概况（1.76 曾把两态都钉底部，小框只看得见尾巴）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.80';
+const VER_DESC = '全新架构v1.3（服务端2.23+网页1.80）：1.80 放大态光标也一并送到文末——1.79 实际只设了 scrollTop，浏览器「光标在哪就露哪」把视线又拽回开头，故点开大框仍见开头（用户报「光标没有跳到最尾巴」），现展开即 setSelectionRange 到文末；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3619,14 +3619,25 @@ function entFit(){
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
-/* 1.79：大小框各司其职（用户口径）——
-   放大态（聚焦/编辑中，grow）：视线恒钉底部，永远看得到最后一个字
-     （1.76 修的「失焦后 scrollTop 归零、尾巴看不见」保留）；
-   收起态（主界面平时那条单行小框）：停在开头，看得到第一个字，
-   与放大框一前一后凑出「头+尾」前后概况。
-   （1.76 曾把两种状态都钉底部 → 小框只看得见尾巴。） */
-function entPin(){
+/* 1.80：放大态除了视线钉底，还要把**光标本身**送到尾巴。
+   1.79 只设了 scrollTop，可浏览器有一条铁律：光标在哪就露哪——
+   点开小框时浏览器把光标放在所点之处（小框显示的是开头，点下去
+   光标就落在开头），于是它立刻把视线又拽回开头，"钉底"全白钉，
+   表现就是用户说的「光标没有跳到最尾巴」。
+   故展开那一刻（toEnd=true）把光标 setSelectionRange 到文末；
+   打字中（input）不强制送尾，避免用户改中间文字时被一次次拽回尾。
+
+   大小框分工（1.79 口径，不变）：
+   放大态（grow）视线钉底 → 看得到最后一个字；
+   收起态（单行小框）回开头 → 看得到第一个字，一前一后凑出前后概况。 */
+function entPin(toEnd){
   const grow = el.ent.classList.contains('grow');
+  if (grow && toEnd){
+    try {
+      const n = (el.ent.value || '').length;
+      el.ent.setSelectionRange(n, n);      /* 光标送尾 */
+    }catch(e){}
+  }
   const pin = () => { try { el.ent.scrollTop = grow ? el.ent.scrollHeight : 0; }
                       catch(e){} };
   pin();
@@ -3641,7 +3652,7 @@ if (window.visualViewport){   /* 输入法弹出/收起都会动视口尺寸 */
 el.ent.addEventListener('focus', () => {
   el.ent.classList.add('grow');
   el.input_row.classList.add('grow');   /* 1.27：按钮跳顶行 */
-  entFit(); entPin();
+  entFit(); entPin(true);   /* 1.80：展开即把光标与视线一起送到文末 */
 });
 el.ent.addEventListener('blur', () => {
   el.ent.classList.remove('grow');
