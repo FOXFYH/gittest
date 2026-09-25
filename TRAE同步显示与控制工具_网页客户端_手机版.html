@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.69</title>
+<title>TRAE远程 v1.72</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -70,13 +70,15 @@ body.fmsg #fexit{display:block;}
    ① #fbar：常驻顶部细条，镜像 #statebar 的文案与颜色；
    ② #ftoast：浮动吐司（JS 动态创建），全屏下把 flash 的每条提示
       放大居中显示，确保撤回结果一眼可见。 */
+/* 1.72：横幅改超窄一行——进全屏不再弹悬浮窗/顶栏 flash，只留这
+   条常驻细横幅提示状态（用户要求：只占一行、不挡消息区） */
 #fbar{display:none; position:fixed; left:0; right:0; top:0; z-index:35;
-  padding:4px 10px calc(4px + env(safe-area-inset-top)); text-align:center;
-  font-size:12px; line-height:1.4; background:rgba(255,255,255,.96);
+  padding:1px 8px calc(1px + env(safe-area-inset-top)); text-align:center;
+  font-size:11px; line-height:1.2; background:rgba(255,255,255,.96);
   border-bottom:1px solid var(--bd); box-shadow:0 1px 4px rgba(0,0,0,.06);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 body.fmsg #fbar{display:block;}
-body.fmsg #msgs{padding-top:30px;}
+body.fmsg #msgs{padding-top:20px;}
 #ftoast{position:fixed; left:50%; top:calc(34px + env(safe-area-inset-top));
   transform:translateX(-50%); max-width:90%; z-index:41; padding:8px 16px;
   border-radius:16px; background:rgba(24,24,24,.9); color:#fff;
@@ -307,9 +309,9 @@ body.fmsg #msgs{padding-top:30px;}
 #dmis .dmi{border:1px solid var(--bd); border-radius:7px;
   padding:9px 10px; font-size:13px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-#lbl_ver{flex:none; padding:8px 12px calc(8px + env(safe-area-inset-bottom));
-  color:var(--gray); font-size:11px; border-top:1px solid var(--bd);
-  background:#fafbfc;}
+/* 版本说明：从抽屉底部移到设置页最底部（留出空间显示对话列表） */
+#lbl_ver{color:var(--gray); font-size:11px; line-height:1.5;
+  margin-top:8px; padding-top:8px; border-top:1px dashed var(--bd);}
 /* ── 网络页（全屏覆盖） ── */
 #page_net{position:fixed; inset:0; z-index:40; background:#f2f4f7;
   display:none; flex-direction:column;}
@@ -495,8 +497,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
        在服务端 GUI 改就好）——poll_sec 仍由 hello 下发，但网页端
        不再展示/调整。1.33 的历史：档位 0.5~30s，只影响聊天刷新。 -->
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m"></div>
-</aside>
+  </aside>
 
 <!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
      1.06：双模式——插入路径 / 选定工作目录新建任务（✅ 头钮） -->
@@ -627,6 +628,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <button id="btn_netsave" disabled data-page-node-id="G2KG6btlv2PooEaIfnNKMJ">保存</button>
       <span id="lbl_netflash" data-page-node-id="IJ1J8pTZbXPsxZWok11Svr"></span>
     </div>
+    <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m"></div>
   </div>
 </div>
 
@@ -1096,13 +1098,8 @@ function ftoast(msg, color, ms){
   clearTimeout(ftoastTimer);
   ftoastTimer = setTimeout(() => t.classList.remove('on'), ms || 3400);
 }
-/* 1.67：进历史全屏的那条例示吐司只闪 0.5s 就收起（不等默认 3.4s） */
-function briefFtoast(){
-  setTimeout(() => {
-    const t = $('ftoast');
-    if (t) t.classList.remove('on');
-  }, 500);
-}
+/* 1.72：进全屏不再弹 0.5s 悬浮窗（briefFtoast 已删）——顶部 #fbar
+   横幅常驻提示状态，避免两处重复提醒。ftoast 仍保留（撤回结果等用） */
 
 /* 1.27：积分预警 toast——页面中上部大字提醒，2 秒后自动消失
    （不走 statebar，那会被下一条快照状态覆盖） */
@@ -2228,8 +2225,8 @@ function enterFmsg(){
   requestAnimationFrame(() => {
     fprog(before + Math.max(0, m.clientHeight - prevCH));
   });
-  flash('已进入历史全屏（点「↓ 回到最新」返回）', 'var(--blue)');
-  briefFtoast();   /* 1.67：进全屏这条例示只闪 0.5s 就收起（顶栏 flash 仍完整剩余） */
+  /* 1.72：进全屏不再弹 0.5s 悬浮窗/顶栏 flash——顶部 #fbar 横幅
+     已常驻提示状态，避免两处重复提醒（用户要求只留横幅） */
 }
 function exitFmsg(){
   if (!document.body.classList.contains('fmsg')) return;
@@ -2650,8 +2647,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.70';
-const VER_DESC = '全新架构v1（服务端2.20+网页1.70）：本地缓存秒开（骨架会话列表+历史消息，localStorage）+双版本号键「网页VER|服务端VER」任一变化自动清缓存重下；请求式历史{t:req→res}按游标增量补新、向上翻页从账本补拉老历史；直播仍走快照全文，断线重连本地兜底不丢正文';
+const VER = '1.72';
+const VER_DESC = '全新架构v1.3（服务端2.21+网页1.72）：进历史全屏不再弹0.5s悬浮窗+顶栏flash重复提醒，只保留顶部超窄一行横幅提示状态（更少遮挡消息区）。1.71 起版本简介移到设置页底部；1.70 起本地缓存秒开+双版本号键+请求式历史增量';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
