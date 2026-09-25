@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.76</title>
+<title>TRAE远程 v1.77</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1019,6 +1019,7 @@ const S = {
   qedit: null,                       /* 1.29：正在取出编辑的排队条下标
                                         （快照回来后回填输入框） */
   acct: '',                          /* 1.27：TRAE 登录账号名 */
+  login_lost_since: 0,               /* 1.77：连续未登录起点（满60s才亮红条） */
   switch_pend: null,
   /* 1.xx：最大化/全屏预警——fulls_snooze=静默截止时刻（毫秒时间戳，
      稍后提醒15分钟 / 近期不再提醒6小时）；falls_fail=切换连续失败计数
@@ -1045,7 +1046,8 @@ const el = {
   menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
-  state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
+  state: $('statebar'), loginbar: $('loginbar'),
+  msgs: $('msgs'), attach_row: $('attach_row'),
   input_row: $('input_row'),
   attach: $('btn_attach'), ent: $('ent'), take: $('btn_take'),
   copy: $('btn_copy'),
@@ -2389,19 +2391,29 @@ function renderState(snap){
     el.state.textContent = '正在切换「' + S.switch_pend.title + '」…';
     el.state.style.color = 'var(--blue)';
   }
-  /* 1.31：未登录异常横幅——快照 login=false（账号区没有昵称）
-     时红条常驻；旧服务端无 login 字段（undefined）不显示 */
-  if (el.loginbar){
-    if (S.ready && snap.login === false){
-      el.loginbar.textContent = '⚠ TRAE 未登录/登录态丢失（账号区：'
-        + (snap.acctText || '空') + '）——发送会失败，请在电脑上重新登录';
-      el.loginbar.classList.add('on');
-    } else {
-      el.loginbar.classList.remove('on');
-    }
-  }
+  /* 1.77：未登录异常横幅——1.31 本有此设计，但 el 映射漏挂 loginbar 键，
+     横幅从未亮过；现补键修活，并按用户要求加「持续门槛」：
+     连续未登录满 60 秒才算确诊（与服务端钉钉报警同一门槛，瞬断不误报）。 */
+  renderLoginBar(snap);
   fbarSync();                              // 1.62：全屏状态条镜像 #statebar
 }
+/* 1.77：未登录横幅判定——60 秒持续门槛 + 每 5 秒复核 */
+const LOGIN_WARN_MS = 60000;   /* 连续未登录多久才算确诊（用户定 1 分钟，
+                                  与服务端钉钉报警门槛一致） */
+function renderLoginBar(snap){
+  const bad = !!(S.ready && snap && snap.login === false);
+  if (!bad){          /* 登录正常 / 未就绪 / 旧服务端无 login 字段 → 撤条 */
+    S.login_lost_since = 0;
+    el.loginbar.classList.remove('on');
+    return;
+  }
+  if (!S.login_lost_since) S.login_lost_since = Date.now();
+  if (Date.now() - S.login_lost_since < LOGIN_WARN_MS) return;  /* 未满 1 分钟不亮 */
+  el.loginbar.textContent = '⚠ TRAE 未登录/登录态丢失（账号区：'
+    + (snap.acctText || '空') + '）——发送会失败，请在电脑上重新登录';
+  el.loginbar.classList.add('on');
+}
+setInterval(() => renderLoginBar(S.snap), 5000);   /* 持续复核：满 1 分钟自动亮 */
 
 function renderAttach(items){
   const row = el.attach_row;
@@ -2666,8 +2678,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.76';
-const VER_DESC = '全新架构v1.3（服务端2.21+网页1.76）：输入行改版——📎/📂 与新增的 ⇩ 取回、📋 复制 统一为 36×36 正方形小按钮（原来 46×36 扁条），其中 ⇩ 取回 / 📋 复制 只在输入框放大态出现（小态隐藏，当放大态专属小工具）；输入框视线恒钉底部，打完字/收起输入法都不再跳回开头，永远看得到最后一个字。1.75 全屏横幅真正压成一行（彻底去掉 env(safe-area-inset-top)）；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.77';
+const VER_DESC = '全新架构v1.3（服务端2.22+网页1.77）：未登录提醒修活——1.31 就设计的顶部「TRAE 未登录」横幅因 el 映射漏挂 loginbar 键从未亮过，现补键修活，并加「连续未登录满 60 秒才确诊」门槛（与服务端钉钉报警同门槛，拖一拍瞬断不误报，每 5 秒复核）；1.76 输入行改版（📎/📂/⇩/📋 方形小按钮 + 放大态专属取回/复制 + 输入框恒钉底）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
