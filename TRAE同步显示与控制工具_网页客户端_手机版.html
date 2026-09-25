@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.68</title>
+<title>TRAE远程 v1.69</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1221,7 +1221,12 @@ function fmtTime(iso){                    // 北京时间 + 完整日期（YYYY-
      对齐消息真实时刻，显示不随本机时区漂移 */
   const bj = new Date(ms + 8 * 3600 * 1000);
   const s = bj.toISOString();             // epoch+8h 的 UTC 表示 = 北京墙钟
-  return s.slice(0, 10) + ' ' + s.slice(11, 16);
+  return s.slice(0, 10) + ' ' + s.slice(11, 19);   // YYYY-MM-DD HH:MM:SS（秒级）
+  /* 排序口径（v1.69，用户决策）：消息不发明 seq 编号，排序直接采用时间。
+     - 主依据：秒级时间（首见缓存/沿用，直播≈真实时刻）。
+     - 同秒碰撞：同一拍快照抓到的新消息首见时间同为 now（同一秒），
+       以数组顺序（=TRAE DOM 顺序）为次级依据——它天然存在，不算编号。
+     - 老数据：分钟级字符串解析后秒=00，仍可正确显示与参与排序。 */
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -2487,8 +2492,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.68';
-const VER_DESC = '消息时间统一显示为北京时间·带完整日期（YYYY-MM-DD HH:MM）：修复历史缓存 toISOString 丢时区标记致慢 8 小时（v1.36 未修净，旧缓存自动纠正）；进历史全屏的提示吐司只闪 0.5s 收起；重试计数按「轮」管理：成功连上=归零、断后先显示「重试中…」再按次累加';
+const VER = '1.69';
+const VER_DESC = '消息时间精确到秒(YYYY-MM-DD HH:MM:SS 北京时间)：修复历史缓存丢时区标记致慢8小时+补日期；排序以秒级时间为主依据、数组顺序为同秒次级依据；进历史全屏提示吐司只闪0.5s；重试计数按「轮」管理：成功连上=归零、断后先显示「重试中…」再按次累加';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
