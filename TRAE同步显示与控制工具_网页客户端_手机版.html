@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.81</title>
+<title>TRAE远程 v1.82</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2687,8 +2687,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.81';
-const VER_DESC = '全新架构v1.3（服务端2.23+网页1.81）：1.81 输入法的「换行」键不再被当成发送——手机软键盘换行键发出的就是普通 Enter，等收到时组字已结束（isComposing 挡不住），被 preventDefault 掐掉换行直接发了消息；现按输入方式分流：触摸设备 Enter 一律换行（发送只走按钮，与输入法「换行」字样一致），桌面硬件键盘保留 Enter 发送，并给输入框加 enterkeyhint="enter" 固定键名；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.82';
+const VER_DESC = '全新架构v1.3（服务端2.23+网页1.82）：1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3619,25 +3619,30 @@ function entFit(){
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
-/* 1.80：放大态除了视线钉底，还要把**光标本身**送到尾巴。
-   1.79 只设了 scrollTop，可浏览器有一条铁律：光标在哪就露哪——
-   点开小框时浏览器把光标放在所点之处（小框显示的是开头，点下去
-   光标就落在开头），于是它立刻把视线又拽回开头，"钉底"全白钉，
-   表现就是用户说的「光标没有跳到最尾巴」。
-   故展开那一刻（toEnd=true）把光标 setSelectionRange 到文末；
-   打字中（input）不强制送尾，避免用户改中间文字时被一次次拽回尾。
-
-   大小框分工（1.79 口径，不变）：
-   放大态（grow）视线钉底 → 看得到最后一个字；
-   收起态（单行小框）回开头 → 看得到第一个字，一前一后凑出前后概况。 */
-function entPin(toEnd){
+/* 1.82：打开大框时先在正文后面铺好 3 个空行 —— 用户点的方案：
+   输入法弹出会盖住大框（255px≈9 行）最下面约 3 行，正文一长就被
+   吞掉、又滚不出来（下面没内容可滚）。预留 3 个空行后，被盖住的是
+   空行，正文往上滚就能看全；正文仍从第一行起写，光标落在正文末尾
+   （＝空行之前），正是用户说的"我在第一个换行开始写"。
+   只补末尾、不动正文里用户自己敲的空行；不足 3 行才补，已够就不动
+   （反复打开不会越补越多）。
+   ⚠ 空行是**内容**，故发送与空值判断一律走 value.trim()（L2332/L3599/
+   L3612）——空行不会被当成正文发出去，也不会把发送按钮点亮；发送后
+   el.ent.value='' 连空行一起清掉，下次打开再铺，符合"一打开就有"。 */
+const ENT_PAD = 3;                       /* 底部预留空行数 */
+function entPadOpen(){
+  try{
+    const v = el.ent.value || '';
+    const real = v.replace(/\n+$/, '').length;  /* 正文实际长度（末尾空行不算） */
+    el.ent.value = v.slice(0, real) + '\n'.repeat(ENT_PAD);
+    el.ent.setSelectionRange(real, real);       /* 光标落正文末尾＝第一行起写 */
+  }catch(e){}
+}
+/* 1.79/1.80：大小框分工——放大态（grow）视线钉底、看得到最后一个字；
+   收起态（单行小框）回到开头、看得到第一个字，一前一后凑出前后概况。
+   （光标已由 entPadOpen 放在正文末尾，此处只管视线，不再动光标。） */
+function entPin(){
   const grow = el.ent.classList.contains('grow');
-  if (grow && toEnd){
-    try {
-      const n = (el.ent.value || '').length;
-      el.ent.setSelectionRange(n, n);      /* 光标送尾 */
-    }catch(e){}
-  }
   const pin = () => { try { el.ent.scrollTop = grow ? el.ent.scrollHeight : 0; }
                       catch(e){} };
   pin();
@@ -3652,7 +3657,8 @@ if (window.visualViewport){   /* 输入法弹出/收起都会动视口尺寸 */
 el.ent.addEventListener('focus', () => {
   el.ent.classList.add('grow');
   el.input_row.classList.add('grow');   /* 1.27：按钮跳顶行 */
-  entFit(); entPin(true);   /* 1.80：展开即把光标与视线一起送到文末 */
+  entPadOpen();   /* 1.82：铺 3 个空行 + 光标落正文末尾 */
+  entFit(); entPin();
 });
 el.ent.addEventListener('blur', () => {
   el.ent.classList.remove('grow');
