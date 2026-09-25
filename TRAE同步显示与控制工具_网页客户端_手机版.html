@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.75</title>
+<title>TRAE远程 v1.76</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -252,8 +252,14 @@ body.fmsg #msgs{padding-top:22px;}
 #input_row{display:flex; gap:6px; align-items:center;
   padding:6px 8px calc(6px + env(safe-area-inset-bottom));
   background:#fff; border-top:1px solid var(--bd); flex:none;}
-#btn_attach{min-width:46px;}
-#btn_bench{min-width:46px;}
+/* 1.76：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
+#btn_attach,#btn_bench,#btn_take,#btn_copy{width:36px; min-width:36px;
+  height:36px; min-height:36px; padding:0; flex:none; font-size:15px;
+  display:inline-flex; align-items:center; justify-content:center;}
+/* 1.76：⇩ 取回 / 📋 复制 只在输入框放大态出现，小态隐藏（省地方） */
+#btn_take,#btn_copy{display:none;}
+#input_row.grow #btn_take,#input_row.grow #btn_copy{display:inline-flex;
+  order:1;}
 #ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
@@ -477,7 +483,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
   <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
   <textarea id="ent" placeholder="输入消息…" rows="1"></textarea>
-  <button id="btn_take" title="取回 TRAE 输入框残留到此处并清空（编辑不丢）" data-page-node-id="k3pV7nZfJdQx2tRwA5cLm1">⇪</button>
+  <button id="btn_take" title="取回 TRAE 输入框残留到此处并清空（编辑不丢）" data-page-node-id="k3pV7nZfJdQx2tRwA5cLm1">⇩</button>
+  <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
   <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
@@ -1041,6 +1048,7 @@ const el = {
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
   input_row: $('input_row'),
   attach: $('btn_attach'), ent: $('ent'), take: $('btn_take'),
+  copy: $('btn_copy'),
   send: $('btn_send'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
@@ -2658,8 +2666,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.75';
-const VER_DESC = '全新架构v1.3（服务端2.21+网页1.75）：全屏横幅真正压成一行——彻底去掉 env(safe-area-inset-top)，实测它在手机/模拟器下返回约两行高非零值，无论放上还是放下 padding 都会凭空撑出两行空白（1.72/1.73 两版都中招）；历史全屏顶栏已隐藏无需避让刘海，横幅固定 2px padding、一行字不挡消息。1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.76';
+const VER_DESC = '全新架构v1.3（服务端2.21+网页1.76）：输入行改版——📎/📂 与新增的 ⇩ 取回、📋 复制 统一为 36×36 正方形小按钮（原来 46×36 扁条），其中 ⇩ 取回 / 📋 复制 只在输入框放大态出现（小态隐藏，当放大态专属小工具）；输入框视线恒钉底部，打完字/收起输入法都不再跳回开头，永远看得到最后一个字。1.75 全屏横幅真正压成一行（彻底去掉 env(safe-area-inset-top)）；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3590,17 +3598,33 @@ function entFit(){
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
+/* 1.76：输入框视线恒钉底部——打字中 / 收起输入法后都不跳回开头，
+   保证永远看得到最后一个字（原失焦后 scrollTop 归零，尾巴看不见） */
+function entToBottom(){
+  const pin = () => { try { el.ent.scrollTop = el.ent.scrollHeight; }
+                      catch(e){} };
+  pin();
+  requestAnimationFrame(pin);
+  setTimeout(pin, 130);   /* 等输入法收起动画结束再钉一次 */
+}
+if (window.visualViewport){   /* 输入法弹出/收起都会动视口尺寸 */
+  window.visualViewport.addEventListener('resize', () => {
+    if (document.activeElement === el.ent) entToBottom();
+  });
+}
 el.ent.addEventListener('focus', () => {
   el.ent.classList.add('grow');
   el.input_row.classList.add('grow');   /* 1.27：按钮跳顶行 */
-  entFit();
+  entFit(); entToBottom();
 });
 el.ent.addEventListener('blur', () => {
   el.ent.classList.remove('grow');
   el.input_row.classList.remove('grow');
   el.ent.style.height = '34px';
+  entToBottom();      /* 1.76：缩回单行也停在最后一行，不跳回开头 */
 });
-el.ent.addEventListener('input', () => { refreshSendBtn(); entFit(); });
+el.ent.addEventListener('input', () => { refreshSendBtn(); entFit();
+  entToBottom(); });
 el.ent.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.isComposing){
     e.preventDefault(); el.send.click();
@@ -3773,6 +3797,11 @@ el.take.onclick = () => {         // 1.53：取回残留——TRAE 输入框文�
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试，无法取回'); return; }
   flash('正在取回 TRAE 输入框残留…', 'var(--blue)');
   sendCmd('input_take');
+};
+el.copy.onclick = () => {         // 1.76：一键复制输入框内容（放大态小工具）
+  const t = el.ent.value;
+  if (!t){ flash('输入框是空的，没东西可复制'); return; }
+  copyText(t);
 };
 el.bench.onclick = () => {
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试，无法浏览工作台'); return; }
