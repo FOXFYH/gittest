@@ -63,7 +63,7 @@ body.fmsg #fexit{display:block;}
 .msg .who{font-weight:bold; font-size:12px;}
 .msg.user .who{color:var(--blue);}
 .msg.agent .who{color:var(--green);}
-.msg .tm{color:var(--gray); font-size:11px; margin-left:6px;}
+.msg .tm{color:var(--gray); font-size:11px; margin-left:6px; white-space:nowrap;}
 .msg .body{margin-top:2px; white-space:pre-wrap; word-break:break-word;}
 .msg .body code{background:rgba(0,0,0,.06); padding:0 4px;
   border-radius:3px; font-family:Consolas,monospace; font-size:12px;}
@@ -991,14 +991,13 @@ function bjParts(d){                       // UTC+8 平移后取 UTC 各值=北�
   return {y:b.getUTCFullYear(), mo:b.getUTCMonth(), dd:b.getUTCDate(),
           h:b.getUTCHours(), mi:b.getUTCMinutes(), s:b.getUTCSeconds()};
 }
-function fmtTime(v){                       // 今天 HH:MM:SS，往日 MM-DD HH:MM:SS
+function fmtTime(v){                       // 北京时间 年月日+时分秒（始终带日期）
   const d = tsParse(v);
   if (!d) return '';
-  const b = bjParts(d), n = bjParts(new Date());
+  const b = bjParts(d);
   const p2 = x => (x < 10 ? '0' : '') + x;
-  const hms = p2(b.h) + ':' + p2(b.mi) + ':' + p2(b.s);
-  const sameDay = b.y === n.y && b.mo === n.mo && b.dd === n.dd;
-  return sameDay ? hms : p2(b.mo + 1) + '-' + p2(b.dd) + ' ' + hms;
+  return b.y + '-' + p2(b.mo + 1) + '-' + p2(b.dd) + ' '
+       + p2(b.h) + ':' + p2(b.mi) + ':' + p2(b.s);
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -2369,8 +2368,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.36';
-const VER_DESC = '1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
+const VER = '1.37';
+const VER_DESC = '1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
