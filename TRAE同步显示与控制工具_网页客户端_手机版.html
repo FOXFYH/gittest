@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.80</title>
+<title>TRAE远程 v1.81</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -491,7 +491,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
   <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
   <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
-  <textarea id="ent" placeholder="输入消息…" rows="1"></textarea>
+  <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_take" title="取回 TRAE 输入框残留到此处并清空（编辑不丢）" data-page-node-id="k3pV7nZfJdQx2tRwA5cLm1">⇩</button>
   <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
@@ -2687,8 +2687,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.80';
-const VER_DESC = '全新架构v1.3（服务端2.23+网页1.80）：1.80 放大态光标也一并送到文末——1.79 实际只设了 scrollTop，浏览器「光标在哪就露哪」把视线又拽回开头，故点开大框仍见开头（用户报「光标没有跳到最尾巴」），现展开即 setSelectionRange 到文末；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.81';
+const VER_DESC = '全新架构v1.3（服务端2.23+网页1.81）：1.81 输入法的「换行」键不再被当成发送——手机软键盘换行键发出的就是普通 Enter，等收到时组字已结束（isComposing 挡不住），被 preventDefault 掐掉换行直接发了消息；现按输入方式分流：触摸设备 Enter 一律换行（发送只走按钮，与输入法「换行」字样一致），桌面硬件键盘保留 Enter 发送，并给输入框加 enterkeyhint="enter" 固定键名；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3662,10 +3662,27 @@ el.ent.addEventListener('blur', () => {
 });
 el.ent.addEventListener('input', () => { refreshSendBtn(); entFit();
   entPin(); });
+/* 1.81：输入法的「换行」键不再被当成「发送」。
+   病根：手机上软键盘那个换行键发出来的就是一个**普通 Enter**，等我们收到
+   时输入法组字早已结束（isComposing=false），旧的 !e.isComposing 根本挡不住
+   → 被 e.preventDefault() 掐掉默认换行、直接发了出去，用户想换行却发了消息
+   （"我点击换行的时候，咱们却把输入框发射出去了"）。
+   对策：按「输入方式」分流——
+     · 触摸设备（coarse pointer，手机/平板）：Enter 一律放行、交还输入框去
+       换行；发送只走输入行右侧那个发送按钮——与输入法显示的「换行」字样
+       一致，即用户说的"跟它配合好"；
+     · 桌面硬件键盘：保留 Enter 发送（原行为不动）。
+   · e.shiftKey（Shift+Enter）恒为换行；keyCode 229 是 Android 中文输入法
+     组字中的「处理中」标记，一并放行。 */
+const _softKb = window.matchMedia
+  ? window.matchMedia('(pointer: coarse)').matches
+  : ('ontouchstart' in window);
 el.ent.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.isComposing){
-    e.preventDefault(); el.send.click();
-  }
+  const isEnter = (e.key === 'Enter' || e.keyCode === 13);
+  if (!isEnter) return;
+  if (e.isComposing || e.keyCode === 229 || e.shiftKey) return;
+  if (_softKb) return;       /* 软键盘的换行键 → 换行，不抢去发送 */
+  e.preventDefault(); el.send.click();
 });
 el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并入）
   drawerClose();
