@@ -307,6 +307,21 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   padding:4px 10px; border:1px solid var(--bd); border-radius:14px;
   background:#fff; color:var(--blue); cursor:pointer; white-space:nowrap;}
 #btn_favrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
+/* ── 1.50：模型校验弹窗——「我选的模型」没被真正采用时强提醒（可关闭）── */
+#model_dlg{position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.45);
+  display:none; align-items:center; justify-content:center; padding:22px;}
+#model_dlg.on{display:flex;}
+#model_dlg .mdbox{background:#fff; border-radius:10px;
+  padding:16px 16px 12px; width:100%; max-width:340px;
+  box-shadow:0 6px 24px rgba(0,0,0,.32);}
+#model_dlg .mdtitle{font-weight:bold; font-size:15px; margin-bottom:8px;
+  color:var(--red);}
+#model_dlg .mdbody{font-size:13px; line-height:1.7; color:#333;
+  word-break:break-all;}
+#model_dlg .mdok{margin-top:14px; width:100%; min-height:38px;
+  border:1px solid var(--bd); border-radius:8px; background:#f2f5f9;
+  color:var(--blue); font-weight:bold; cursor:pointer;}
+#model_dlg .mdok:active{background:#e3ecf5;}
 /* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
    bench 覆盖本页，选定后回来）── */
 #page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
@@ -406,6 +421,13 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <button id="fexit" title="退出历史全屏">↓ 回到最新</button>
 
 <div id="mask" data-page-node-id="I7viH7nT9Joec3kgqGKfLl"></div>
+<div id="model_dlg">
+  <div class="mdbox">
+    <div class="mdtitle" id="md_title"></div>
+    <div class="mdbody" id="md_body"></div>
+    <button id="md_ok" class="mdok">知道了</button>
+  </div>
+</div>
 <aside id="drawer" data-page-node-id="VClCJuexXQ02vBOU4OB5Hp">
   <div class="dhdr" data-page-node-id="UX9xJ7WTICEexReuYMmB1i"><b data-page-node-id="cdqe18BGvfIS49PF4TNU1B">会话与操作</b>
     <button id="btn_dclose" data-page-node-id="bw5XmI4so1On3gY8Lekl62">✕</button></div>
@@ -778,6 +800,12 @@ const S = {
   points: '—', acct: '', qn: 0, snap: {},
   attach_pending: null,
   model_map: {}, model_busy: false,
+  /* 1.50 模型校验：
+     verify={sel, n, t}——发消息时记下「所选模型 + 当时回复序号」，回复到达
+       后比对台账里本轮的 requestModelId，不一致弹窗；
+     model_pin——校验失败时钉住「实际跑的模型」，下拉照实显示，直到用户重新
+       选择/重连才撤。 */
+  verify: null, model_pin: null, model_sel: '',
   /* 1.15 模型收藏：favs=收藏的模型真名数组（localStorage 持久）；
      models_full=最近一拍官方模型列表 [name,trail,restricted]；
      fav_invalid=失效收藏名集合（官方改名/下架），warned=已提醒集合 */
@@ -868,6 +896,8 @@ const el = {
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
   favlist: $('fav_list'),
+  md: $('model_dlg'), md_title: $('md_title'), md_body: $('md_body'),
+  md_ok: $('md_ok'),
 };
 
 let flashTimer = null;
@@ -2268,6 +2298,9 @@ function renderFavPage(){
 const MODEL_UNK = '（模型未知）';   // 1.18：模型读不到时的占位显示
 function syncModel(cur){
   if (S.model_busy) return;
+  /* 1.50：校验失败后钉住「实际跑的模型」——下拉要照实显示，不能被
+     快照里的「所选」反复拨回去；用户重新选择/重连即撤。 */
+  if (S.model_pin) cur = S.model_pin;
   const ph = el.model.querySelector('option[data-unk]');
   if (!cur){
     /* 1.18: 冻结/未就绪时 snap.model 为空——原实现直接早退，浏览器
@@ -2293,6 +2326,59 @@ function syncModel(cur){
     el.model.appendChild(o);
     el.model.value = cur;
     S.model_map[cur] = cur;
+  }
+}
+
+/* ===== 1.50：模型校验——「我选的」必须真的被跑，否则弹窗 =====
+
+   用户要求：下拉里指定了模型，就要用它跑；跑起来后要核对「实际就是它」，
+   不是就提醒。三道关各堵一处：
+   ① 选中即校验（el.model.onchange）：官方清单已加载却没有这个模型 →
+      当场拒绝 + 弹窗（可能已下架/改名）；
+   ② 服务端校验（cmd_switch_model，暖缓存）：非法 → model_reject 回投；
+   ③ 跑完校验（verifyRun）：发消息时记下「所选 + 回复序号」，新回复到达后
+      用台账里本轮 requestModelId（= 派活 --model 的原样回声）比对；不一致
+      → 弹窗，并把下拉钉到「实际跑的模型」（照实显示）。 */
+
+function showModelDlg(title, body){
+  /* 非阻塞弹窗：强提醒但不打断操作，点「知道了」关闭 */
+  el.md_title.textContent = title;
+  el.md_body.textContent = body;
+  el.md.classList.add('on');
+}
+
+function verifyRun(snap){
+  /* 服务端「所选」为准，同步本端意图（切模型中/钉住实际模型时不覆盖） */
+  if (!S.model_busy && !S.model_pin) S.model_sel = snap.model || S.model_sel;
+  const v = S.verify;
+  if (!v) return;
+  const reqN = snap.model_req_n || 0, aN = snap.assist_n || 0;
+  const base = v.n || 0;
+  if (reqN > base){                        // 新回复带了模型信息 → 真校验
+    S.verify = null;
+    const run = snap.model_run || '', act = snap.model_act || '';
+    if (run === v.sel) return;             // 所选被采纳 → 正常，放行
+    S.model_pin = run || act || '';        // 照实显示实际模型（钉住）
+    syncModel(S.snap.model || '');
+    showModelDlg('⚠ 模型没按所选运行',
+      '你在下拉里选的是「' + v.sel + '」，但本轮实际用的是「'
+      + (run || '未知') + '」'
+      + (act && act !== run ? '（被解析为 ' + act + '）' : '') + '。'
+      + '已把下拉切到实际模型；如要强制「' + v.sel
+      + '」，请重新在下拉中选择（可能该模型已下架/受限，建议先点'
+      + ' ☆ 收藏管理里的「↻ 刷新模型」）。');
+    return;
+  }
+  if (aN > base){                          // 有新回复但没带模型信息 → 无从核对
+    S.verify = null;
+    return;
+  }
+  if (snap.sendIdle && Date.now() - v.t > 15000){
+    /* 本轮已结束但仍没产出任何回复：所选模型很可能压根跑不起来 */
+    S.verify = null;
+    showModelDlg('⚠ 本轮没有产生回复',
+      '你选的模型「' + v.sel + '」本轮没有产出任何回复，可能该模型不存在、'
+      + '已下架或无权限。请在下拉里换一个模型再试。');
   }
 }
 
@@ -2373,8 +2459,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.41';
-const VER_DESC = '1.41 修「放大态专属按钮点不动」（同 TRAE 1.83）：📋复制 只在放大态可见（#input_row.grow #btn_copy），点下去先让输入框失焦→blur 摘掉 grow→按钮当场 display:none，浏览器派发 click 时它已不在渲染树，onclick 永不触发（用户报「我点了，没效果」）；改为 pointerdown（早于失焦）动手 + preventDefault 保住焦点（框不收起、钮不消失），click 仅作无 PointerEvent 老环境/键盘兜底（400ms 去重）；1.40 输入口对齐 TRAE（1.79~1.82）：打开大框即在正文后铺3个空行（输入法盖住的3行让给空行、正文往上滚可看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、也不点亮发送钮）；大小框分工——放大态视线钉底看最后一个字、收起态回开头看第一个字；输入法「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走右侧按钮，桌面硬件键盘仍 Enter 发送）；新增 📋 复制按钮（仅放大态显示，复用 1.24 copyText）；本版不做「取回」⇩ 按钮（用户口径：CLI 版不需要）；1.39 输入框小按钮统一正方形36×36(原📎/📂是46×36扁条)；输入框视线恒钉底部——打字/失焦/输入法composition起落都钉到底，永远看得到最后一个字；主界面上下约两行空白根治——清掉样式块7处 env(safe-area-inset-*) 安全区留白(#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody)，页面满屏到边；1.38 第二行删掉「目标框」下拉（本部署服务端只注册单个框，下拉恒一项、无切换价值），腾出的宽度全给模型下拉；1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
+const VER = '1.42';
+const VER_DESC = '1.42 模型选择「选了什么就必须跑什么」——三道关都堵上：①选中即预检，官方清单已加载却没有这个模型→当场弹窗拒绝（可能已下架/改名），不发切换命令；②服务端按官方清单（暖缓存，不触发 CLI 冷启动）拒绝非法模型名，回投 model_reject 弹窗并保持当前模型；③跑完核对，发消息时记下所选+回复序号，新回复到达后比对台账里本轮 requestModelId（=派活 --model 的原样回声），不一致→弹窗并把下拉钉到实际跑的模型（照实显示，直到你重新选择）；本轮结束仍无任何回复→弹窗提示该模型可能跑不起来。注意「选 auto」会解析成具体模型，那是正常，只看 requestModelId 是否等于所选；1.41 修「放大态专属按钮点不动」（同 TRAE 1.83）：📋复制 只在放大态可见（#input_row.grow #btn_copy），点下去先让输入框失焦→blur 摘掉 grow→按钮当场 display:none，浏览器派发 click 时它已不在渲染树，onclick 永不触发（用户报「我点了，没效果」）；改为 pointerdown（早于失焦）动手 + preventDefault 保住焦点（框不收起、钮不消失），click 仅作无 PointerEvent 老环境/键盘兜底（400ms 去重）；1.40 输入口对齐 TRAE（1.79~1.82）：打开大框即在正文后铺3个空行（输入法盖住的3行让给空行、正文往上滚可看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、也不点亮发送钮）；大小框分工——放大态视线钉底看最后一个字、收起态回开头看第一个字；输入法「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走右侧按钮，桌面硬件键盘仍 Enter 发送）；新增 📋 复制按钮（仅放大态显示，复用 1.24 copyText）；本版不做「取回」⇩ 按钮（用户口径：CLI 版不需要）；1.39 输入框小按钮统一正方形36×36(原📎/📂是46×36扁条)；输入框视线恒钉底部——打字/失焦/输入法composition起落都钉到底，永远看得到最后一个字；主界面上下约两行空白根治——清掉样式块7处 env(safe-area-inset-*) 安全区留白(#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody)，页面满屏到边；1.38 第二行删掉「目标框」下拉（本部署服务端只注册单个框，下拉恒一项、无切换价值），腾出的宽度全给模型下拉；1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2655,6 +2741,7 @@ function switchSrv(nm){
   S.switch_target = null;             /* 1.28：目标备忘作废 */
   S.pend_claims = []; S.pend_conv = '';
   S.busy = false; S.model_busy = false;
+  S.model_pin = null; S.verify = null; S.model_sel = '';   /* 1.50：模型校验态作废 */
   S.points = '—'; el.points.textContent = '积分 —';
   S.acct = ''; renderAcct();
   S.alive = new Set(); S.boxes = [];
@@ -2750,6 +2837,7 @@ function onEv(kind, v){
       if (!('msgs' in v) && S.snap && Array.isArray(S.snap.msgs))
         v.msgs = S.snap.msgs;
       S.snap = v;
+      verifyRun(v);                          // 1.50：核对本轮实际跑的模型
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
       if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
         const cv = v.convs || [];
@@ -2853,11 +2941,31 @@ function onEv(kind, v){
       rebuildModelOptions();
       checkFavInvalid();
       break;
-    case 'model_set':
+    case 'model_set': {
+      /* 1.50：口径 [请求的, 实际生效]。相同=绿字；不同=没生效 → 红字 + 弹窗 */
       S.model_busy = false;
-      flash(v[0] === v[1] ? '模型已切换：' + v[1]
+      const ok = v[0] === v[1];
+      flash(ok ? '模型已切换：' + v[1]
         : '「' + v[0] + '」未生效（当前 ' + (v[1] || '未知') + '）',
-        v[0] === v[1] ? 'var(--green)' : 'var(--red)');
+        ok ? 'var(--green)' : 'var(--red)');
+      S.model_pin = null;                 // 服务端已按「实际」收敛，撤钉
+      S.model_sel = v[1] || S.model_sel;
+      if (!ok)
+        showModelDlg('⚠ 模型未生效',
+          '你选的「' + v[0] + '」没有生效，当前仍是「' + (v[1] || '未知')
+          + '」。请换一个模型，或到 ☆ 收藏管理点「↻ 刷新模型」后重选。');
+      syncModel(v[1]);
+      break;
+    }
+    case 'model_reject':
+      /* 1.50：服务端按官方清单拒绝了非法模型名（未落盘、保持原模型） */
+      S.model_busy = false;
+      S.model_pin = null;
+      S.model_sel = v[1] || S.model_sel;   // 未生效 → 意图回退到当前模型
+      showModelDlg('⚠ 模型不可用，未切换',
+        '「' + v[0] + '」不在当前官方模型清单里（可能已下架或改名），'
+        + '已保持当前模型「' + (v[1] || '未知') + '」。建议到 ☆ 收藏管理点'
+        + '「↻ 刷新模型」，或换一个模型再选。');
       syncModel(v[1]);
       break;
     case 'switched': {
@@ -3004,7 +3112,7 @@ function applySwitch(box, port, keepSnap){
      保留现有快照直接渲染，避免旧内容被清后白等下一拍 */
   S.snap = keepSnap ? S.snap : {};
   S.convs_key = null; S.msgs_key = null;
-  S.attach_pending = null; S.model_busy = false;
+  S.attach_pending = null; S.model_busy = false; S.verify = null;
   /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
   S.pending = []; S.switch_pend = null;
   S.loadingConv = null;                     /* 1.28：换目标，旧占位作废 */
@@ -3094,8 +3202,13 @@ function cmd(c, a){
   if ((c === 'send' || c === 'interject') && typeof a === 'string'
       && a.trim()){
     pendAdd(c, a);
-    if (c === 'send') flash('⏳ 正在发送…（已回显，等待 WorkBuddy 同步）',
-                            'var(--blue)');
+    if (c === 'send'){
+      /* 1.50：记下本轮「所选模型 + 当前回复序号」——回复到达后核对是否
+         真的用了它（比对台账 requestModelId），不一致弹窗。 */
+      S.verify = {sel: S.model_sel || S.snap.model || '',
+                  n: S.snap.model_req_n || 0, t: Date.now()};
+      flash('⏳ 正在发送…（已回显，等待 WorkBuddy 同步）', 'var(--blue)');
+    }
   }
   sendCmd(c, a);
   if (c === 'send' || c === 'interject'){
@@ -3111,6 +3224,7 @@ el.send.onclick = () => {        // 1.30：有字=发送；生成中无字=停�
     if (S.gen) flash('⏸ 先暂停本轮，随后发送…', 'var(--blue)');
     cmd('send', t);
   } else if (S.gen){
+    S.verify = null;      // 1.50：主动停止→本轮状态作废，别误报「没产出回复」
     flash('⏳ 已请求停止生成…', 'var(--blue)');   // 1.09：空白期反馈
     cmd('stop_gen', null);
   }
@@ -3241,6 +3355,7 @@ el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 b
    下拉永远只有一项、无切换价值，占位还挤掉模型下拉的宽度。S.box 仍由
    服务端 hello 下发（见 applySwitch / onEv），拉起与重启继续用它。 */
 el.model.onchange = () => {
+  S.model_pin = null;      // 1.50：用户重新选择 → 撤下「实际模型」钉住
   const name = S.model_map[el.model.value];
   if (!name || S.model_busy) return;
   if (S.fav_invalid && S.fav_invalid.includes(name)){
@@ -3250,10 +3365,27 @@ el.model.onchange = () => {
     syncModel(S.snap.model || '');
     return;
   }
+  /* 1.50：选中即预检——官方清单已加载却没有这个模型 → 当场拒绝 + 弹窗，
+     不发切换命令（避免「以为选了、其实跑不了」）。当前模型与 auto 豁免。 */
+  if (name !== 'auto' && name !== S.snap.model
+      && S.model_names && S.model_names.size
+      && !S.model_names.has(name)){
+    showModelDlg('⚠ 模型不在官方清单',
+      '「' + name + '」不在当前官方模型清单里（可能已下架或改名），'
+      + '无法选择。请到 ☆ 收藏管理点「↻ 刷新模型」后再选，'
+      + '或换用清单里的其它模型。');
+    syncModel(S.snap.model || '');
+    return;
+  }
   S.model_busy = true;
+  S.model_sel = name;      // 1.50：记下意图（发送时按它核对实际模型）
   flash('正在切换模型 ' + name + '…', 'var(--blue)');
   cmd('switch_model', name);
 };
+
+/* 1.50：模型校验弹窗关闭 */
+el.md_ok.onclick = () => el.md.classList.remove('on');
+el.md.onclick = (e) => { if (e.target === el.md) el.md.classList.remove('on'); };
 
 /* —— 1.15：模型收藏管理页 —— */
 
