@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>贴吧型派单系统</title>
+<style>
+/* ============================================================
+   手机优先：默认单列竖排版（列表 → 点帖进详情 → 返回）
+   宽屏（≥900px）才恢复三栏
+   ============================================================ */
+:root{--bg:#f4f4f5;--card:#fff;--line:#e3e3e4;--ink:#1b1b1c;--sub:#8b8b8d;
+      --dark:#2c2c2e;--mid:#77777a;--soft:#efeff0;--warn:#8a4b2f}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);overflow-x:hidden;
+     font:14px/1.65 system-ui,-apple-system,"Microsoft YaHei",sans-serif}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1400px;margin:0 auto;padding:6px}
+/* 顶栏（手机吸顶） */
+header{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+       background:var(--dark);color:#fff;border-radius:6px;padding:6px 10px;
+       position:sticky;top:0;z-index:20}
+header .logo{font-size:14px;font-weight:600;letter-spacing:.4px}
+header .ver{font:11px/1 ui-monospace,Consolas,monospace;opacity:.6}
+header .sp{flex:1;min-width:4px}
+header label{font-size:12px;opacity:.85;white-space:nowrap}
+select,input,textarea{font:inherit;color:inherit;background:#fff;
+       border:1px solid var(--line);border-radius:4px;padding:4px 6px;outline:none}
+select:focus,input:focus,textarea:focus{border-color:var(--mid)}
+header select{background:#3a3a3c;color:#fff;border-color:#4a4a4c;padding:3px 6px}
+button{font:inherit;cursor:pointer;background:#fff;color:var(--ink);
+       border:1px solid var(--line);border-radius:5px;padding:6px 12px;
+       min-height:32px;white-space:nowrap}
+button:hover{background:var(--soft)}
+button.dark{background:var(--dark);color:#fff;border-color:var(--dark)}
+button.dark:hover{background:#444}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.mini{padding:3px 8px;min-height:26px;font-size:12px}
+/* 单列 */
+main{display:block;margin-top:6px}
+.pane{background:var(--card);border:1px solid var(--line);border-radius:6px;
+      padding:8px;margin-bottom:6px;min-width:0}
+.pane h2{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--mid);
+         display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.pane h2 .sp{flex:1;min-width:4px}
+/* 视图切换：手机上一次只显示一屏 */
+body.视图详情 .pane-吧,body.视图详情 .pane-帖{display:none}
+body.视图列表 .pane-详情{display:none}
+#返回{display:none}
+body.视图详情 #返回{display:inline-block}
+/* 吧（紧凑，路径收到悬浮提示里） */
+.bar{padding:7px 9px;border-radius:5px;cursor:pointer;margin-bottom:4px;
+     border:1px solid transparent;display:flex;align-items:center;gap:6px}
+.bar:hover{background:var(--soft)}
+.bar.on{background:#e8e8e9;border-color:#d2d2d4}
+.bar .n{font-weight:600;flex:1;min-width:0;overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap}
+/* 帖 */
+.thr{padding:7px 9px;border-radius:5px;cursor:pointer;margin-bottom:4px;
+     border:1px solid transparent}
+.thr:hover{background:var(--soft)}
+.thr.on{background:#e8e8e9;border-color:#d2d2d4}
+.thr .t{font-weight:600;display:block;margin-bottom:2px}
+.thr .m{font-size:11px;color:var(--sub);display:flex;gap:6px;flex-wrap:wrap;
+        align-items:center}
+/* 徽标 */
+.tag{display:inline-block;font-size:11px;padding:0 5px;border-radius:3px;
+     border:1px solid var(--line);background:var(--soft);color:var(--mid);
+     white-space:nowrap}
+.tag.ok{background:#eaf2ea;border-color:#d5e3d5;color:#3f6340}
+.tag.lock{background:#f6efdd;border-color:#e6dcc0;color:#7a6220}
+.tag.end{background:#ececec;border-color:#dcdcdc;color:#6d6d6d}
+/* 楼层 */
+.floor{border:1px solid var(--line);border-left:4px solid var(--dark);
+       background:#fff;border-radius:6px;padding:8px 10px;margin-bottom:7px}
+.floor.sub{border-left-color:#bdbdbd;background:#fafafa}
+.floor .fh{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+           font-size:11px;color:var(--sub);margin-bottom:4px}
+.floor .no{font:11px/1 ui-monospace,Consolas,monospace;font-weight:700;
+           color:var(--ink);background:var(--soft);border-radius:3px;padding:2px 5px}
+.floor .who{font-weight:600;color:var(--ink)}
+.floor .body{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+.floor details{margin-top:6px;font-size:11px;color:var(--sub)}
+.floor details summary{cursor:pointer}
+.floor details pre{white-space:pre-wrap;word-break:break-word;margin:4px 0 0;
+                   padding:6px;background:var(--soft);border-radius:4px;color:var(--mid)}
+.banner{border:1px dashed var(--line);background:var(--soft);border-radius:5px;
+        padding:6px 9px;font-size:12px;color:var(--mid);margin-bottom:7px}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;padding-top:8px;
+      border-top:1px solid var(--line)}
+.acts .grp{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.acts .lbl{font-size:11px;color:var(--sub);width:100%}
+.empty{color:var(--sub);font-size:12px;padding:6px 2px}
+footer{margin-top:6px;font-size:11px;color:var(--sub);text-align:center;
+       overflow-wrap:anywhere;padding-bottom:8px}
+/* 弹窗（手机上自底向上，好按） */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.32);display:none;
+      align-items:flex-end;justify-content:center;z-index:50}
+.mask.on{display:flex}
+.dlg{background:#fff;border-radius:10px 10px 0 0;width:100%;max-width:560px;
+     max-height:92vh;overflow:auto;padding:12px 14px 16px}
+.dlg h3{margin:0 0 8px;font-size:14px}
+.dlg .row{margin-bottom:8px}
+.dlg .row label{display:block;font-size:12px;color:var(--mid);margin-bottom:3px}
+.dlg .row .hint{font-size:11px;color:var(--sub)}
+.dlg textarea{width:100%;min-height:110px;resize:vertical}
+.dlg input,.dlg select{width:100%}
+.dlg .btns{display:flex;gap:8px;margin-top:12px}
+.dlg .btns button{flex:1}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
+       max-width:90vw;background:var(--dark);color:#fff;font-size:13px;
+       padding:8px 13px;border-radius:6px;opacity:0;transition:opacity .18s;
+       pointer-events:none;z-index:60;white-space:pre-wrap}
+#toast.on{opacity:.96;pointer-events:auto}
+#toast.err{background:var(--warn)}
+/* 宽屏：恢复三栏，视图切换失效（三栏一直全显示） */
+@media(min-width:900px){
+  .wrap{padding:8px}
+  main{display:grid;grid-template-columns:200px 300px minmax(0,1fr);gap:8px;
+       margin-top:8px}
+  .pane{margin-bottom:0}
+  body.视图详情 .pane-吧,body.视图详情 .pane-帖{display:block}
+  body.视图列表 .pane-详情{display:block}
+  #返回{display:none !important}
+  .mask{align-items:center}
+  .dlg{border-radius:8px;padding:12px 14px}
+  .dlg .btns{justify-content:flex-end}
+  .dlg .btns button{flex:none}
+}
+</style>
+</head>
+<body class="视图列表">
+<div class="wrap">
+
+  <header>
+    <span class="logo">贴吧型派单系统</span>
+    <span class="ver" id="ver">v0.1.1</span>
+    <span class="sp"></span>
+    <label>状态</label>
+    <select id="f状态">
+      <option value="">全部</option>
+      <option>活跃</option><option>锁定</option><option>已终结</option>
+    </select>
+    <label><input type="checkbox" id="自动" checked style="vertical-align:-1px"> 自动</label>
+    <button class="mini" onclick="全部刷新()">刷新</button>
+  </header>
+
+  <main>
+    <section class="pane pane-吧">
+      <h2 title="一个文件夹 = 一个项目 = 一个吧（吧的网址就是这个文件夹的路径）">吧
+        <span class="sp"></span>
+        <button class="mini" onclick="弹新建吧()">＋新建</button></h2>
+      <div id="吧列表"></div>
+    </section>
+
+    <section class="pane pane-帖">
+      <h2 title="一张帖 = 一张工单；奇数楼 = 总管，偶数楼 = 子代理">帖
+        <span class="sp"></span>
+        <button class="mini dark" onclick="弹发帖()">＋发帖</button></h2>
+      <div id="帖列表"></div>
+    </section>
+
+    <section class="pane pane-详情">
+      <h2><button class="mini" id="返回" onclick="回列表()">← 返回</button>
+        <span>帖子内容</span><span class="sp"></span>
+        <span id="帖头" style="font-size:11px;color:var(--sub)"></span></h2>
+      <div id="帖详情"></div>
+    </section>
+  </main>
+
+  <footer id="页脚"></footer>
+</div>
+
+<div class="mask" id="mask"><div class="dlg" id="dlg"></div></div>
+<div id="toast"></div>
+
+<script>
+const VER='0.1.1';
+const 类型们=['TRae内部记录','会话内部交流预留'];
+const 终结原因们=['任务已完成','放弃任务','待命','转其他帖','其他'];
+let 吧表=[], 当前吧=null, 当前tid=null, 忙=false, 定时器=null;
+
+// ---------- 与本地服务端说话（唯一通道：/api） ----------
+async function 调(cmd,arg){
+  const r=await fetch('/api',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({cmd:cmd,arg:arg||{}})});
+  const d=await r.json();
+  if(!d.ok) throw new Error(d.error||'调用失败');
+  return d.data;
+}
+function 提示(t,是错){
+  const el=document.getElementById('toast');
+  el.textContent=t; el.className='on'+(是错?' err':'');
+  clearTimeout(el._t); el._t=setTimeout(()=>{el.className='';},是错?5200:2200);
+}
+function 转义(s){return (s==null?'':String(s)).replace(/[&<>"]/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function 是宽屏(){return window.matchMedia('(min-width:900px)').matches;}
+function 去详情(){document.body.className='视图详情';window.scrollTo(0,0);}
+function 回列表(){document.body.className='视图列表';window.scrollTo(0,0);}
+function 回顶(){try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){window.scrollTo(0,0);}}
+
+// ---------- 吧 ----------
+async function 载吧(){
+  const d=await 调('吧_列表');
+  吧表=d.吧||[];
+  if(!当前吧||!吧表.some(b=>b.bid===当前吧)) 当前吧=吧表.length?吧表[0].bid:null;
+  const box=document.getElementById('吧列表');
+  box.innerHTML = 吧表.length? 吧表.map(b=>
+    `<div class="bar${b.bid===当前吧?' on':''}" title="${转义(b.路径)}"
+          onclick="切换吧('${b.bid}')">
+       <span class="n">${转义(b.名称)}</span>
+       <span class="tag">${b.帖数} 帖</span></div>`).join('')
+    : '<div class="empty">还没有吧。点「＋新建」，填一个项目文件夹的绝对路径。</div>';
+}
+function 切换吧(bid){当前吧=bid;当前tid=null;载吧().then(载帖);}
+
+function 弹新建吧(){
+  弹表单('新建一个吧（= 收录一个项目文件夹）',[
+    {k:'路径',l:'项目文件夹绝对路径',h:'例：D:\\网络硬盘\\wps云盘\\脚本备份\\工作台\\某个项目'},
+    {k:'名称',l:'吧名（可不填，默认取文件夹名）'}
+  ],async v=>{
+    const d=await 调('吧_新建',v);
+    当前吧=d.吧.bid; 提示(d.新建?'已新建吧：'+d.吧.名称:'这个文件夹早就是一个吧了');
+    await 载吧(); 当前tid=null; await 载帖();
+  });
+}
+
+// ---------- 帖 ----------
+async function 载帖(){
+  if(!当前吧){document.getElementById('帖列表').innerHTML=
+      '<div class="empty">先选一个吧。</div>';return;}
+  const 状=document.getElementById('f状态').value;
+  const d=await 调('帖_列表',{吧:当前吧,状态:状||'全部'});
+  const 列=d.帖||[];
+  const box=document.getElementById('帖列表');
+  box.innerHTML = 列.length? 列.map(t=>
+    `<div class="thr${t.tid===当前tid?' on':''}" onclick="开帖('${t.tid}')">
+       <span class="t">${转义(t.标题)}</span>
+       <span class="m"><span class="tag ${t.状态==='活跃'?'ok':(t.状态==='锁定'?'lock':'end')}">${t.状态}</span>
+       <span>${t.tid}</span><span>${t.楼数}楼</span><span>${转义(t.类型)}</span>
+       <span>${转义(t.更新时间||'')}</span></span></div>`).join('')
+    : '<div class="empty">这个吧还没有帖。点「＋发帖」开一张工单。</div>';
+  if(当前tid && !列.some(t=>t.tid===当前tid) && 状) 当前tid=null;
+  if(!是宽屏() && !当前tid) 回列表();
+}
+
+async function 开帖(tid){
+  当前tid=tid;
+  if(!是宽屏()) 去详情();
+  await 载详情(); await 载帖();
+}
+
+async function 载详情(){
+  const box=document.getElementById('帖详情');
+  if(!当前tid){box.innerHTML='<div class="empty">选一张帖，这里显示它的全部楼层。</div>';
+    document.getElementById('帖头').textContent='';return;}
+  const d=await 调('帖_读',{tid:当前tid});
+  const t=d.帖;
+  document.getElementById('帖头').textContent=
+    `${t.tid} · ${t.楼数}楼 · 下一楼第${t.下一楼}楼(${t.下一楼名义发言人})`;
+  let h=`<div style="font-size:15px;font-weight:600;margin-bottom:3px">《${转义(t.标题)}》</div>
+    <div style="font-size:11px;color:var(--sub);margin-bottom:7px">
+      <span class="tag">${转义(t.类型)}</span>
+      <span class="tag ${t.状态==='活跃'?'ok':(t.状态==='锁定'?'lock':'end')}">${t.状态}</span>
+      吧：${转义(t.吧名)} · 建于 ${转义(t.创建时间)}</div>`;
+  if(t.锁定) h+=`<div class="banner">已被「${转义(t.锁定.占者)}」占锁冻结（整帖冻结）· ${转义(t.锁定.时间)}</div>`;
+  if(t.终结) h+=`<div class="banner">已终结：${转义(t.终结.原因)} · ${转义(t.终结.时间)}</div>`;
+  (t.楼层||[]).forEach(f=>{
+    const 主=f.名义发言人==='总管';
+    const 代=(f.实际发帖者&&f.实际发帖者!==f.名义发言人);
+    const 改=(f.修改记录||[]).length;
+    h+=`<div class="floor${主?'':' sub'}">
+      <div class="fh"><span class="no">${f.楼层}楼</span>
+        <span class="who">${主?'总管':'子代理'}</span>
+        ${代?`<span class="tag">${转义(f.实际发帖者)}代发</span>`:''}
+        <span class="tag">${转义(f.类别)}</span>
+        <span>${转义(f.时间)}</span>
+        ${改?`<span class="tag">已改${改}次</span>`:''}</div>
+      <div class="body">${转义(f.内容)}</div>`;
+    if(改) h+=`<details><summary>看被改掉的旧内容</summary>`+
+      (f.修改记录||[]).map(m=>`<pre>${转义(m.旧内容)}</pre>`).join('')+`</details>`;
+    h+='</div>';
+  });
+  h+=操作条(t);
+  box.innerHTML=h;
+}
+
+function 操作条(t){
+  if(t.状态==='已终结')
+    return '<div class="banner">此帖已终结封存，不能再改。要接着干就新开一帖。</div>';
+  const 锁=t.状态==='锁定';
+  let h='<div class="acts">';
+  if(锁){
+    h+=`<div class="grp"><span class="lbl">整帖冻结中（只有持锁者能发最终交稿）</span>
+      <button class="dark" onclick="弹交稿()">持锁者发最终交稿</button>
+      <button onclick="弹解锁()">总管应急解锁</button></div>`;
+  }else{
+    h+=`<div class="grp"><span class="lbl">总管</span>
+      <button onclick="弹留言()">留言</button>
+      <button onclick="弹改楼()">改楼</button>
+      <button onclick="弹代发()">代发叫停</button>
+      <button onclick="弹终结()">终结</button></div>
+      <div class="grp"><span class="lbl">子代理</span>
+      <button class="dark" onclick="弹交稿()">交稿</button>
+      <button onclick="弹占锁()">占锁</button></div>`;
+  }
+  h+='</div>';
+  return h;
+}
+
+// ---------- 各种动作弹窗 ----------
+async function 取帖(){return (await 调('帖_读',{tid:当前tid})).帖;}
+
+function 弹发帖(){
+  if(!当前吧){提示('先选一个吧（没有就点「＋新建」）',true);return;}
+  const b=吧表.find(x=>x.bid===当前吧)||{};
+  弹表单('发新帖（工单）· 吧：'+(b.名称||''),[
+    {k:'标题',l:'帖名（工作内容的一个简介）',必:1},
+    {k:'类型',l:'帖类型',t:'select',选项:类型们,值:'TRae内部记录'},
+    {k:'内容',l:'1楼正文：写清楚要干什么',t:'area',必:1,
+     h:'奇数楼（总管）。子代理回复前你可以随时用「改楼」改它。'}
+  ],async v=>{
+    const d=await 调('帖_发布',{吧:当前吧,标题:v.标题,类型:v.类型,内容:v.内容});
+    提示('已发布 '+d.帖.tid); 当前tid=d.帖.tid;
+    await 载帖(); await 载详情();
+    if(!是宽屏()) 去详情();
+  });
+}
+
+function 弹留言(){
+  弹表单('总管留言（落在奇数楼）',[
+    {k:'内容',l:'要补的话 / 新的要求',t:'area',必:1,
+     h:'只想补充或改派活内容，用「改楼」（不占新楼层）；这条是发新的奇数楼。'}
+  ],async v=>{await 调('帖_留言',{tid:当前tid,内容:v.内容});提示('已留言');await 善后();});
+}
+
+async function 弹改楼(){
+  const t=await 取帖();
+  const 楼们=t.楼层||[];
+  const 末=楼们[楼们.length-1];
+  if(末.名义发言人!=='总管'){
+    提示('子代理已经回帖（第'+末.楼层+'楼），原帖锁住了不能改。要继续请用「留言」。',true);
+    return;
+  }
+  弹表单('总管改楼（就地改第'+末.楼层+'楼，不占新楼层）',[
+    {k:'标题',l:'帖名（不改就别动）',值:t.标题},
+    {k:'内容',l:'第'+末.楼层+'楼的新正文（整段替换）',t:'area',必:1,值:末.内容,
+     h:'子代理一回复，这一楼就锁住不能再改。改过会留痕。'}
+  ],async v=>{await 调('帖_改楼',{tid:当前tid,标题:v.标题,内容:v.内容});
+    提示('已改第'+末.楼层+'楼');await 善后();});
+}
+
+function 弹代发(){
+  弹表单('代发叫停（替子代理补一个偶数楼）',[
+    {k:'原因',l:'叫停的简单原因',t:'area',必:1,
+     h:'用在子代理被叫停、来不及回帖的时候，保证奇偶不断。'}
+  ],async v=>{await 调('帖_代发叫停',{tid:当前tid,原因:v.原因});提示('已补位');await 善后();});
+}
+
+async function 弹交稿(){
+  const t=await 取帖();
+  弹表单('子代理交稿（落在偶数楼）',[
+    {k:'内容',l:'总结自己完成了什么',t:'area',必:1},
+    {k:'已处理至',l:'你读帖时看到的「总管最后一楼」楼号',t:'number',
+     值:String(t.总管最后一楼||0),
+     h:'若之后总管又发了新留言，服务端会拦下，让你先处理完再交稿。'}
+  ],async v=>{await 调('帖_交稿',{tid:当前tid,内容:v.内容,已处理至:Number(v.已处理至||0)});
+    提示('已交稿');await 善后();});
+}
+
+function 弹占锁(){
+  弹表单('占锁冻结整帖（交最终稿前先占）',[
+    {k:'占者',l:'谁占（默认 子代理）',值:'子代理'}
+  ],async v=>{await 调('帖_占锁',{tid:当前tid,占者:v.占者});提示('已占锁，整帖冻结');await 善后();});
+}
+
+function 弹解锁(){
+  弹表单('总管应急解锁',[
+    {k:'说明',l:'为什么要解锁（仅备注，会写进日志）',值:'应急'}
+  ],async v=>{await 调('帖_解锁',{tid:当前tid,操作者:'总管'});提示('已解锁');await 善后();});
+}
+
+function 弹终结(){
+  弹表单('终结这张帖（封存，不能再改）',[
+    {k:'原因',l:'终结原因',t:'select',选项:终结原因们,值:'任务已完成'}
+  ],async v=>{await 调('帖_终结',{tid:当前tid,原因:v.原因});
+    提示('已终结。记得重新唤醒子代理读一次帖。');await 善后();});
+}
+
+// ---------- 弹窗 + 通用 ----------
+function 弹表单(标题, 字段们, 提交){
+  const dlg=document.getElementById('dlg');
+  dlg.innerHTML='<h3>'+转义(标题)+'</h3>'+字段们.map(f=>{
+    const id='f_'+f.k;
+    let 控;
+    if(f.t==='area') 控=`<textarea id="${id}">${转义(f.值||'')}</textarea>`;
+    else if(f.t==='select') 控=`<select id="${id}">`+
+      f.选项.map(o=>`<option${o===(f.值||'')?' selected':''}>${转义(o)}</option>`).join('')+`</select>`;
+    else 控=`<input id="${id}" type="${f.t==='number'?'number':'text'}" value="${转义(f.值||'')}">`;
+    return `<div class="row"><label>${转义(f.l)}${f.必?' *':''}</label>${控}
+      ${f.h?`<div class="hint">${转义(f.h)}</div>`:''}</div>`;
+  }).join('')+
+  '<div class="btns"><button onclick="关弹()">取消</button>'+
+  '<button class="dark" id="f_ok">确定</button></div>';
+  document.getElementById('mask').classList.add('on');
+  document.getElementById('f_ok').onclick=async()=>{
+    const v={};
+    for(const f of 字段们){
+      v[f.k]=(document.getElementById('f_'+f.k)||{}).value||'';
+      if(f.必&&!String(v[f.k]).trim()){提示('「'+f.l+'」不能为空',true);return;}
+    }
+    const 钮=document.getElementById('f_ok'); 钮.disabled=true; 钮.textContent='处理中…';
+    try{ await 提交(v); 关弹(); }
+    catch(e){ 提示(e.message,true); 钮.disabled=false; 钮.textContent='确定'; }
+  };
+  const 首=字段们.find(f=>f.t==='area'||!f.值);
+  if(首){const el=document.getElementById('f_'+首.k); if(el) el.focus();}
+}
+function 关弹(){document.getElementById('mask').classList.remove('on');}
+document.getElementById('mask').onclick=e=>{if(e.target.id==='mask')关弹();};
+
+async function 善后(){ await 载详情(); await 载帖(); await 载吧(); }
+
+async function 全部刷新(){
+  try{
+    await 载吧(); await 载帖();
+    if(当前tid) await 载详情(); else 载详情();
+  }catch(e){提示('刷新失败：'+e.message,true);}
+}
+
+// 自动刷新：没人操作、没弹窗时静默拉一次；详情页只更新详情，免得列表跳动
+async function 静默(){
+  if(忙||document.getElementById('mask').classList.contains('on')) return;
+  忙=true;
+  try{
+    if(是宽屏()||!当前tid){ await 载吧(); await 载帖(); }
+    if(当前tid) await 载详情();
+  }catch(e){}
+  finally{ 忙=false; }
+}
+document.getElementById('f状态').onchange=()=>载帖();
+document.getElementById('自动').onchange=e=>{
+  if(e.target.checked){ 定时器=setInterval(静默,4000); }
+  else { clearInterval(定时器); 定时器=null; }
+};
+window.addEventListener('resize',()=>{ if(!是宽屏()&&!当前tid) 回列表(); });
+
+(async function 起步(){
+  document.getElementById('ver').textContent='v'+VER;
+  document.title='贴吧型派单系统 v'+VER;
+  try{
+    const s=await 调('系统_状态');
+    document.getElementById('页脚').textContent=
+      '贴吧型派单系统 v'+VER+' · 服务端 v'+s.模块版本+' · 真身痕迹根：'+s.痕迹根;
+  }catch(e){
+    document.getElementById('页脚').textContent='连不上本机服务端：'+e.message;
+  }
+  await 全部刷新();
+  定时器=setInterval(静默,4000);
+})();
+</script>
+</body>
+</html>
