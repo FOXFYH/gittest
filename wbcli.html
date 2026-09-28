@@ -845,7 +845,8 @@ const S = {
      （兜底触发预警用，成功到达归零） */
   fulls_snooze: 0, falls_fail: 0,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
-     conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
+     conn,ts,seen}）+ 当前操控的服务端名（localStorage 记忆）
+     1.43：seen=最后出现毫秒（落盘 LS_SRVS）*/
   servers: {},
   cur: null,
   /* 1.25：顶栏判活辅助——failStreak=连续「连都没连上」次数（连上即清零）；
