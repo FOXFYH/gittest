@@ -83,6 +83,13 @@ body.fmsg #fexit{display:block;}
 /* 1.30：展开后自适应高度（上限 45vh≈半屏，超出可滚动）。
    服务端 plan 上限 600 字，全展开约 350~410px，不会过长。 */
 .msg.agent .think.open .thinkb{max-height:45vh; overflow-y:auto;}
+/* 1.48：AI 在途槽位（最新人类发言正下方的生成中占位） */
+@keyframes wbblink{50%{opacity:0}}
+.msg.agent.pending .tools{font-size:11px; color:var(--gray);
+  margin:2px 0 4px; word-break:break-word;}
+.msg.agent.pending .body{color:#666;}
+.msg.agent.pending .blink{color:var(--blue);
+  animation:wbblink 1s step-end infinite;}
 .empty{color:#999; text-align:center; padding:30px 0;}
 /* ── 1.25：会话操作菜单（长按会话行） ── */
 #convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
@@ -1753,6 +1760,11 @@ function msgKey(m){
 }
 function renderMsgs(msgs, finish, opts, ask){
   opts = opts || [];
+  /* 1.48：AI 在途槽位判定——最新可见消息是人类发言、且服务端在途生成时，
+     在其正下方挂 AI 响应占位；原则：思维流必须处于人类最新发言这一条的下面。 */
+  const lastIsUser = msgs.length
+      && (msgs[msgs.length - 1][0] === 'u' || msgs[msgs.length - 1][0] === 'user');
+  const pendingAI = lastIsUser && S.snap && (S.snap.pending || !S.snap.sendIdle);
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
      与 opts（选项卡答完即销毁）；F1：消息文本指纹哈希化 */
   let key = 'n' + msgs.length + '#'              // F1：条数显式进 key（增删必重画）
@@ -1766,7 +1778,8 @@ function renderMsgs(msgs, finish, opts, ask){
   key += '#pend:' + pendSig()
        + (S.switch_pend ? '#sw:' + S.switch_pend.title : '')
        + (S.loadingConv ? '#ld:' + S.loadingConv.title : '')
-       + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80);
+       + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80)
+       + (pendingAI ? '#aiP:1' : '#aiP:0');
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -1823,7 +1836,7 @@ function renderMsgs(msgs, finish, opts, ask){
     /* 1.5x：思维过程——紧贴 AI 回答内部展示最一段思考(snap.plan)，
        灰色斜体「💭 思考」小标题可点击折叠/展开；生成中实时更新，完成后保留。 */
     let think = '';
-    if (!user && i === lastAgent && S.snap && S.snap.plan
+    if (!user && i === lastAgent && !pendingAI && S.snap && S.snap.plan
         && String(S.snap.plan).trim()){
       const to = S.thinkOpen ? ' open' : '';
       think = '<div class="think' + to + '">'
@@ -1877,6 +1890,38 @@ function renderMsgs(msgs, finish, opts, ask){
     };
     el.msgs.appendChild(d);
   });
+  /* 1.48：AI 在途槽位渲染——紧贴最新人类发言正下方（思维流先迁移到这里，
+     生成中随 snap.plan 实时更新；AI 回复到达后由真实 assistant 消息接棒）。 */
+  if (pendingAI){
+    const d = document.createElement('div');
+    d.className = 'msg agent pending';
+    const to = S.thinkOpen ? ' open' : '';
+    let think = '';
+    if (S.snap.plan && String(S.snap.plan).trim()){
+      think = '<div class="think' + to + '">'
+            + '<div class="thinkh">💭 思考<span class="caret">'
+            + (S.thinkOpen ? '▾' : '▸') + '</span></div>'
+            + '<div class="thinkb">' + esc(S.snap.plan) + '</div></div>';
+    }
+    const tools = (S.snap.tools || []).map(t =>
+      '🔧 ' + esc(t.n) + (t.a ? ' ' + esc(t.a.slice(0, 30)) : '')).join('<br>');
+    const hasPlan = S.snap.plan && String(S.snap.plan).trim();
+    const t2 = (S.snap.tail || '').trim();
+    d.innerHTML = '<div class="who">WorkBuddy'
+                + '<span class="tm">' + (t2 ? '输出中' : '思考中') + '</span></div>'
+                + think
+                + (tools ? '<div class="tools">' + tools + '</div>' : '')
+                + '<div class="body">' + (t2 && !hasPlan ? '✏️ ' + esc(t2) : '…')
+                + '<span class="blink">▋</span></div>';
+    const th = d.querySelector('.thinkh');
+    if (th) th.onclick = () => {
+      S.thinkOpen = !S.thinkOpen;
+      d.classList.toggle('open', S.thinkOpen);
+      const cp = th.querySelector('.caret');
+      if (cp) cp.textContent = S.thinkOpen ? '▾' : '▸';
+    };
+    el.msgs.appendChild(d);
+  }
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 WorkBuddy
      AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
      底部 主按钮(下一步/确认)/取消）。可点选项、可填其他、可提交。 */
@@ -2463,7 +2508,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.47';
+const VER = '1.48';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
