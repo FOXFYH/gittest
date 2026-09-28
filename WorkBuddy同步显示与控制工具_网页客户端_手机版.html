@@ -2162,7 +2162,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.49';
+const VER = '1.50';
 /* 1.49 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -2173,7 +2173,7 @@ try {
   if (_pv !== null && _pv !== VER)
     location.replace(location.href.split('?')[0] + '?v=' + VER);
 } catch(e){}
-const VER_DESC = '1.49 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；1.48 多电脑名册落盘（只认名称）——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.47 输入行小图标统一正方形36×36（原 📎/📂 是46×36扁条）；输入框视线恒钉底部——打完字/收起输入法永远看得到最后一个字（原失焦后scrollTop归零看不见尾巴）；主界面上下不留空白——#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody 共7处 env(safe-area-inset-*) 留白一次清干净（手机上env≈44px凭空撑白，PC上env=0测不出），页面统一满屏到边；1.46 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.45 冷启动按上次服务端版本号拼缓存键——骨架/历史缓存真能秒开；全新架构（服务端1.55+网页1.46）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
+const VER_DESC = '1.50 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.49 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；1.48 多电脑名册落盘（只认名称）——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.47 输入行小图标统一正方形36×36（原 📎/📂 是46×36扁条）；输入框视线恒钉底部——打完字/收起输入法永远看得到最后一个字（原失焦后scrollTop归零看不见尾巴）；主界面上下不留空白——#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody 共7处 env(safe-area-inset-*) 留白一次清干净（手机上env≈44px凭空撑白，PC上env=0测不出），页面统一满屏到边；1.46 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.45 冷启动按上次服务端版本号拼缓存键——骨架/历史缓存真能秒开；全新架构（服务端1.55+网页1.46）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2444,10 +2444,12 @@ function pickCur(){
     if (S.servers[want] && S.servers[want].ts){ setCur(want); enterCur(); }
     return;
   }
-  /* 从未选过（无记忆）：仅当名册里恰好只有一台广播过才自动选它，多台
-     一律等用户自己在清单里点。 */
+  /* 1.50（按用户规定细化，2026-09-28）：
+     · 有记忆 → 只认上次那台；它没上线就什么都不选、等用户手动切（不替选）；
+     · 无记忆（首次使用 / 记忆已作废）→ 名册里有在线的就自动接管第一台
+       （帮用户选好，不再出现「连接成功却会话全空」）。 */
   const heard = Object.keys(S.servers).filter(n => S.servers[n].ts);
-  if (heard.length === 1){ setCur(heard[0]); enterCur(); }
+  if (heard.length){ setCur(heard[0]); enterCur(); }
 }
 function enterCur(){
   flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
@@ -2570,17 +2572,48 @@ function renderSrvList(){
     const isCur = nm === S.cur;
     const isRem = !S.cur && nm === remembered;   /* v1.48：标出上次选中的那台 */
     d.className = 'dmi' + (isCur ? ' on' : '');
+    /* 1.50：每台左侧紧凑删除按钮（✕，黑白灰）——只删本地落盘与内存；该
+       服务端若仍在广播，下次心跳会重新被发现并再次自动落盘（专治僵尸服务器）。 */
+    const del = document.createElement('span');
+    del.textContent = '✕';
+    del.style.cssText = 'display:inline-block;width:18px;height:18px;line-height:16px;'
+      + 'text-align:center;font-size:12px;color:var(--gray);border:1px solid var(--gray);'
+      + 'border-radius:4px;margin-right:6px;cursor:pointer;vertical-align:middle;'
+      + 'opacity:.75;user-select:none;';
+    del.onclick = (ev) => { ev.stopPropagation(); delSrv(nm); };
+    d.appendChild(del);
+    /* 1.50：当前默认操控的那台（S.cur）在条目上打 ⭐（表示默认/常用，用户规定） */
+    if (isCur){
+      const st = document.createElement('span');
+      st.textContent = '⭐';
+      st.style.cssText = 'font-size:13px;margin-right:3px;vertical-align:middle;';
+      d.appendChild(st);
+    }
     const na = (s.alive || []).length,
           nb = (s.boxes || []).length;
-    d.textContent = (s.conn ? '● ' : '○ ') + nm
+    const tx = document.createElement('span');
+    tx.textContent = (s.conn ? '● ' : '○ ') + nm
                   + (nb ? '（在线 ' + na + '/' + nb + '）' : '')
                   + (isRem ? '（上次）' : '')
                   + (s.lock && s.lock.mine === false
                      ? ' 🔒' + (s.lock.id || '被占用') : '');
+    d.appendChild(tx);
     if (isCur) d.style.color = 'var(--blue)';
     d.onclick = () => { drawerClose(); switchSrv(nm); };
     el.srvlist.appendChild(d);
   }
+}
+/* 1.50：删除名册条目（✕ 按钮）——只删本地落盘与内存；若服务端仍在广播，
+   下次心跳会重新被发现并再次自动落盘（期望行为）。删的正是当前默认操控的
+   那台就清掉记忆（setCur(null)）并重新走 pickCur：无记忆则自动接管第一台
+   在线，无在线则什么都不选。 */
+function delSrv(nm){
+  if (!S.servers[nm]) return;
+  delete S.servers[nm];
+  saveSrvs();
+  if (S.cur === nm) setCur(null);
+  if (!S.cur || !S.servers[S.cur]) pickCur();
+  renderSrvList(); renderTop();
 }
 el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
 
