@@ -2729,6 +2729,11 @@ function pickCur(){
      记着的那台没上线就什么都不选（等它上来再自动接管）。 */
   let want = null;
   try { want = localStorage.getItem(LS_SRV); } catch(e){}
+  /* 1.44：记忆名若连名册里都没有（旧版遗留名/服务端改过名），这条记忆
+     已彻底作废——若不清理，S.cur 会恒为 null，服务端所有 ev（快照/积分/
+     账号/模型）都被「非当前操控对象」拦掉、界面全空。清掉它，退回下面
+     的「名册里只有一台广播过就自动接管」。 */
+  if (want && !S.servers[want]){ want = null; setCur(null); }
   if (want){
     /* ts>0＝本会话真收到过它的广播；conn(界面是否就绪)不作为选中判据，
        否则服务端没开时反倒不会接管记忆中的那台。 */
