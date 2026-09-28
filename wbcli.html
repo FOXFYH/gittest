@@ -679,7 +679,9 @@ const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
 const LS_CFG = 'wb_cli_cfg', LS_NET = 'wb_cli_net',
-      LS_TM = 'wb_cli_times', LS_SRV = 'wb_cli_srv';
+      LS_TM = 'wb_cli_times', LS_SRV = 'wb_cli_srv',
+      LS_SRVS = 'wb_cli_srvs';    /* 1.43：多电脑名册落盘（name→最后出现毫秒） */
+const SRV_TTL = 7 * 24 * 60 * 60 * 1000;   /* 1.43：名册保留期（超 7 天未出现即清） */
 
 function cfgGet(){
   try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
@@ -2459,8 +2461,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.42';
-const VER_DESC = '1.42 模型选择「选了什么就必须跑什么」——三道关都堵上：①选中即预检，官方清单已加载却没有这个模型→当场弹窗拒绝（可能已下架/改名），不发切换命令；②服务端按官方清单（暖缓存，不触发 CLI 冷启动）拒绝非法模型名，回投 model_reject 弹窗并保持当前模型；③跑完核对，发消息时记下所选+回复序号，新回复到达后比对台账里本轮 requestModelId（=派活 --model 的原样回声），不一致→弹窗并把下拉钉到实际跑的模型（照实显示，直到你重新选择）；本轮结束仍无任何回复→弹窗提示该模型可能跑不起来。注意「选 auto」会解析成具体模型，那是正常，只看 requestModelId 是否等于所选；1.41 修「放大态专属按钮点不动」（同 TRAE 1.83）：📋复制 只在放大态可见（#input_row.grow #btn_copy），点下去先让输入框失焦→blur 摘掉 grow→按钮当场 display:none，浏览器派发 click 时它已不在渲染树，onclick 永不触发（用户报「我点了，没效果」）；改为 pointerdown（早于失焦）动手 + preventDefault 保住焦点（框不收起、钮不消失），click 仅作无 PointerEvent 老环境/键盘兜底（400ms 去重）；1.40 输入口对齐 TRAE（1.79~1.82）：打开大框即在正文后铺3个空行（输入法盖住的3行让给空行、正文往上滚可看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、也不点亮发送钮）；大小框分工——放大态视线钉底看最后一个字、收起态回开头看第一个字；输入法「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走右侧按钮，桌面硬件键盘仍 Enter 发送）；新增 📋 复制按钮（仅放大态显示，复用 1.24 copyText）；本版不做「取回」⇩ 按钮（用户口径：CLI 版不需要）；1.39 输入框小按钮统一正方形36×36(原📎/📂是46×36扁条)；输入框视线恒钉底部——打字/失焦/输入法composition起落都钉到底，永远看得到最后一个字；主界面上下约两行空白根治——清掉样式块7处 env(safe-area-inset-*) 安全区留白(#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody)，页面满屏到边；1.38 第二行删掉「目标框」下拉（本部署服务端只注册单个框，下拉恒一项、无切换价值），腾出的宽度全给模型下拉；1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
+const VER = '1.43';
+const VER_DESC = '1.43 多电脑协议（名册落盘 + 只认上次选中那台，对齐 TRAE 1.84）：服务端新增「电脑名称」（写入 config.srv_name，空则暂归「默认服务端」）与固定随机 ID（srv_id，首启生成一次、落盘固定，改名不换 ID，不再每次启动随机）；网页端多服务端名册按「电脑名称」归册（sid 只在后台识别、界面一律不显示），名称+最后出现时间落盘 localStorage(wb_cli_srvs)，刷新/重开页面立即恢复清单（离线的也留一行 ○），超 7 天未再出现自动清理，无心跳只标离线不删条目；选服务端只认上次选中那台——本会话广播过（ts>0）就接管，没广播就不选，从未选过时仅当名册里只有一台广播过才自动选它，删掉「现选不在线就自动挑第一个在线者」；未选中时给记着的那台标「（上次）」。1.42 模型选择「选了什么就必须跑什么」——三道关都堵上：①选中即预检，官方清单已加载却没有这个模型→当场弹窗拒绝（可能已下架/改名），不发切换命令；②服务端按官方清单（暖缓存，不触发 CLI 冷启动）拒绝非法模型名，回投 model_reject 弹窗并保持当前模型；③跑完核对，发消息时记下所选+回复序号，新回复到达后比对台账里本轮 requestModelId（=派活 --model 的原样回声），不一致→弹窗并把下拉钉到实际跑的模型（照实显示，直到你重新选择）；本轮结束仍无任何回复→弹窗提示该模型可能跑不起来。注意「选 auto」会解析成具体模型，那是正常，只看 requestModelId 是否等于所选；1.41 修「放大态专属按钮点不动」（同 TRAE 1.83）：📋复制 只在放大态可见（#input_row.grow #btn_copy），点下去先让输入框失焦→blur 摘掉 grow→按钮当场 display:none，浏览器派发 click 时它已不在渲染树，onclick 永不触发（用户报「我点了，没效果」）；改为 pointerdown（早于失焦）动手 + preventDefault 保住焦点（框不收起、钮不消失），click 仅作无 PointerEvent 老环境/键盘兜底（400ms 去重）；1.40 输入口对齐 TRAE（1.79~1.82）：打开大框即在正文后铺3个空行（输入法盖住的3行让给空行、正文往上滚可看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、也不点亮发送钮）；大小框分工——放大态视线钉底看最后一个字、收起态回开头看第一个字；输入法「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走右侧按钮，桌面硬件键盘仍 Enter 发送）；新增 📋 复制按钮（仅放大态显示，复用 1.24 copyText）；本版不做「取回」⇩ 按钮（用户口径：CLI 版不需要）；1.39 输入框小按钮统一正方形36×36(原📎/📂是46×36扁条)；输入框视线恒钉底部——打字/失焦/输入法composition起落都钉到底，永远看得到最后一个字；主界面上下约两行空白根治——清掉样式块7处 env(safe-area-inset-*) 安全区留白(#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody)，页面满屏到边；1.38 第二行删掉「目标框」下拉（本部署服务端只注册单个框，下拉恒一项、无切换价值），腾出的宽度全给模型下拉；1.37 时间戳始终带年月日（北京时间 YYYY-MM-DD HH:MM:SS）；1.36 时间戳统一为北京时间(UTC+8)精确到秒(HH:MM:SS)，优先采用服务端 jsonl 真实时间(兼容秒/毫秒级)；1.35 思维窗默认高度翻倍(76→152px，约8行)，点击展开自适应上限45vh(≈半屏、超出可滚动)；1.34 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.33 全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2668,12 +2670,42 @@ function handleBody(body){
   if (d.t === 'hello') onHello(d);
 }
 
-/* ============ 1.12 多服务端名册 ============ */
+/* ============ 1.12 多服务端名册（1.43：落盘 + 只认名称） ============ */
+
+/* 1.43：名册落盘——网页端只认「电脑名称」（随机 ID/sid 只在后台识别用，
+   界面一律不显示）。名称＋最后出现时间存 LS_SRVS，刷新/重开页面立即恢复
+   清单（离线的也留一行 ○）；超 SRV_TTL(7 天) 未再出现的名称自动清理。 */
+let _srv_dirty = false, _srv_save_tm = 0;
+function loadSrvs(){
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(LS_SRVS)); } catch(e){}
+  if (!raw || typeof raw !== 'object') return;
+  const now = Date.now();
+  for (const nm of Object.keys(raw)){
+    const seen = raw[nm] | 0;
+    if (!nm || !seen || now - seen > SRV_TTL) continue;    /* 超期不恢复 */
+    const s = S.servers[nm];
+    if (!s) S.servers[nm] = {name: nm, ts: 0, seen: seen, conn: false};
+    else s.seen = Math.max(s.seen || 0, seen);
+  }
+  renderSrvList();
+}
+function saveSrvs(){
+  const o = {};
+  for (const nm of Object.keys(S.servers)) o[nm] = S.servers[nm].seen || 0;
+  try { localStorage.setItem(LS_SRVS, JSON.stringify(o)); } catch(e){}
+}
+function touchSrvSeen(s){
+  s.seen = Date.now(); _srv_dirty = true;
+  const now = Date.now();
+  if (now - _srv_save_tm >= 3000){ _srv_save_tm = now; _srv_dirty = false; saveSrvs(); }
+}
 
 function regSrv(nm, d){
   let s = S.servers[nm];
-  if (!s) s = S.servers[nm] = {name: nm, ts: 0};
+  if (!s) s = S.servers[nm] = {name: nm, ts: 0, seen: 0, conn: false};
   s.ts = Date.now();
+  touchSrvSeen(s);                            /* 1.43：记最后出现时间（落盘） */
   if (d.sid) s.sid = d.sid;
   if (d.v) s.v = d.v;
   if (d.t === 'hello' || d.t === 'srv'){
@@ -2690,20 +2722,28 @@ function regSrv(nm, d){
   renderTop();
 }
 function pickCur(){
-  if (S.cur && S.servers[S.cur]) return;      // 现选仍在线
-  const names = Object.keys(S.servers);
-  if (!names.length){ setCur(null); return; }
-  // 优先恢复 localStorage 记忆，否则第一个在线者
+  if (S.cur && S.servers[S.cur]) return;      /* 已选定且仍在名册：不动（离线也保持） */
+  if (S.cur) setCur(null);
+  /* 1.43：只认 localStorage 里记着的那台，绝不按在线/新鲜度替用户挑：
+     记着的那台没上线就什么都不选（等它上来再自动接管）。 */
   let want = null;
   try { want = localStorage.getItem(LS_SRV); } catch(e){}
-  if (want && S.servers[want]) setCur(want);
-  else setCur(names[0]);
-  if (S.cur){
-    flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
-    applySrvEntry();                           // 载入其缓存状态
-    sendJson({t: 'hello'});                    // 拉即时全量
-    helloWatch();                              // 1.14：快照看门狗
+  if (want){
+    /* ts>0＝本会话真收到过它的广播；conn(界面是否就绪)不作为选中判据，
+       否则服务端没开时反倒不会接管记忆中的那台。 */
+    if (S.servers[want] && S.servers[want].ts){ setCur(want); enterCur(); }
+    return;
   }
+  /* 从未选过（无记忆）：仅当名册里恰好只有一台广播过才自动选它，多台
+     一律等用户自己在清单里点。 */
+  const heard = Object.keys(S.servers).filter(n => S.servers[n].ts);
+  if (heard.length === 1){ setCur(heard[0]); enterCur(); }
+}
+function enterCur(){
+  flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
+  applySrvEntry();                           // 载入其缓存状态
+  sendJson({t: 'hello'});                    // 拉即时全量
+  helloWatch();                              // 1.14：快照看门狗
 }
 function setCur(nm){
   S.cur = nm;
@@ -2771,16 +2811,18 @@ function pruneSrv(){
   const now = Date.now();
   let changed = false;
   for (const nm of Object.keys(S.servers)){
-    if (now - S.servers[nm].ts > 75000){
-      delete S.servers[nm]; changed = true;
+    const s = S.servers[nm];
+    if (now - (s.seen || 0) > SRV_TTL){          /* 1.43：超 7 天未出现→清名册 */
+      delete S.servers[nm]; changed = true; continue;
+    }
+    if (s.ts && now - s.ts > 75000 && s.conn !== false){
+      s.conn = false; changed = true;            /* 1.43：无心跳→标离线，名册保留 */
     }
   }
+  if (_srv_dirty){ _srv_dirty = false; _srv_save_tm = now; saveSrvs(); }
   if (changed){
-    if (!S.cur || !S.servers[S.cur]){
-      pickCur();
-      if (S.cur) { applySrvEntry(); sendJson({t: 'hello'}); }
-    }
-    renderSrvList();
+    if (!S.cur || !S.servers[S.cur]) pickCur();
+    renderSrvList(); renderTop();
   }
 }
 setInterval(pruneSrv, 5000);
@@ -2801,22 +2843,27 @@ function renderSrvList(){
   if (!names.length){
     const d = document.createElement('div');
     d.className = 'dmi';
-    d.textContent = '（暂无在线服务端）';
+    d.textContent = '（暂无服务端，等待上线…）';
     d.style.color = 'var(--gray)';
     el.srvlist.appendChild(d);
     return;
   }
+  let remembered = '';
+  try { remembered = localStorage.getItem(LS_SRV) || ''; } catch(e){}
   for (const nm of names){
     const s = S.servers[nm];
     const d = document.createElement('div');
-    d.className = 'dmi' + (nm === S.cur ? ' on' : '');
+    const isCur = nm === S.cur;
+    const isRem = !S.cur && nm === remembered;   /* 1.43：标出上次选中的那台 */
+    d.className = 'dmi' + (isCur ? ' on' : '');
     const na = (s.alive || []).length,
           nb = (s.boxes || []).length;
     d.textContent = (s.conn ? '● ' : '○ ') + nm
                   + (nb ? '（在线 ' + na + '/' + nb + '）' : '')
+                  + (isRem ? '（上次）' : '')
                   + (s.lock && s.lock.mine === false
                      ? ' 🔒' + (s.lock.id || '被占用') : '');
-    if (nm === S.cur) d.style.color = 'var(--blue)';
+    if (isCur) d.style.color = 'var(--blue)';
     d.onclick = () => { drawerClose(); switchSrv(nm); };
     el.srvlist.appendChild(d);
   }
@@ -3733,7 +3780,7 @@ function renderNetHist(){
 }
 setInterval(renderToday, 2000);
 setInterval(statsFlush, 30000);
-window.addEventListener('beforeunload', statsFlush);
+window.addEventListener('beforeunload', () => { statsFlush(); saveSrvs(); });
 
 /* 1.45：加密频道密钥输入弹窗（对齐 TRAE，只输密钥，前缀自动拼）。
    首次使用（本地无记录）弹全屏输入层，输对才能连上服务端。 */
@@ -3787,6 +3834,7 @@ checkVerBump();
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
 renderAcct();                                    /* 1.33：账号行首显 — */
+loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
 if (wsOV || CFG.channel) connect(); else channelPrompt();
 </script>
 </body>
