@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.83</title>
+<title>TRAE远程 v1.84</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -679,6 +679,15 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <script>
 'use strict';
 /* ================= 手机版网页客户端 v1.49 =================
+ * v1.84：多电脑名册落盘 + 只认名称、不自动挑（用户明确要求）。起因：
+ *   网页版同时掌管多台电脑时，名册只显示「电脑名称」（服务器随机 ID
+ *   只在后台识别用，界面一律不出现）；名册＋最后出现时间落盘本地
+ *   （新键 LS_SRVS='trae_webm_srvs'），刷新/重开页面立即恢复清单
+ *   （离线的也留一行 ○），超 7 天未再出现的名称自动清理；去掉原先
+ *   「现选不在线就自动挑第一个在线者」的行为——只保留「上次选中的
+ *   那台」：它上线即自动接管，没上线就什么都不选（不按网络/新鲜度
+ *   替用户挑），清单里给它标「（上次）」；从未选过时仅当名册里恰好
+ *   只有一台在线才自动选它。服务端 sid 随机化另行处理（本轮只动网页端）。
  * v1.83：占位卡（我发出的消息在 TRAE 落地前的虚线气泡）叫法改口径 +
  *   出口恒亮。起因（用户实测追问）：卡片写着「排队中…」持续 10 分钟
  *   不动，用户问"在排什么队？"——查证结论：我们这边并没有自建待发
@@ -863,6 +872,7 @@ const IDLE_MS = 5 * 60 * 1000;  // 超过 5 分钟无任何操作 → 视为退�
 /* 1.61：连续 N 次「连都没连上就断」→ 判定为中继服务不可用（比如服务商挂了、
    断网），顶栏换成更直白的「连不上服务器」，不再只是「连接已断开」。 */
 const FAIL_ALERT = 3;
+const SRV_TTL = 7 * 24 * 60 * 60 * 1000;   // v1.84：多电脑名册保留期（超 7 天未出现即清）
 const FOX_HDR = 57;     // 协议头固定字节数
 const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
 const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
@@ -871,6 +881,7 @@ const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/
 
 const LS_CFG = 'trae_webm_cfg', LS_NET = 'trae_webm_net',
       LS_TM = 'trae_webm_times', LS_SRV = 'trae_webm_srv',
+      LS_SRVS = 'trae_webm_srvs',     /* v1.84：多电脑名册落盘（name→最后出现毫秒） */
       LS_CH = 'trae_webm_channel',
       /* v1.50：副频道名 + 当前选中频道（main/backup，本地落盘、不固化） */
       LS_CH2 = 'trae_webm_channel2', LS_SEL = 'trae_webm_selct';
@@ -2719,8 +2730,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.83';
-const VER_DESC = '全新架构v1.3（服务端2.24+网页1.83）：1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER = '1.84';
+const VER_DESC = '全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3026,12 +3037,42 @@ function handleBody(body){
   if (d.t === 'poll_set') return;                     // 1.35：档位已移除，忽略回执
 }
 
-/* ============ 1.12 多服务端名册 ============ */
+/* ============ 1.12 多服务端名册（v1.84：落盘 + 只认名称） ============ */
+
+/* v1.84：名册落盘——网页端只认「电脑名称」（随机 ID/sid 只在后台识别用，
+   界面一律不显示）。名称＋最后出现时间存 LS_SRVS，刷新/重开页面立即恢复
+   清单（离线的也留一行 ○）；超 SRV_TTL(7 天) 未再出现的名称自动清理。 */
+let _srv_dirty = false, _srv_save_tm = 0;
+function loadSrvs(){
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(LS_SRVS)); } catch(e){}
+  if (!raw || typeof raw !== 'object') return;
+  const now = Date.now();
+  for (const nm of Object.keys(raw)){
+    const seen = raw[nm] | 0;
+    if (!nm || !seen || now - seen > SRV_TTL) continue;    /* 超期不恢复 */
+    const s = S.servers[nm];
+    if (!s) S.servers[nm] = {name: nm, ts: 0, seen: seen, conn: false};
+    else s.seen = Math.max(s.seen || 0, seen);
+  }
+  renderSrvList();
+}
+function saveSrvs(){
+  const o = {};
+  for (const nm of Object.keys(S.servers)) o[nm] = S.servers[nm].seen || 0;
+  try { localStorage.setItem(LS_SRVS, JSON.stringify(o)); } catch(e){}
+}
+function touchSrvSeen(s){
+  s.seen = Date.now(); _srv_dirty = true;
+  const now = Date.now();
+  if (now - _srv_save_tm >= 3000){ _srv_save_tm = now; _srv_dirty = false; saveSrvs(); }
+}
 
 function regSrv(nm, d){
   let s = S.servers[nm];
-  if (!s) s = S.servers[nm] = {name: nm, ts: 0};
+  if (!s) s = S.servers[nm] = {name: nm, ts: 0, seen: 0, conn: false};
   s.ts = Date.now();
+  touchSrvSeen(s);                            /* v1.84：记最后出现时间（落盘） */
   if (d.sid) s.sid = d.sid;
   if (d.v) s.v = d.v;
   if (d.t === 'hello' || d.t === 'srv'){
@@ -3048,20 +3089,28 @@ function regSrv(nm, d){
   renderTop();
 }
 function pickCur(){
-  if (S.cur && S.servers[S.cur]) return;      // 现选仍在线
-  const names = Object.keys(S.servers);
-  if (!names.length){ setCur(null); return; }
-  // 优先恢复 localStorage 记忆，否则第一个在线者
+  if (S.cur && S.servers[S.cur]) return;      /* 已选定且仍在名册：不动（离线也保持） */
+  if (S.cur) setCur(null);
+  /* v1.84：只认 localStorage 里记着的那台，绝不按在线/新鲜度替用户挑：
+     记着的那台没上线就什么都不选（等它上来再自动接管）。 */
   let want = null;
   try { want = localStorage.getItem(LS_SRV); } catch(e){}
-  if (want && S.servers[want]) setCur(want);
-  else setCur(names[0]);
-  if (S.cur){
-    flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
-    applySrvEntry();                           // 载入其缓存状态
-    sendJson({t: 'hello'});                    // 拉即时全量
-    helloWatch();                              // 1.14：快照看门狗
+  if (want){
+    /* ts>0＝本会话真收到过它的广播；conn(界面是否就绪)不作为选中判据，
+       否则 TRAE 没开时反倒不会接管记忆中的那台。 */
+    if (S.servers[want] && S.servers[want].ts){ setCur(want); enterCur(); }
+    return;
   }
+  /* 从未选过（无记忆）：仅当名册里恰好只有一台广播过才自动选它，多台
+     一律等用户自己在清单里点。 */
+  const heard = Object.keys(S.servers).filter(n => S.servers[n].ts);
+  if (heard.length === 1){ setCur(heard[0]); enterCur(); }
+}
+function enterCur(){
+  flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
+  applySrvEntry();                           // 载入其缓存状态
+  sendJson({t: 'hello'});                    // 拉即时全量
+  helloWatch();                              // 1.14：快照看门狗
 }
 function setCur(nm){
   S.cur = nm;
@@ -3132,16 +3181,18 @@ function pruneSrv(){
   const now = Date.now();
   let changed = false;
   for (const nm of Object.keys(S.servers)){
-    if (now - S.servers[nm].ts > 75000){
-      delete S.servers[nm]; changed = true;
+    const s = S.servers[nm];
+    if (now - (s.seen || 0) > SRV_TTL){          /* v1.84：超 7 天未出现→清名册 */
+      delete S.servers[nm]; changed = true; continue;
+    }
+    if (s.ts && now - s.ts > 75000 && s.conn !== false){
+      s.conn = false; changed = true;            /* v1.84：无心跳→标离线，名册保留 */
     }
   }
+  if (_srv_dirty){ _srv_dirty = false; _srv_save_tm = now; saveSrvs(); }
   if (changed){
-    if (!S.cur || !S.servers[S.cur]){
-      pickCur();
-      if (S.cur) { applySrvEntry(); sendJson({t: 'hello'}); }
-    }
-    renderSrvList();
+    if (!S.cur || !S.servers[S.cur]) pickCur();
+    renderSrvList(); renderTop();
   }
 }
 setInterval(pruneSrv, 5000);
@@ -3165,22 +3216,27 @@ function renderSrvList(){
   if (!names.length){
     const d = document.createElement('div');
     d.className = 'dmi';
-    d.textContent = '（暂无在线服务端）';
+    d.textContent = '（暂无服务端，等待上线…）';
     d.style.color = 'var(--gray)';
     el.srvlist.appendChild(d);
     return;
   }
+  let remembered = '';
+  try { remembered = localStorage.getItem(LS_SRV) || ''; } catch(e){}
   for (const nm of names){
     const s = S.servers[nm];
     const d = document.createElement('div');
-    d.className = 'dmi' + (nm === S.cur ? ' on' : '');
+    const isCur = nm === S.cur;
+    const isRem = !S.cur && nm === remembered;   /* v1.84：标出上次选中的那台 */
+    d.className = 'dmi' + (isCur ? ' on' : '');
     const na = (s.alive || []).length,
           nb = (s.boxes || []).length;
     d.textContent = (s.conn ? '● ' : '○ ') + nm
                   + (nb ? '（在线 ' + na + '/' + nb + '）' : '')
+                  + (isRem ? '（上次）' : '')
                   + (s.lock && s.lock.mine === false
                      ? ' 🔒' + (s.lock.id || '被占用') : '');
-    if (nm === S.cur) d.style.color = 'var(--blue)';
+    if (isCur) d.style.color = 'var(--blue)';
     d.onclick = () => { drawerClose(); switchSrv(nm); };
     el.srvlist.appendChild(d);
   }
@@ -4264,7 +4320,7 @@ function renderNetHist(){
 }
 setInterval(renderToday, 2000);
 setInterval(statsFlush, 30000);
-window.addEventListener('beforeunload', statsFlush);
+window.addEventListener('beforeunload', () => { statsFlush(); saveSrvs(); });
 
 /* ================= 启动 ================= */
 
@@ -4275,6 +4331,7 @@ renderVer();                     /* 1.xx：统一版本号（三处同步） */
   if (sk && sk.convs && sk.convs.length) renderConvs(sk.convs, sk.conv_unread);
 }
 renderAcct();                            /* 1.27：账号行先显 — */
+loadSrvs();                              /* v1.84：先恢复落盘的多电脑名册（离线也显） */
 connect();
 startProbe();                            /* v1.50：若此前切在副频道，恢复主频道探测 */
 </script>
