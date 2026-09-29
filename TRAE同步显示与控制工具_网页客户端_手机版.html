@@ -1339,6 +1339,13 @@ function curTitle(){
   for (const r of convs) if (r[0] === 'c' && r[2]) return r[1];
   return '当前会话';
 }
+/* v1.95：当前选中会话的稳定 ID（convs 'c' 行第 5 位，TRAE 后端主键）。
+   拿不到返回 ''，调用方回退按标题。 */
+function curSid(){
+  const convs = (S.snap.convs || []);
+  for (const r of convs) if (r[0] === 'c' && r[2]) return r[4] || '';
+  return '';
+}
 
 /* ================= 渲染 ================= */
 
@@ -1346,7 +1353,7 @@ function renderAll(){
   const snap = S.snap;
   skelCacheSave(snap);                 /* 2.20：骨架缓存写回（秒开列表） */
   ensureHist();                        /* 2.20：本地历史秒开+请求式增量 */
-  renderConvs(snap.convs || [], snap.conv_unread);
+  renderConvs(snap.convs || [], snap.conv_unread, snap.conv_unread_ids);
   /* 1.24：过滤「安装 TRAE Code」类安装引导按钮（误点无意义；
      服务端已滤，此处双保险兼容旧服务端）。1.25：diff 审查
      （N 个文件待审查/全部撤销/全部保留）与「后台命令正在运行」
@@ -1372,19 +1379,27 @@ function drawerOpen(){
 }
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
-function renderConvs(rows, conv_unread){
+function renderConvs(rows, conv_unread, conv_unread_ids){
   /* v1.49：conv_unread=服务端快照顶层可选字段「完成-未查看」标题列表。
-     旧服务端/无该字段时回退旧行为。清单参与指纹——unread 变化也要重绘。 */
+     旧服务端/无该字段时回退旧行为。清单参与指纹——unread 变化也要重绘。
+     v1.95：新增 conv_unread_ids=同一未读集合的【稳定 ID】口径（服务端
+     按 sid 记）。优先用 ID 匹配（改名不丢灯），服务端未提供该字段
+     （旧版）则回退按标题。 */
   const ur = new Set(Array.isArray(conv_unread) ? conv_unread : []);
+  const useId = Array.isArray(conv_unread_ids);
+  const uri = new Set(useId ? conv_unread_ids : []);
   const key = rows.map(r => r.join('|')).join('#')
-    + '#ur:' + Array.from(ur).sort().join('|');
+    + '#ur:' + Array.from(ur).sort().join('|')
+    + '#uri:' + Array.from(uri).sort().join('|');
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
   let inFolder = false, idx = 0;
-  /* 1.31：按位取值（兼容旧 3 元组）——r[3]=状态灯 run/done/fail/stop/'' */
+  /* 1.31：按位取值（兼容旧 3 元组）——r[3]=状态灯 run/done/fail/stop/''
+     v1.95：r[4]=会话稳定 ID（缺失则回退标题锚定） */
   for (const r of rows){
     const kind = r[0], title = r[1] || '', flag = r[2], st = r[3] || '';
+    const sid = r[4] || '';
     if (kind === 'f'){
       const d = document.createElement('div');
       d.className = 'convo folder';
@@ -1418,9 +1433,11 @@ function renderConvs(rows, conv_unread){
       d.className = 'convo item' + (flag ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       /* v1.49：对齐原版状态灯口径——只在这几种显示灯：
-         run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且标题在
-         conv_unread → 橙「完成未查看」灯；done 已读 → 无灯（移除原绿点）。 */
-      const uread = (st === 'done') && ur.has(title);
+         run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且「完成未查看」
+         → 橙灯；done 已读 → 无灯（移除原绿点）。
+         v1.95：未读优先按稳定 ID 命中（改名不丢灯），无 ID 回退标题。 */
+      const uread = (st === 'done') &&
+        (useId && sid ? uri.has(sid) : ur.has(title));
       if (st === 'run' || st === 'fail' || st === 'stop' || uread){
         const dot = document.createElement('span');
         dot.className = 'stdot ' + (uread ? 'stdot-uread' : 'stdot-' + st);
@@ -1439,7 +1456,7 @@ function renderConvs(rows, conv_unread){
         lpFired = false;
         lpTimer = setTimeout(() => {
           lpFired = true;
-          convMenuOpen(title);
+          convMenuOpen(title, sid);
         }, 550);
       }, {passive: true});
       d.addEventListener('touchmove', stopLP, {passive: true});
@@ -1448,9 +1465,10 @@ function renderConvs(rows, conv_unread){
       d.onclick = () => {
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
         if (!flag){
-          pendSwitchSet(title);        /* 1.09：切换在途提示（0.8~6s）*/
+          /* v1.95：优先按稳定 ID 切换（改名/重排不切错），无 ID 回退序号 */
+          pendSwitchSet(title, sid);   /* 1.09：切换在途提示（0.8~6s）*/
           flash('正在切换到「' + title + '」…', 'var(--blue)');
-          sendCmd('switch', i);
+          sendCmd('switch', sid || i);
           drawerClose();
         }
       };
@@ -1464,7 +1482,8 @@ function renderConvs(rows, conv_unread){
    （conv_rename，右键菜单「重命名」→ 内联编辑）；置顶/取消置顶
    （conv_pin，TRAE 菜单为切换项，两文案自动适配）；删除
    （conv_del，本端 confirm 后服务端再点确认框「删除」）。 */
-function convMenuOpen(title){
+function convMenuOpen(title, sid){
+  sid = sid || '';
   const old = $('convmenu');
   if (old) old.remove();
   const ov = document.createElement('div');
@@ -1485,20 +1504,21 @@ function convMenuOpen(title){
       if (act === 'pin'){
         ov.remove();
         flash('正在切换置顶…', 'var(--blue)');
-        sendCmd('conv_pin', title);
+        /* v1.95：有稳定 ID 时送 [sid,title]（按 ID 定位，重名/改名不错位） */
+        sendCmd('conv_pin', sid ? [sid, title] : title);
         return;
       }
       if (act === 'del'){
         ov.remove();
         if (!confirm('删除会话「' + title + '」？\n删除后不可恢复。')) return;
         flash('正在删除会话…', 'var(--blue)');
-        sendCmd('conv_del', title);
+        sendCmd('conv_del', sid ? [sid, title] : title);
         return;
       }
       ov.remove();
       const nn = (prompt('重命名会话', title) || '').trim();
       if (!nn || nn === title) return;
-      sendCmd('conv_rename', [title, nn]);
+      sendCmd('conv_rename', sid ? [sid, title, nn] : [title, nn]);
       flash('正在重命名为「' + nn + '」…', 'var(--blue)');
     };
   });
@@ -1732,17 +1752,21 @@ function switchHangClear(title){
     }
   }, SWITCH_HANG_MS);
 }
-function pendSwitchSet(title){
-  title = title || '';
+function pendSwitchSet(title, sid){
+  title = title || ''; sid = sid || '';
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
-     不重复渲染） */
-  if (S.switch_pend && S.switch_pend.title === title){
+     不重复渲染）；v1.95：有稳定 ID 时按 ID 判同目标（改名也算同一目标） */
+  const same = S.switch_pend && (sid && S.switch_pend.sid
+      ? S.switch_pend.sid === sid
+      : S.switch_pend.title === title);
+  if (same){
     S.switch_pend.ts = Date.now();
+    S.switch_pend.sid = sid || S.switch_pend.sid;
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
     switchHangClear(title);             /* v1.51：重新 arm 12s 兜底 */
     return;
   }
-  S.switch_pend = {title: title, ts: Date.now(),
+  S.switch_pend = {title: title, sid: sid, ts: Date.now(),
                    fp0: msgsFp(S.snap.msgs)};
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   switchHangClear(title);               /* v1.51：12s 墙钟兜底拉条 */
@@ -1853,7 +1877,8 @@ function skelCacheSave(snap){
   skelLastSave = now;
   try {
     const o = {key: cacheKeyNow(), ts: now,
-               convs: snap.convs, conv_unread: snap.conv_unread || []};
+               convs: snap.convs, conv_unread: snap.conv_unread || [],
+               conv_unread_ids: snap.conv_unread_ids || []};
     localStorage.setItem(LS_SKEL, JSON.stringify(o));
   } catch(e){}
 }
@@ -2387,7 +2412,8 @@ el.msgs.addEventListener('scroll', () => {
   if (S.cur && Date.now() - lastActScroll > 800){
     lastActScroll = Date.now();
     const st = (curTitle() || '').trim();
-    if (st) sendJson({t: 'act', k: 'scroll', title: st});
+    /* v1.95：捎带稳定 ID（服务端按 sid 清橙灯，改名也清得掉；无则回退标题） */
+    if (st) sendJson({t: 'act', k: 'scroll', title: st, sid: curSid()});
   }
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
@@ -2810,7 +2836,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.94';
+const VER = '1.95';
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -2821,7 +2847,7 @@ try {
   if (_pv !== null && _pv !== VER)
     location.replace(location.href.split('?')[0] + '?v=' + VER);
 } catch(e){}
-const VER_DESC = '1.94 消卡时机调整（用户2026-09-30定）——卡片要留到聊天记录里真出现那句话才消：did_ack（服务端受理回执）到达远快于聊天记录渲染，若据此秒消会「文字还没出来卡就没了」；现 did_ack 仅登记 acked 不消卡，消卡统一由快照 did_hits（原文落进聊天记录）负责；' + '1.93 消卡改走「聊天记录」通道（用户2026-09-30方案）——完成点=聊天记录，能看到AI回复即证明快照必达：服务端把「原文已落到聊天记录」的对话ID搭快照一起回传（v.did_hits），网页端收快照即按 did 消卡，不再赌 did_ack 单次广播；并修「100%卡住」元凶=服务端 pend 回显会重新塞一张无did的孤儿卡（本端90秒内刚发过的文本不再因回显重复建卡）；' + '1.92 修复消卡失效（根因：v1.88 起 pendAdd 形参只有 kind/text，did 从未存入卡片，did_ack 广播即使到达也匹配不上 p.did，卡片永不消；chk 兜底发的也是 undefined did。修复=cmd() 显式把 did 挂到卡片）——手机端消卡回归 did 精确核对；' + '1.90 文本转语音小卡片（用户2026-09-30规定）——AI 对话末尾的大白话总结用 (@fox-play1) 开头、(@fox-play2) 结尾包夹，网页端识别这段文字渲染成可播放语音卡片（🔈+▶，超长截断），点播放 → 发 {t:tts,id,text} 给服务端 v2.29 → 本机 TTS 服务（127.0.0.1:8650，本地TTS服务.py=edge-tts）转 mp3 → 回 tts_resp（b64 base64，FOX 自动分段）→ atob→Blob(audio/mpeg)→Audio 播放；失败 toast「TTS 服务未启动」；id 不匹配多端各自忽略；音频只在两端间走、不经 TTS 项目写盘改动；前置条件=TTS 服务需在本机运行；' + '1.89 网页版真实操作可消除橙灯（用户2026-09-29规定）——完成未读橙灯不再只认 TRAE 侧栏翻看/发言：网页版上的真实人类操作（发消息/插话=act send、切换服务端=act click、上下滑动翻滚=act scroll，同会话800ms节流）也上报服务端清掉当前会话橙灯；协议新增上报事件 {t:act,k,title}，服务端 v2.28 只 unread.discard、不动 _sel_prev/钉钉，旧服务端不认识 act 自动忽略、旧客户端不带 act 完全兼容；' + '1.88 小卡片改对话ID核对消卡（用户2026-09-29规定）——客户端发送/插话自带10位随机数字对话ID（did，仅协议字段、绝不污染对话正文），服务端收到即广播 did_ack 回执，本端凭 did 直接消卡；旧的「识别相同文本/前N字」消卡机制（pendHead100/pendContains/文本比对）全部移除，不再靠内容猜；对端是旧版服务端（不广播 did_ack）时卡片 60 秒后转「⚠ 可能未送达」兜底，不永久悬挂；旧服务端 snap 无 did 字段时按 d&&d.did 兼容判断不崩；1.87 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.86 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.85 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER_DESC = '1.95 会话稳定 ID 锚定（用户2026-09-30规定）——会话不再靠标题认：快照 convs 的会话行尾部新增第5位=稳定ID（sid，TRAE 后端会话主键，改名不变；实测连改两次恒定），网页端切换/长按菜单（置顶/删除/重命名）优先送 sid、服务端按 [data-session-id] 精确定位，重名/改名/重排都不会错位；完成未读橙灯改用新字段 conv_unread_ids（按 sid 匹配）——改名期间灯不丢；切换在途条改按 sid 撤条（改名也算同一目标）；act 上报捎带 sid 清灯。全部兼容旧服务端/旧前端：无 sid 一律回退标题，服务端两种入参都收。' + '1.94 消卡时机调整（用户2026-09-30定）——卡片要留到聊天记录里真出现那句话才消：did_ack（服务端受理回执）到达远快于聊天记录渲染，若据此秒消会「文字还没出来卡就没了」；现 did_ack 仅登记 acked 不消卡，消卡统一由快照 did_hits（原文落进聊天记录）负责；' + '1.93 消卡改走「聊天记录」通道（用户2026-09-30方案）——完成点=聊天记录，能看到AI回复即证明快照必达：服务端把「原文已落到聊天记录」的对话ID搭快照一起回传（v.did_hits），网页端收快照即按 did 消卡，不再赌 did_ack 单次广播；并修「100%卡住」元凶=服务端 pend 回显会重新塞一张无did的孤儿卡（本端90秒内刚发过的文本不再因回显重复建卡）；' + '1.92 修复消卡失效（根因：v1.88 起 pendAdd 形参只有 kind/text，did 从未存入卡片，did_ack 广播即使到达也匹配不上 p.did，卡片永不消；chk 兜底发的也是 undefined did。修复=cmd() 显式把 did 挂到卡片）——手机端消卡回归 did 精确核对；' + '1.90 文本转语音小卡片（用户2026-09-30规定）——AI 对话末尾的大白话总结用 (@fox-play1) 开头、(@fox-play2) 结尾包夹，网页端识别这段文字渲染成可播放语音卡片（🔈+▶，超长截断），点播放 → 发 {t:tts,id,text} 给服务端 v2.29 → 本机 TTS 服务（127.0.0.1:8650，本地TTS服务.py=edge-tts）转 mp3 → 回 tts_resp（b64 base64，FOX 自动分段）→ atob→Blob(audio/mpeg)→Audio 播放；失败 toast「TTS 服务未启动」；id 不匹配多端各自忽略；音频只在两端间走、不经 TTS 项目写盘改动；前置条件=TTS 服务需在本机运行；' + '1.89 网页版真实操作可消除橙灯（用户2026-09-29规定）——完成未读橙灯不再只认 TRAE 侧栏翻看/发言：网页版上的真实人类操作（发消息/插话=act send、切换服务端=act click、上下滑动翻滚=act scroll，同会话800ms节流）也上报服务端清掉当前会话橙灯；协议新增上报事件 {t:act,k,title}，服务端 v2.28 只 unread.discard、不动 _sel_prev/钉钉，旧服务端不认识 act 自动忽略、旧客户端不带 act 完全兼容；' + '1.88 小卡片改对话ID核对消卡（用户2026-09-29规定）——客户端发送/插话自带10位随机数字对话ID（did，仅协议字段、绝不污染对话正文），服务端收到即广播 did_ack 回执，本端凭 did 直接消卡；旧的「识别相同文本/前N字」消卡机制（pendHead100/pendContains/文本比对）全部移除，不再靠内容猜；对端是旧版服务端（不广播 did_ack）时卡片 60 秒后转「⚠ 可能未送达」兜底，不永久悬挂；旧服务端 snap 无 did 字段时按 d&&d.did 兼容判断不崩；1.87 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.86 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.85 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3220,7 +3246,7 @@ function setCur(nm){
      同口径；snap 尚未到达时兜底不上报）。 */
   if (nm){
     const ct = (curTitle() || '').trim();
-    if (ct) sendJson({t: 'act', k: 'click', title: ct});
+    if (ct) sendJson({t: 'act', k: 'click', title: ct, sid: curSid()});
   }
 }
 /* 1.14：切换后快照看门狗——hello 应答经中继可能丢，3 秒内没等到
@@ -3445,13 +3471,20 @@ function onEv(kind, v){
       }
       if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
         const cv = v.convs || [];
+        const sp = S.switch_pend;
+        const spSid = sp.sid || '';
         const act = cv.find(r => r[0] === 'c' && r[2]);
-        const has = cv.some(r => r[0] === 'c' && r[1] === S.switch_pend.title);
+        /* v1.95：有稳定 ID 时按 ID 判「目标是否还在列表/是否激活」
+           （改名期间也判得准），无 ID 回退标题 */
+        const rowKey = r => (spSid ? (r[4] || '') : (r[1] || ''));
+        const has = cv.some(r => r[0] === 'c'
+                       && (r[4] || r[1]) && rowKey(r) === (spSid || sp.title));
         /* 1.16：到达确认——标题激活还不够（TRAE 先亮标题后加载
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
-        const arrived = msgsFp(v.msgs) !== S.switch_pend.fp0;
-        const timedout = Date.now() - S.switch_pend.ts > 12000;
-        const arrivedOk = act && act[1] === S.switch_pend.title && arrived;
+        const arrived = msgsFp(v.msgs) !== sp.fp0;
+        const timedout = Date.now() - sp.ts > 12000;
+        const arrivedOk = act && (spSid ? (act[4] || '') === spSid
+                                        : act[1] === sp.title) && arrived;
         if (arrivedOk || !has || timedout){
           /* 1.xx：切换结束判定——成功到达(内容有变)归零失败计数；失败/
              超时不静默：1.87 起在「列表找不着」或「12s超时仍未到达」这
@@ -3460,7 +3493,7 @@ function onEv(kind, v){
           if (arrivedOk){
             S.falls_fail = 0;
           } else {
-            switchFail(S.switch_pend.title);
+            switchFail(sp.title);
           }
           S.switch_pend = null;              // 超时兜底，别一直挂着
         }
@@ -3556,7 +3589,7 @@ function onEv(kind, v){
       const pk = (v && v[0]) || 'send';
       const pt = (v && v[1]) || '';
       if (pk === 'switch'){
-        pendSwitchSet(pt);
+        pendSwitchSet(pt, (v && v[2]) || '');   /* v2.32：第 3 位=稳定 ID */
         renderAll();
         break;
       }
@@ -3854,7 +3887,7 @@ function cmd(c, a){
      标题）清掉该会话橙灯。一次即可，did 消卡走 did_ack 不重复上报。 */
   if (c === 'send' || c === 'interject'){
     const at = (curTitle() || '').trim();
-    if (at) sendJson({t: 'act', k: 'send', title: at});
+    if (at) sendJson({t: 'act', k: 'send', title: at, sid: curSid()});
   }
   if (c === 'send' || c === 'interject'){
     el.ent.value = '';
@@ -4507,7 +4540,8 @@ renderVer();                     /* 1.xx：统一版本号（三处同步） */
 /* 2.20 新架构：骨架秒出——本地缓存的会话列表直接渲染，不用等连上 */
 {
   const sk = skelCacheLoad();
-  if (sk && sk.convs && sk.convs.length) renderConvs(sk.convs, sk.conv_unread);
+  if (sk && sk.convs && sk.convs.length)
+    renderConvs(sk.convs, sk.conv_unread, sk.conv_unread_ids);
 }
 renderAcct();                            /* 1.27：账号行先显 — */
 loadSrvs();                              /* v1.84：先恢复落盘的多电脑名册（离线也显） */
