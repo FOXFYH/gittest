@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v1.89</title>
+<title>TRAE远程 v1.90</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -187,6 +187,17 @@ body.fmsg #msgs{padding-top:22px;}
   margin-left:6px; border-radius:50%; background:var(--blue);
   animation:pulse 1s infinite;}
 @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+/* ── 1.90：文本转语音小卡片（(@fox-play1)...(@fox-play2) 包夹段）── */
+.foxplay{display:flex;align-items:center;gap:8px;margin:6px 0;
+  padding:6px 10px;border:1px solid rgba(21,101,192,.35);
+  border-radius:8px;background:linear-gradient(135deg,#eef6ff,#f7f0ff);
+  font-size:13px;}
+.foxplay .fptxt{flex:1;min-width:0;color:#333;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+.foxplay .fpbtn{flex:none;width:30px;height:30px;border:1px solid var(--bd);
+  border-radius:50%;background:#fff;color:var(--blue);font-size:14px;
+  cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
+.foxplay .fpbtn:active{transform:scale(.92);}
 .optbtn.picked{opacity:.55;}
 /* ── 1.06：抽屉 文件夹➕ / 防升级开关 ── */
 .convo.folder{display:flex; align-items:center;}
@@ -1945,6 +1956,73 @@ function curMsgs(){
   return (S.histMsgs && S.histMsgs.length) ? S.histMsgs : [];
 }
 
+/* ========== 1.90：文本转语音小卡片 ========== */
+/* 识别标志正则（用户规定）：(@fox-play1) 开头、(@fox-play2) 结尾包夹。
+   命中段从消息正文里摘出 → 语音卡片；正文中该段被卡片替换（不再重复
+   显示原文），卡片展示截断文本、data-seg 存完整文本供播放。 */
+const FPC_REG = /\(@fox-play1\)([\s\S]*?)\(@fox-play2\)/g;
+function foxPlayCards(txt, out){
+  return String(txt || '').replace(FPC_REG, (m, p1) => {
+    const n = out.length;
+    out.push((p1 || '').trim());
+    return '@@FPC' + n + '@@';
+  });
+}
+function foxCardHtml(seg){
+  const shown = (seg || '').length > 60 ? seg.slice(0, 60) + '…' : seg;
+  return '<div class="foxplay" data-seg="' + esc(seg) + '">'
+       + '<span class="fptxt">🔈 ' + esc(shown) + '</span>'
+       + '<button class="fpbtn" title="播放语音">▶</button>'
+       + '</div>';
+}
+let foxA = null;                 // 当前播放中的 Audio（新播放前停旧的）
+const _tts_pend = {};            // tts 请求在途登记：id → 发起时间戳
+function foxPlay(seg){
+  if (!seg) return;
+  if (!S.onLine){ flash('⚠ 还没连上，语音合成未发出', 'var(--red)'); return; }
+  const id = newDid();
+  _tts_pend[id] = Date.now();
+  sendJson({t: 'tts', id: id, text: seg});
+  flash('🔈 正在合成语音…', 'var(--blue)');
+}
+function onTtsResp(d){
+  const j = _tts_pend[d.id];
+  if (!j) return;                // id 不匹配（多端/过期）忽略
+  delete _tts_pend[d.id];
+  if (d.err){
+    flash('🔇 ' + (d.err || 'TTS 合成失败'), 'var(--red)');
+    return;
+  }
+  if (!d.b64){ flash('🔇 空音频', 'var(--red)'); return; }
+  try {
+    const bin = atob(d.b64);
+    const ab = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) ab[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([ab], {type: 'audio/mpeg'}));
+    if (foxA){ try { foxA.pause(); foxA.src = ''; } catch(e){} }
+    foxA = new Audio(url);
+    foxA.onended = () => { try { URL.revokeObjectURL(url); } catch(e){} };
+    foxA.onerror = () => {
+      try { URL.revokeObjectURL(url); } catch(e){}
+      flash('🔇 音频播放失败', 'var(--red)');
+    };
+    const p = foxA.play();
+    if (p && p.catch) p.catch(() => {
+      try { URL.revokeObjectURL(url); } catch(e){}
+      flash('🔇 浏览器拦截自动播放，请再点 ▶', 'var(--orange)');
+    });
+  } catch(e){
+    flash('🔇 音频解码失败', 'var(--red)');
+  }
+}
+/* 在途 tts 请求超时兜底：60 秒没回就清掉（防 _tts_pend 泄漏） */
+setInterval(() => {
+  const now = Date.now();
+  Object.keys(_tts_pend).forEach(id => {
+    if (now - _tts_pend[id] > 60000) delete _tts_pend[id];
+  });
+}, 20000);
+
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
@@ -2013,12 +2091,31 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     }
     const d = document.createElement('div');
     d.className = 'msg ' + (user ? 'user' : 'agent');
+    /* 1.90：AI 消息正文识别 (@fox-play1)...(@fox-play2) 包夹段 →
+       渲染成语音小卡片（占位符先过 mdHtml，再替换成卡片 HTML） */
+    let bodyHtml;
+    if (user){
+      bodyHtml = esc(m[1]);
+    } else {
+      const fsegs = [];
+      bodyHtml = mdHtml(foxPlayCards(m[1], fsegs));
+      fsegs.forEach((ft, n) => {
+        bodyHtml = bodyHtml.replace('@@FPC' + n + '@@',
+                                    foxCardHtml(ft));
+      });
+    }
     let h = '<div class="who">' + (user ? '我' : 'TRAE')
           + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
-          + '</div><div class="body">'
-          + (user ? esc(m[1]) : mdHtml(m[1])) + '</div>';
+          + '</div><div class="body">' + bodyHtml + '</div>';
     d.innerHTML = h;
+    /* 1.90：语音卡片 ▶ 播放绑定（完整文本在 data-seg，展示截断） */
+    d.querySelectorAll('.foxplay .fpbtn').forEach(b => {
+      b.onclick = e => {
+        e.stopPropagation();
+        foxPlay(b.parentElement.getAttribute('data-seg') || '');
+      };
+    });
     /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
        1.24：复制/重编（本地即时完成，不涉服务端） */
     d.querySelectorAll('.mact').forEach(b => {
@@ -2704,7 +2801,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.89';
+const VER = '1.90';
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -2715,7 +2812,7 @@ try {
   if (_pv !== null && _pv !== VER)
     location.replace(location.href.split('?')[0] + '?v=' + VER);
 } catch(e){}
-const VER_DESC = '1.89 网页版真实操作可消除橙灯（用户2026-09-29规定）——完成未读橙灯不再只认 TRAE 侧栏翻看/发言：网页版上的真实人类操作（发消息/插话=act send、切换服务端=act click、上下滑动翻滚=act scroll，同会话800ms节流）也上报服务端清掉当前会话橙灯；协议新增上报事件 {t:act,k,title}，服务端 v2.28 只 unread.discard、不动 _sel_prev/钉钉，旧服务端不认识 act 自动忽略、旧客户端不带 act 完全兼容；' + '1.88 小卡片改对话ID核对消卡（用户2026-09-29规定）——客户端发送/插话自带10位随机数字对话ID（did，仅协议字段、绝不污染对话正文），服务端收到即广播 did_ack 回执，本端凭 did 直接消卡；旧的「识别相同文本/前N字」消卡机制（pendHead100/pendContains/文本比对）全部移除，不再靠内容猜；对端是旧版服务端（不广播 did_ack）时卡片 60 秒后转「⚠ 可能未送达」兜底，不永久悬挂；旧服务端 snap 无 did 字段时按 d&&d.did 兼容判断不崩；1.87 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.86 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.85 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER_DESC = '1.90 文本转语音小卡片（用户2026-09-30规定）——AI 对话末尾的大白话总结用 (@fox-play1) 开头、(@fox-play2) 结尾包夹，网页端识别这段文字渲染成可播放语音卡片（🔈+▶，超长截断），点播放 → 发 {t:tts,id,text} 给服务端 v2.29 → 本机 TTS 服务（127.0.0.1:8650，本地TTS服务.py=edge-tts）转 mp3 → 回 tts_resp（b64 base64，FOX 自动分段）→ atob→Blob(audio/mpeg)→Audio 播放；失败 toast「TTS 服务未启动」；id 不匹配多端各自忽略；音频只在两端间走、不经 TTS 项目写盘改动；前置条件=TTS 服务需在本机运行；' + '1.89 网页版真实操作可消除橙灯（用户2026-09-29规定）——完成未读橙灯不再只认 TRAE 侧栏翻看/发言：网页版上的真实人类操作（发消息/插话=act send、切换服务端=act click、上下滑动翻滚=act scroll，同会话800ms节流）也上报服务端清掉当前会话橙灯；协议新增上报事件 {t:act,k,title}，服务端 v2.28 只 unread.discard、不动 _sel_prev/钉钉，旧服务端不认识 act 自动忽略、旧客户端不带 act 完全兼容；' + '1.88 小卡片改对话ID核对消卡（用户2026-09-29规定）——客户端发送/插话自带10位随机数字对话ID（did，仅协议字段、绝不污染对话正文），服务端收到即广播 did_ack 回执，本端凭 did 直接消卡；旧的「识别相同文本/前N字」消卡机制（pendHead100/pendContains/文本比对）全部移除，不再靠内容猜；对端是旧版服务端（不广播 did_ack）时卡片 60 秒后转「⚠ 可能未送达」兜底，不永久悬挂；旧服务端 snap 无 did 字段时按 d&&d.did 兼容判断不崩；1.87 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.86 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.85 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3017,6 +3114,8 @@ function handleBody(body){
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
   /* 2.20 新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
+  /* 1.90：TTS 语音合成回执配对（id → b64/err） */
+  if (d.t === 'tts_resp') { onTtsResp(d); return; }
   if (d.t === 'hello') onHello(d);
   if (d.t === 'poll_set') return;                     // 1.35：档位已移除，忽略回执
 }
