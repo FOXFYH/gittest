@@ -1024,7 +1024,17 @@ function sendJson(d){
   if (S.cur && !d.to) d.to = S.cur;
   foxSend(JSON.stringify(d));
 }
-function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
+/* 1.88：10 位随机数字对话 ID——客户端发出的发送/插话自带一个
+   仅用于小卡片核对（消卡回执）的随机 ID，随协议字段 did 发送，
+   绝不拼进正文文本、不污染对话。 */
+function newDid(){
+  return String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
+}
+function sendCmd(c, a, did){
+  const d = {t:'cmd', c:c, a:a};
+  if (did) d.did = did;   /* 1.88：仅 send/interject 带 did；旧服务端忽略多余字段 */
+  sendJson(d);
+}
 
 /* ================= 状态 ================= */
 
@@ -1051,12 +1061,14 @@ const S = {
   bench_mode: 'ins',
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
   /* 1.08 新建任务弹窗 / 1.11 task_lock=锁定文件夹 */
-  /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡，
-     服务端阶段事件推进状态，快照里出现同文本用户消息即撤下 */
+  /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡；
+     1.88：消卡改按 did（对话 ID 核对，见 did_ack/pendClearByDid），
+     不再按文本/前 N 字识别；pend_head/pend_age 仅随 hello/pendcfg
+     同步保留（旧服务端兼容，已不参与消卡判断） */
   pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
-  pend_seen: {},                     /* 1.22：用户消息首见时刻 */
-  pend_head: 100,                    /* 1.23：确认匹配字数（hello/pendcfg 同步） */
-  pend_age: 30000,                   /* 1.24：消息出现时限毫秒（30 秒） */
+  pend_seen: {},                     /* 1.22：用户消息首见时刻（1.88 起不再用于消卡） */
+  pend_head: 100,                    /* 1.23：确认匹配字数（1.88 起仅兼容同步，不再参与判断） */
+  pend_age: 30000,                   /* 1.24：消息出现时限毫秒（1.88 起不再用于消卡） */
   ask_lock: null,                    /* 1.27：提问卡单选锁 {fp, idx} */
   qedit: null,                       /* 1.29：正在取出编辑的排队条下标
                                         （快照回来后回填输入框） */
@@ -1526,7 +1538,7 @@ function pendStat(p){
   if (p.state === 'sent')    return ['服务器已执行，等待聊天记录浮现…', 'ok'];
   /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
      历史残留兼容，文案不再写死 15 秒 */
-  if (p.state === 'timeout') return ['⚠ 未确认（可丢弃/改写/重发）', 'bad'];
+  if (p.state === 'timeout') return ['⚠ 可能未送达（可丢弃/改写/重发）', 'bad'];
   /* sending：send 与 interject 同义——都是「已交给服务端，等它动手」 */
   return ['已发出，等待服务器执行…', ''];
 }
@@ -1608,118 +1620,71 @@ function renderPending(){
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
 
-/* 1.24：文本规范化去污染——TRAE 渲染会吃掉 markdown 记号/空白
-   （**加粗** 变粗体、段落成块级元素），快照文本与发送原文在字符
-   层面对不上 → 明明已出现却判「未确认」。比较前双方统一：去全部
-   空白与零宽字符、去 markdown 修饰符（* ` _ ~ > #）、转小写。 */
-function normTxt(s){
-  return String(s || '')
-    .replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, '')
-    .replace(/[`*_~>#]/g, '')
-    .toLowerCase();
-}
+/* ============ 1.88：对话 ID 核对消卡（替代旧的「同文本/前 N 字」识别） ============
+   用户 2026-09-29 规定：客户端发出去的对话自带 10 位随机数字对话 ID
+   （did，仅用于核对小卡片、绝不污染对话正文）；当收到的广播里出现
+   这个 ID（说明服务端已接收：出现在对话记录或托管排队里）→ 直接消卡。
+   旧的「识别相同文本」「识别前多少个字」（pendHead100/pendContains/
+   normTxt 及 pendReconcile 里的 msgs/排队条文本比对）**全部移除**——
+   不再凭内容猜，只凭 did 精确核对。
+   兼容：旧版服务端不广播 did 回执 → 本端卡片到 PEND_DID_TMO 后转
+   「⚠ 可能未送达」兜底（见 pendReconcile），不永久悬挂。 */
 
-/* 1.22：发送确认匹配——「前 N 字相同」即可（N=服务端设置页
-   「确认匹配字数」，默认 100；长消息 TRAE 会折叠显示，全文比对
-   必然失败）。一侧不足 N 字按前缀算（折叠截断可能不到 N 字）；
-   任一侧短于 12 字则要求全等（防超短文本误配）。
-   1.24：比对前先 normTxt 规范化（格式污染不再导致误判）。 */
-function pendHead100(sent, shown, n){
-  const a = normTxt(sent).slice(0, n || 100);
-  const b = normTxt(shown).slice(0, n || 100);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  if (Math.min(a.length, b.length) >= 12)
-    return a.startsWith(b) || b.startsWith(a);
-  return false;
-}
+/* 1.88：兜底超时——旧服务端不广播 did_ack 时，卡片 60 秒后转
+   「⚠ 可能未送达」（用户规定的兜底口径：不能永远挂着）。 */
+const PEND_DID_TMO = 60000;
 
-/* 1.40：包含匹配兜底——占位撤下只认「前 N 字相同」时，TRAE 把用户
-   消息包装/改写（如「已收到，正在处理…原话」）会前缀对不上 → 明明
-   文字已出现在对话里，占位框却挂到超时才撤。兜底：发送文本(norm)
-   是渲染文本(norm)的子串即认作已落地；仅空/单字符不做包含判定。
-   匹配安全由「首见时刻 ≥ 占位发起时刻」的时间门托底（见 pendReconcile），
-   短文本含子串也不会去匹配历史老消息。 */
-function pendContains(sent, shown_){
-  if (!sent || shown_ === undefined) return false;
-  if (sent.length < 2) return false;
-  return shown_.indexOf(sent) >= 0;
-}
-
-/* 快照到达：同文本用户消息出现 → 该占位已落地，撤下它。
-   用 pend_claims 记住已被认领的消息下标（连发相同文本也不会误判）；
-   换会话则清空认领记录。返回 true 表示待确认集有变化需重画。
-   1.22：只认 60 秒内新出现的消息（首见时刻表 pend_seen），
-   防止与历史里同开头的老消息误配。 */
-function pendReconcile(msgs){
-  if (!S.pending.length) return false;
-  /* 当前会话标识（快照无 title 字段，取 convs 里的当前行） */
-  const cv0 = (S.snap && S.snap.convs) || [];
-  const act0 = cv0.find(r => r[0] === 'c' && r[2]);
-  const conv = act0 ? act0[1] : '';
-  if (conv !== S.pend_conv){
-    S.pend_conv = conv;
-    S.pend_claims = [];
-    S.pend_seen = {};
-  }
-  const now = Date.now();
-  const users = [];
-  (msgs || []).forEach(m => {
-    if (m && m[0] === 'u'){
-      const ut = normTxt(m[1]);          /* 1.24：规范化后再登记/比对 */
-      if (ut && !(ut in S.pend_seen)) S.pend_seen[ut] = now;
-      users.push(ut);
-    }
-  });
+/* 1.88：按 did 精确撤卡——广播里出现本卡 did（服务端 did_ack 回执）
+   即认为「服务端已接收」，立即撤下。返回 true 表示有变化需重画。
+   兼容：d && d.did 式判断，旧数据/旧广播没有 did 也不会崩。 */
+function pendClearByDid(did){
+  if (!did) return false;
   let changed = false;
   const keep = [];
-  S.pending.forEach((p, pi) => {
-    if (p.kind === 'switch'){          /* 1.10：切换占位不进气泡，
-        旧版误入的残留直接清掉（会话标题不会出现在消息区，按文本
-        匹配永远失败 → 挂满 15s 变「未确认」，完全不真实） */
-      changed = true;
-      return;
-    }
-    const t = normTxt(p.text);         /* 1.24：规范化后再比对 */
-    /* 1.31d：排队交接——消息一出现在 TRAE 排队条（快照 pend）就说明
-       发送链路已完成，占位卡（发送中…/排队中…）任务结束，撤下交给
-       队列面板显示（此前要等它落进聊天记录才撤，会与队列面板重复
-       两张卡）。用户原话：变成插话记录时，这张小卡片其实就已经完成
-       了。AI 忙时普通发送同样进排队条，故 switch 之外都适用。 */
-    if (p.kind !== 'switch'){
-      const q = (S.snap && S.snap.pend) || [];
-      let inQ = false;
-      for (const it of q){
-        if (it && (pendHead100(t, it.t || '', S.pend_head)
-                   || pendContains(t, it.t || ''))){ inQ = true; break; }
-      }
-      if (inQ){ changed = true; return; }
-    }
-    let idx = -1;
-    for (let i = users.length - 1; i >= 0; i--){
-      if (S.pend_claims.indexOf(i) >= 0) continue;
-      const ts0 = S.pend_seen[users[i]];   /* 回显首见时刻 */
-      /* 1.43：以占位发起时刻为门——消息首见须在本占位发起之后
-         （容 2s）才认领：比固定 N 秒更精准，超长消息晚回显也能撤，
-         且绝不误配占位之前的历史老消息 */
-      if (ts0 === undefined || ts0 + 2000 < (p.ts || now)) continue;
-      if (pendHead100(t, users[i], S.pend_head)
-          || pendContains(t, users[i])){ idx = i; break; }
-    }
-    if (idx >= 0){
-      S.pend_claims.push(idx);
-      changed = true;
-      return;
-    }
-    /* 1.25：不再 15 秒「未确认」超时——插话走 TRAE 官方排队，
-       AI 忙时多久入列都正常（用户原话：应该没有限制）。占位只有
-       两种结局：出现在对话记录里（自动确认撤下），或用户手动
-       「丢弃/改写」。 */
+  S.pending.forEach(p => {
+    if (p.did && p.did === did){ changed = true; return; }   /* 命中即撤 */
     keep.push(p);
   });
   if (changed) S.pending = keep;
   return changed;
 }
+
+/* 占位卡生命周期检查（快照到达/定时巡检调用）。
+   1.88：旧的「同文本用户消息出现 → 撤下它」文本比对全部移除，
+   消卡只走 did_ack（pendClearByDid）；本函数只剩两件事：
+   ① 清理误入气泡的 switch 残留（会话标题不在消息区，文本匹配
+      永远失败，属历史残留清理，与内容识别无关）；
+   ② 兜底超时——PEND_DID_TMO 内没收到 did 回执（对端是旧版服务端
+      不广播 did_ack，或消息真没送达）→ 卡片转「⚠ 可能未送达」，
+      用户可重发/丢弃，不永久悬挂。 */
+function pendReconcile(_msgs){
+  if (!S.pending.length) return false;
+  const now = Date.now();
+  let changed = false;
+  const keep = [];
+  S.pending.forEach(p => {
+    if (p.kind === 'switch'){          /* 1.10：切换占位不进气泡，
+        旧版误入的残留直接清掉（文本匹配永远失败） */
+      changed = true;
+      return;
+    }
+    /* 1.88：did 回执未到且超时 → 标「可能未送达」（旧服务端兼容兜底） */
+    if (p.state !== 'timeout'
+        && now - (p.ts || now) > PEND_DID_TMO){
+      p.state = 'timeout';
+      changed = true;
+    }
+    keep.push(p);
+  });
+  if (changed) S.pending = keep;
+  return changed;
+}
+
+/* 1.88：兜底超时巡检——不依赖快照到达也会到点转「可能未送达」 */
+function pendTick(){
+  if (S.pending.length && pendReconcile(null)) renderAll();
+}
+setInterval(pendTick, 5000);
 
 /* 切换在途：会话切换要等 0.8~6s（含最小化恢复），期间给个明确的
    「正在切换…」条，免得旧会话内容留着让人以为点错了。
@@ -2742,7 +2707,7 @@ try {
   if (_pv !== null && _pv !== VER)
     location.replace(location.href.split('?')[0] + '?v=' + VER);
 } catch(e){}
-const VER_DESC = '1.87 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.86 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.85 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER_DESC = '1.88 小卡片改对话ID核对消卡（用户2026-09-29规定）——客户端发送/插话自带10位随机数字对话ID（did，仅协议字段、绝不污染对话正文），服务端收到即广播 did_ack 回执，本端凭 did 直接消卡；旧的「识别相同文本/前N字」消卡机制（pendHead100/pendContains/文本比对）全部移除，不再靠内容猜；对端是旧版服务端（不广播 did_ack）时卡片 60 秒后转「⚠ 可能未送达」兜底，不永久悬挂；旧服务端 snap 无 did 字段时按 d&&d.did 兼容判断不崩；1.87 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.86 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.85 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -3299,20 +3264,17 @@ function onEv(kind, v){
     case 'pendlist': {                 /* 1.35：服务端对账结果即时同步——
         撤卡/超时/排队推送不再等下一拍快照（poll=3s 时撤卡滞后 0~3s
         的根因）。服务端 _pend 是权威：列表里没有 = 已确认撤卡；
-        state 变化（timeout/queued…）照收。 */
-      if (!Array.isArray(v)) return;
-      let ch = false;
-      S.pending = S.pending.filter(p => {
-        if (p.kind === 'switch') return false;   /* 残留清理 */
-        const sv = v.find(x => x && x.kind === p.kind
-                              && x.text === p.text);
-        if (!sv){ ch = true; return false; }     /* 已确认 → 即时撤卡 */
-        if (sv.state && sv.state !== p.state){
-          p.state = sv.state; ch = true;         /* 超时/排队等推进 */
-        }
-        return true;
-      });
-      if (ch) renderAll();
+        state 变化（timeout/queued…）照收。
+        1.88：**旧「按 kind+text 对号撤卡」已旁路**——消卡只认 did
+        （did_ack）；服务端对账列表仍是权威，但条目与本地卡的对号
+        不再靠文本猜（用户规定：识别相同内容不靠谱）。旧服务端
+        场景由 PEND_DID_TMO 超时兜底转「可能未送达」。 */
+      return;
+    }
+    case 'did_ack': {                  /* 1.88：服务端已接收回执——
+        广播里出现本卡 did → 直接消卡（用户规定的对话 ID 核对机制）。
+        兼容：旧服务端不广播此事件；v 非字符串/空 did 直接忽略不崩。 */
+      if (v && typeof v === 'string' && pendClearByDid(v)) renderAll();
       return;
     }
     case 'snap': {
@@ -3420,7 +3382,10 @@ function onEv(kind, v){
     }
     case 'sent': {                           /* 1.09：服务端阶段回报
         （typed 已进 TRAE 输入框 / clicked 已点发送 / queued 已排队；
-        旧版服务端发纯文本也兼容——只当 unknown 状态处理） */
+        旧版服务端发纯文本也兼容——只当 unknown 状态处理）。
+        1.88：本事件**只推进卡片文案状态**（已输入/已执行/已排队），
+        不再承担消卡——消卡一律走 did_ack（按 did 核对）。did 回执
+        到达时卡片已撤下，此处 find 通常落空，纯兜底。 */
       let stage = '', text = '';
       if (v && typeof v === 'object'){
         stage = v.stage || ''; text = v.text || '';
@@ -3717,13 +3682,18 @@ function cmd(c, a){
   if (!S.onLine){ flash('⚠ 还没连上，命令未发出'); return; }
   /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
      清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
+  /* 1.88：发送/插话自带 10 位随机对话 ID（did）——登记到本卡，
+     随协议发送；服务端收到即广播 did_ack，本端凭 did 直接消卡
+     （不再靠「识别相同文本/前 N 字」）。 */
+  let did = '';
   if ((c === 'send' || c === 'interject') && typeof a === 'string'
       && a.trim()){
-    pendAdd(c, a);
+    did = newDid();
+    pendAdd(c, a, did);
     if (c === 'send') flash('⏳ 已发出，等待服务器执行…',
                             'var(--blue)');
   }
-  sendCmd(c, a);
+  sendCmd(c, a, did);
   if (c === 'send' || c === 'interject'){
     el.ent.value = '';
     renderAll();
