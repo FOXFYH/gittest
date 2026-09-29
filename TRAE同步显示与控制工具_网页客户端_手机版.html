@@ -1679,9 +1679,18 @@ function pendReconcile(_msgs){
       changed = true;
       return;
     }
+    /* 2.30：兜底核对——50 秒还没收到回执（广播可能丢），主动向
+       服务端问一次该 did 受理没有；已受理→补发 did_ack 消卡，
+       未受理→did_miss 转「可能未送达」。只问一次不刷屏。 */
+    const _age = now - (p.ts || now);
+    if (p.state !== 'chk_sent' && p.state !== 'timeout'
+        && _age > 50000 && _age <= PEND_DID_TMO){
+      p.state = 'chk_sent';
+      sendJson({t:'chk', did:p.did});
+      changed = true;
+    }
     /* 1.88：did 回执未到且超时 → 标「可能未送达」（旧服务端兼容兜底） */
-    if (p.state !== 'timeout'
-        && now - (p.ts || now) > PEND_DID_TMO){
+    if (p.state !== 'timeout' && _age > PEND_DID_TMO){
       p.state = 'timeout';
       changed = true;
     }
