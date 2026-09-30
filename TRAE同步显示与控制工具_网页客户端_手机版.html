@@ -188,12 +188,14 @@ body.fmsg #msgs{padding-top:22px;}
   animation:pulse 1s infinite;}
 @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
 /* ── 1.90：文本转语音小卡片（(@fox-play1)...(@fox-play2) 包夹段）── */
-.foxplay{display:flex;align-items:center;gap:8px;margin:6px 0;
+.foxplay{display:flex;align-items:flex-start;gap:8px;margin:6px 0;
   padding:6px 10px;border:1px solid rgba(21,101,192,.35);
   border-radius:8px;background:linear-gradient(135deg,#eef6ff,#f7f0ff);
   font-size:13px;}
-.foxplay .fptxt{flex:1;min-width:0;color:#333;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;}
+/* 1.96：卡片文字**全量显示**（用户规定）——音频播不了时也能读全，
+   故不再单行省略：允许换行、长串/长英文强制断行 */
+.foxplay .fptxt{flex:1;min-width:0;color:#333;white-space:pre-wrap;
+  overflow-wrap:break-word;line-height:1.45;}
 .foxplay .fpbtn{flex:none;width:30px;height:30px;border:1px solid var(--bd);
   border-radius:50%;background:#fff;color:var(--blue);font-size:14px;
   cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
@@ -2837,7 +2839,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '1.95';
+const VER = '1.96';
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
