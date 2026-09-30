@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.01</title>
+<title>TRAE远程 v2.02</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -681,6 +681,48 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
         <tbody data-page-node-id="ERUQgE2BRVaLqVCVQjyx4l"></tbody>
       </table>
     </fieldset>
+    <fieldset data-page-node-id="ttsFs0">
+      <legend data-page-node-id="ttsFs1">语音播报（TTS）</legend>
+      <div class="row btw" data-page-node-id="ttsFs2">
+        <label data-page-node-id="ttsFs3">音色</label>
+        <select id="sel_tts_voice" style="flex:1; max-width:210px;"
+          data-page-node-id="ttsFs4">
+          <optgroup label="女声">
+            <option value="zh-CN-XiaoxiaoNeural">晓晓（默认·女）</option>
+            <option value="zh-CN-XiaoyiNeural">晓伊（女）</option>
+            <option value="zh-CN-liaoning-XiaobeiNeural">辽宁小北（女·东北）</option>
+            <option value="zh-CN-shaanxi-XiaoniNeural">陕西小妮（女·陕西）</option>
+          </optgroup>
+          <optgroup label="男声">
+            <option value="zh-CN-YunxiNeural">云希（男）</option>
+            <option value="zh-CN-YunyangNeural">云扬（男）</option>
+            <option value="zh-CN-YunjianNeural">云健（男）</option>
+            <option value="zh-CN-YunxiaNeural">云夏（男）</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="row btw" data-page-node-id="ttsFs5">
+        <label data-page-node-id="ttsFs6">语速</label>
+        <select id="sel_tts_rate" style="flex:1; max-width:210px;"
+          data-page-node-id="ttsFs7">
+          <option value="-50%">很慢（-50%）</option>
+          <option value="-25%">偏慢（-25%）</option>
+          <option value="-10%">稍慢（-10%）</option>
+          <option value="+0%">正常（0%）</option>
+          <option value="+10%">稍快（+10%）</option>
+          <option value="+25%">偏快（+25%）</option>
+          <option value="+50%">很快（+50%）</option>
+        </select>
+      </div>
+      <div class="row" style="gap:8px;" data-page-node-id="ttsFs8">
+        <button id="btn_tts_preview" style="flex:1;"
+          data-page-node-id="ttsFs9">🔈 试听当前音色</button>
+        <span id="lbl_tts_flash" class="hint" data-page-node-id="ttsFsA"></span>
+      </div>
+      <div class="row"><span class="hint" data-page-node-id="ttsFsB">
+        音色与语速随每次播报一起发给电脑端；本页改动立即生效并保存。
+        试听需电脑端 TTS 服务在运行，且已连上电脑端。</span></div>
+    </fieldset>
     <div class="row" data-page-node-id="AarmtWGaXLkCWjMJLws5C1">
       <button id="btn_netsave" disabled data-page-node-id="G2KG6btlv2PooEaIfnNKMJ">保存</button>
       <span id="lbl_netflash" data-page-node-id="IJ1J8pTZbXPsxZWok11Svr"></span>
@@ -921,6 +963,16 @@ function cfgGet(){
 function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
 if (!CFG.stats_keep) CFG.stats_keep = 10;
+/* 2.02：语音播报音色/语速（设置页「语音播报」可改）。默认女声晓晓——
+   用户 2026-09-30 明确不喜欢原先写死的男声云希（zh-CN-YunxiNeural）。 */
+if (!CFG.tts_voice) CFG.tts_voice = 'zh-CN-XiaoxiaoNeural';
+if (!CFG.tts_rate)  CFG.tts_rate  = '+0%';
+function ttsVoice(){ return CFG.tts_voice || 'zh-CN-XiaoxiaoNeural'; }
+function ttsRate(){ return CFG.tts_rate || '+0%'; }
+function ttsClearCache(){
+  /* 换了音色/语速后，旧的缓存音频（按文本存）必须作废，否则重播还是旧嗓子 */
+  try { Object.keys(_tts_state).forEach(k => { _tts_state[k].url = null; }); } catch(e){}
+}
 /* v1.27：频道名存独立键（旧 CFG.ws_url 含旧公开频道，直接作废） */
 try { if (CFG.ws_url) delete CFG.ws_url; } catch(e){}
 function curSel(){
@@ -1141,6 +1193,8 @@ const el = {
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'),
+  sel_tts_voice: $('sel_tts_voice'), sel_tts_rate: $('sel_tts_rate'),
+  btn_tts_preview: $('btn_tts_preview'), lbl_tts_flash: $('lbl_tts_flash'),
   lbl_chan_q: $('lbl_chan_q'), btn_chan_main: $('btn_chan_main'),
   btn_chan_back: $('btn_chan_back'), lbl_ws1: $('lbl_ws1'), lbl_ws2: $('lbl_ws2'),
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
@@ -2133,7 +2187,7 @@ function foxPlay(seg){
   const doSend = () => {
     if (_sent || !_tts_pend[id]) return;
     _sent = true;
-    sendJson({t: 'tts', id: id, text: seg});
+    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
     ttsStage(seg, '任务已提交', 'var(--blue)');      // 阶段②：帧已交给 WS
     flash('🔈 任务已提交，等服务器接收…', 'var(--blue)');
   };
@@ -2146,7 +2200,7 @@ function cliFlushTts(){
     const seg = _tts_wait[id];
     delete _tts_wait[id];
     if (!_tts_pend[id]) return;
-    sendJson({t: 'tts', id: id, text: seg});
+    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
     ttsStage(seg, '任务已提交', 'var(--blue)');
   });
 }
@@ -2985,7 +3039,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.01';
+const VER = '2.02';
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -2996,7 +3050,7 @@ try {
   if (_pv !== null && _pv !== VER)
     location.replace(location.href.split('?')[0] + '?v=' + VER);
 } catch(e){}
-const VER_DESC = '2.01 假音频占位解锁自动播放（用户2026-09-30思路）——用户追问能不能一开始放个没声音的假文件假装在播、真音频来了接着继续播，以此绕开浏览器拦截；采纳：解锁从2.00的另建新元素改为复用同一个audio元素（foxA）——点▶那一拍把foxA建出来、循环播0.2秒静音（FOX_SILENT，loop=true），元素带着已解锁正在播放的状态一直挂着当占位；云端音频回来fpPlay只换该元素的src接着播，并必须loop=false，否则占位循环会把真音频念成死循环；浏览器认这个元素此前已开播过，不再当新一次自动播放来拦，比新建元素更稳。' + '2.00 语音取回后自动播放（用户2026-09-30确认）——原先云端音频回来只提示「语音已生成，请点击播放」、要再点一次 ▶ 才响，根因是移动端浏览器会拦截不在用户手势里的异步 play()，而合成要 2~11 秒、回来时早就脱离手势了。现改为：点 ▶ 的那一拍先播一段 0.2 秒静音（FOX_SILENT，数据内嵌）借这次手势把音频通道解锁，onTtsResp 收到音频就自动播、横幅直接显示正在播放…；万一某机型仍被拦，fpPlay 的捕获分支会把横幅改成「浏览器拦截播放，请再点 ▶」，音频此时已缓存、再点一次必定出声，等于退回 1.98 的手动行为，不会比原来更差。' + '1.99 语音卡片阶段提示改到卡片顶部一条窄横幅（用户2026-09-30指令）——用户反馈「文字一长，你设计的这些阶段提示都看不到」：原先 .fpst 压在正文下方，100 字以上把卡片撑高后就掉出视线。现把 .fpst 移到卡片最顶部（foxCardHtml 里排在最前），用负外边距撑满卡片内容宽、贴齐左右与顶边、圆角随卡片，做成一条窄窄的横幅（浅蓝底 rgba(21,101,192,.07)、11px）；空文本时 :empty → display:none，不占高度、不留空条；五段阶段文案与颜色照旧由 ttsStage 就地写入、随卡片重建还原。' + '1.98 语音卡片阶段通知栏（用户2026-09-30规定）——点 ▶ 后卡片内多出一行阶段提示，随进度变化：①刚点下＝正在连接 WS…（未连上则先排队，连上自动补发）②帧已交给 WS＝任务已提交③服务端开始合成＝服务器引擎正在转换…（服务端 v2.35 回 tts_ack 回执）④音频回来＝语音已生成，请点击播放（绿色）⑤播放中→播放完毕点 ▶ 可重播。音频按正文文本缓存，已生成过的再点 ▶ 直接重播、不重复生成（刷新页面即清）。同时修 1.97 的致命笔误：VER_DESC 里把示例代码片段误当正文写进了字符串，页面一加载就抛 ReferenceError: seg is not defined，整段脚本中断、所有按钮失灵——现已改回纯文字描述。' + '1.97 修复语音卡片「只念前半句」（用户2026-09-30实测）——根因是 esc() 没转义双引号，而卡片属性 data-seg 由 esc() 写入：总结里只要出现一个英文双引号（如 原来那个"小卡片消失"的规矩），属性就在引号处被 HTML 解析截断，可见文字（span 内容）仍是全量、getAttribute 却只拿到引号前的半句，TTS 于是只念前半句。esc() 补 .replace(/"/g, "&quot;")，属性不再破口（元素内容里 &quot; 照旧渲染成 " 本身，其余调用点不受影响）。' + '1.96 语音小卡片全量显示文字（用户2026-09-30规定）——原先把包夹段砍到60字加省略号、CSS 又单行 nowrap 省略，两重截断：一旦本机 TTS 没开/音频播不出来，卡片里连文字都看不全。现改为**全量显示**：`foxCardHtml` 不再截断（直接用 esc(seg) 原文），CSS `.fptxt` 放开 `white-space:pre-wrap` + `overflow-wrap:break-word`、卡片改 align-items:flex-start（▶ 按钮顶对齐）——多长都完整换行显示，音频不可用时文字仍可读全。' + '1.95 会话稳定 ID 锚定（用户2026-09-30规定）——会话不再靠标题认：快照 convs 的会话行尾部新增第5位=稳定ID（sid，TRAE 后端会话主键，改名不变；实测连改两次恒定），网页端切换/长按菜单（置顶/删除/重命名）优先送 sid、服务端按 [data-session-id] 精确定位，重名/改名/重排都不会错位；完成未读橙灯改用新字段 conv_unread_ids（按 sid 匹配）——改名期间灯不丢；切换在途条改按 sid 撤条（改名也算同一目标）；act 上报捎带 sid 清灯。全部兼容旧服务端/旧前端：无 sid 一律回退标题，服务端两种入参都收。' + '1.94 消卡时机调整（用户2026-09-30定）——卡片要留到聊天记录里真出现那句话才消：did_ack（服务端受理回执）到达远快于聊天记录渲染，若据此秒消会「文字还没出来卡就没了」；现 did_ack 仅登记 acked 不消卡，消卡统一由快照 did_hits（原文落进聊天记录）负责；' + '1.93 消卡改走「聊天记录」通道（用户2026-09-30方案）——完成点=聊天记录，能看到AI回复即证明快照必达：服务端把「原文已落到聊天记录」的对话ID搭快照一起回传（v.did_hits），网页端收快照即按 did 消卡，不再赌 did_ack 单次广播；并修「100%卡住」元凶=服务端 pend 回显会重新塞一张无did的孤儿卡（本端90秒内刚发过的文本不再因回显重复建卡）；' + '1.92 修复消卡失效（根因：v1.88 起 pendAdd 形参只有 kind/text，did 从未存入卡片，did_ack 广播即使到达也匹配不上 p.did，卡片永不消；chk 兜底发的也是 undefined did。修复=cmd() 显式把 did 挂到卡片）——手机端消卡回归 did 精确核对；' + '1.90 文本转语音小卡片（用户2026-09-30规定）——AI 对话末尾的大白话总结用 (@fox-play1) 开头、(@fox-play2) 结尾包夹，网页端识别这段文字渲染成可播放语音卡片（🔈+▶），点播放 → 发 {t:tts,id,text} 给服务端 v2.29 → 本机 TTS 服务（127.0.0.1:8650，本地TTS服务.py=edge-tts）转 mp3 → 回 tts_resp（b64 base64，FOX 自动分段）→ atob→Blob(audio/mpeg)→Audio 播放；失败 toast「TTS 服务未启动」；id 不匹配多端各自忽略；音频只在两端间走、不经 TTS 项目写盘改动；前置条件=TTS 服务需在本机运行；' + '1.89 网页版真实操作可消除橙灯（用户2026-09-29规定）——完成未读橙灯不再只认 TRAE 侧栏翻看/发言：网页版上的真实人类操作（发消息/插话=act send、切换服务端=act click、上下滑动翻滚=act scroll，同会话800ms节流）也上报服务端清掉当前会话橙灯；协议新增上报事件 {t:act,k,title}，服务端 v2.28 只 unread.discard、不动 _sel_prev/钉钉，旧服务端不认识 act 自动忽略、旧客户端不带 act 完全兼容；' + '1.88 小卡片改对话ID核对消卡（用户2026-09-29规定）——客户端发送/插话自带10位随机数字对话ID（did，仅协议字段、绝不污染对话正文），服务端收到即广播 did_ack 回执，本端凭 did 直接消卡；旧的「识别相同文本/前N字」消卡机制（pendHead100/pendContains/文本比对）全部移除，不再靠内容猜；对端是旧版服务端（不广播 did_ack）时卡片 60 秒后转「⚠ 可能未送达」兜底，不永久悬挂；旧服务端 snap 无 did 字段时按 d&&d.did 兼容判断不崩；1.87 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.86 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.85 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
+const VER_DESC = '2.02 语音播报可选音色与语速（用户2026-09-30要求）——设置页新增「语音播报（TTS）」栏：音色下拉（女声：晓晓/晓伊/辽宁小北/陕西小妮；男声：云希/云扬/云健/云夏）＋语速下拉（-50%~+50%），**默认女声晓晓**（用户明确不喜欢原先写死的男声云希），附「试听当前音色」按钮；改动立即生效并落盘（CFG.tts_voice/tts_rate，独立于下面「保存」大按钮），换音色/语速时清掉按文本缓存好的旧音频（否则重播还是旧嗓子）；每次播报（含语音卡片与试听）把 voice/rate 一起发给服务端。' + '2.01 假音频占位解锁自动播放（用户2026-09-30思路）——用户追问能不能一开始放个没声音的假文件假装在播、真音频来了接着继续播，以此绕开浏览器拦截；采纳：解锁从2.00的另建新元素改为复用同一个audio元素（foxA）——点▶那一拍把foxA建出来、循环播0.2秒静音（FOX_SILENT，loop=true），元素带着已解锁正在播放的状态一直挂着当占位；云端音频回来fpPlay只换该元素的src接着播，并必须loop=false，否则占位循环会把真音频念成死循环；浏览器认这个元素此前已开播过，不再当新一次自动播放来拦，比新建元素更稳。' + '2.00 语音取回后自动播放（用户2026-09-30确认）——原先云端音频回来只提示「语音已生成，请点击播放」、要再点一次 ▶ 才响，根因是移动端浏览器会拦截不在用户手势里的异步 play()，而合成要 2~11 秒、回来时早就脱离手势了。现改为：点 ▶ 的那一拍先播一段 0.2 秒静音（FOX_SILENT，数据内嵌）借这次手势把音频通道解锁，onTtsResp 收到音频就自动播、横幅直接显示正在播放…；万一某机型仍被拦，fpPlay 的捕获分支会把横幅改成「浏览器拦截播放，请再点 ▶」，音频此时已缓存、再点一次必定出声，等于退回 1.98 的手动行为，不会比原来更差。' + '1.99 语音卡片阶段提示改到卡片顶部一条窄横幅（用户2026-09-30指令）——用户反馈「文字一长，你设计的这些阶段提示都看不到」：原先 .fpst 压在正文下方，100 字以上把卡片撑高后就掉出视线。现把 .fpst 移到卡片最顶部（foxCardHtml 里排在最前），用负外边距撑满卡片内容宽、贴齐左右与顶边、圆角随卡片，做成一条窄窄的横幅（浅蓝底 rgba(21,101,192,.07)、11px）；空文本时 :empty → display:none，不占高度、不留空条；五段阶段文案与颜色照旧由 ttsStage 就地写入、随卡片重建还原。' + '1.98 语音卡片阶段通知栏（用户2026-09-30规定）——点 ▶ 后卡片内多出一行阶段提示，随进度变化：①刚点下＝正在连接 WS…（未连上则先排队，连上自动补发）②帧已交给 WS＝任务已提交③服务端开始合成＝服务器引擎正在转换…（服务端 v2.35 回 tts_ack 回执）④音频回来＝语音已生成，请点击播放（绿色）⑤播放中→播放完毕点 ▶ 可重播。音频按正文文本缓存，已生成过的再点 ▶ 直接重播、不重复生成（刷新页面即清）。同时修 1.97 的致命笔误：VER_DESC 里把示例代码片段误当正文写进了字符串，页面一加载就抛 ReferenceError: seg is not defined，整段脚本中断、所有按钮失灵——现已改回纯文字描述。' + '1.97 修复语音卡片「只念前半句」（用户2026-09-30实测）——根因是 esc() 没转义双引号，而卡片属性 data-seg 由 esc() 写入：总结里只要出现一个英文双引号（如 原来那个"小卡片消失"的规矩），属性就在引号处被 HTML 解析截断，可见文字（span 内容）仍是全量、getAttribute 却只拿到引号前的半句，TTS 于是只念前半句。esc() 补 .replace(/"/g, "&quot;")，属性不再破口（元素内容里 &quot; 照旧渲染成 " 本身，其余调用点不受影响）。' + '1.96 语音小卡片全量显示文字（用户2026-09-30规定）——原先把包夹段砍到60字加省略号、CSS 又单行 nowrap 省略，两重截断：一旦本机 TTS 没开/音频播不出来，卡片里连文字都看不全。现改为**全量显示**：`foxCardHtml` 不再截断（直接用 esc(seg) 原文），CSS `.fptxt` 放开 `white-space:pre-wrap` + `overflow-wrap:break-word`、卡片改 align-items:flex-start（▶ 按钮顶对齐）——多长都完整换行显示，音频不可用时文字仍可读全。' + '1.95 会话稳定 ID 锚定（用户2026-09-30规定）——会话不再靠标题认：快照 convs 的会话行尾部新增第5位=稳定ID（sid，TRAE 后端会话主键，改名不变；实测连改两次恒定），网页端切换/长按菜单（置顶/删除/重命名）优先送 sid、服务端按 [data-session-id] 精确定位，重名/改名/重排都不会错位；完成未读橙灯改用新字段 conv_unread_ids（按 sid 匹配）——改名期间灯不丢；切换在途条改按 sid 撤条（改名也算同一目标）；act 上报捎带 sid 清灯。全部兼容旧服务端/旧前端：无 sid 一律回退标题，服务端两种入参都收。' + '1.94 消卡时机调整（用户2026-09-30定）——卡片要留到聊天记录里真出现那句话才消：did_ack（服务端受理回执）到达远快于聊天记录渲染，若据此秒消会「文字还没出来卡就没了」；现 did_ack 仅登记 acked 不消卡，消卡统一由快照 did_hits（原文落进聊天记录）负责；' + '1.93 消卡改走「聊天记录」通道（用户2026-09-30方案）——完成点=聊天记录，能看到AI回复即证明快照必达：服务端把「原文已落到聊天记录」的对话ID搭快照一起回传（v.did_hits），网页端收快照即按 did 消卡，不再赌 did_ack 单次广播；并修「100%卡住」元凶=服务端 pend 回显会重新塞一张无did的孤儿卡（本端90秒内刚发过的文本不再因回显重复建卡）；' + '1.92 修复消卡失效（根因：v1.88 起 pendAdd 形参只有 kind/text，did 从未存入卡片，did_ack 广播即使到达也匹配不上 p.did，卡片永不消；chk 兜底发的也是 undefined did。修复=cmd() 显式把 did 挂到卡片）——手机端消卡回归 did 精确核对；' + '1.90 文本转语音小卡片（用户2026-09-30规定）——AI 对话末尾的大白话总结用 (@fox-play1) 开头、(@fox-play2) 结尾包夹，网页端识别这段文字渲染成可播放语音卡片（🔈+▶），点播放 → 发 {t:tts,id,text} 给服务端 v2.29 → 本机 TTS 服务（127.0.0.1:8650，本地TTS服务.py=edge-tts）转 mp3 → 回 tts_resp（b64 base64，FOX 自动分段）→ atob→Blob(audio/mpeg)→Audio 播放；失败 toast「TTS 服务未启动」；id 不匹配多端各自忽略；音频只在两端间走、不经 TTS 项目写盘改动；前置条件=TTS 服务需在本机运行；' + '1.89 网页版真实操作可消除橙灯（用户2026-09-29规定）——完成未读橙灯不再只认 TRAE 侧栏翻看/发言：网页版上的真实人类操作（发消息/插话=act send、切换服务端=act click、上下滑动翻滚=act scroll，同会话800ms节流）也上报服务端清掉当前会话橙灯；协议新增上报事件 {t:act,k,title}，服务端 v2.28 只 unread.discard、不动 _sel_prev/钉钉，旧服务端不认识 act 自动忽略、旧客户端不带 act 完全兼容；' + '1.88 小卡片改对话ID核对消卡（用户2026-09-29规定）——客户端发送/插话自带10位随机数字对话ID（did，仅协议字段、绝不污染对话正文），服务端收到即广播 did_ack 回执，本端凭 did 直接消卡；旧的「识别相同文本/前N字」消卡机制（pendHead100/pendContains/文本比对）全部移除，不再靠内容猜；对端是旧版服务端（不广播 did_ack）时卡片 60 秒后转「⚠ 可能未送达」兜底，不永久悬挂；旧服务端 snap 无 did 字段时按 d&&d.did 兼容判断不崩；1.87 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.86 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.85 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；全新架构v1.3（服务端2.24+网页1.84）：1.84 多电脑名册落盘——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.83 占位卡叫法改口径+出口恒亮——原「排队中…」名不副实（我们这边并无待发队列、命令一发出就直接交服务端执行），改叫「已发出，等待服务器执行…」，服务器点完发送改叫「服务器已执行，等待聊天记录浮现…」，进 TRAE 官方排队条改叫「已进 TRAE 官方排队条，等待 AI 处理…」；改写/丢弃按钮任何状态恒显、重发按钮在服务端尚未确认接收的态（已发出/已输入/未确认）恒显——服务端"耳聋"（命令发出却无任何回执）时占位卡不再永久无出口；1.82 打开大输入框即在正文后铺 3 个空行（用户方案）——输入法弹出会盖住大框最下约 3 行，正文一长就被吞且滚不出来；预留空行后被盖的是空行、正文可滚看全，光标落正文末尾＝从第一行起写；空行走 value.trim() 不会被当正文发出、不点亮发送钮；1.81 输入法的「换行」键不再被当成发送（触摸设备 Enter 一律换行、发送只走按钮）；1.80 放大态光标一并送文末（原先只钉视线，被浏览器「光标在哪就露哪」拽回开头）；1.79 输入框大小框分工（放大态钉底看尾字、收起态回开头看首字）；1.78 全站 8 处 env 留白一次清干净（页面满屏到边）；1.77 未登录横幅修活+连续60秒门槛；1.76 输入行改版（方形小按钮+放大态取回/复制）；1.75 全屏横幅压成一行；1.74 收藏页新增刷新模型按钮；1.70 起本地缓存秒开+双版本号键+请求式历史';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -4597,6 +4651,44 @@ el.nsave.onclick = () => {
   setTimeout(() => el.nflash.textContent = '', 3000);
   connect();                                  // 重连生效
 };
+
+/* ============ 2.02：语音播报音色/语速（改动立即生效、独立落盘，
+   不脏化下面「保存」大按钮——那只管频道名与保留天数） ============ */
+if (el.sel_tts_voice) el.sel_tts_voice.value = ttsVoice();
+if (el.sel_tts_rate)  el.sel_tts_rate.value  = ttsRate();
+function ttsFlash(t, c){
+  if (!el.lbl_tts_flash) return;
+  el.lbl_tts_flash.textContent = t;
+  el.lbl_tts_flash.style.color = c || 'var(--green)';
+  setTimeout(() => {
+    if (el.lbl_tts_flash.textContent === t) el.lbl_tts_flash.textContent = '';
+  }, 3000);
+}
+if (el.sel_tts_voice) el.sel_tts_voice.onchange = () => {
+  CFG.tts_voice = el.sel_tts_voice.value;
+  cfgSave(); ttsClearCache();
+  const op = el.sel_tts_voice.options[el.sel_tts_voice.selectedIndex];
+  ttsFlash('已保存：' + (op ? op.textContent : CFG.tts_voice));
+};
+if (el.sel_tts_rate) el.sel_tts_rate.onchange = () => {
+  CFG.tts_rate = el.sel_tts_rate.value;
+  cfgSave(); ttsClearCache();
+  ttsFlash('已保存：语速 ' + CFG.tts_rate);
+};
+const TTS_PREVIEW_TXT = '你好，这是当前音色的试听。如果音色和语速听着合适，就这样用。';
+function ttsPreview(){
+  /* 试听：手机连不上 127.0.0.1，必须经服务端转发——走与语音卡片同一条
+     链路（t:'tts' → 服务端 → 本机 TTS）。用一个固定的假 seg（没有对应
+     卡片，ttsStage 自然 no-op），音频回来由 onTtsResp → fpPlay 播放。 */
+  foxUnlock();                       // 借「试听」这次点击的手势解锁音频通道
+  if (!S.onLine){ ttsFlash('未连接电脑端，无法试听', 'var(--red)'); return; }
+  const id = newDid(), seg = '__tts_preview__';
+  _tts_pend[id] = {ts: Date.now(), seg: seg};
+  ttsFlash('正在合成试听…', 'var(--blue)');
+  sendJson({t: 'tts', id: id, text: TTS_PREVIEW_TXT,
+            voice: ttsVoice(), rate: ttsRate()});
+}
+if (el.btn_tts_preview) el.btn_tts_preview.onclick = ttsPreview;
 
 /* ============ v1.50：主/副频道切换 + 自动切回探测 ============ */
 function chanRender(){
