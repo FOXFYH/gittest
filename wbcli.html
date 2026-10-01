@@ -724,6 +724,8 @@ const FAIL_ALERT = 3;           // 连续 N 次「压根没连上」→ 判为�
 const FOX_HDR = 57;     // 协议头固定字节数
 const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
 const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
+const SWITCH_TO_MS = 24000;   /* 1.62：切换会话超时（毫秒）——原 12s 偏短易误判，
+                                 翻倍为 24s；超时才撤在途条并轻提示「切换未完成」 */
 
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
@@ -2653,7 +2655,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.61';
+const VER = '1.62';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
@@ -3158,7 +3160,7 @@ function onEv(kind, v){
         /* 1.16：到达确认——标题激活还不够（WorkBuddy 先亮标题后加载
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
         const arrived = msgsFp(v.msgs) !== S.switch_pend.fp0;
-        const timedout = Date.now() - S.switch_pend.ts > 12000;
+        const timedout = Date.now() - S.switch_pend.ts > SWITCH_TO_MS;
         if ((act && act[1] === S.switch_pend.title && arrived) || !has
             || timedout){
           /* 1.xx：切换结束判定——成功到达(内容有变)归零失败计数；失败/
@@ -3168,7 +3170,7 @@ function onEv(kind, v){
             S.falls_fail = 0;
           }
           /* 1.xx：超时/迟到（目标快照没按时到）→ 主动拉即时全量，
-             避免界面停留在旧内容/「未就绪」观感等 12s 才缓过来 */
+             避免界面停留在旧内容/「未就绪」观感等 24s 才缓过来 */
           if (timedout && !arrived){
             /* F7：记录待观察目标——下一拍渲染后若仍未激活该会话
                （switch_pend 已清、act 未到目标），轻提示「切换未完成」 */
