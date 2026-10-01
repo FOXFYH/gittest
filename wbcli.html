@@ -2566,7 +2566,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.64';
+const VER = '1.65';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
@@ -2816,7 +2816,7 @@ function loadSrvs(){
   if (!raw || typeof raw !== 'object') return;
   const now = Date.now();
   for (const nm of Object.keys(raw)){
-    const seen = raw[nm] | 0;
+    const seen = Number(raw[nm]) || 0;   /* 毫秒时间戳超 32 位，|0 会截断成负数致名册恒被清空 */
     if (!nm || !seen || now - seen > SRV_TTL) continue;    /* 超期不恢复 */
     const s = S.servers[nm];
     if (!s) S.servers[nm] = {name: nm, ts: 0, seen: seen, conn: false};
