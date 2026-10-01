@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>看图</title>
+<!--
+  ============================================================
+  看图软件 · 相册网页（"脸"）  v0.11
+  ------------------------------------------------------------
+  本页可以放在云端（GitHub Pages）跑，也可以放在手机本地跑。
+  网页自己**读不到**手机相册（安卓不给网页读 /sdcard），
+  所以它由《相册壳.js》套着跑：
+    壳（有权限）扫目录 → wv.evaluateJavascript 把名单灌进来
+    → 本页的 收到相册(列表) 负责画出来。
+  ★ 图片地址：云端页是 https，直接写 file:// 会被 WebView 拦死。
+    所以本页把图片地址写成 https://kantu.local/img?p=<路径>，
+    壳在 shouldInterceptRequest 里拦住这个假域名，改从本地文件流读。
+    （https 页请求 https 域名，不会撞"混合内容"拦截）
+  网页 → 壳：点"刷新"时跳 autox://刷新，壳在 shouldOverrideUrlLoading 里截住。
+
+  数据结构（壳送来的一串）：
+    [ { p:"/storage/.../IMG_1.jpg",   // 完整路径
+        n:"IMG_1.jpg",               // 文件名
+        t:"10-01 21:36",             // 时间文本
+        m:1759316170000,             // 修改时间(毫秒，排序/分组用)
+        s:2048 }, ... ]              // 大小(KB)
+  单独在电脑浏览器里打开本页 → 只会看到"壳还没送名单"的提示，属正常。
+  ============================================================
+-->
+<style>
+  :root{
+    --bg:#0f1012; --card:#1a1c20; --text:#e8e8ea; --muted:#8a8f98;
+    --line:rgba(255,255,255,.08); --btn:#2a2d33; --btn-on:#3a3e45; --accent:#e8c46a;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--text); overflow-x:hidden;
+    font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  header{
+    position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:8px;
+    padding:8px 12px; border-bottom:1px solid var(--line);
+    background:rgba(15,16,18,.94);
+  }
+  header h1{margin:0; font-size:16px; font-weight:600}
+  header .ver{color:var(--muted); font-size:10px; margin-top:2px}
+  header .cnt{color:var(--muted); font-size:12px}
+  header .sp{flex:1}
+  button{
+    background:var(--btn); color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:6px 12px; font-size:13px; font-family:inherit;
+  }
+  button:active{background:var(--btn-on)}
+
+  /* 分组标题 */
+  .gdate{
+    padding:10px 12px 6px; color:var(--muted); font-size:12px; font-weight:600;
+    position:sticky; top:52px; background:rgba(15,16,18,.92); z-index:3;
+  }
+  #grid{display:grid; grid-template-columns:repeat(3,1fr); gap:3px; padding:3px 3px 0}
+  .cell{position:relative; aspect-ratio:1/1; overflow:hidden; border-radius:4px; background:var(--card)}
+  .cell img{width:100%; height:100%; object-fit:cover; display:block}
+  .cell .bad{
+    display:flex; align-items:center; justify-content:center; height:100%;
+    color:var(--muted); font-size:11px; padding:6px; text-align:center; word-break:break-all;
+  }
+  .cell .tm{
+    position:absolute; left:0; right:0; bottom:0; padding:3px 5px; font-size:10px;
+    color:#fff; background:linear-gradient(transparent,rgba(0,0,0,.7));
+  }
+  #foot{height:44px}
+  .hint{padding:36px 24px; text-align:center; color:var(--muted); font-size:13px; line-height:1.9}
+  .hint b{color:var(--text); font-weight:600}
+
+  /* 看大图 */
+  #view{
+    position:fixed; inset:0; z-index:20; display:none; flex-direction:column;
+    background:#000; touch-action:none;
+  }
+  #view.on{display:flex}
+  #vtop{
+    display:flex; align-items:center; gap:8px; padding:10px 12px; color:#fff;
+    background:linear-gradient(rgba(0,0,0,.7),transparent); position:absolute; left:0; right:0; top:0; z-index:2;
+  }
+  #vname{font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:52%}
+  #vidx{font-size:12px; color:#b9bec7}
+  #vtop .sp{flex:1}
+  #vtop button{background:rgba(255,255,255,.16); border:0; border-radius:50%; width:38px;height:38px; padding:0; font-size:18px; line-height:1; color:#fff}
+  #vstage{flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative}
+  #big{max-width:100%; max-height:100%; object-fit:contain; transition:transform .18s ease; transform-origin:center center}
+  #big.zoom{transform:scale(2.2)}
+  .nav{
+    position:absolute; top:0; bottom:0; width:34%; z-index:2; display:flex; align-items:center;
+    color:#fff; font-size:26px; opacity:.5; user-select:none;
+  }
+  .nav#prev{left:0; justify-content:flex-start; padding-left:12px}
+  .nav#next{right:0; justify-content:flex-end; padding-right:12px}
+  #vinfo{
+    position:absolute; left:0; right:0; bottom:0; padding:9px 12px; color:#cfd3da; font-size:11px;
+    background:linear-gradient(transparent,rgba(0,0,0,.75)); z-index:2;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>看图</h1>
+    <div class="ver" id="ver">v0.11</div>
+  </div>
+  <span class="cnt" id="cnt">等待壳送数据…</span>
+  <span class="sp"></span>
+  <button id="refresh">刷新</button>
+</header>
+
+<div id="grid"></div>
+<div id="foot"></div>
+
+<div class="hint" id="hint">
+  正在等"壳"把本地相册名单送过来…<br>
+  <span style="font-size:12px">若一直停在这：要么这页没跑在《相册壳》里，要么一张图都没扫到。</span>
+</div>
+
+<div id="view">
+  <div id="vtop">
+    <span id="vname"></span>
+    <span id="vidx"></span>
+    <span class="sp"></span>
+    <button id="close">✕</button>
+  </div>
+  <div id="vstage">
+    <div class="nav" id="prev">‹</div>
+    <img id="big" alt="">
+    <div class="nav" id="next">›</div>
+  </div>
+  <div id="vinfo"></div>
+</div>
+
+<script>
+// ============ 壳 → 网页 的唯一入口 ============
+// 壳扫完相册会调 window.收到相册([...])，数据从这进来。
+var 已收到 = false;
+var 列表表 = [];      // 当前全部图片
+var 当前序 = -1;      // 大图当前看第几张
+var 假域名 = 'https://kantu.local/img?p=';   // 壳会拦这个域名，改从本地文件读
+
+function 文件地址(p) {
+  // 不能直接写 file://（云端 https 页会被拦死），一律走壳的拦截通道
+  try { return 假域名 + encodeURIComponent(String(p || '')); }
+  catch (e) { return 假域名 + String(p || ''); }
+}
+
+function 日期键(ms) {
+  try {
+    var d = new Date(ms);
+    function 补(n){ return (n<10?'0':'')+n; }
+    return d.getFullYear() + '-' + 补(d.getMonth()+1) + '-' + 补(d.getDate());
+  } catch (e) { return '未知日期'; }
+}
+
+function 大小文本(kb) {
+  var k = Number(kb) || 0;
+  if (k >= 1024) return (k/1024).toFixed(1) + ' MB';
+  return k + ' KB';
+}
+
+function 收到相册(列表) {
+  已收到 = true;
+  列表表 = 列表 || [];
+  var 网格 = document.getElementById('grid');
+  var 提示 = document.getElementById('hint');
+  var 计数 = document.getElementById('cnt');
+
+  网格.innerHTML = '';
+
+  if (!列表表.length) {
+    计数.textContent = '0 张';
+    提示.style.display = 'block';
+    提示.innerHTML = '<b>没扫到图片。</b><br>' +
+      '<span style="font-size:12px">看看 DCIM/Camera、Pictures 里有没有照片；' +
+      '或者加图后点右上角"刷新"。</span>';
+    return;
+  }
+
+  提示.style.display = 'none';
+  计数.textContent = 列表表.length + ' 张';
+
+  var 片 = document.createDocumentFragment();
+  var 上键 = '';
+  for (var i = 0; i < 列表表.length; i++) {
+    (function (it, idx) {
+      var 键 = 日期键(it.m);
+      if (键 !== 上键) {                    // 按日期插分组标题
+        上键 = 键;
+        var 头 = document.createElement('div');
+        头.className = 'gdate';
+        头.textContent = 键;
+        片.appendChild(头);
+      }
+
+      var 格 = document.createElement('div');
+      格.className = 'cell';
+
+      var 图 = document.createElement('img');
+      图.loading = 'lazy';            // 懒加载：几百张也不会卡
+      图.alt = it.n || '';
+      图.src = 文件地址(it.p);
+      图.onerror = function () {      // 读不出来就显示文件名，别留白框
+        格.innerHTML = '<div class="bad">' + (it.n || '读不出') + '</div>';
+      };
+      格.appendChild(图);
+
+      if (it.t) {
+        var 时 = document.createElement('div');
+        时.className = 'tm';
+        时.textContent = it.t;
+        格.appendChild(时);
+      }
+
+      格.onclick = function () { 看大图(idx); };
+      片.appendChild(格);
+    })(列表表[i], i);
+  }
+  网格.appendChild(片);
+}
+
+// ============ 看大图 ============
+function 刷新大图() {
+  if (当前序 < 0 || 当前序 >= 列表表.length) return;
+  var it = 列表表[当前序];
+  var 大 = document.getElementById('big');
+  大.classList.remove('zoom');
+  大.src = 文件地址(it.p);
+  document.getElementById('vname').textContent = it.n || '';
+  document.getElementById('vidx').textContent = (当前序 + 1) + ' / ' + 列表表.length;
+  document.getElementById('vinfo').textContent = (it.t || '') + '    ' + 大小文本(it.s);
+}
+
+function 看大图(idx) {
+  当前序 = idx;
+  刷新大图();
+  document.getElementById('view').classList.add('on');
+}
+
+function 上一张() {
+  if (当前序 > 0) { 当前序--; 刷新大图(); }
+}
+function 下一张() {
+  if (当前序 < 列表表.length - 1) { 当前序++; 刷新大图(); }
+}
+function 关大图() {
+  document.getElementById('view').classList.remove('on');
+  document.getElementById('big').src = '';
+}
+
+document.getElementById('prev').onclick = 上一张;
+document.getElementById('next').onclick = 下一张;
+document.getElementById('close').onclick = 关大图;
+
+// 双击放大 / 还原
+var 上次点 = 0;
+document.getElementById('big').addEventListener('click', function () {
+  var now = Date.now();
+  if (now - 上次点 < 300) {
+    this.classList.toggle('zoom');
+    上次点 = 0;
+  } else { 上次点 = now; }
+});
+
+// 左右滑动切换
+var 起点X = 0, 起点Y = 0;
+var 舞台 = document.getElementById('vstage');
+舞台.addEventListener('touchstart', function (e) {
+  起点X = e.touches[0].clientX; 起点Y = e.touches[0].clientY;
+}, {passive:true});
+舞台.addEventListener('touchend', function (e) {
+  var dx = e.changedTouches[0].clientX - 起点X;
+  var dy = e.changedTouches[0].clientY - 起点Y;
+  if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)) {
+    if (dx < 0) 下一张(); else 上一张();
+  }
+}, {passive:true});
+
+// 电脑上试（键盘左右键）
+document.addEventListener('keydown', function (e) {
+  if (!document.getElementById('view').classList.contains('on')) return;
+  if (e.key === 'ArrowLeft') 上一张();
+  if (e.key === 'ArrowRight') 下一张();
+  if (e.key === 'Escape') 关大图();
+});
+
+// ============ 网页 → 壳：借自定义地址把"刷新"喊给壳听 ============
+// 壳在 shouldOverrideUrlLoading 里截住 autox:// 开头的地址，不真的去打开它。
+document.getElementById('refresh').onclick = function () {
+  document.getElementById('cnt').textContent = '正在重扫…';
+  try { location.href = 'autox://刷新'; }
+  catch (e) { document.getElementById('cnt').textContent = '（这页没在壳里，喊不到壳）'; }
+};
+
+// 5 秒还没收到名单 → 把提示说得更明白
+setTimeout(function () {
+  if (!已收到) {
+    document.getElementById('hint').innerHTML =
+      '<b>壳还没把名单送来。</b><br>' +
+      '<span style="font-size:12px">可能是：① 这页没跑在《相册壳》里；' +
+      '② 一张图都没扫到；③ 壳那边扫目录出错了。</span>';
+  }
+}, 5000);
+</script>
+
+</body>
+</html>
