@@ -164,21 +164,32 @@ body.fmsg #fexit{display:block;}
 .loadmore::after{content:''; display:inline-block; width:6px; height:6px;
   margin-left:6px; border-radius:50%; background:var(--gray);
   animation:pulse 1s infinite;}
-/* ── 1.52：托管发送队列条（AI 忙时挂起，跑完由服务端逐条自动送出） ── */
-#queue_row{background:rgba(239,108,0,.10); border:1px solid
-  rgba(239,108,0,.40); border-radius:8px; padding:5px 8px; margin:0 0 6px;
-  font-size:12px;}
-#queue_row .qtitle{color:var(--orange); font-weight:bold; margin-bottom:3px;}
-#queue_row .qitem{display:flex; align-items:center; gap:6px; padding:2px 0;}
-#queue_row .qtext{flex:1; min-width:0; overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap;}
-#queue_row .qdel{border:0; background:transparent; padding:0 4px;
-  font-size:13px; cursor:pointer;}
-/* 1.53：队列条 ✏️ 取回修改（🗑 删除见上） */
-#queue_row .qedit{border:0; background:transparent; padding:0 4px;
-  font-size:13px; cursor:pointer;}
-/* 1.53：取回修改态横幅——原文已从队列「真实撤下」、进了输入框等待修改；
-   发送即按原位置放回，取消则丢弃（见 S.recall）。 */
+/* ── 1.67：托管排队条（对齐 TRAE 官方排队条样式）——不再悬挂顶栏，
+   改为渲染在聊天记录**末尾**、随聊天一起滚动；每条=左侧两行文字（点一下
+   展开全文）+ 右侧按钮块（上行 ⚡发送，下行 ✎/🗑 并排）。 ── */
+.qpanel{margin:0 0 8px; border:1px dashed #b0bec5; border-radius:10px;
+  background:#fafbfc; padding:6px 8px; display:flex; flex-direction:column;
+  gap:5px;}
+.qhead{font-size:11px; color:var(--gray); padding:0 2px;}
+.qitem{display:flex; align-items:flex-start; gap:6px;}
+.qbtns{flex-shrink:0; display:flex; flex-direction:column; gap:4px;
+  width:68px;}
+.qsub{display:flex; gap:4px;}
+.qbtns button{font-size:11px; min-height:24px; padding:0 4px;
+  border-radius:5px; border:1px solid #c5cbd3; background:#fff;
+  color:#37474f; white-space:nowrap;}
+.qbtns .qsend{width:100%;}
+.qsub button{flex:1 1 0; min-width:0; padding:0;}
+.qbtns button.go{border-color:var(--blue); color:var(--blue);}
+.qbtns button.del{border-color:#e0b4b4; color:var(--red);}
+.qbtns button:disabled{opacity:.45;}
+.qitem .qtxt{flex:1; min-width:0; font-size:13px; color:#263238;
+  line-height:1.45; word-break:break-word; cursor:pointer;
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
+  overflow:hidden;}
+.qitem .qtxt.open{-webkit-line-clamp:unset; display:block;
+  overflow:visible;}
+/* 1.53：队列条目取回修改横幅（原文已从队列撤下、进输入框） */
 #edit_row{display:none; background:rgba(33,150,243,.12); border:1px solid
   rgba(33,150,243,.45); border-radius:8px; padding:4px 8px; margin:0 6px 4px;
   font-size:12px; color:var(--blue); align-items:center; gap:6px;}
@@ -423,9 +434,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <button id="btn_fav" title="模型收藏管理" data-page-node-id="QQf0z68kfKCspuI3tgt6md">☆</button>
   </div>
   <div id="statebar" data-page-node-id="CWWwN1Nx4NvBnM1wGfRZ6V">连接中…</div>
-  <div id="qd_row" style="display:none;">插话排队中：<span id="lbl_q" style="color:#c62828;font-weight:bold;">0</span> 条待 AI 处理</div>
-  <!-- 1.52：托管发送队列——AI 忙时发出的消息挂在这里，本轮跑完由服务端逐条自动送出 -->
-  <div id="queue_row" style="display:none;"></div>
 </div>
 
 <div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
@@ -888,6 +896,7 @@ const S = {
      foldData=已按需拉回的中间气泡缓存；foldWait=正在拉取。切会话即清空
      （自动收回），符合「切到别的对话自动又折叠」。 */
   foldOpen: {}, foldData: {}, foldWait: {},
+  qopen: {},                         /* 1.67：托管排队条「展开全文」态（键=条目 id） */
   pend_head: 100,                    /* 1.23 遗留：确认匹配字数（1.63 起已不再用于比对，
                                        仅保留字段兼容 hello/pendcfg 握手） */
   pend_age: 30000,                   /* 1.24 遗留：消息出现时限毫秒（同上，仅兼容） */
@@ -938,7 +947,6 @@ const el = {
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   acct: $('lbl_acct'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
-  queue_row: $('queue_row'),                  /* 1.52：托管发送队列条 */
   edit_row: $('edit_row'),                    /* 1.53：队列取回修改横幅 */
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
   copy: $('btn_copy'),                       /* 1.40：复制输入框内容（放大态） */
@@ -1309,7 +1317,6 @@ function renderAll(){
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
   renderAcct();
-  renderQueue();                       /* 1.52：托管发送队列条 */
   renderEditRow();                     /* 1.53：队列取回修改横幅 */
 }
 
@@ -1337,35 +1344,73 @@ function renderAcct(){                     // 1.33：登录账号名（hello/acc
   if (el.acct) el.acct.textContent = S.acct || '—';
 }
 
-/* 1.52：托管发送队列条——AI 忙时发出的消息挂在这里（不打断它），本轮跑完由
-   服务端逐条自动送出。只显示当前会话的队列（快照 snap.queue）。
-   1.53：每条可 ✏️ 取回（服务端**真撤下**、原文进输入框，改好后按原位置放回）
-   或 🗑 删除。注：点「停止」**不冻结**队列——本轮一停即自动放行下一条。 */
+/* 1.67：托管排队条——AI 忙时发出的消息挂在这里（不打断它），本轮跑完由服务端
+   逐条自动送出。**完全对齐 TRAE 官方排队条**：挂在聊天记录**末尾**、随聊天一起
+   滚动（不再悬挂顶栏遮挡）；每条＝左侧两行文字（点一下展开全文）+ 右侧按钮块
+   （上行 ⚡发送，下行 ✎取回 / 🗑删除）。只显示当前会话的队列（快照 snap.queue）。
+   注：点「停止」**不冻结**队列——本轮一停即自动放行下一条。 */
 function renderQueue(){
   const q = (S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue : [];
-  if (!q.length){
-    if (el.queue_row.style.display !== 'none') el.queue_row.style.display = 'none';
-    if (el.queue_row.innerHTML) el.queue_row.innerHTML = '';
-    return;
-  }
-  el.queue_row.style.display = '';
-  let h = '<div class="qtitle">🕘 托管队列（本轮结束后自动发送）：'
-          + q.length + ' 条</div>';
+  if (!q.length) return;
+  const qp = document.createElement('div');
+  qp.className = 'qpanel';
+  let qh = '<div class="qhead">⏳ 托管排队条</div>';
+  qopenPrune(q);                     /* 清掉已不在队列里的「展开」标记 */
   q.forEach((it, i) => {
     const o = (it && typeof it === 'object') ? it : {text: it, id: ''};
-    h += '<div class="qitem"><span class="qtext">' + esc(o.text || '') + '</span>'
-       + '<button class="qedit" data-qid="' + esc(o.id || '') + '"'
-       + ' title="取回修改：从队列撤下、原文进输入框，改好后点「放回」">✏️</button>'
-       + '<button class="qdel" data-qid="' + esc(o.id || '') + '"'
-       + ' title="从队列删除">🗑</button></div>';
+    const id = String(o.id || '');
+    qh += '<div class="qitem">'
+       + '<div class="qtxt' + (S.qopen[id] ? ' open' : '') + '"'
+       + ' data-qt="' + i + '" title="点一下展开/收起全文">'
+       + esc(o.text || '') + '</div>'
+       + '<div class="qbtns">'
+       + '<button class="go qsend" data-qid="' + esc(id) + '">⚡发送</button>'
+       + '<div class="qsub">'
+       + '<button data-qk="edit" data-qid="' + esc(id) + '">✎</button>'
+       + '<button class="del" data-qk="del" data-qid="' + esc(id) + '">🗑</button>'
+       + '</div></div></div>';
   });
-  el.queue_row.innerHTML = h;
-  el.queue_row.querySelectorAll('.qedit').forEach(b => {
-    b.onclick = () => cmd('queue_recall', b.getAttribute('data-qid'));
+  qp.innerHTML = qh;
+  /* 点左侧文字区＝展开/收起全文（标记记在 S.qopen，快照重绘后保持） */
+  qp.querySelectorAll('.qtxt').forEach(t2 => {
+    t2.onclick = () => {
+      const one = q[parseInt(t2.dataset.qt)];
+      const id = one ? String(one.id || '') : '';
+      if (id) S.qopen[id] = !S.qopen[id];
+      t2.classList.toggle('open');
+    };
   });
-  el.queue_row.querySelectorAll('.qdel').forEach(b => {
-    b.onclick = () => cmd('queue_del', b.getAttribute('data-qid'));
+  qp.querySelectorAll('.qbtns button').forEach(b => {
+    b.onclick = () => {
+      if (b.disabled) return;
+      const id = b.getAttribute('data-qid');
+      const k = b.dataset.qk;
+      if (k === 'del'){
+        const one = q.find(x => String(((x || {}).id) || '') === id) || {};
+        if (!confirm('删除排队消息「' + String(one.text || '').slice(0, 40)
+            + '」？\n删除后不会发送。')) return;
+        b.disabled = true;
+        flash('已删除排队消息…', 'var(--blue)');
+        cmd('queue_del', id);
+      } else if (k === 'edit'){
+        b.disabled = true;
+        flash('正在取出到输入框…', 'var(--blue)');
+        cmd('queue_recall', id);
+      } else {
+        b.disabled = true;
+        flash('已立即发送，不打断当前生成…', 'var(--blue)');
+        cmd('queue_sendnow', id);
+      }
+    };
   });
+  el.msgs.appendChild(qp);
+}
+
+/* 1.67：清掉 S.qopen 里已不在队列（已放行/删除）的「展开」标记，防越攒越多。 */
+function qopenPrune(q){
+  const live = new Set(q.map(it => String(((it && typeof it === 'object')
+    ? it.id : '') || '')));
+  Object.keys(S.qopen).forEach(k => { if (!live.has(k)) delete S.qopen[k]; });
 }
 
 /* 1.53：取回修改横幅——S.recall 有值即显示（该条已从队列撤下、原文在输入框）。 */
@@ -2080,6 +2125,7 @@ function renderMsgs(msgs, finish, opts, ask){
     d.innerHTML = h;
     el.msgs.appendChild(d);
   }
+  renderQueue();                    // 1.67：托管排队条（挂在聊天记录末尾）
   renderPending();                  // 1.09：占位气泡永远排在末尾
   if (inF){
     el.msgs.scrollTop = savedTop;   /* 1.20：全屏内只保位置，
@@ -2584,7 +2630,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.66';
+const VER = '1.67';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
@@ -3186,6 +3232,9 @@ function onEv(kind, v){
       renderEditRow(); refreshSendBtn();
       flash('↩ 已放回托管队列', 'var(--green)');
       break;
+    case 'queue_sendnow_fail':               /* 1.67：⚡提前发送失败——该条已被放行 */
+      flash('⚠ 这一条已经发出去了，来不及提前', 'var(--orange)');
+      break;
     case 'pend': {                           /* 1.10：命令受理广播——
         别的端（PC 面板）发出的消息也在本机回显占位，多端同看。
         switch 不进气泡：统一走「正在切换」提示条（同目标幂等、
@@ -3405,10 +3454,6 @@ function onHello(d){
   if (d.acct !== undefined){                       /* 1.33：登录账号名随 hello */
     S.acct = String(d.acct || '');
     renderAcct();
-  }
-  if (d.q !== undefined){                          /* 1.36：插话排队计数随 hello */
-    S.qn = d.q;
-    renderQueue();
   }
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
