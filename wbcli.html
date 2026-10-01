@@ -416,6 +416,28 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   margin:4px 0;}
 #chanok{width:100%; padding:11px 0; font-weight:bold; font-size:15px;
   color:#fff; background:var(--blue); border:none; border-radius:8px;}
+/* ── 1.69：文本转语音小卡片（(@fox-play1)...(@fox-play2) 包夹段）──
+   1:1 对齐 TRAE同步显示与控制工具 1.90~2.06 的语音卡片：
+   顶部窄横幅（阶段通知）+ 正文全量显示 + ▶/⏸ 圆按钮 */
+.foxplay{display:flex;flex-direction:column;gap:4px;margin:6px 0;
+  padding:6px 10px;border:1px solid rgba(21,101,192,.35);
+  border-radius:8px;background:linear-gradient(135deg,#eef6ff,#f7f0ff);
+  font-size:13px;}
+.foxplay .fprow{display:flex;align-items:flex-start;gap:8px;}
+/* 阶段行＝卡片顶部一条窄横幅（上移到顶端，长文本撑高也不掉出视线），
+   用负外边距撑满卡片内容宽、贴齐左右与顶边；空文本时整条隐藏 */
+.foxplay .fpst{font-size:11px;line-height:1.32;color:var(--gray);
+  margin:-6px -10px 0;padding:2px 10px;
+  background:rgba(21,101,192,.07);border-radius:7px 7px 0 0;
+  overflow-wrap:break-word;}
+.foxplay .fpst:empty{display:none;}
+/* 正文全量显示（音频播不了时也能读全），允许换行、长串强制断行 */
+.foxplay .fptxt{flex:1;min-width:0;color:#333;white-space:pre-wrap;
+  overflow-wrap:break-word;line-height:1.45;}
+.foxplay .fpbtn{flex:none;width:30px;height:30px;border:1px solid var(--bd);
+  border-radius:50%;background:#fff;color:var(--blue);font-size:14px;
+  cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
+.foxplay .fpbtn:active{transform:scale(.92);}
 </style>
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
@@ -574,6 +596,45 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
         密钥相当于连接密码，由服务端提供（本端只填密钥，前缀自动拼接成
         完整频道名）。修改后保存并重连生效。账号通道切换会立即重连。</span></div>
+    </fieldset>
+    <!-- 1.69：语音播报（TTS）——1:1 移植自 TRAE 网页版。改动立即生效并落盘，
+         不脏化下面「保存」大按钮（那只管频道名与保留天数）。 -->
+    <fieldset>
+      <legend>语音播报（TTS）</legend>
+      <div class="row"><label>音色</label>
+        <select id="sel_tts_voice" style="flex:1; max-width:210px;">
+          <optgroup label="女声">
+            <option value="zh-CN-XiaoxiaoNeural">晓晓（默认·女）</option>
+            <option value="zh-CN-XiaoyiNeural">晓伊（女）</option>
+            <option value="zh-CN-liaoning-XiaobeiNeural">辽宁小北（女·东北）</option>
+            <option value="zh-CN-shaanxi-XiaoniNeural">陕西小妮（女·陕西）</option>
+          </optgroup>
+          <optgroup label="男声">
+            <option value="zh-CN-YunxiNeural">云希（男）</option>
+            <option value="zh-CN-YunyangNeural">云扬（男）</option>
+            <option value="zh-CN-YunjianNeural">云健（男）</option>
+            <option value="zh-CN-YunxiaNeural">云夏（男）</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="row"><label>语速</label>
+        <select id="sel_tts_rate" style="flex:1; max-width:210px;">
+          <option value="-50%">很慢（-50%）</option>
+          <option value="-25%">偏慢（-25%）</option>
+          <option value="-10%">稍慢（-10%）</option>
+          <option value="+0%">正常（0%）</option>
+          <option value="+10%">稍快（+10%）</option>
+          <option value="+25%">偏快（+25%）</option>
+          <option value="+50%">很快（+50%）</option>
+        </select>
+      </div>
+      <div class="row" style="gap:8px;">
+        <button id="btn_tts_preview" style="flex:1;">🔈 试听当前音色</button>
+        <span id="lbl_tts_flash" class="hint"></span>
+      </div>
+      <div class="row"><span class="hint">
+        音色与语速随每次播报一起发给电脑端；本页改动立即生效并保存。
+        试听需电脑端 TTS 服务在运行，且已连上电脑端。</span></div>
     </fieldset>
     <fieldset data-page-node-id="8SKaqjuDG4j8saN4BtSqaW">
       <legend data-page-node-id="bcrQE6cC0XiryhicJJtmZn">流量统计（WebSocket）</legend>
@@ -961,6 +1022,8 @@ const el = {
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'), sel_chan: $('sel_chan'),
+  sel_tts_voice: $('sel_tts_voice'), sel_tts_rate: $('sel_tts_rate'),
+  btn_tts_preview: $('btn_tts_preview'), lbl_tts_flash: $('lbl_tts_flash'),
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
@@ -1058,6 +1121,268 @@ function mdHtml(text){
   _mdHtml.set(text, html);
   return html;
 }
+
+/* ================= 1.69：文本转语音小卡片 =================
+   1:1 移植自 TRAE同步显示与控制工具（1.90~2.06）。AI 消息末尾的大白话总结用
+   (@fox-play1)…(@fox-play2) 包夹，本端识别该段 → 渲染成可点 ▶ 的语音卡片；
+   点播放即发 {'t':'tts','id','text'} 给服务端，服务端调本机 edge-tts 转 mp3
+   base64 回 {'t':'tts_resp','id','b64'}，本端缓存后播放（同段只合成一次）。 */
+
+/* 识别标志正则（用户规定）：(@fox-play1) 开头、(@fox-play2) 结尾包夹。
+   容错识别——采集到的正文尾巴偶尔会缺（如截成「…(@fox」），原正则要求两端
+   都完整会整段认不出；改为「有头就认」：结尾要么是完整的 (@fox-play2)，要么
+   就到消息末尾；末尾那截残缺标记（(@ / (@fox）剪掉，不混进卡片正文。 */
+const FPC_REG = /\(@fox-play1\s*\)([\s\S]*?)(?:\(@fox-play2\s*\)|$)/g;
+function foxPlayCards(txt, out){
+  return String(txt || '').replace(FPC_REG, (m, p1) => {
+    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
+    if (!seg) return '';
+    out.push(seg);
+    return '@@FPC' + (out.length - 1) + '@@';
+  });
+}
+/* 音色/语速：默认**女声晓晓**（用户 2026-09-30 明确不喜欢原先写死的男声云希）。
+   由「设置→语音播报」改，随每次播报一起发给服务端。 */
+if (!CFG.tts_voice) CFG.tts_voice = 'zh-CN-XiaoxiaoNeural';
+if (!CFG.tts_rate)  CFG.tts_rate  = '+0%';
+function ttsVoice(){ return CFG.tts_voice || 'zh-CN-XiaoxiaoNeural'; }
+function ttsRate(){ return CFG.tts_rate || '+0%'; }
+/* 每段语音的会话内状态（阶段文案 + 颜色 + 已生成音频 BlobURL）。
+   键＝正文文本本身：同一段文字只合成一次，再点 ▶ 直接重播（不重复生成）。 */
+const _tts_state = {};
+function ttsGet(seg){
+  return _tts_state[seg] || (_tts_state[seg] = {st: '', cl: '', url: null});
+}
+function ttsClearCache(){
+  /* 换了音色/语速后，旧的缓存音频（按文本存）必须作废，否则重播还是旧嗓子 */
+  try { Object.keys(_tts_state).forEach(k => { _tts_state[k].url = null; }); } catch(e){}
+}
+function ttsStage(seg, st, cl){
+  /* 阶段通知：先写进状态（快照重渲染卡片时沿用、阶段不丢），
+     再就地更新当前已渲染的那张卡片的 .fpst 行 */
+  const o = ttsGet(seg);
+  o.st = st || ''; o.cl = cl || '';
+  document.querySelectorAll('.foxplay').forEach(c => {
+    if (c.getAttribute('data-seg') !== seg) return;
+    const s = c.querySelector('.fpst');
+    if (s){ s.textContent = o.st; s.style.color = o.cl || 'var(--gray)'; }
+  });
+}
+function foxCardHtml(seg){
+  /* 阶段横幅 .fpst 必须排在最前（长文本撑高也不掉出视线）；空文本时 :empty
+     整条隐藏。按钮图标随播放态出——正在出声的那段显示 ⏸，其余 ▶。 */
+  const o = _tts_state[seg];
+  const st = o ? o.st : '', cl = o ? o.cl : '';
+  const on = _foxOn(seg);
+  return '<div class="foxplay" data-seg="' + esc(seg) + '">'
+       + '<div class="fpst"' + (cl ? ' style="color:' + cl + '"' : '')
+       + '>' + esc(st) + '</div>'
+       + '<div class="fprow"><span class="fptxt">🔈 ' + esc(seg) + '</span>'
+       + '<button class="fpbtn" title="' + (on ? '暂停' : '播放语音') + '">'
+       + (on ? '⏸' : '▶') + '</button></div>'
+       + '</div>';
+}
+/* 一段 0.2 秒静音 WAV 的 base64（8000Hz/16bit/单声道）——用途：用户点 ▶ 的
+   那一次手指手势里拿它当占位，把音频通道解锁；循环播放（loop）当「一直在播的
+   假音频」占住已解锁的播放态，真音频到了只换源接着播。不这样做，云端音频
+   数秒后才回来，早已脱离手势，play() 必被系统拦。 */
+const FOX_SILENT = 'data:audio/wav;base64,UklGRqQMAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YYAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+let foxA = null;                 // 当前播放中的 Audio（新播放前停旧的）
+let foxSeg = null;               // 当前正在播（或已暂停）的那段语音文本；null＝没在播
+let foxPrimed = false;           // 音频通道是否已借用户手势解锁过（只解锁一次）
+const _tts_pend = {};            // 在途请求：id → {ts, seg}
+const _tts_wait = {};            // 未连上时点 ▶ 的排队：id → seg（连上补发）
+function foxUnlock(){
+  /* 解锁音频通道，必须在**用户手势那一拍**里调用（foxPlay 开头）。
+     复用同一个 audio 元素：手势里把 foxA 建出来、循环播 FOX_SILENT，元素就
+     带着「已解锁、正在播放」的状态一直挂着；真音频到了只把这个元素的 src 换掉
+     接着播，浏览器认的是这个元素已经开播过，不再当新的一次自动播放来拦。 */
+  if (foxPrimed) return;
+  foxPrimed = true;
+  try {
+    foxA = new Audio(FOX_SILENT);
+    foxA.onended = null; foxA.onerror = null;
+    foxA.loop = true;
+    const p = foxA.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch(e){ foxA = null; }
+}
+function _foxOn(seg){
+  /* 这段语音此刻是否「正在出声」＝按钮该显示 ⏸ 的条件。只看我们自己记的
+     foxSeg：foxUnlock 的静音占位元素一直在循环播，不能拿 foxA.paused 当依据。 */
+  return !!(seg && seg === foxSeg && foxA && !foxA.paused);
+}
+function foxSyncBtn(){
+  /* 就地刷新已渲染卡片的按钮图标（卡片是快照重渲染的，两处判定保持一致）。 */
+  document.querySelectorAll('.foxplay').forEach(c => {
+    const b = c.querySelector('.fpbtn');
+    if (!b) return;
+    const on = _foxOn(c.getAttribute('data-seg'));
+    b.textContent = on ? '⏸' : '▶';
+    b.title = on ? '暂停' : '播放语音';
+  });
+}
+function foxPause(seg){
+  try { if (foxA) foxA.pause(); } catch(e){}
+  ttsStage(seg || foxSeg, '已暂停，再点 ▶ 继续', 'var(--gray)');
+  foxSyncBtn();
+}
+function foxStop(){
+  /* 免打扰——切到别的会话/别的服务端目标时，立刻把正在播的语音停掉。
+     只暂停 + 清 foxSeg（按钮随之刷回 ▶），不写阶段文案。 */
+  try { if (foxA) foxA.pause(); } catch(e){}
+  foxSeg = null;
+  foxSyncBtn();
+}
+function fpPlay(seg, url){
+  /* 真正出声：音频已缓存，直连本地 blob 播放（不再走服务端）。
+     换源前先摘掉旧元素的两个回调（旧 audio 的 onerror/onended 闭包指向同一个
+     seg，清 src 会让旧元素触发 error，把横幅改写成「播放失败」并弹红条，而新
+     音频其实正在正常播放）。复用 foxUnlock 建好的元素换源接着播，必须
+     loop=false，否则占位用的循环会把真音频念成死循环。 */
+  foxA = foxA || new Audio();
+  const a = foxA;
+  a.onended = null; a.onerror = null;
+  try { a.pause(); } catch(e){}
+  a.loop = false;
+  a.src = url;
+  foxSeg = seg;
+  a.onended = () => {
+    foxSeg = null; foxSyncBtn();
+    ttsStage(seg, '播放完毕，点 ▶ 可重播', 'var(--gray)');
+  };
+  a.onerror = () => {
+    foxSeg = null; foxSyncBtn();
+    ttsStage(seg, '🔇 音频播放失败', 'var(--red)');
+    flash('🔇 音频播放失败', 'var(--red)');
+  };
+  const p = a.play();
+  foxSyncBtn();
+  if (p && p.catch) p.catch(() => {
+    foxSeg = null; foxSyncBtn();
+    ttsStage(seg, '🔇 浏览器拦截播放，请再点 ▶', 'var(--orange)');
+    flash('🔇 浏览器拦截自动播放，请再点 ▶', 'var(--orange)');
+  });
+  if (p && p.then) p.then(() => foxSyncBtn());
+}
+function foxPlay(seg){
+  if (!seg) return;
+  foxUnlock();                 // 就在这一次点 ▶ 的手势里解锁音频通道
+  const o = ttsGet(seg);
+  /* 同一张卡片再点一下＝暂停/继续：正在出声→暂停；暂停中→从原处续播；已播完
+     （foxSeg 已清）→ 往下走重播/重新合成流程。 */
+  if (_foxOn(seg)){ foxPause(seg); return; }
+  if (o.url && seg === foxSeg && foxA && foxA.paused){
+    const rp = foxA.play();
+    if (rp && rp.catch) rp.catch(() => {});
+    if (rp && rp.then) rp.then(() => foxSyncBtn());
+    ttsStage(seg, '正在播放…', 'var(--blue)');
+    foxSyncBtn();
+    return;
+  }
+  if (o.url){ ttsStage(seg, '正在播放…', 'var(--blue)'); fpPlay(seg, o.url); return; }
+  const id = rid10();
+  _tts_pend[id] = {ts: Date.now(), seg: seg};
+  ttsStage(seg, '正在连接 WS…', 'var(--gray)');
+  if (!S.onLine){
+    _tts_wait[id] = seg;
+    flash('🔈 正在连接 WS…', 'var(--orange)');
+    return;
+  }
+  /* 先让「正在连接 WS」这一帧落地可见再发出（rAF 双帧保证已绘制；
+     页面切后台时 rAF 不跑，用 setTimeout 兜底） */
+  let _sent = false;
+  const doSend = () => {
+    if (_sent || !_tts_pend[id]) return;
+    _sent = true;
+    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
+    ttsStage(seg, '任务已提交', 'var(--blue)');
+    flash('🔈 任务已提交，等服务器接收…', 'var(--blue)');
+  };
+  requestAnimationFrame(() => requestAnimationFrame(doSend));
+  setTimeout(doSend, 120);
+}
+function cliFlushTts(){
+  /* 连上（hello 到达）时，把「未连上时排队」的语音请求补发出去 */
+  Object.keys(_tts_wait).forEach(id => {
+    const seg = _tts_wait[id];
+    delete _tts_wait[id];
+    if (!_tts_pend[id]) return;
+    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
+    ttsStage(seg, '任务已提交', 'var(--blue)');
+  });
+}
+function onTtsAck(d){
+  /* 服务端阶段回执——recv=已收到并受理、conv=引擎已开始合成 */
+  const j = _tts_pend[d.id];
+  if (!j) return;
+  const conv = (d.st === 'conv');
+  const txt = conv ? '服务器引擎正在转换…' : '服务器已收到，引擎正在转换…';
+  ttsStage(j.seg, txt, 'var(--blue)');
+  flash('🔈 ' + txt, 'var(--blue)');
+}
+function onTtsResp(d){
+  const j = _tts_pend[d.id];
+  if (!j) return;                // id 不匹配（多端/过期）忽略
+  delete _tts_pend[d.id];
+  const seg = j.seg;
+  if (d.err){
+    ttsStage(seg, '🔇 ' + (d.err || 'TTS 合成失败'), 'var(--red)');
+    flash('🔇 ' + (d.err || 'TTS 合成失败'), 'var(--red)');
+    return;
+  }
+  if (!d.b64){ ttsStage(seg, '🔇 空音频', 'var(--red)'); return; }
+  try {
+    const bin = atob(d.b64);
+    const ab = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) ab[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([ab], {type: 'audio/mpeg'}));
+    const o = ttsGet(seg);
+    if (o.url){ try { URL.revokeObjectURL(o.url); } catch(e){} }
+    o.url = url;                 // 存起来：下次点 ▶ 直接重播，不重复生成
+    /* 自动播放：点 ▶ 那一拍 foxUnlock() 已借用户手势解锁音频通道，这里直接播。
+       万一仍被系统拦，fpPlay 的 catch 会把横幅改成「请再点 ▶」——音频已缓存，
+       再点一次必定出声。 */
+    ttsStage(seg, '正在播放…', 'var(--blue)');
+    fpPlay(seg, url);
+  } catch(e){
+    ttsStage(seg, '🔇 音频解码失败', 'var(--red)');
+  }
+}
+/* 设置页「语音播报（TTS）」的小提示条 + 试听（对齐 TRAE 2.02）。
+   试听必须经服务端转发（手机连不上 127.0.0.1），走与语音卡片同一条链路，
+   用一个没有对应卡片的假 seg（ttsStage 对它自然 no-op），音频回来由
+   onTtsResp → fpPlay 播放。 */
+function ttsFlash(t, c){
+  if (!el.lbl_tts_flash) return;
+  el.lbl_tts_flash.textContent = t;
+  el.lbl_tts_flash.style.color = c || 'var(--green)';
+  setTimeout(() => {
+    if (el.lbl_tts_flash.textContent === t) el.lbl_tts_flash.textContent = '';
+  }, 3000);
+}
+const TTS_PREVIEW_TXT = '你好，这是当前音色的试听。如果音色和语速听着合适，就这样用。';
+function ttsPreview(){
+  foxUnlock();                       // 借「试听」这次点击的手势解锁音频通道
+  if (!S.onLine){ ttsFlash('未连接电脑端，无法试听', 'var(--red)'); return; }
+  const id = rid10(), seg = '__tts_preview__';
+  _tts_pend[id] = {ts: Date.now(), seg: seg};
+  ttsFlash('正在合成试听…', 'var(--blue)');
+  sendJson({t: 'tts', id: id, text: TTS_PREVIEW_TXT,
+            voice: ttsVoice(), rate: ttsRate()});
+}
+/* 在途 tts 请求超时兜底：60 秒没回就清掉（防 _tts_pend 泄漏） */
+setInterval(() => {
+  const now = Date.now();
+  Object.keys(_tts_pend).forEach(id => {
+    if (now - _tts_pend[id].ts > 60000){
+      const seg = _tts_pend[id].seg;
+      delete _tts_pend[id];
+      const o = _tts_state[seg];
+      if (o && !o.url) ttsStage(seg, '⚠ 服务端 60 秒未回，可重试', 'var(--orange)');
+    }
+  });
+}, 20000);
 
 /* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
 
@@ -1961,12 +2286,33 @@ function renderMsgs(msgs, finish, opts, ask){
             + (S.thinkOpen ? '▾' : '▸') + '</span></div>'
             + '<div class="thinkb">' + esc(S.snap.plan) + '</div></div>';
     }
+    /* 1.69：AI 消息正文识别 (@fox-play1)…(@fox-play2) 包夹段 → 渲染成语音
+       小卡片（占位符先过 mdHtml，再替换成卡片 HTML）。「我」的消息不处理。 */
+    let bodyHtml;
+    if (user){
+      bodyHtml = esc(m[1]);
+    } else {
+      const fsegs = [];
+      bodyHtml = mdHtml(foxPlayCards(m[1], fsegs));
+      fsegs.forEach((ft, n) => {
+        bodyHtml = bodyHtml.replace('@@FPC' + n + '@@', foxCardHtml(ft));
+      });
+    }
     let h = '<div class="who">' + (user ? '我' : 'WorkBuddy')
           + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
           + '</div>' + think + '<div class="body">'
-          + (user ? esc(m[1]) : mdHtml(m[1])) + '</div>';
+          + bodyHtml + '</div>';
     d.innerHTML = h;
+    /* 1.69：语音卡片 ▶ 播放绑定——必须用 closest('.foxplay') 取段文本
+       （▶ 的父节点是 .fprow、不是卡片本身，取 parentElement 会拿到 null）。 */
+    d.querySelectorAll('.foxplay .fpbtn').forEach(b => {
+      b.onclick = e => {
+        e.stopPropagation();
+        const card = b.closest('.foxplay');
+        foxPlay(card ? (card.getAttribute('data-seg') || '') : '');
+      };
+    });
     /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
        1.24：复制/重编（本地即时完成，不涉服务端） */
     d.querySelectorAll('.mact').forEach(b => {
@@ -2645,7 +2991,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.68';
+const VER = '1.69';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
@@ -2881,6 +3227,9 @@ function handleBody(body){
   /* 1.33 全新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
   if (d.t === 'hello') onHello(d);
+  /* 1.69：语音播报回执（服务端 → 本端，按 id 配对） */
+  if (d.t === 'tts_resp') { onTtsResp(d); return; }
+  if (d.t === 'tts_ack') { onTtsAck(d); return; }
 }
 
 /* ============ 1.12 多服务端名册（1.43：落盘 + 只认名称） ============ */
@@ -3247,8 +3596,12 @@ function onEv(kind, v){
       renderEditRow(); refreshSendBtn();
       flash('↩ 已放回托管队列', 'var(--green)');
       break;
-    case 'queue_sendnow_fail':               /* 1.67：⚡提前发送失败——该条已被放行 */
-      flash('⚠ 这一条已经发出去了，来不及提前', 'var(--orange)');
+    case 'queue_sendnow_done':               /* 1.69：⚡立即发送已受理——服务端已
+        中止当前轮并放行这条（真·立即）。撤掉该条禁用的按钮态，等快照刷新 */
+      flash('⚡ 已立刻发送这条（当前生成已中止）', 'var(--blue)');
+      break;
+    case 'queue_sendnow_fail':               /* 1.67：⚡立即发送失败——该条已被放行 */
+      flash('⚠ 这一条已经发出去了，来不及立即发', 'var(--orange)');
       break;
     case 'pend': {                           /* 1.10：命令受理广播——
         别的端（PC 面板）发出的消息也在本机回显占位，多端同看。
@@ -3436,6 +3789,7 @@ function onEv(kind, v){
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
   diagLog('收到服务器 hello 回应 ✓', 'ok');
+  cliFlushTts();                       // 1.69：连上后补发「未连上时排队」的语音请求
   /* 1.63：账号通道——本地没选过（新装/清缓存）时采纳电脑端下发的默认通道，
      与电脑端保持一致（电脑端默认主A，各项目流量归拢到同一账号看日开销）。
      采纳副B需重连一次才真正切过去；采纳主A则当前就是，无需重连。 */
@@ -3487,6 +3841,7 @@ function onHello(d){
 
 function applySwitch(box, port, keepSnap){
   S.box = box; S.port = port;
+  foxStop();                   /* 1.69：换目标先停掉正在播的语音（免打扰） */
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   /* 1.28：keepSnap=true（snap 先于 switched 到达、内容已是新目标）时
      保留现有快照直接渲染，避免旧内容被清后白等下一拍 */
@@ -4169,6 +4524,22 @@ el.nsave.onclick = () => {
   setTimeout(() => el.nflash.textContent = '', 3000);
   connect();                                  // 重连生效
 };
+
+/* 1.69：语音播报音色/语速（改动立即生效、独立落盘，不脏化上面「保存」大按钮） */
+if (el.sel_tts_voice) el.sel_tts_voice.value = ttsVoice();
+if (el.sel_tts_rate)  el.sel_tts_rate.value  = ttsRate();
+if (el.sel_tts_voice) el.sel_tts_voice.onchange = () => {
+  CFG.tts_voice = el.sel_tts_voice.value;
+  cfgSave(); ttsClearCache();
+  const op = el.sel_tts_voice.options[el.sel_tts_voice.selectedIndex];
+  ttsFlash('已保存：' + (op ? op.textContent : CFG.tts_voice));
+};
+if (el.sel_tts_rate) el.sel_tts_rate.onchange = () => {
+  CFG.tts_rate = el.sel_tts_rate.value;
+  cfgSave(); ttsClearCache();
+  ttsFlash('已保存：语速 ' + CFG.tts_rate);
+};
+if (el.btn_tts_preview) el.btn_tts_preview.onclick = ttsPreview;
 
 function renderToday(){
   const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
