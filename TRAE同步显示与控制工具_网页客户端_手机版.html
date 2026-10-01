@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.19</title>
+<title>TRAE远程 v2.20</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -3270,7 +3270,12 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.19';   /* 2.19：分身状态页新增「一键换号迁移」按钮——填目标号码后由
+const VER = '2.20';   /* 2.20：网页端【锚定】——取消"跟随"，网页版守住自己锚定的
+                         会话，别人在电脑版（含会话路由器临时占用）切到别的会话
+                         也不跟着跳（adoptSnap：来拍快照选中 != 锚定即冻结正文类
+                         字段、只并入会话列表，选中标志改写到锚定行）；点会话行
+                         即换锚；发送/插话附 anchor 供服务端"以网页版为尊"归还。
+                         2.19：分身状态页新增「一键换号迁移」按钮——填目标号码后由
                          服务端一站式完成「原版换号（沙盒启动器 origin-login）+
                          对话记录智能迁移（把最重度账号全部会话换新ID 并入）」；
                          进度经 switch_migrate 事件流回投（阶段+逐行日志），
