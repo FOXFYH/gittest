@@ -1869,12 +1869,13 @@ function msgsFp(msgs){
   return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
     + (m[3] || 0) + (m[4] || 0)).join('#');
 }
-const SWITCH_HANG_MS = 12000;   /* v1.51：切换条墙钟兜底时长（见 switchHangClear） */
+const SWITCH_HANG_MS = 24000;   /* v2.13：切换等待上限——原 12s 偏短易误判「切换未完成」，
+                                   翻倍为 24s（墙钟兜底撤条 + 快照判定超时共用此值） */
 function switchHangClear(title){
   /* v1.51：撤条判定块只在 snap 到达时执行；但服务端对 snap 去重，
      目标内容静止时不再转发 → 判定块不再跑 → 「切换中」永挂。
      这里用真定时器到点强制撤条，兑现 L2746「超时兜底，别一直挂着」
-     注释本意。正常切换在 12s 内走 snap 直接撤，不受影响。 */
+     注释本意。正常切换在 24s 内走 snap 直接撤，不受影响。 */
   if (S._swHangTimer) clearTimeout(S._swHangTimer);
   S._swHangTimer = setTimeout(() => {
     if (S.switch_pend && S.switch_pend.title === title){
@@ -1897,13 +1898,13 @@ function pendSwitchSet(title, sid){
     S.switch_pend.ts = Date.now();
     S.switch_pend.sid = sid || S.switch_pend.sid;
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
-    switchHangClear(title);             /* v1.51：重新 arm 12s 兜底 */
+    switchHangClear(title);             /* v1.51：重新 arm 24s 兜底 */
     return;
   }
   S.switch_pend = {title: title, sid: sid, ts: Date.now(),
                    fp0: msgsFp(S.snap.msgs)};
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
-  switchHangClear(title);               /* v1.51：12s 墙钟兜底拉条 */
+  switchHangClear(title);               /* v1.51：24s 墙钟兜底拉条 */
   renderAll();
 }
 /* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中且消息区空、
@@ -3170,7 +3171,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.12';
+const VER = '2.13';
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -3813,12 +3814,12 @@ function onEv(kind, v){
         /* 1.16：到达确认——标题激活还不够（TRAE 先亮标题后加载
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
         const arrived = msgsFp(v.msgs) !== sp.fp0;
-        const timedout = Date.now() - sp.ts > 12000;
+        const timedout = Date.now() - sp.ts > SWITCH_HANG_MS;
         const arrivedOk = act && (spSid ? (act[4] || '') === spSid
                                         : act[1] === sp.title) && arrived;
         if (arrivedOk || !has || timedout){
           /* 1.xx：切换结束判定——成功到达(内容有变)归零失败计数；失败/
-             超时不静默：1.87 起在「列表找不着」或「12s超时仍未到达」这
+             超时不静默：1.87 起在「列表找不着」或「24s超时仍未到达」这
              两种真正的失败场景弹出「⚠ 会话切换失败」显眼提醒（同一目标
              只弹一次：撤条后 switch_pend 已清，后续 snap 不再进本分支）。 */
           if (arrivedOk){
