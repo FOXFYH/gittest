@@ -143,8 +143,11 @@
 <script>
 "use strict";
 // ============================================================
-// FYH 远程控制面板  v1.06
+// FYH 远程控制面板  v1.07
 // ------------------------------------------------------------
+// 1.07   修「幽灵记事本」闪烁：app_list 回应加请求号 req_id，面板只认自己本轮
+//        请求的回应（别的设备/旧版端串台回应一律丢弃）；并新增「FYH快速访问」
+//        应用卡（控制 FYH 本身，支持 打开/重启/关闭）
 // 1.06   应用卡片紧凑化：打开/重启/关闭三按钮缩窄变矮（不再占满整行），
 //        右侧空位并入「保活：」开关（含原独立一行），卡片由三排压成两排
 // 1.05   多电脑管理：设备按 ID 识别（昵称仅显示，可重名），指令带 target_id；
@@ -216,6 +219,8 @@ let devices = {};          // 设备ID -> {name, t}（v1.05：按 ID 识别，�
 let selectedDevice = null; // 当前选中的设备ID
 let selectedDevName = "";  // 当前选中设备的昵称（显示用）
 let selectedApps = [];     // 当前设备的应用清单
+let reqSeq = 0;            // v1.07：app_list 请求序号（给每次请求打号）
+let pendingReqId = 0;      // v1.07：当前在等的请求号，只认自己本轮的回应，杜绝串台闪烁
 let boostLeft = 0;         // 自动刷新窗口剩余秒数（开页 60 秒，点刷新按钮再+60 秒）
 const BAR_SHOW = 5;        // 顶部直接显示的设备方块数，其余进"+"弹窗
 
@@ -301,7 +306,8 @@ function requestApps(quiet) {
     document.getElementById("appArea").innerHTML =
       '<div class="empty"><span class="spinner"></span> 正在请求应用清单…</div>';
   }
-  sendRC({ cmd: "app_list", target_id: selectedDevice });
+  pendingReqId = ++reqSeq;   // v1.07：打号，只有带本轮 req_id 的回应才被采纳
+  sendRC({ cmd: "app_list", target_id: selectedDevice, req_id: pendingReqId });
 }
 
 // ===== 60 秒自动刷新窗口（v1.03）=====
@@ -511,6 +517,11 @@ function handlePayload(payload) {
     let data;
     try { data = JSON.parse(body); } catch (e) { return; }
     if (data.cmd === "app_list") {
+      if (data.req_id !== pendingReqId) {
+        // v1.07：不是本轮请求的回应（别的设备/旧版端串台）→ 丢弃，杜绝按钮闪烁
+        log("忽略非本轮请求的应用清单（req_id=" + data.req_id + "，等的是 " + pendingReqId + "）");
+        return;
+      }
       selectedApps = data.apps || [];
       renderApps();
       log("收到 " + (data.apps || []).length + " 个应用清单（" + boostLabel() + "）");
