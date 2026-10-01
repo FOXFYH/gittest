@@ -2129,13 +2129,19 @@ function curMsgs(){
 /* 识别标志正则（用户规定）：(@fox-play1) 开头、(@fox-play2) 结尾包夹。
    命中段从消息正文里摘出 → 语音卡片；正文中该段被卡片替换（不再重复
    显示原文），data-seg 存完整文本供播放。1.98：卡片改为两行——上行
-   「文字 + ▶」、下行「阶段通知」。 */
-const FPC_REG = /\(@fox-play1\)([\s\S]*?)\(@fox-play2\)/g;
+   「文字 + ▶」、下行「阶段通知」。
+   2.14：**容错识别**——采集到的正文尾巴偶尔会缺（账本实测：有消息结尾
+   被截成「…要不要照这个定位开工？(@fox」），原正则要求两端都完整，
+   于是整段认不出、标记碎片原样露在气泡里（用户反馈「后缀破碎」）。
+   改为「有头就认」：结尾要么是完整的 (@fox-play2)，要么就到消息末尾；
+   同时把末尾那截残缺标记（如 (@ / (@fox）剪掉，不混进卡片正文。 */
+const FPC_REG = /\(@fox-play1\s*\)([\s\S]*?)(?:\(@fox-play2\s*\)|$)/g;
 function foxPlayCards(txt, out){
   return String(txt || '').replace(FPC_REG, (m, p1) => {
-    const n = out.length;
-    out.push((p1 || '').trim());
-    return '@@FPC' + n + '@@';
+    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
+    if (!seg) return '';
+    out.push(seg);
+    return '@@FPC' + (out.length - 1) + '@@';
   });
 }
 /* 1.98：每段语音的会话内状态（阶段文案 + 颜色 + 已生成音频 BlobURL）。
@@ -3171,7 +3177,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.13';
+const VER = '2.14';
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
