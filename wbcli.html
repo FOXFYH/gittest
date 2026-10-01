@@ -1727,7 +1727,7 @@ function renderQueue(){
         cmd('queue_recall', id);
       } else {
         b.disabled = true;
-        flash('已立即发送，不打断当前生成…', 'var(--blue)');
+        flash('⚡ 正在立即发送（会打断当前生成）…', 'var(--blue)');
         cmd('queue_sendnow', id);
       }
     };
