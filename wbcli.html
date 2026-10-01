@@ -1555,6 +1555,7 @@ function pendRestore(){
       S.pending.push({
         id: S.pend_seq, rid: p.rid || rid10(), kind: p.kind || 'send',
         text: p.text,
+        convSid: p.convSid || '',   /* 1.66：绑定的会话一并恢复（旧卡无此字段=空，照常显示） */
         /* 旧于确认时限的（多半真没送出去）直接标「未确认」，立刻就出重发按钮 */
         state: (now - (p.ts || 0) > S.pend_send) ? 'timeout' : 'sending',
         ts: p.ts || now});
@@ -1574,12 +1575,16 @@ function rid10(){
   return s;
 }
 
-function pendAdd(kind, text, rid){
+function pendAdd(kind, text, rid, convSid){
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
   const same = S.pending.find(p => p.text === text);
   if (same) return same;               // 同文本已在册（服务端 pend 回显）
   S.pend_seq++;
+  /* 1.66：占位卡绑定「发送那一刻」的目标会话稳定 sid（convs 行 r[1]），
+     切会话/刷新/重试都不串台。锁定的 sid（重发/重试复用）优先，
+     否则取当前会话；取不到时留空（旧卡兼容：无 convSid 一律照常显示）。 */
   const p = {id: S.pend_seq, rid: rid || rid10(), kind: kind, text: text,
+             convSid: convSid || curConvId() || '',
              state: 'sending', ts: Date.now()};
   S.pending.push(p);
   return p;
@@ -1600,7 +1605,13 @@ function wsRetry(p, c, a, n){
   p.wsTimer = setTimeout(async () => {
     if (!p || S.pending.indexOf(p) < 0) return;      /* 已被撤下/替换 */
     if (foxReady() && S.onLine){
-      const ok = await sendCmd(c, a, p.rid ? {rid: p.rid} : null);
+      /* 1.66：重试发生在 10 秒后，若期间用户切了会话，绝不能投到「现在选中」
+         的那条——用占位卡里**锁定**的会话 sid（发送那一刻记下的）外带过去，
+         sendCmd 已有 `!d.conv` 保护，传了就不会被现取的覆盖。 */
+      const ex = {};
+      if (p.rid) ex.rid = p.rid;
+      if (p.convSid) ex.conv = p.convSid;
+      const ok = await sendCmd(c, a, (ex.rid || ex.conv) ? ex : null);
       if (ok !== false){
         p.state = 'sending';                          /* 已发出，等服务器回应 */
         p.wsTry = 0;
@@ -1633,9 +1644,14 @@ function renderPending(){
   const old = $('pendbox');
   if (old) old.remove();
   if (!S.pending.length) return;
+  /* 1.66：只渲染**属于当前会话**的占位卡（convSid 与当前会话 sid 相等）。
+     切到别的会话时，在途卡不再串台显示；切回来照旧。向后兼容：旧卡
+     （无 convSid，含 localStorage 恢复的旧待发箱）或当前无会话时照常显示。 */
+  const curSid = curConvId();
   const wrap = document.createElement('div');
   wrap.id = 'pendbox';
   S.pending.forEach(p => {
+    if (p.convSid && curSid && p.convSid !== curSid) return;
     const st = pendStat(p);
     const d = document.createElement('div');
     d.className = 'msg user pend ' + st[1];
@@ -1687,7 +1703,9 @@ function renderPending(){
       const p = S.pending.find(x => x.id === gi);
       if (!p) return;
       S.pending = S.pending.filter(x => x.id !== gi);
-      cmd(p.kind, p.text);           // 重发（cmd 内会重新登记占位）
+      /* 1.66：手动重发同样带上**锁定**的会话 sid（发送那一刻记下的），
+         即便此刻已切到别的会话，也投回原会话；旧卡无锁定值则维持原行为。 */
+      cmd(p.kind, p.text, p.convSid);      // 重发（cmd 内会重新登记占位）
     };
   });
   el.msgs.appendChild(wrap);
@@ -2566,7 +2584,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.65';
+const VER = '1.66';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
@@ -3490,16 +3508,18 @@ function renderPorts(){
 
 /* ================= 命令 ================= */
 
-function cmd(c, a){
+function cmd(c, a, lockConv){
   /* 1.63：WS 不可用——发消息不再直接拒发（此前只提示「文字已保留」）：
      挂占位卡并每 10 秒重试一次（共 6 次），卡面显示「WS 失联重试中」；
      非消息命令（切换/停止等）仍如实告知未发出。
-     （用户 09-29 定：单条消息发出去后，首先关心的是 WS 通不通。） */
+     （用户 09-29 定：单条消息发出去后，首先关心的是 WS 通不通。）
+     1.66：lockConv=调用方锁定的目标会话 sid（手动重发复用占位卡上的锁定值）；
+     不传（undefined）则维持原行为＝取当前选中会话。 */
   const isMsg = (c === 'send' || c === 'interject')
              && typeof a === 'string' && !!a.trim();
   if (!S.onLine || !foxReady()){
     if (isMsg){
-      const p = pendAdd(c, a);
+      const p = pendAdd(c, a, null, lockConv);
       if (p) wsRetry(p, c, a, 1);
       flash('⚠ WS 失联，正在重试发送…', 'var(--orange)');
       el.ent.value = '';
@@ -3516,10 +3536,12 @@ function cmd(c, a){
      没收到服务端回执就能复制/改写/重发；此前忙时只弹提示、不留底，
      网络一抖就什么都不剩（用户 09-29 报）。 */
   let rid = '';
+  let pendConv = '';                  /* 1.66：本条占位卡锁定的会话 sid（发送那一刻） */
   if ((c === 'send' || c === 'interject') && typeof a === 'string'
       && a.trim()){
-    const p = pendAdd(c, a);
-    if (p) rid = p.rid || '';         /* 1.63：占位卡的随机 ID，随命令带给服务端核对 */
+    const p = pendAdd(c, a, null, lockConv);
+    if (p){ rid = p.rid || '';         /* 1.63：占位卡的随机 ID，随命令带给服务端核对 */
+            pendConv = p.convSid || ''; }
     if (c === 'send'){
       /* 1.50：记下本轮「所选模型 + 当前回复序号」——回复到达后核对是否
          真的用了它（比对台账 requestModelId），不一致弹窗。 */
@@ -3527,7 +3549,12 @@ function cmd(c, a){
                   n: S.snap.model_req_n || 0, t: Date.now()};
     }
   }
-  sendCmd(c, a, rid ? {rid: rid} : null);
+  /* 1.66：把占位卡锁定的会话 sid 显式外带（sendCmd 内 `!d.conv` 不会被覆盖），
+     发送那一刻就已定死目标，后续重发/重试不投到切换后的当前会话。 */
+  const cex = {};
+  if (rid) cex.rid = rid;
+  if (pendConv) cex.conv = pendConv;
+  sendCmd(c, a, (cex.rid || cex.conv) ? cex : null);
   if (c === 'send' || c === 'interject'){
     if (gen) flash('🕘 已加入托管队列，本轮结束后自动发送（若久无回执可重发）',
                    'var(--orange)');
