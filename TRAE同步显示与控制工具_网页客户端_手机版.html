@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.15</title>
+<title>TRAE远程 v2.16</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1141,14 +1141,16 @@ function sendJson(d){
 function newDid(){
   return String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
 }
-function sendCmd(c, a, did){
+function sendCmd(c, a, did, convSid){
   const d = {t:'cmd', c:c, a:a};
   if (did) d.did = did;   /* 1.88：仅 send/interject 带 did；旧服务端忽略多余字段 */
   /* 2.11 纯 ID 双寻址·会话层：发消息/插话带上目标会话稳定 sid
      （convs 行第 5 位，改名不变），服务端据此确保投到该会话，
-     不再只信服务端界面此刻选中的那条。旧服务端忽略多余字段。 */
+     不再只信服务端界面此刻选中的那条。旧服务端忽略多余字段。
+     2.16：外部传入锁定 sid（重发）就用它、绝不现取 curSid()；
+     未传（首次发送及旧调用点）才回退原逻辑现取当前选中会话。 */
   if (c === 'send' || c === 'interject'){
-    const cid = curSid();
+    const cid = convSid || curSid();
     if (cid) d.conv = cid;
   }
   sendJson(d);
@@ -1689,7 +1691,8 @@ function pendAdd(kind, text){
   /* 1.27：占位挂到发起时的会话上——插话/发送只对当时那个对话有效，
      切到别的对话期间不再显示（切回来仍可见，落地后照常撤下） */
   const p = {id: S.pend_seq, kind: kind, text: text,
-             state: 'sending', ts: Date.now(), conv: curTitle()};
+             state: 'sending', ts: Date.now(), conv: curTitle(),
+             convSid: curSid()};   /* 2.16：同时记稳定 sid（改名/重排不变） */
   S.pending.push(p);
   return p;
 }
@@ -1715,8 +1718,13 @@ function renderPending(){
   /* 1.27：只显示属于当前会话的占位（其余仍挂在册，切回原会话
      照常显示；无会话信息的旧数据一律显示） */
   const cv = curTitle();
-  const shown = S.pending.filter(p => !p.conv || p.conv === cv
-                                    || p.conv === '当前会话');
+  /* 2.16：能拿到 sid 就按稳定 ID 比（改名/重排不丢卡）；拿不到 sid 的
+     旧卡片回退原「标题 / 当前会话 / 无 conv」逻辑，不判死旧数据 */
+  const sidNow = curSid();
+  const shown = S.pending.filter(p => {
+    if (p.convSid && sidNow) return p.convSid === sidNow;
+    return !p.conv || p.conv === cv || p.conv === '当前会话';
+  });
   if (!shown.length) return;
   const wrap = document.createElement('div');
   wrap.id = 'pendbox';
@@ -1778,7 +1786,8 @@ function renderPending(){
       const p = S.pending.find(x => x.id === gi);
       if (!p) return;
       S.pending = S.pending.filter(x => x.id !== gi);
-      cmd(p.kind, p.text);           // 重发（cmd 内会重新登记占位）
+      /* 2.16：重发锁定原会话 sid——即使用户已切到别的会话，也回原会话 */
+      cmd(p.kind, p.text, p.convSid);
     };
   });
   el.msgs.appendChild(wrap);
@@ -3177,7 +3186,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.15';
+const VER = '2.16';
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -4195,7 +4204,7 @@ function renderPorts(){
 
 /* ================= 命令 ================= */
 
-function cmd(c, a){
+function cmd(c, a, convSid){
   if (!S.onLine){ flash('⚠ 还没连上，命令未发出'); return; }
   /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
      清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
@@ -4210,7 +4219,9 @@ function cmd(c, a){
        （形参只有 kind/text），导致 did_ack 广播即使到达也匹配不上、
        卡片永不消；chk 兜底也发的是 undefined did。现在显式补挂。 */
     const pp = pendAdd(c, a);
-    if (pp) pp.did = did;
+    if (pp){ pp.did = did;
+      /* 2.16：重发传了锁定 sid → 新卡片也绑回原会话，与投递目标一致 */
+      if (convSid) pp.convSid = convSid; }
     /* 2.31：记下「自己刚发过的文本」——服务端稍后回显 pend 时不再重复建
        一张无 did 的孤儿卡（100% 卡住的元凶，详见 case 'pend'）。 */
     if (!S.sentGuard) S.sentGuard = {};
@@ -4218,7 +4229,7 @@ function cmd(c, a){
     if (c === 'send') flash('⏳ 已发出，等待服务器执行…',
                             'var(--blue)');
   }
-  sendCmd(c, a, did);
+  sendCmd(c, a, did, convSid);
   /* 1.89：发消息/插话=真实人类操作 → 上报 act/send（带当前选中会话
      标题）清掉该会话橙灯。一次即可，did 消卡走 did_ack 不重复上报。 */
   if (c === 'send' || c === 'interject'){
