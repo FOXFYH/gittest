@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.16</title>
+<title>TRAE远程 v2.18</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -457,6 +457,9 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .prof_test{margin-left:auto; font-size:12px; padding:2px 8px;
   min-height:24px; color:var(--blue); border-color:var(--bd);}
 .prof_test:disabled{color:#bbb; background:#f5f5f5;}
+.prof_login{margin-left:6px; font-size:12px; padding:2px 8px;
+  min-height:24px; color:var(--green); border-color:var(--bd);}
+.prof_login:disabled{color:#bbb; background:#f5f5f5;}
 .prof_row2{display:flex; flex-wrap:wrap; margin-top:4px; font-size:12px;
   color:#333; gap:2px 10px;}
 .prof_pts{color:#7c4dff; font-weight:bold;}
@@ -1142,17 +1145,24 @@ function newDid(){
   return String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
 }
 function sendCmd(c, a, did, convSid){
-  const d = {t:'cmd', c:c, a:a};
-  if (did) d.did = did;   /* 1.88：仅 send/interject 带 did；旧服务端忽略多余字段 */
-  /* 2.11 纯 ID 双寻址·会话层：发消息/插话带上目标会话稳定 sid
-     （convs 行第 5 位，改名不变），服务端据此确保投到该会话，
-     不再只信服务端界面此刻选中的那条。旧服务端忽略多余字段。
-     2.16：外部传入锁定 sid（重发）就用它、绝不现取 curSid()；
-     未传（首次发送及旧调用点）才回退原逻辑现取当前选中会话。 */
+  /* 2.17：发送/插话统一改走「会话路由器」——带着目标会话稳定 sid 自动
+     找上门，到点才临时占用 TRAE 输入框发一条、发完立刻走人（不再长期
+     霸占输入框）。正文 + 目标 sid + 模式都放进 arg；服务端
+     _cmd_route_send 把整段路由事务（切会话→核验→取回残留→写入→回读→
+     发送）作为【一条 cmdq 命令】串行执行，段内插不进任何人。
+     2.11/2.16：外部传入锁定 sid（重发）就用它、绝不现取 curSid()。
+     旧服务端忽略多余字段（无 route_send 时退回原 send/interject）。 */
   if (c === 'send' || c === 'interject'){
-    const cid = convSid || curSid();
-    if (cid) d.conv = cid;
+    const sid = convSid || curSid() || '';
+    const d = {t:'cmd', c:'route_send',
+               a:{sid: sid, text: a, mode: (c === 'interject'
+                                            ? 'interject' : 'auto')}};
+    if (did) d.did = did;   /* 1.88：did 仅用于消卡回执 */
+    sendJson(d);
+    return;
   }
+  const d = {t:'cmd', c:c, a:a};
+  if (did) d.did = did;
   sendJson(d);
 }
 
@@ -3186,7 +3196,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.16';
+const VER = '2.18';   /* 2.18：分身状态页每行新增「补登录」按钮——借服务端
+                         「谷歌分身助手 / T登录助手」HTTP 接口对指定分身发起
+                         自动登录（服务端可选自动拉起分身助手）；结果经
+                         profiles_login 事件回投提示。
+                         2.17：发送/插话改走「会话路由器」route_send——
+                         带目标会话稳定 sid 自动找上门、到点才临时占用 TRAE
+                         输入框发一条、发完即走（不再长期霸占）；残留取回
+                         退回本端输入框，服务端整段路由事务串行原子执行 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -3863,6 +3880,12 @@ function onEv(kind, v){
       S.prof_run = !!(v && v.on);
       if (v && !v.on && v.stopped) flash('已停止本次实测', 'var(--orange)');
       if (el.profpage.classList.contains('on')) renderProf();
+      return;
+    }
+    case 'profiles_login': {
+      /* 2.18：补登录结果回投（v={name,ok,msg}）。 */
+      if (v && v.msg) flash((v.ok ? '✓ ' : '✗ ') + v.msg,
+                            v.ok ? 'var(--green)' : 'var(--red)');
       return;
     }
     case 'dead':
@@ -4757,7 +4780,7 @@ function renderProf(){
     ? ('管理分身 ' + d.count + ' 个 · 已实测 ' + d.checked + ' 个 · 最近实测 ' +
        (d.last_refresh || '—') +
        (run ? ' · 正在实测（真实访问网页，耗时数分钟）' : '') +
-       '  ·  每个分身右侧「实测」按钮可单独实测')
+       '  ·  右侧「实测」=查登录/积分，「补登录」=借登录助手自动登录')
     : '（无数据）';
   el.profhint.textContent = hint;
   const list = (d && d.profiles) || [];
@@ -4771,6 +4794,8 @@ function renderProf(){
       '<span class="prof_st' + cls + '">' + esc(st) + '</span>' +
       '<button class="prof_test" data-n="' + qn + '" onclick="profTest(' +
       qn + ')">实测</button>' +
+      '<button class="prof_login" data-n="' + qn + '" onclick="profLogin(' +
+      qn + ')">补登录</button>' +
       '<span class="prof_acc">' + esc(p.account || '') + '</span></div>' +
       '<div class="prof_row2">' +
       '<span>总积分 <b class="prof_pts">' + esc(p.points || '—') + '</b></span>' +
@@ -4791,6 +4816,16 @@ function profTest(name){
   S.prof_run = true;
   renderProf();
   flash('正在实测 ' + name + ' …', 'var(--blue)');
+}
+
+/* 2.18：补登录——借服务端「谷歌分身助手 / T登录助手」的 HTTP 接口，对指定
+   分身发起自动登录（分身名→编号自动映射手机号，跟人手操作一样）。服务没起
+   时服务端会自动拉起分身助手；滑块/超时由对方负责，跑完回 profiles_login。*/
+function profLogin(name){
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  sendCmd('profiles_login', name);   /* 传分身名 → 服务端借登录助手 */
+  flash('正在补登录 ' + name + ' …（服务端会先确保登录助手在线）',
+        'var(--green)');
 }
 
 el.prof.onclick = () => {
