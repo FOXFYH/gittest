@@ -888,6 +888,10 @@ const S = {
   busy: false, gen: false, ready: false, bench: null,
   bench_mode: 'ins',
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
+  /* 1.68：刚点了「新建对话」的时刻——服务端 set_current 内先推新会话快照、
+     后广播 switched（同通道保序）。收到 switched 时若本端确实刚发起过新建，
+     就保留刚到手的新快照，别清成 {} 误闪「界面未就绪」 */
+  new_conv_pend: 0,
   /* 1.08 新建任务弹窗 / 1.11 task_lock=锁定文件夹 */
   /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡；
      1.63：撤卡**只认 rid**（出现在托管队列 / 快照 acks 即撤），不再比对文本 */
@@ -2527,8 +2531,12 @@ function verifyRun(snap){
   if (!S.model_busy && !S.model_pin) S.model_sel = snap.model || S.model_sel;
   const v = S.verify;
   if (!v) return;
+  /* 1.68：快照不是这条消息所在的会话 → 不评判。发送可带 conv 定向到某会话，
+     而快照恒为服务端「当前」会话，二者可能不同；不核对就不会误报「没产出回复」 */
+  if (v.conv && snap.title && String(snap.title) !== String(v.conv)) return;
   const reqN = snap.model_req_n || 0, aN = snap.assist_n || 0;
   const base = v.n || 0;
+  const baseA = (v.aN === undefined) ? base : v.aN;   /* 1.68：assist_n 自记基线 */
   if (reqN > base){                        // 新回复带了模型信息 → 真校验
     S.verify = null;
     const run = snap.model_run || '', act = snap.model_act || '';
@@ -2544,11 +2552,13 @@ function verifyRun(snap){
       + ' ☆ 收藏管理里的「↻ 刷新模型」）。');
     return;
   }
-  if (aN > base){                          // 有新回复但没带模型信息 → 无从核对
+  if (aN > baseA){                         // 有新回复但没带模型信息 → 无从核对
     S.verify = null;
     return;
   }
-  if (snap.sendIdle && Date.now() - v.t > 15000){
+  /* 1.68：只有「直发（未走托管队列）」才敢判「没产出回复」——走队列的那条
+     还没轮到发，15 秒内本就不会有回复，判它「模型不出话」属误报。 */
+  if (!v.queued && snap.sendIdle && Date.now() - v.t > 15000){
     /* 本轮已结束但仍没产出任何回复：所选模型很可能压根跑不起来 */
     S.verify = null;
     showModelDlg('⚠ 本轮没有产生回复',
@@ -2635,7 +2645,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.67';
+const VER = '1.68';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
@@ -3338,7 +3348,15 @@ function onEv(kind, v){
         && (String(S.snap.title || '') === swT
             || (S.snap.convs || []).some(r => r[0] === 'c' && r[2]
                  && ((r[3] || r[1]) === swT))));
-      applySwitch(v[0], v[1], hasTarget);
+      /* 1.68：本端刚发起「新建对话」——服务端 set_current 先推新会话快照再发
+         switched，但新建没有具名目标（swT 为空），照旧会 keepSnap=false 把刚到
+         的新快照清成 {} → 前端误闪「界面未就绪」。此处对「本端发起的新建」
+         保留新快照（其它具名切换逻辑不变）。 */
+      const freshNew = !swT && S.new_conv_pend
+        && (Date.now() - S.new_conv_pend < 8000)
+        && !!(S.snap && S.snap._port === v[1] && S.snap.online);
+      S.new_conv_pend = 0;             /* 消费即清 */
+      applySwitch(v[0], v[1], hasTarget || freshNew);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now(), disp: swD} : null;
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
@@ -3594,9 +3612,15 @@ function cmd(c, a, lockConv){
             pendConv = p.convSid || ''; }
     if (c === 'send'){
       /* 1.50：记下本轮「所选模型 + 当前回复序号」——回复到达后核对是否
-         真的用了它（比对台账 requestModelId），不一致弹窗。 */
+         真的用了它（比对台账 requestModelId），不一致弹窗。
+         1.68：一并记 conv（本条落到哪个会话）、aN（assist_n 基线）、
+         queued（是否走托管队列）——verifyRun 据此避免「没产出回复」误报。 */
       S.verify = {sel: S.model_sel || S.snap.model || '',
-                  n: S.snap.model_req_n || 0, t: Date.now()};
+                  n: S.snap.model_req_n || 0,
+                  aN: S.snap.assist_n || 0,
+                  conv: pendConv || curConvId() || '',
+                  queued: !!gen,
+                  t: Date.now()};
     }
   }
   /* 1.66：把占位卡锁定的会话 sid 显式外带（sendCmd 内 `!d.conv` 不会被覆盖），
@@ -3746,14 +3770,14 @@ bindGrowBtn(el.copy, () => {     // 1.40：一键复制输入框内容（放大�
   if (!t.trim()){ flash('输入框是空的，没东西可复制'); return; }
   copyText(t);                   // 复用 1.24 的 copyText（含非安全上下文兜底）
 });
-el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并入）
-  drawerClose();
+el.new.onclick = () => {         // 1.68：CLI 无目录可选、无输入区要「展开」——
+  drawerClose();                 // 直接建新会话，不再绕「新建任务」弹窗页（少一页）
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   if (!S.snap || !S.snap.online){ flash('⚠ WorkBuddy 未在线'); return; }
-  if (S.task_open) return;
-  taskDlgOpen();
-  flash('正在展开新建任务…', 'var(--blue)');
-  sendCmd('new_task_dlg', null);
+  S.verify = null;               // 新建即放弃上一轮的模型校验态
+  S.new_conv_pend = Date.now();  // 供 switched 判断「刚发起的新建」，保住新快照
+  flash('正在新建对话…', 'var(--blue)');
+  sendCmd('new_task_in', null);
 };
 el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 boot
   drawerClose();                  // 本就先杀再拉——原在线时本地拦下，
@@ -3987,6 +4011,7 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
   与记忆有变化才设置 */
   if (S.task_lock){
     taskDlgClose();
+    S.new_conv_pend = Date.now();     // 1.68：标记本端发起的新建（保住新快照）
     flash('正在文件夹「' + S.task_lock + '」内新建对话…', 'var(--blue)');
     sendCmd('new_task_in', S.task_lock);
     return;
@@ -3999,6 +4024,7 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
   /* 1.31：CLI 的「新建」= 真正创建新会话（原普通模式只闪"就绪"零操作，
      导致第二个新建起不来——目录分支保留 task_dir_set 后再创建） */
   taskDlgClose();
+  S.new_conv_pend = Date.now();       // 1.68：标记本端发起的新建（保住新快照）
   flash('正在新建对话…', 'var(--blue)');
   sendCmd('new_task_in', null);
 };
