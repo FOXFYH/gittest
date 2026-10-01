@@ -1875,7 +1875,12 @@ function renderMsgs(msgs, finish, opts, ask){
        + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80)
        + '#more:' + (S.loadingMore ? 1 : 0)
        /* 1.57：折叠条展开/收起参与指纹（否则展开后不重画） */
-       + '#fold:' + Object.keys(S.foldOpen).filter(k => S.foldOpen[k]).join(',');
+       + '#fold:' + Object.keys(S.foldOpen).filter(k => S.foldOpen[k]).join(',')
+       /* 1.67：托管排队条也画在本函数里（挂在聊天记录末尾），队列的增删/改序/
+          取回必须参与指纹，否则「只队列变了」时会被上面的早退跳过、不重画。 */
+       + '#q:' + ((S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue
+           .map(x => ((x && x.id) || '') + ':' + String((x && x.text) || '').length)
+           .join(',') : '');
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
