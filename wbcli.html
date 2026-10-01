@@ -405,18 +405,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   margin:4px 0;}
 #chanok{width:100%; padding:11px 0; font-weight:bold; font-size:15px;
   color:#fff; background:var(--blue); border:none; border-radius:8px;}
-/* 1.xx：最大化/全屏预警条（紧贴顶栏下方，置顶警示） */
-#fullswarn{position:fixed; top:0; left:0; right:0; z-index:1200;
-  background:#fff8e1; border-bottom:1px solid #f0c674; color:#7a5b00;
-  font-size:13px; padding:6px 10px 8px; box-shadow:0 2px 6px rgba(0,0,0,.12);}
-#fullswarn .fsw_row{display:flex; align-items:flex-start; gap:6px; line-height:1.4;}
-#fullswarn b{white-space:nowrap; color:#b26a00;}
-#fullswarn .fsw_btns{display:flex; gap:8px; margin-top:6px;}
-#fullswarn .fsw_btns button{flex:1; padding:7px 0; border:none; border-radius:6px;
-  font-size:13px; font-weight:bold; cursor:pointer;}
-#fullswarn .fsw_btns button:first-child{background:#fff3d6; color:#8a5a00;
-  border:1px solid #e6b04a;}
-#fullswarn .fsw_btns button:last-child{background:#b26a00; color:#fff;}
 </style>
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
@@ -438,19 +426,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div id="qd_row" style="display:none;">插话排队中：<span id="lbl_q" style="color:#c62828;font-weight:bold;">0</span> 条待 AI 处理</div>
   <!-- 1.52：托管发送队列——AI 忙时发出的消息挂在这里，本轮跑完由服务端逐条自动送出 -->
   <div id="queue_row" style="display:none;"></div>
-</div>
-
-<!-- 1.xx：最大化/全屏预警条（服务端 fullscreen_warn 事件驱动；另由切换
-     反复失败等兜底触发）。「稍后提醒」=15分钟，「近期不要再提醒」=6小时。 -->
-<div id="fullswarn" style="display:none;">
-  <div class="fsw_row">
-    <b>⚠️ 最大化/全屏预警</b>
-    <span id="fsw_txt"></span>
-  </div>
-  <div class="fsw_btns">
-    <button onclick="fullsLater()">稍后提醒（15分钟）</button>
-    <button onclick="fullsQuiet()">近期不要再提醒（6小时）</button>
-  </div>
 </div>
 
 <div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
@@ -572,13 +547,10 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div class="row" style="gap:8px; margin-top:8px;">
         <button id="btn_netreconn" style="flex:1;">立即重连</button>
         <button id="btn_nettest" style="flex:1;">测电脑端回应（5s）</button>
-        <button id="btn_check_fulls" style="flex:1;">检测最大化</button>
       </div>
       <div class="row" style="gap:8px; margin-top:8px;">
         <button id="btn_diagcopy" style="flex:1;">📋 复制诊断信息</button>
       </div>
-      <div class="row"><span class="hint">检测当前是否有窗口最大化/全屏压制原版渲染</span>
-        <b id="lbl_fulls" class="diagv">—</b></div>
     </fieldset>
     <fieldset data-page-node-id="FFEkTqPDyCvWYOBJYHsezc">
       <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
@@ -934,10 +906,6 @@ const S = {
   /* F7：切换失败观察——超时兜底重拉 hello 后，下一拍仍未激活目标
      会话时轻提示「切换未完成」（一次性，消费即清） */
   _swFail: null,
-  /* 1.xx：最大化/全屏预警——fulls_snooze=静默截止时刻（毫秒时间戳，
-     稍后提醒15分钟 / 近期不再提醒6小时）；falls_fail=切换连续失败计数
-     （兜底触发预警用，成功到达归零） */
-  fulls_snooze: 0, falls_fail: 0,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts,seen}）+ 当前操控的服务端名（localStorage 记忆）
      1.43：seen=最后出现毫秒（落盘 LS_SRVS）*/
@@ -985,7 +953,6 @@ const el = {
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
   diagcopy: $('btn_diagcopy'),
-  check_fulls: $('btn_check_fulls'), lbl_fulls: $('lbl_fulls'),
   netclear: $('btn_netclear'), lbl_title: $('lbl_title'), lbl_ver: $('lbl_ver'),
   bench: $('btn_bench'), benchpage: $('page_bench'),
   benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
@@ -998,7 +965,6 @@ const el = {
   td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'),
   checkin: $('btn_checkin'),
   fexit: $('fexit'),
-  fsw: $('fullswarn'), fsw_txt: $('fsw_txt'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
   favlist: $('fav_list'),
@@ -1800,7 +1766,6 @@ function pendSwitchSet(title, disp){
     /* 1.28：幂等点击只在占位仍在时刷新计时，内容已到（占位已清）不
        重复置位，避免真内容渲染后再闪「加载」占位 */
     if (S.loadingConv) S.loadingConv = {title: title, ts: Date.now(), disp: view};
-    fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
     return;
   }
   S.switch_pend = {title: title, ts: Date.now(),
@@ -1811,84 +1776,12 @@ function pendSwitchSet(title, disp){
      到达、switch_pend 清掉后自然接上，视觉无双条 */
   S.loadingConv = {title: title, ts: Date.now(), disp: view};
   S._swFail = null;                    /* F7：新切换开始，撤销旧失败观察 */
-  fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   renderAll();
-}
-/* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中(state 未
-   落地且消息区空)且联网正常，弹确认框问是否查询最大化压制；用户确认
-   才发 check_fulls（每切换只问一次，不自动查）。 */
-const FULLS_CHECK_DELAY = 15000;
-function fullsCheckRearm(title){
-  clearTimeout(S._fullsCheckTimer);
-  S._fullsCheckTimer = setTimeout(() => fullsCheckFire(title),
-                                  FULLS_CHECK_DELAY);
-}
-function fullsCheckFire(title){
-  if (!S.switch_pend || S.switch_pend.title !== title) return;  // 已落地/已切换
-  const empty = !(S.snap.msgs || []).length
-    && !(el.msgs && el.msgs.querySelector('.msg'));
-  if (!empty) return;                    // 内容已到，不打扰
-  if (!S.onLine) return;                 // 仅 WS 连通时才问（网络正常前提）
-  confirmFulls(
-    '切换对话超过 15 秒仍未载入内容，是否查询是否有窗口最大化/全屏压制原版渲染？',
-    () => sendCmd('check_fulls'));
 }
 function pendSwitchClear(){
   if (!S.switch_pend) return false;
   S.switch_pend = null;
   return true;
-}
-
-/* ========== 1.xx：最大化/全屏预警条 ========== */
-const FULLS_LATER = 15 * 60 * 1000;    // 稍后提醒：15 分钟后再提醒
-const FULLS_QUIET = 6 * 60 * 60 * 1000; // 近期不要再提醒：6 小时内不再提醒
-function fullsShow(msg){
-  if (Date.now() < S.fulls_snooze) return;   // 静默期内忽略新预警
-  S.fulls_show = true;
-  el.fsw_txt.textContent = msg || '';
-  el.fsw.style.display = 'flex';
-}
-function fullsHide(){
-  S.fulls_show = false;
-  el.fsw.style.display = 'none';
-}
-function fullsLater(){                     // 稍后提醒：静默 15 分钟
-  S.fulls_snooze = Date.now() + FULLS_LATER;
-  fullsHide();
-}
-function fullsQuiet(){                     // 近期不再提醒：静默 6 小时
-  S.fulls_snooze = Date.now() + FULLS_QUIET;
-  fullsHide();
-}
-/* 1.xx：通用确认弹窗（轻量覆盖层）——onOk 为空安全。 */
-function confirmFulls(msg, onOk){
-  const old = $('fconfirm');
-  if (old) old.remove();
-  const ov = document.createElement('div');
-  ov.id = 'fconfirm';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:95;background:'
-    + 'rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;';
-  const box = document.createElement('div');
-  box.style.cssText = 'background:#fff;border-radius:12px;max-width:320px;'
-    + 'width:88%;padding:16px 16px calc(14px);box-sizing:border-box;';
-  const txt = document.createElement('div');
-  txt.style.cssText = 'font-size:14px;line-height:1.6;color:#222;margin-bottom:14px;';
-  txt.textContent = msg;
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
-  const mk = (label, cls, fn) => {
-    const b = document.createElement('button');
-    b.textContent = label;
-    b.style.cssText = 'min-height:36px;padding:4px 14px;border-radius:8px;'
-      + (cls ? 'border-color:var(--blue);background:var(--blue);color:#fff;'
-             : 'color:var(--gray);');
-    b.onclick = () => { ov.remove(); if (fn) fn(); };
-    return b;
-  };
-  row.appendChild(mk('取消', '', null));
-  row.appendChild(mk('查询', 'primary', onOk));
-  box.appendChild(txt); box.appendChild(row); ov.appendChild(box);
-  document.body.appendChild(ov);
 }
 
 /* F1：单条消息指纹——m[1] 只取 len+首尾各 24 字符做 djb2（生成中文本
@@ -2673,7 +2566,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.63';
+const VER = '1.64';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
@@ -3181,12 +3074,6 @@ function onEv(kind, v){
         const timedout = Date.now() - S.switch_pend.ts > SWITCH_TO_MS;
         if ((act && act[1] === S.switch_pend.title && arrived) || !has
             || timedout){
-          /* 1.xx：切换结束判定——成功到达(内容有变)归零失败计数；失败/
-             超时不再自动弹横幅，改由 fullsCheckFire 在 15s 判空后弹确认
-             框问是否查询最大化（被动，经确认才查）。 */
-          if (act && act[1] === S.switch_pend.title && arrived){
-            S.falls_fail = 0;
-          }
           /* 1.xx：超时/迟到（目标快照没按时到）→ 主动拉即时全量，
              避免界面停留在旧内容/「未就绪」观感等 24s 才缓过来 */
           if (timedout && !arrived){
@@ -3262,11 +3149,6 @@ function onEv(kind, v){
       renderAll();
       break;
     }
-    case 'fullscreen_warn':                  /* 1.xx：最大化检测结果（前端主动查出） */
-      if (el.lbl_fulls) el.lbl_fulls.textContent = (v && v.msg) || '—';
-      if (v && v.on) fullsShow(v.msg);   /* 有压制时仍横幅提醒 */
-      else fullsHide();
-      break;
     /* ── 1.53：托管队列「真取回修改」事件 ── */
     case 'queue_recall_ok':                  /* 取回成功：该条已从队列撤下（真撤下），
                                                 原文交回前端进输入框改 */
@@ -4143,11 +4025,6 @@ el.diagcopy.onclick = () => {
   DIAG.log.forEach(l =>
     out.push(new Date(l.t).toLocaleTimeString() + '  ' + l.txt));
   copyText(out.join('\n'));
-};
-/* 1.xx：被动查询最大化/全屏——前端发起，服务端即时检测回投一次结果 */
-el.check_fulls.onclick = () => {
-  el.lbl_fulls.textContent = '查询中…';
-  sendCmd('check_fulls');
 };
 // 1.xx：保存原有打开逻辑，追加诊断刷新（打开瞬间刷一次当前状态）
 const _old_on_net_click = el.net.onclick;
