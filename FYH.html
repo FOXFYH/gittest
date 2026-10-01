@@ -62,8 +62,9 @@
   .app-card .status.stop { background: #fafafa; color: #888; border: 1px solid #ddd; }
   .app-card .status.nainst { background: #fff8e1; color: #b26a00; border: 1px solid #f0e0b0; }
   .app-card .tip { font-size: 12px; color: #b26a00; background: #fff8e1; border-radius: 6px; padding: 6px 8px; margin-bottom: 10px; line-height: 1.5; }
-  .app-card .btns { display: flex; gap: 8px; }
-  .app-card .btns .btn { flex: 1; min-height: 42px; font-size: 15px; }
+  /* 一行两段：左侧紧凑按钮组 + 右侧「保活」开关（省掉独立一行，卡片只占两排） */
+  .app-card .btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .app-card .btns .btn { flex: 0 0 auto; min-width: 62px; min-height: 34px; font-size: 13px; padding: 0 12px; border-radius: 7px; }
   .btn {
     border: 1px solid #bbb; background: #fff; color: #333; border-radius: 8px;
     cursor: pointer; font-size: 13px; transition: all .15s; user-select: none;
@@ -74,12 +75,12 @@
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #333; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  /* ===== 自动保活开关 ===== */
+  /* ===== 自动保活开关（并入按钮行右侧，不再独占一行） ===== */
   .ka {
-    display: flex; align-items: center; gap: 8px; margin-top: 10px;
-    padding-top: 10px; border-top: 1px dashed #eee; font-size: 13px; color: #666;
+    display: flex; align-items: center; gap: 6px; margin-left: auto;
+    font-size: 13px; color: #666; flex-shrink: 0;
   }
-  .ka .sw { margin-left: auto; position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+  .ka .sw { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
   .ka .sw input { display: none; }
   .ka .sw i { display: block; width: 44px; height: 24px; border-radius: 12px; background: #ccc; transition: .15s; }
   .ka .sw i::after {
@@ -118,7 +119,7 @@
 </head>
 <body>
 <header>
-  <h1>FYH 远程控制面板 v1.05</h1>
+  <h1>FYH 远程控制面板 v1.06</h1>
   <span id="wsDot" class="dot off"></span>
   <span id="statusText">未连接</span>
   <button id="logToggle" class="mini">日志</button>
@@ -142,8 +143,10 @@
 <script>
 "use strict";
 // ============================================================
-// FYH 远程控制面板  v1.05
+// FYH 远程控制面板  v1.06
 // ------------------------------------------------------------
+// 1.06   应用卡片紧凑化：打开/重启/关闭三按钮缩窄变矮（不再占满整行），
+//        右侧空位并入「保活：」开关（含原独立一行），卡片由三排压成两排
 // 1.05   多电脑管理：设备按 ID 识别（昵称仅显示，可重名），指令带 target_id；
 //        每个应用新增「自动保活」开关（keep_alive_set，写回设备端 apps.json）
 // 1.04   频道独立：由 jtb 迁到独立公共频道 fyhbus（多应用共用，各走各的协议头；
@@ -377,10 +380,10 @@ function renderApps() {
         '<button class="btn primary" data-act="app_open"' + disabled + '>打开</button>' +
         '<button class="btn" data-act="app_restart"' + disabled + '>重启</button>' +
         '<button class="btn danger" data-act="app_close"' + disabled + '>关闭</button>' +
-      '</div>' +
-      '<div class="ka"><span>自动保活（掉线自动拉起）</span>' +
-        '<label class="sw"><input type="checkbox" data-ka="1"' +
-          (app.keep_alive ? ' checked' : '') + (installed ? '' : ' disabled') + '><i></i></label>' +
+        '<div class="ka"><span>保活：</span>' +
+          '<label class="sw"><input type="checkbox" data-ka="1"' +
+            (app.keep_alive ? ' checked' : '') + (installed ? '' : ' disabled') + '><i></i></label>' +
+        '</div>' +
       '</div>';
     card.querySelectorAll("button").forEach(btn => {
       btn.onclick = () => sendRC({ cmd: btn.dataset.act, target_id: selectedDevice, key: app.key });
