@@ -6,24 +6,26 @@
 <title>看图</title>
 <!--
   ============================================================
-  看图软件 · 相册网页（"脸"）  v0.11
+  看图软件 · 相册网页（"脸"）  v0.12
   ------------------------------------------------------------
-  本页可以放在云端（GitHub Pages）跑，也可以放在手机本地跑。
-  网页自己**读不到**手机相册（安卓不给网页读 /sdcard），
-  所以它由《相册壳.js》套着跑：
-    壳（有权限）扫目录 → wv.evaluateJavascript 把名单灌进来
-    → 本页的 收到相册(列表) 负责画出来。
-  ★ 图片地址：云端页是 https，直接写 file:// 会被 WebView 拦死。
-    所以本页把图片地址写成 https://kantu.local/img?p=<路径>，
-    壳在 shouldInterceptRequest 里拦住这个假域名，改从本地文件流读。
-    （https 页请求 https 域名，不会撞"混合内容"拦截）
-  网页 → 壳：点"刷新"时跳 autox://刷新，壳在 shouldOverrideUrlLoading 里截住。
+  本页是纯前端，**不碰手机文件**；它的图来自"壳"：
+    壳（有权限）扫目录 → wv.evaluateJavascript 把名单灌进来 → 本页画出来。
+  图片地址走假域名 https://kantu.local/img?p=<路径>，
+  由《相册壳.js》用 shouldInterceptRequest 从本地文件流读出来还给本页
+  （这样即使本页挂在云端 https 上，也照样能显示手机里的照片）。
+
+  本版新增（全部纯网页，改这里不用动壳）：
+    · 大图双指捏合缩放 + 缩放后拖动平移（双击放大/还原）
+    · 缩略图列数切换 3/4/5 列
+    · 按文件名搜索
+    · 分组切换：按日期 / 按文件夹
+    · 收藏（★，存本地）+「只看收藏」
 
   数据结构（壳送来的一串）：
     [ { p:"/storage/.../IMG_1.jpg",   // 完整路径
         n:"IMG_1.jpg",               // 文件名
         t:"10-01 21:36",             // 时间文本
-        m:1759316170000,             // 修改时间(毫秒，排序/分组用)
+        m:1759316170000,             // 修改时间(毫秒，排序用)
         s:2048 }, ... ]              // 大小(KB)
   单独在电脑浏览器里打开本页 → 只会看到"壳还没送名单"的提示，属正常。
   ============================================================
@@ -31,7 +33,8 @@
 <style>
   :root{
     --bg:#0f1012; --card:#1a1c20; --text:#e8e8ea; --muted:#8a8f98;
-    --line:rgba(255,255,255,.08); --btn:#2a2d33; --btn-on:#3a3e45; --accent:#e8c46a;
+    --line:rgba(255,255,255,.08); --btn:#2a2d33; --btn-on:#4a4f58;
+    --cols:3;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%}
@@ -41,25 +44,36 @@
   }
   header{
     position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:8px;
-    padding:8px 12px; border-bottom:1px solid var(--line);
+    padding:8px 12px 6px; border-bottom:1px solid var(--line);
     background:rgba(15,16,18,.94);
   }
   header h1{margin:0; font-size:16px; font-weight:600}
-  header .ver{color:var(--muted); font-size:10px; margin-top:2px}
+  header .ver{color:var(--muted); font-size:11px}
   header .cnt{color:var(--muted); font-size:12px}
   header .sp{flex:1}
   button{
     background:var(--btn); color:var(--text); border:1px solid var(--line);
     border-radius:8px; padding:6px 12px; font-size:13px; font-family:inherit;
   }
-  button:active{background:var(--btn-on)}
-
-  /* 分组标题 */
-  .gdate{
-    padding:10px 12px 6px; color:var(--muted); font-size:12px; font-weight:600;
-    position:sticky; top:52px; background:rgba(15,16,18,.92); z-index:3;
+  button:active{background:#54595f}
+  button.on{background:var(--btn-on); border-color:rgba(255,255,255,.3)}
+  /* 第二行工具条：搜索 + 列数 + 分组 + 收藏 */
+  .bar{
+    position:sticky; top:41px; z-index:5; display:flex; align-items:center; gap:6px;
+    padding:6px 8px; border-bottom:1px solid var(--line);
+    background:rgba(15,16,18,.94); overflow-x:auto;
   }
-  #grid{display:grid; grid-template-columns:repeat(3,1fr); gap:3px; padding:3px 3px 0}
+  .bar input{
+    flex:1; min-width:92px; background:var(--card); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:6px 10px;
+    font-size:13px; font-family:inherit; outline:none;
+  }
+  .bar button{padding:6px 10px; font-size:12px; white-space:nowrap}
+  #grid{display:grid; grid-template-columns:repeat(var(--cols),1fr); gap:3px; padding:3px 3px 48px}
+  .gdate{
+    grid-column:1/-1; padding:9px 4px 3px; color:var(--muted); font-size:12px;
+    background:var(--bg); position:sticky; top:82px;
+  }
   .cell{position:relative; aspect-ratio:1/1; overflow:hidden; border-radius:4px; background:var(--card)}
   .cell img{width:100%; height:100%; object-fit:cover; display:block}
   .cell .bad{
@@ -70,53 +84,61 @@
     position:absolute; left:0; right:0; bottom:0; padding:3px 5px; font-size:10px;
     color:#fff; background:linear-gradient(transparent,rgba(0,0,0,.7));
   }
-  #foot{height:44px}
+  .cell .star{
+    position:absolute; top:3px; right:4px; font-size:13px; line-height:1;
+    color:#ffcf4d; text-shadow:0 1px 3px rgba(0,0,0,.8);
+  }
   .hint{padding:36px 24px; text-align:center; color:var(--muted); font-size:13px; line-height:1.9}
   .hint b{color:var(--text); font-weight:600}
-
-  /* 看大图 */
   #view{
-    position:fixed; inset:0; z-index:20; display:none; flex-direction:column;
-    background:#000; touch-action:none;
+    position:fixed; inset:0; z-index:20; display:none;
+    flex-direction:column; background:#000;
   }
   #view.on{display:flex}
   #vtop{
-    display:flex; align-items:center; gap:8px; padding:10px 12px; color:#fff;
-    background:linear-gradient(rgba(0,0,0,.7),transparent); position:absolute; left:0; right:0; top:0; z-index:2;
+    display:flex; align-items:center; gap:8px; padding:8px 12px;
+    color:var(--text); background:rgba(0,0,0,.55); font-size:12px;
   }
-  #vname{font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:52%}
-  #vidx{font-size:12px; color:#b9bec7}
+  #vtop .nm{font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   #vtop .sp{flex:1}
-  #vtop button{background:rgba(255,255,255,.16); border:0; border-radius:50%; width:38px;height:38px; padding:0; font-size:18px; line-height:1; color:#fff}
-  #vstage{flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative}
-  #big{max-width:100%; max-height:100%; object-fit:contain; transition:transform .18s ease; transform-origin:center center}
-  #big.zoom{transform:scale(2.2)}
-  .nav{
-    position:absolute; top:0; bottom:0; width:34%; z-index:2; display:flex; align-items:center;
-    color:#fff; font-size:26px; opacity:.5; user-select:none;
+  #vtop button{
+    width:34px; height:34px; padding:0; border-radius:50%; border:0;
+    background:rgba(255,255,255,.16); color:#fff; font-size:16px; line-height:34px;
   }
-  .nav#prev{left:0; justify-content:flex-start; padding-left:12px}
-  .nav#next{right:0; justify-content:flex-end; padding-right:12px}
-  #vinfo{
-    position:absolute; left:0; right:0; bottom:0; padding:9px 12px; color:#cfd3da; font-size:11px;
-    background:linear-gradient(transparent,rgba(0,0,0,.75)); z-index:2;
+  #vstage{
+    flex:1; position:relative; display:flex; align-items:center; justify-content:center;
+    overflow:hidden; touch-action:none;
   }
+  #big{max-width:100%; max-height:100%; object-fit:contain; transform-origin:center center}
+  #vbot{padding:6px 12px calc(8px + env(safe-area-inset-bottom)); color:var(--muted); font-size:11px; text-align:center}
+  #vnav{position:absolute; inset:0; pointer-events:none}
+  #vnav button{
+    position:absolute; top:50%; transform:translateY(-50%); width:40px; height:60px;
+    padding:0; border:0; background:rgba(255,255,255,.10); color:#fff; font-size:20px;
+    pointer-events:auto;
+  }
+  #prev{left:0; border-radius:0 8px 8px 0}
+  #next{right:0; border-radius:8px 0 0 8px}
 </style>
 </head>
 <body>
 
 <header>
-  <div>
-    <h1>看图</h1>
-    <div class="ver" id="ver">v0.11</div>
-  </div>
+  <h1>看图</h1>
+  <span class="ver" id="ver">v0.12</span>
   <span class="cnt" id="cnt">等待壳送数据…</span>
   <span class="sp"></span>
   <button id="refresh">刷新</button>
 </header>
 
+<div class="bar">
+  <input id="q" type="search" placeholder="搜文件名…">
+  <button id="colsbtn">3列</button>
+  <button id="groupbtn">按日期</button>
+  <button id="favbtn">★收藏</button>
+</div>
+
 <div id="grid"></div>
-<div id="foot"></div>
 
 <div class="hint" id="hint">
   正在等"壳"把本地相册名单送过来…<br>
@@ -125,33 +147,64 @@
 
 <div id="view">
   <div id="vtop">
-    <span id="vname"></span>
+    <span class="nm" id="vname"></span>
     <span id="vidx"></span>
     <span class="sp"></span>
-    <button id="close">✕</button>
+    <button id="vstar" title="收藏">☆</button>
+    <button id="close" title="关闭">✕</button>
   </div>
   <div id="vstage">
-    <div class="nav" id="prev">‹</div>
     <img id="big" alt="">
-    <div class="nav" id="next">›</div>
+    <div id="vnav"><button id="prev">‹</button><button id="next">›</button></div>
   </div>
-  <div id="vinfo"></div>
+  <div id="vbot"></div>
 </div>
 
 <script>
-// ============ 壳 → 网页 的唯一入口 ============
-// 壳扫完相册会调 window.收到相册([...])，数据从这进来。
-var 已收到 = false;
-var 列表表 = [];      // 当前全部图片
-var 当前序 = -1;      // 大图当前看第几张
-var 假域名 = 'https://kantu.local/img?p=';   // 壳会拦这个域名，改从本地文件读
+// ============ 假域名：壳靠它把"本地文件"伪装成"网页请求" ============
+var 假域名 = 'https://kantu.local/img?p=';
 
 function 文件地址(p) {
-  // 不能直接写 file://（云端 https 页会被拦死），一律走壳的拦截通道
   try { return 假域名 + encodeURIComponent(String(p || '')); }
   catch (e) { return 假域名 + String(p || ''); }
 }
 
+// ============ 全局状态 ============
+var 已收到 = false;
+var 全部 = [];        // 壳送来的全量
+var 视图 = [];        // 过滤后真正显示的
+var 当前序 = -1;      // 在「视图」里的下标
+
+var 搜索词 = '';
+var 分组 = '日期';     // '日期' | '文件夹'
+var 只收藏 = false;
+var 列数 = 3;
+
+// 收藏：存手机本地（WebView 的 localStorage），路径当键
+var 收藏集 = {};
+try {
+  var 存 = JSON.parse(localStorage.getItem('kantu.fav') || '[]') || [];
+  for (var i = 0; i < 存.length; i++) 收藏集[存[i]] = 1;
+} catch (e) {}
+
+function 存收藏() {
+  try { localStorage.setItem('kantu.fav', JSON.stringify(Object.keys(收藏集))); } catch (e) {}
+}
+function 是收藏(p) { return !!收藏集[p]; }
+function 切收藏(p) {
+  if (收藏集[p]) delete 收藏集[p]; else 收藏集[p] = 1;
+  存收藏();
+}
+
+// 记一下用户选过的列数 / 分组
+try {
+  var c = parseInt(localStorage.getItem('kantu.cols'), 10);
+  if (c === 3 || c === 4 || c === 5) 列数 = c;
+  var g = localStorage.getItem('kantu.group');
+  if (g === '文件夹') 分组 = '文件夹';
+} catch (e) {}
+
+// ============ 时间/大小/分组小工具 ============
 function 日期键(ms) {
   try {
     var d = new Date(ms);
@@ -160,39 +213,72 @@ function 日期键(ms) {
   } catch (e) { return '未知日期'; }
 }
 
+function 文件夹名(p) {
+  var s = String(p || '').replace(/\\/g, '/');
+  var i = s.lastIndexOf('/');
+  if (i <= 0) return '其他';
+  var j = s.lastIndexOf('/', i - 1);
+  return j >= 0 ? s.slice(j + 1, i) : s.slice(0, i);
+}
+
 function 大小文本(kb) {
   var k = Number(kb) || 0;
-  if (k >= 1024) return (k/1024).toFixed(1) + ' MB';
+  if (k >= 1024) return (k / 1024).toFixed(1) + ' MB';
   return k + ' KB';
 }
 
+// ============ 壳 → 网页 的唯一入口 ============
 function 收到相册(列表) {
   已收到 = true;
-  列表表 = 列表 || [];
+  全部 = 列表 || [];
+  刷新筛选('壳送了新名单');
+}
+
+// 过滤（搜索 / 只看收藏）→ 画网格
+function 刷新筛选(备注) {
+  var 词 = 搜索词;
+  视图 = [];
+  for (var i = 0; i < 全部.length; i++) {
+    var it = 全部[i];
+    if (只收藏 && !收藏集[it.p]) continue;
+    if (词 && String(it.n || '').toLowerCase().indexOf(词) < 0) continue;
+    视图.push(it);
+  }
+  计数();
+  画网格(备注 === '切收藏' ? true : false);
+}
+
+function 计数() {
+  var 计 = document.getElementById('cnt');
+  if (视图.length === 全部.length) 计.textContent = 全部.length + ' 张';
+  else 计.textContent = 视图.length + ' / ' + 全部.length + ' 张';
+}
+
+// 画网格；保滚动 = 保持当前滚动位置（收藏/切换分组时别跳回顶部）
+function 画网格(保滚动) {
   var 网格 = document.getElementById('grid');
   var 提示 = document.getElementById('hint');
-  var 计数 = document.getElementById('cnt');
+  var 旧滚动 = window.scrollY;
 
   网格.innerHTML = '';
 
-  if (!列表表.length) {
-    计数.textContent = '0 张';
+  if (!视图.length) {
     提示.style.display = 'block';
-    提示.innerHTML = '<b>没扫到图片。</b><br>' +
-      '<span style="font-size:12px">看看 DCIM/Camera、Pictures 里有没有照片；' +
-      '或者加图后点右上角"刷新"。</span>';
+    提示.innerHTML = 全部.length
+      ? '<b>这个条件下没有照片。</b><br><span style="font-size:12px">换个搜索词试试，或把「★收藏」关掉。</span>'
+      : '<b>没扫到图片。</b><br><span style="font-size:12px">看看 DCIM/Camera、Pictures 里有没有照片；' +
+        '或者加图后点右上角"刷新"。</span>';
     return;
   }
-
   提示.style.display = 'none';
-  计数.textContent = 列表表.length + ' 张';
+  网格.style.setProperty('--cols', 列数);
 
   var 片 = document.createDocumentFragment();
   var 上键 = '';
-  for (var i = 0; i < 列表表.length; i++) {
+  for (var i = 0; i < 视图.length; i++) {
     (function (it, idx) {
-      var 键 = 日期键(it.m);
-      if (键 !== 上键) {                    // 按日期插分组标题
+      var 键 = (分组 === '日期') ? 日期键(it.m) : 文件夹名(it.p);
+      if (键 !== 上键) {                       // 插分组标题
         上键 = 键;
         var 头 = document.createElement('div');
         头.className = 'gdate';
@@ -218,24 +304,42 @@ function 收到相册(列表) {
         时.textContent = it.t;
         格.appendChild(时);
       }
+      if (是收藏(it.p)) {
+        var 星 = document.createElement('div');
+        星.className = 'star';
+        星.textContent = '★';
+        格.appendChild(星);
+      }
 
       格.onclick = function () { 看大图(idx); };
       片.appendChild(格);
-    })(列表表[i], i);
+    })(视图[i], i);
   }
   网格.appendChild(片);
+
+  if (保滚动) { try { window.scrollTo(0, 旧滚动); } catch (e) {} }
 }
 
-// ============ 看大图 ============
+// ============ 大图 ============
+var 缩放 = 1, 平移X = 0, 平移Y = 0;
+var 大 = document.getElementById('big');
+
+function 应用变换(动画) {
+  大.style.transition = 动画 ? 'transform .18s ease' : 'none';
+  大.style.transform = 'translate(' + 平移X + 'px,' + 平移Y + 'px) scale(' + 缩放 + ')';
+}
+function 复位变换() { 缩放 = 1; 平移X = 0; 平移Y = 0; 应用变换(true); }
+
 function 刷新大图() {
-  if (当前序 < 0 || 当前序 >= 列表表.length) return;
-  var it = 列表表[当前序];
-  var 大 = document.getElementById('big');
-  大.classList.remove('zoom');
+  if (当前序 < 0 || 当前序 >= 视图.length) return;
+  var it = 视图[当前序];
+  复位变换();
   大.src = 文件地址(it.p);
+
   document.getElementById('vname').textContent = it.n || '';
-  document.getElementById('vidx').textContent = (当前序 + 1) + ' / ' + 列表表.length;
-  document.getElementById('vinfo').textContent = (it.t || '') + '    ' + 大小文本(it.s);
+  document.getElementById('vidx').textContent = (当前序 + 1) + ' / ' + 视图.length;
+  document.getElementById('vbot').textContent = (it.t || '') + '    ' + 大小文本(it.s);
+  document.getElementById('vstar').textContent = 是收藏(it.p) ? '★' : '☆';
 }
 
 function 看大图(idx) {
@@ -243,53 +347,130 @@ function 看大图(idx) {
   刷新大图();
   document.getElementById('view').classList.add('on');
 }
-
-function 上一张() {
-  if (当前序 > 0) { 当前序--; 刷新大图(); }
-}
-function 下一张() {
-  if (当前序 < 列表表.length - 1) { 当前序++; 刷新大图(); }
-}
+function 上一张() { if (当前序 > 0) { 当前序--; 刷新大图(); } }
+function 下一张() { if (当前序 < 视图.length - 1) { 当前序++; 刷新大图(); } }
 function 关大图() {
   document.getElementById('view').classList.remove('on');
-  document.getElementById('big').src = '';
+  大.src = '';
 }
+
+// 收藏当前这张（若正开着"只看收藏"且取消了收藏，它会从视图里消失）
+document.getElementById('vstar').onclick = function () {
+  if (当前序 < 0 || 当前序 >= 视图.length) return;
+  var p = 视图[当前序].p;
+  切收藏(p);
+  if (只收藏) {
+    刷新筛选('切收藏');
+    var 新序 = -1;
+    for (var i = 0; i < 视图.length; i++) if (视图[i].p === p) { 新序 = i; break; }
+    if (新序 < 0) { 关大图(); return; }
+    当前序 = 新序;
+  } else {
+    刷新筛选('切收藏');
+    当前序 = 视图.indexOf(视图.filter(function (x) { return x.p === p; })[0]);
+  }
+  刷新大图();
+};
 
 document.getElementById('prev').onclick = 上一张;
 document.getElementById('next').onclick = 下一张;
 document.getElementById('close').onclick = 关大图;
 
+// ---- 手势：单指滑动切张 / 双指捏合缩放 / 缩放后单指拖动平移 ----
+var 舞台 = document.getElementById('vstage');
+var 手势 = null, 起距 = 0, 起缩放 = 1, 起X = 0, 起Y = 0, 起平X = 0, 起平Y = 0;
+
+function 两点距(t) {
+  var dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy) || 1;
+}
+
+舞台.addEventListener('touchstart', function (e) {
+  if (e.touches.length >= 2) {
+    手势 = '缩放'; 起距 = 两点距(e.touches); 起缩放 = 缩放;
+  } else {
+    手势 = '拖';
+    起X = e.touches[0].clientX; 起Y = e.touches[0].clientY;
+    起平X = 平移X; 起平Y = 平移Y;
+  }
+}, {passive:true});
+
+舞台.addEventListener('touchmove', function (e) {
+  if (手势 === '缩放' && e.touches.length >= 2) {
+    e.preventDefault();
+    缩放 = Math.max(1, Math.min(6, 起缩放 * (两点距(e.touches) / 起距)));
+    应用变换(false);
+  } else if (手势 === '拖' && 缩放 > 1 && e.touches.length === 1) {
+    e.preventDefault();
+    平移X = 起平X + (e.touches[0].clientX - 起X);
+    平移Y = 起平Y + (e.touches[0].clientY - 起Y);
+    应用变换(false);
+  }
+}, {passive:false});
+
+舞台.addEventListener('touchend', function (e) {
+  // 没放大时才把"单指横滑"当成切上一张/下一张
+  if (手势 === '拖' && 缩放 <= 1 && e.changedTouches.length === 1) {
+    var dx = e.changedTouches[0].clientX - 起X;
+    var dy = e.changedTouches[0].clientY - 起Y;
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx < 0) 下一张(); else 上一张();
+    }
+  }
+  if (缩放 <= 1.02) 复位变换();
+  手势 = null;
+}, {passive:true});
+
 // 双击放大 / 还原
 var 上次点 = 0;
-document.getElementById('big').addEventListener('click', function () {
+大.addEventListener('click', function () {
   var now = Date.now();
   if (now - 上次点 < 300) {
-    this.classList.toggle('zoom');
+    if (缩放 > 1) 复位变换();
+    else { 缩放 = 2.5; 平移X = 0; 平移Y = 0; 应用变换(true); }
     上次点 = 0;
   } else { 上次点 = now; }
 });
 
-// 左右滑动切换
-var 起点X = 0, 起点Y = 0;
-var 舞台 = document.getElementById('vstage');
-舞台.addEventListener('touchstart', function (e) {
-  起点X = e.touches[0].clientX; 起点Y = e.touches[0].clientY;
-}, {passive:true});
-舞台.addEventListener('touchend', function (e) {
-  var dx = e.changedTouches[0].clientX - 起点X;
-  var dy = e.changedTouches[0].clientY - 起点Y;
-  if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)) {
-    if (dx < 0) 下一张(); else 上一张();
-  }
-}, {passive:true});
-
-// 电脑上试（键盘左右键）
+// 电脑上试（键盘左右键 / Esc）
 document.addEventListener('keydown', function (e) {
   if (!document.getElementById('view').classList.contains('on')) return;
   if (e.key === 'ArrowLeft') 上一张();
   if (e.key === 'ArrowRight') 下一张();
   if (e.key === 'Escape') 关大图();
 });
+
+// ============ 工具条：搜索 / 列数 / 分组 / 收藏 ============
+document.getElementById('q').addEventListener('input', function () {
+  搜索词 = String(this.value || '').trim().toLowerCase();
+  刷新筛选();
+});
+
+var 列序 = [3, 4, 5];
+document.getElementById('colsbtn').onclick = function () {
+  var i = 列序.indexOf(列数);
+  列数 = 列序[(i + 1) % 列序.length];
+  this.textContent = 列数 + '列';
+  try { localStorage.setItem('kantu.cols', String(列数)); } catch (e) {}
+  画网格(true);
+};
+
+document.getElementById('groupbtn').onclick = function () {
+  分组 = (分组 === '日期') ? '文件夹' : '日期';
+  this.textContent = (分组 === '日期') ? '按日期' : '按文件夹';
+  try { localStorage.setItem('kantu.group', 分组); } catch (e) {}
+  画网格(true);
+};
+
+document.getElementById('favbtn').onclick = function () {
+  只收藏 = !只收藏;
+  this.classList.toggle('on', 只收藏);
+  刷新筛选();
+};
+
+// 把存好的偏好先显示出来
+document.getElementById('colsbtn').textContent = 列数 + '列';
+document.getElementById('groupbtn').textContent = (分组 === '日期') ? '按日期' : '按文件夹';
 
 // ============ 网页 → 壳：借自定义地址把"刷新"喊给壳听 ============
 // 壳在 shouldOverrideUrlLoading 里截住 autox:// 开头的地址，不真的去打开它。
