@@ -438,6 +438,17 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   border-radius:50%;background:#fff;color:var(--blue);font-size:14px;
   cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
 .foxplay .fpbtn:active{transform:scale(.92);}
+/* ── 1.70：AI 提问卡（(@fox-ask1)...(@fox-ask2) 包夹段）──
+   与语音卡**同一套机制**（同 .foxplay 类、同 ▶ 播放、同 TTS 通道），
+   仅叠一个 .ask 修饰类做「醒目」：琥珀描边 + 暖底 + 加粗琥珀文字 +
+   左侧粗强调条，让提问在长正文里一眼可见（1:1 对齐 TRAE 2.21）。 */
+.foxplay.ask{border:2px solid rgba(230,81,0,.45);
+  border-left:5px solid rgba(230,81,0,.7);
+  background:linear-gradient(135deg,#fff8e1,#fff3e0);
+  box-shadow:0 1px 6px rgba(230,81,0,.15);}
+.foxplay.ask .fpst{background:rgba(230,81,0,.10);}
+.foxplay.ask .fptxt{color:#8a4b00;font-weight:bold;}
+.foxplay.ask .fpbtn{border-color:rgba(230,81,0,.45);color:#e65100;}
 </style>
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
@@ -1141,6 +1152,19 @@ function foxPlayCards(txt, out){
     return '@@FPC' + (out.length - 1) + '@@';
   });
 }
+/* ── 1.70：AI 提问卡（1:1 对齐 TRAE 2.21）——
+   (@fox-ask1) 开头、(@fox-ask2) 结尾包夹段 → 渲染成**醒目的琥珀色提问卡**
+   （比正文抢眼、一眼可见），复用语音卡同一套 ▶ 播放/TTS 通道，可直接听题。
+   与 foxPlayCards 同构：有头就认（结尾可缺、可到消息末尾），末尾残标剪掉。 */
+const FAC_REG = /\(@fox-ask1\s*\)([\s\S]*?)(?:\(@fox-ask2\s*\)|$)/g;
+function foxAskCards(txt, out){
+  return String(txt || '').replace(FAC_REG, (m, p1) => {
+    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
+    if (!seg) return '';
+    out.push(seg);
+    return '@@FAC' + (out.length - 1) + '@@';
+  });
+}
 /* 音色/语速：默认**女声晓晓**（用户 2026-09-30 明确不喜欢原先写死的男声云希）。
    由「设置→语音播报」改，随每次播报一起发给服务端。 */
 if (!CFG.tts_voice) CFG.tts_voice = 'zh-CN-XiaoxiaoNeural';
@@ -1168,16 +1192,18 @@ function ttsStage(seg, st, cl){
     if (s){ s.textContent = o.st; s.style.color = o.cl || 'var(--gray)'; }
   });
 }
-function foxCardHtml(seg){
+function foxCardHtml(seg, ask){
   /* 阶段横幅 .fpst 必须排在最前（长文本撑高也不掉出视线）；空文本时 :empty
-     整条隐藏。按钮图标随播放态出——正在出声的那段显示 ⏸，其余 ▶。 */
+     整条隐藏。按钮图标随播放态出——正在出声的那段显示 ⏸，其余 ▶。
+     1.70：ask=true 时叠 .ask 修饰类（琥珀色提问卡）+ 前置「❓ AI 提问：」标签。 */
   const o = _tts_state[seg];
   const st = o ? o.st : '', cl = o ? o.cl : '';
   const on = _foxOn(seg);
-  return '<div class="foxplay" data-seg="' + esc(seg) + '">'
+  return '<div class="foxplay' + (ask ? ' ask' : '') + '" data-seg="' + esc(seg) + '">'
        + '<div class="fpst"' + (cl ? ' style="color:' + cl + '"' : '')
        + '>' + esc(st) + '</div>'
-       + '<div class="fprow"><span class="fptxt">🔈 ' + esc(seg) + '</span>'
+       + '<div class="fprow"><span class="fptxt">'
+       + (ask ? '❓ AI 提问：' : '🔈 ') + esc(seg) + '</span>'
        + '<button class="fpbtn" title="' + (on ? '暂停' : '播放语音') + '">'
        + (on ? '⏸' : '▶') + '</button></div>'
        + '</div>';
@@ -2292,10 +2318,15 @@ function renderMsgs(msgs, finish, opts, ask){
     if (user){
       bodyHtml = esc(m[1]);
     } else {
-      const fsegs = [];
-      bodyHtml = mdHtml(foxPlayCards(m[1], fsegs));
+      const fsegs = [], asegs = [];
+      /* 1.70：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）互不冲突，
+         先摘语音、后摘提问，再各自回填卡片（提问卡叠 .ask 琥珀色）。 */
+      bodyHtml = mdHtml(foxAskCards(foxPlayCards(m[1], fsegs), asegs));
       fsegs.forEach((ft, n) => {
         bodyHtml = bodyHtml.replace('@@FPC' + n + '@@', foxCardHtml(ft));
+      });
+      asegs.forEach((at, n) => {
+        bodyHtml = bodyHtml.replace('@@FAC' + n + '@@', foxCardHtml(at, true));
       });
     }
     let h = '<div class="who">' + (user ? '我' : 'WorkBuddy')
@@ -2991,7 +3022,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.69';
+const VER = '1.70';   /* 1.70：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
+                         渲染成醒目琥珀色提问卡（左粗条+暖底+加粗），复用语音卡
+                         同一套 ▶ 播放/TTS 通道，可直接听题（1:1 对齐 TRAE 2.21）。
+                         用途：AI 向用户/其他 AI 提问时醒目可见、便于及时作答。 */
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
