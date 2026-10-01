@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.21</title>
+<title>TRAE远程 v2.22</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1497,17 +1497,27 @@ function fmtTime(iso){                    // 北京时间 + 完整日期（YYYY-
      - 老数据：分钟级字符串解析后秒=00，仍可正确显示与参与排序。 */
 }
 function resolveTimes(msgs){
+  /* 2.22：时间以服务端为准——服务端快照给每条消息盖好第 6 位（已格式化的
+     北京秒级串 'YYYY-MM-DD HH:MM:SS'），有则直接显示，不再本地打戳（本地
+     打戳会因手机时区/首见时刻不准）。无第 6 位（老服务端/本地乐观追加行）
+     回退旧本地逻辑。last 统一存「已格式化」串，AI 消息直接沿用，不再二次
+     fmtTime（避免对已格式化串再解析造成时区偏移）。 */
   const cache = timesGet(), title = curTitle(), out = [];
-  let lastU = '';
+  let last = '';
   for (const m of msgs){
-    if (m[0] === 'u'){
+    let t = '';
+    if (m.length > 5 && m[5]){            // 服务端时间戳优先
+      t = String(m[5]);
+      if (m[0] === 'u') last = t;
+    } else if (m[0] === 'u'){
       const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
       if (!cache[k]) cache[k] = new Date().toISOString().slice(0,19);
-      lastU = cache[k];
-      out.push(fmtTime(cache[k]));
+      last = fmtTime(cache[k]);
+      t = last;
     } else {
-      out.push(fmtTime(lastU));           // AI 消息沿用其提问时间
+      t = last;                           // AI 消息沿用其提问时间
     }
+    out.push(t);
   }
   localStorage.setItem(LS_TM, JSON.stringify(cache));
   return out;
@@ -3305,7 +3315,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.21';   /* 2.21：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
+const VER = '2.22';   /* 2.22：消息时间以服务端为准——resolveTimes 优先读 msgs
+                         第 6 位（服务端盖好的北京秒级串）直接显示，不再本地
+                         打戳（本地戳受手机时区/首见时刻影响）。无第 6 位回退
+                         旧本地逻辑。
+                         2.21：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
                          渲染成醒目琥珀色提问卡（左粗条+暖底+加粗），复用语音卡
                          同一套 ▶ 播放/TTS 通道，可直接听题。用途：AI 向用户/
                          其他 AI 提问时醒目可见、便于及时作答（用户 2026-10-01）。
