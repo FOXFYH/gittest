@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.18</title>
+<title>TRAE远程 v2.19</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -769,6 +769,17 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       font-weight:bold;">全量实测</button>
   </div>
   <div id="prof_hint" class="profhint"></div>
+  <!-- 2.19：一键换号迁移（原版换号 + 对话记录智能迁移，填个号码一次到位） -->
+  <div style="flex:none; padding:8px 12px; background:#fff;
+    border-bottom:1px solid var(--bd);">
+    <button id="btn_profswitch" style="width:100%; padding:10px;
+      background:#0a7d32; color:#fff; border:0; border-radius:8px;
+      font-weight:bold; font-size:15px;">🔁 一键换号迁移</button>
+    <div id="prof_swlog" style="display:none; margin-top:8px; max-height:30vh;
+      overflow-y:auto; white-space:pre-wrap; font-size:12px; color:#333;
+      background:#f7f7f7; border:1px solid var(--bd); border-radius:6px;
+      padding:6px 8px;"></div>
+  </div>
   <div id="prof_list"></div>
   <div id="bfoot">显示「谷歌分身助手」管理的历史积分与登录状态；
     立刻实测=真开无界面 Chrome 读官方用量页，耗时数分钟属正常。</div>
@@ -1154,9 +1165,12 @@ function sendCmd(c, a, did, convSid){
      旧服务端忽略多余字段（无 route_send 时退回原 send/interject）。 */
   if (c === 'send' || c === 'interject'){
     const sid = convSid || curSid() || '';
+    /* 2.18：附带网页版【锚定】的 sid——服务端路由若临时把桌面挪去别处
+       发消息，结束时按"网页版为尊"归还到锚定会话（见 会话路由器.anchor）。 */
     const d = {t:'cmd', c:'route_send',
                a:{sid: sid, text: a, mode: (c === 'interject'
-                                            ? 'interject' : 'auto')}};
+                                            ? 'interject' : 'auto'),
+                  anchor: S.anchorSid || ''}};
     if (did) d.did = did;   /* 1.88：did 仅用于消卡回执 */
     sendJson(d);
     return;
@@ -1221,6 +1235,12 @@ const S = {
   histRaw: [],          /* 账本原始记录 [{seq,role,text,tm,can_rev,can_del}] */
   histVer: 0, histHave: 0,   /* 游标：会话版本号 + 已存到的 seq */
   histLoadingPrev: false,    /* 向上补拉老历史防重入 */
+  /* ===== 2.18 锚定：网页版不再无条件跟随 TRAE 当前选中会话 =====
+     用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
+     对话」——别人在电脑版操作别的会话，网页版不跟着跳。anchorSid 为
+     『空』表示尚未锚定（首拍或锚定会话已被删），此时自动吸附到当前
+     选中会话；一旦锚定，除非用户自己切会话/锚定会话消失，否则不换。 */
+  anchorSid: '', anchorTitle: '',
 };
 
 /* ================= DOM 快捷 ================= */
@@ -1271,6 +1291,7 @@ const el = {
   prof: $('btn_prof'), profpage: $('page_prof'),
   profback: $('btn_profback'), profref: $('btn_profref'),
   profhint: $('prof_hint'), proflist: $('prof_list'),
+  profswitch: $('btn_profswitch'), prof_swlog: $('prof_swlog'),
 };
 
 let flashTimer = null;
@@ -1492,6 +1513,56 @@ function curSid(){
   return '';
 }
 
+/* ===== 2.18 锚定：网页版守住自己锚定的会话，不跟随别人在电脑版的切换 ===== */
+function selSidOf(v){
+  const cs = (v && v.convs) || [];
+  for (const r of cs) if (r && r[0] === 'c' && r[2]) return r[4] || '';
+  return '';
+}
+function selTitleOf(v){
+  const cs = (v && v.convs) || [];
+  for (const r of cs) if (r && r[0] === 'c' && r[2]) return r[1] || '';
+  return '';
+}
+function hasSidIn(v, sid){
+  const cs = (v && v.convs) || [];
+  return cs.some(r => r && r[0] === 'c' && (r[4] || '') === sid);
+}
+function adoptSnap(v){
+  /* 用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
+     对话」——别人在电脑版操作别的会话（含会话路由器的临时占用），网页版
+     不跟着跳，甚至「不要让网页版知道自己的对话被人抢走」。
+     做法：来拍快照的选中会话 != 锚定会话时，冻结正文类字段（msgs/
+     inputText/ask/attach/tail…），只并入会话列表，并把选中标志改写到
+     锚定行——curTitle/curSid/ensureHist/renderAll 全按锚定走，零改动。 */
+  const inSid = selSidOf(v), inTitle = selTitleOf(v);
+  /* 未锚定（首拍）：吸附到当前选中会话 */
+  if (!S.anchorSid && inSid){ S.anchorSid = inSid; S.anchorTitle = inTitle; }
+  /* 锚定会话已消失（被删/改名到认不出）：改锚到当前选中，放行原快照 */
+  if (S.anchorSid && !hasSidIn(v, S.anchorSid)){
+    S.anchorSid = inSid; S.anchorTitle = inTitle;
+    return v;
+  }
+  /* 用户自己的切换在途：放行原快照，等切换定论（不与锚定抢） */
+  if (S.switch_pend) return v;
+  const stolen = !!(S.anchorSid && inSid && inSid !== S.anchorSid);
+  if (!stolen) return v;
+  const old = S.snap || {};
+  v.convs = (v.convs || []).map(r => (r && r[0] === 'c')
+      ? [r[0], r[1], (r[4] || '') === S.anchorSid, r[3], r[4]] : r);
+  v.msgs = Array.isArray(old.msgs) ? old.msgs : (v.msgs || []);
+  v.finish = old.finish;
+  v.inputText = old.inputText || '';
+  v.ask = old.ask || null;
+  v.attach = old.attach || [];
+  v.tail = old.tail;
+  v.sendIdle = old.sendIdle;
+  v.pend = Array.isArray(old.pend) ? old.pend : (v.pend || []);
+  v.opts = old.opts || [];
+  S.anchorTitle = selTitleOf(v) || S.anchorTitle;
+  return v;
+}
+
 /* ================= 渲染 ================= */
 
 function renderAll(){
@@ -1611,6 +1682,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
         if (!flag){
           /* v1.95：优先按稳定 ID 切换（改名/重排不切错），无 ID 回退序号 */
+          /* 2.18 锚定：用户主动点会话行 = 自己换锚点；此后网页版守着这个
+             会话，别人在电脑版操作别的会话也不会把网页版带走。 */
+          S.anchorSid = sid || ''; S.anchorTitle = title || '';
           pendSwitchSet(title, sid);   /* 1.09：切换在途提示（0.8~6s）*/
           foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
           flash('正在切换到「' + title + '」…', 'var(--blue)');
@@ -3196,7 +3270,12 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.18';   /* 2.18：分身状态页每行新增「补登录」按钮——借服务端
+const VER = '2.19';   /* 2.19：分身状态页新增「一键换号迁移」按钮——填目标号码后由
+                         服务端一站式完成「原版换号（沙盒启动器 origin-login）+
+                         对话记录智能迁移（把最重度账号全部会话换新ID 并入）」；
+                         进度经 switch_migrate 事件流回投（阶段+逐行日志），
+                         分身掉线自动拉起助手补登录、收尾自动关掉拉起的窗口。
+                         2.18：分身状态页每行新增「补登录」按钮——借服务端
                          「谷歌分身助手 / T登录助手」HTTP 接口对指定分身发起
                          自动登录（服务端可选自动拉起分身助手）；结果经
                          profiles_login 事件回投提示。
@@ -3814,7 +3893,7 @@ function onEv(kind, v){
       if (v.msgs === undefined && S.snap && Array.isArray(S.snap.msgs)){
         v.msgs = S.snap.msgs;
       }
-      S.snap = v;
+      S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
       /* 2.31：聊天记录带回的 did（服务端把「原文已落到聊天记录」的对话 ID
          搭快照一起发来）→ 直接按 did 消卡。这是可靠通道（能看到 AI 回复
          即证明它必达），不依赖 did_ack 广播；根治「按 ID 判断后 100% 卡住」。 */
@@ -3886,6 +3965,26 @@ function onEv(kind, v){
       /* 2.18：补登录结果回投（v={name,ok,msg}）。 */
       if (v && v.msg) flash((v.ok ? '✓ ' : '✗ ') + v.msg,
                             v.ok ? 'var(--green)' : 'var(--red)');
+      return;
+    }
+    case 'switch_migrate': {
+      /* 2.19：一键换号迁移进度（v={stage,msg,ok,done,target,log:[...]}）。
+         阶段+逐行日志写进分身页的 #prof_swlog；末条 done 定成败。 */
+      const smLog = (v && v.log) || [];
+      S.switch_mig = { on: !(v && v.done), ok: (v && v.ok), log: smLog };
+      const slog = $('prof_swlog');
+      if (slog){
+        if (smLog.length){
+          slog.style.display = 'block';
+          slog.textContent = smLog.join('\n');
+          slog.scrollTop = slog.scrollHeight;
+        } else { slog.style.display = 'none'; }
+      }
+      if (v && v.msg)
+        flash(v.msg,
+              (v.done && v.ok === false) ? 'var(--red)'
+                : (v.done ? 'var(--green)' : 'var(--blue)'),
+              v.done ? 6000 : 4000);
       return;
     }
     case 'dead':
@@ -4844,6 +4943,56 @@ el.profref.onclick = () => {
   S.prof_run = true;
   renderProf();
 };
+
+/* 2.19：一键换号迁移——填目标号码，服务端一站式完成「原版换号
+   （沙盒启动器 origin-login）+ 对话记录智能迁移（最重度账号全部会话换新ID
+   并入当前账号）」。进度经 switch_migrate 事件流回投到 #prof_swlog。 */
+function switchMigratePrompt(){
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  let ov = $('swmask');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'swmask';
+  ov.style.cssText = 'position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.45);'
+    + 'display:flex; align-items:center; justify-content:center;';
+  ov.innerHTML =
+    '<div style="background:#fff; border-radius:10px; padding:16px; width:86%; max-width:380px;">'
+    + '<div style="font-weight:bold; font-size:15px; margin-bottom:8px;">🔁 一键换号迁移</div>'
+    + '<div style="font-size:12px; color:#555; line-height:1.55; margin-bottom:10px;">'
+    + '把原版 TRAE 换成目标号码的账号，并把「最近最重度使用」账号的全部对话记录'
+    + '换新ID 一并带过来（可直接开始对话）。期间会短暂关闭原版 TRAE（写完自动拉起）；'
+    + '分身若掉线会自动拉起分身助手补登录（弹滑块需人工滑）。</div>'
+    + '<input id="swin" inputmode="numeric" autocomplete="off"'
+    + ' placeholder="输入目标号码，如 18" style="width:100%; box-sizing:border-box;'
+    + ' padding:9px; border:1px solid #ccc; border-radius:6px; font-size:16px;">'
+    + '<div id="swerr" style="color:#c62828; font-size:12px; min-height:16px;'
+    + ' margin-top:4px;"></div>'
+    + '<div style="display:flex; gap:8px; margin-top:6px;">'
+    + '<button id="swcancel" style="flex:1; padding:10px; border:1px solid #ccc;'
+    + ' border-radius:6px; background:#f7f7f7;">取消</button>'
+    + '<button id="swok" style="flex:1; padding:10px; border:0; border-radius:6px;'
+    + ' background:#0a7d32; color:#fff; font-weight:bold;">开始</button></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const inp = $('swin'), err = $('swerr');
+  setTimeout(() => { try{ inp.focus(); }catch(e){} }, 80);
+  const close = () => { try{ ov.remove(); }catch(e){} };
+  $('swcancel').onclick = close;
+  ov.onclick = e => { if (e.target === ov) close(); };
+  const go = () => {
+    const n = (inp.value || '').replace(/\D/g, '');
+    if (!n){ err.textContent = '请输入目标号码（纯数字）'; return; }
+    close();
+    const slog = $('prof_swlog');
+    if (slog){ slog.style.display = 'block'; slog.textContent = '（已提交，等待服务端…）'; }
+    sendCmd('switch_migrate', n);
+    S.switch_mig = { on: true, ok: null, log: [] };
+    flash('🚀 一键换号迁移已启动（目标 ' + n + ' 号）…', 'var(--blue)', 6000);
+  };
+  $('swok').onclick = go;
+  inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) go(); };
+}
+el.profswitch.onclick = switchMigratePrompt;
 
 
 el.wsurl.value = chanGet();          /* v1.27：网络页改存频道名 */
