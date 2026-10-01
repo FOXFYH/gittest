@@ -584,9 +584,16 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
       <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">频道密钥</label>
         <input id="in_wsurl" data-page-node-id="DVptB7LnQ9GbFJNGjINr6s"></div>
+      <!-- 1.63：账号通道（主A/副B）——电脑端同时挂住两路，这里切一下即刻生效，
+           电脑端无需改动。默认主A（free.blr2）把各项目流量归拢到同一账号看日开销 -->
+      <div class="row"><label>账号通道</label>
+        <select id="sel_chan">
+          <option value="main">主A（free.blr2 · 开销看这里）</option>
+          <option value="backup">副B（s20307.nyc1 · 备用）</option>
+        </select></div>
       <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
         密钥相当于连接密码，由服务端提供（本端只填密钥，前缀自动拼接成
-        完整频道名）。修改后保存并重连生效。</span></div>
+        完整频道名）。修改后保存并重连生效。账号通道切换会立即重连。</span></div>
     </fieldset>
     <fieldset data-page-node-id="8SKaqjuDG4j8saN4BtSqaW">
       <legend data-page-node-id="bcrQE6cC0XiryhicJJtmZn">流量统计（WebSocket）</legend>
@@ -702,17 +709,27 @@ if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
   try { localStorage.setItem('wb_cli_uid', MY_ID); } catch(e){}
 }
 const SERVER_ID= '1000000001';
-const WS_URL_TMPL = ('wss://s20307.nyc1.piesocket.com/v3/%s'
+/* 1.63：主/副双账号（对齐 TRAE 主副双通道）——
+   主 A（free.blr2）默认使用：让 ALL 项目流量归拢到 A，便于看每日总开销；
+   副 B（s20307.nyc1）备用：A 额度耗尽时在【诊断页】切过去应急。
+   服务端同时挂着 A/B 两路，所以这里切一下即可，电脑端无需改动。 */
+const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
+                    + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+const WS2_URL_TMPL = ('wss://s20307.nyc1.piesocket.com/v3/%s'
                     + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
 /* 1.45：加密频道——完整频道名 = 前缀(TRAECLI) + 客户端填写的密钥。
    客户端只暴露密钥（如 31415926fF@），前缀由代码自动拼接，真频道名
    TRAECLI31415926fF@ 不落在客户端任何一处,等于一道密码手段。 */
 const CH_PFX = 'TRAECLI';
+function chanUrlTmpl(){
+  /* CFG.chan:'backup'=副B；'main'/空=主A（默认把流量归拢到账号A）。 */
+  return (CFG.chan === 'backup') ? WS2_URL_TMPL : WS_URL_TMPL;
+}
 function channelUrl(){
   const u = new URLSearchParams(location.search).get('ws');
   if (u) return u;                     // ?ws= 高级覆盖（不改持久化）
   const key = (CFG.channel || '').trim();   // 首用须先经 channelPrompt 输密钥
-  return WS_URL_TMPL.replace('%s', CH_PFX + key);
+  return chanUrlTmpl().replace('%s', CH_PFX + key);
 }
 const KA_SEC = 25;      // 链路保活间隔（秒，防止中继判空闲掐线）
 const RECONNECT = 3;    // 断线重连间隔（秒）
@@ -963,7 +980,7 @@ const el = {
   launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
-  nflash: $('lbl_netflash'),
+  nflash: $('lbl_netflash'), sel_chan: $('sel_chan'),
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
@@ -2607,8 +2624,9 @@ function diagTest(){                        // 测电脑端回应：发 hello，
 function diagRender(){
   if (!el.diag_ws) return;
   /* 频道 */
-  el.diag_chan.textContent = CFG && CFG.channel
-    ? (CH_PFX || '') + '•••' + String(CFG.channel).slice(-2) : '未设置';
+  el.diag_chan.textContent = (CFG && CFG.channel
+    ? (CH_PFX || '') + '•••' + String(CFG.channel).slice(-2) : '未设置')
+    + ' · ' + (CFG && CFG.chan === 'backup' ? '副B' : '主A');
   /* 本端连上中转 */
   if (S.onLine){ el.diag_ws.textContent = '✅ 已连上中转';
     el.diag_ws.style.color = '#1a7f37'; }
@@ -2655,7 +2673,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.62';
+const VER = '1.63';
 /* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
    浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
    本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
@@ -3446,6 +3464,17 @@ function onEv(kind, v){
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
   diagLog('收到服务器 hello 回应 ✓', 'ok');
+  /* 1.63：账号通道——本地没选过（新装/清缓存）时采纳电脑端下发的默认通道，
+     与电脑端保持一致（电脑端默认主A，各项目流量归拢到同一账号看日开销）。
+     采纳副B需重连一次才真正切过去；采纳主A则当前就是，无需重连。 */
+  if (d.chan && !CFG.chan){
+    CFG.chan = (d.chan === 'backup') ? 'backup' : 'main';
+    cfgSave();
+    if (el.sel_chan) el.sel_chan.value = CFG.chan;
+    diagLog('未选过通道，按电脑端默认连 ' + (CFG.chan === 'backup' ? '副B'
+                                                          : '主A'), 'ok');
+    if (CFG.chan === 'backup'){ connect(); return; }
+  }
   /* 1.33 全新架构：服务端版本号 → 双版本号缓存键，任一变化清本地缓存 */
   if (d.ver !== undefined){ S.srvVer = String(d.ver || '0'); checkVerBump(); }
   if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;
@@ -4129,6 +4158,19 @@ el.net.onclick = (ev) => {
 
 el.wsurl.value = CFG.channel || '';
 el.keep.value = CFG.stats_keep;
+/* 1.63：账号通道下拉——默认主A；切副B后本地记事（cfgSave），此后一直连 B，
+   直到手动切回 A。切换即刻重连（对齐 TRAE 主副切换手感）。 */
+el.sel_chan.value = (CFG.chan === 'backup') ? 'backup' : 'main';
+el.sel_chan.onchange = () => {
+  CFG.chan = (el.sel_chan.value === 'backup') ? 'backup' : 'main';
+  cfgSave();
+  diagLog('账号通道切到 ' + (CFG.chan === 'backup' ? '副B s20307.nyc1'
+                                                  : '主A free.blr2'), 'ok');
+  if (!CFG.channel){ flash('请先填频道密钥'); channelPrompt(); return; }
+  connect();                                  // 立即重连生效
+  flash('已切到 ' + (CFG.chan === 'backup' ? '副B（备用）' : '主A（开销看这里）'),
+        'var(--green)');
+};
 
 function netDirty(){ el.nsave.disabled = false; }
 el.wsurl.oninput = netDirty;
