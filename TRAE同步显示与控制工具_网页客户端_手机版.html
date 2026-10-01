@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.20</title>
+<title>TRAE远程 v2.21</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -240,6 +240,18 @@ body.fmsg #msgs{padding-top:22px;}
   border-radius:50%;background:#fff;color:var(--blue);font-size:14px;
   cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
 .foxplay .fpbtn:active{transform:scale(.92);}
+/* ── 2.21：AI 提问卡（(@fox-ask1)...(@fox-ask2) 包夹段）──
+   与语音卡**同一套机制**（同 .foxplay 类、同 ▶ 播放、同 TTS 通道），
+   仅叠一个 .ask 修饰类做「醒目」：琥珀描边 + 暖底 + 加粗琥珀文字 +
+   左侧粗强调条，让提问在长正文里一眼可见（用户要求：AI 的提问要醒目、
+   方便及时作答）。 */
+.foxplay.ask{border:2px solid rgba(230,81,0,.45);
+  border-left:5px solid rgba(230,81,0,.7);
+  background:linear-gradient(135deg,#fff8e1,#fff3e0);
+  box-shadow:0 1px 6px rgba(230,81,0,.15);}
+.foxplay.ask .fpst{background:rgba(230,81,0,.10);}
+.foxplay.ask .fptxt{color:#8a4b00;font-weight:bold;}
+.foxplay.ask .fpbtn{border-color:rgba(230,81,0,.45);color:#e65100;}
 .optbtn.picked{opacity:.55;}
 /* ── 1.06：抽屉 文件夹➕ / 防升级开关 ── */
 .convo.folder{display:flex; align-items:center;}
@@ -2237,6 +2249,21 @@ function foxPlayCards(txt, out){
     return '@@FPC' + (out.length - 1) + '@@';
   });
 }
+/* ========== 2.21：AI 提问卡（用户 2026-10-01 规定） ========== */
+/* 识别标志正则：( @fox-ask1 ) 开头、( @fox-ask2 ) 结尾包夹。用途——AI 要
+   向用户提问时（跨会话路由器时代主要面向「AI 问 AI」），把问题用这对标签
+   包起来，网页端就把它渲染成**醒目的琥珀色提问卡**（比正文更抢眼，用户能
+   一眼看到并及时作答），并复用语音卡那套 ▶ 播放/TTS 通道，可直接听题。
+   与 foxPlayCards **同构**：有头就认（结尾可缺、可到消息末尾），末尾残标剪掉。 */
+const FAC_REG = /\(@fox-ask1\s*\)([\s\S]*?)(?:\(@fox-ask2\s*\)|$)/g;
+function foxAskCards(txt, out){
+  return String(txt || '').replace(FAC_REG, (m, p1) => {
+    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
+    if (!seg) return '';
+    out.push(seg);
+    return '@@FAC' + (out.length - 1) + '@@';
+  });
+}
 /* 1.98：每段语音的会话内状态（阶段文案 + 颜色 + 已生成音频 BlobURL）。
    键＝正文文本本身：同一段文字只合成一次，再点 ▶ 直接重播（不重复生成）。 */
 const _tts_state = {};
@@ -2254,7 +2281,7 @@ function ttsStage(seg, st, cl){
     if (s){ s.textContent = o.st; s.style.color = o.cl || 'var(--gray)'; }
   });
 }
-function foxCardHtml(seg){
+function foxCardHtml(seg, ask){
   /* 1.96：全量显示原文（原先 >60 字截断加省略号，音频不可用时正文也看
      不全；用户规定必须全显示）。成本仅一行文字，不再截断。
      1.98：阶段通知行随卡片重建一起还原（取自 _tts_state）。
@@ -2267,10 +2294,12 @@ function foxCardHtml(seg){
   const o = _tts_state[seg];
   const st = o ? o.st : '', cl = o ? o.cl : '';
   const on = _foxOn(seg);
-  return '<div class="foxplay" data-seg="' + esc(seg) + '">'
+  return '<div class="foxplay' + (ask ? ' ask' : '') + '" data-seg="'
+       + esc(seg) + '">'
        + '<div class="fpst"' + (cl ? ' style="color:' + cl + '"' : '')
        + '>' + esc(st) + '</div>'
-       + '<div class="fprow"><span class="fptxt">🔈 ' + esc(seg) + '</span>'
+       + '<div class="fprow"><span class="fptxt">'
+       + (ask ? '❓ AI 提问：' : '🔈 ') + esc(seg) + '</span>'
        + '<button class="fpbtn" title="' + (on ? '暂停' : '播放语音') + '">'
        + (on ? '⏸' : '▶') + '</button></div>'
        + '</div>';
@@ -2544,11 +2573,17 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     if (user){
       bodyHtml = esc(m[1]);
     } else {
-      const fsegs = [];
-      bodyHtml = mdHtml(foxPlayCards(m[1], fsegs));
+      const fsegs = [], asegs = [];
+      /* 2.21：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）
+         互不冲突，先摘语音、后摘提问，再各自回填卡片 */
+      bodyHtml = mdHtml(foxAskCards(foxPlayCards(m[1], fsegs), asegs));
       fsegs.forEach((ft, n) => {
         bodyHtml = bodyHtml.replace('@@FPC' + n + '@@',
                                     foxCardHtml(ft));
+      });
+      asegs.forEach((at, n) => {
+        bodyHtml = bodyHtml.replace('@@FAC' + n + '@@',
+                                    foxCardHtml(at, true));
       });
     }
     let h = '<div class="who">' + (user ? '我' : 'TRAE')
@@ -3270,7 +3305,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.20';   /* 2.20：网页端【锚定】——取消"跟随"，网页版守住自己锚定的
+const VER = '2.21';   /* 2.21：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
+                         渲染成醒目琥珀色提问卡（左粗条+暖底+加粗），复用语音卡
+                         同一套 ▶ 播放/TTS 通道，可直接听题。用途：AI 向用户/
+                         其他 AI 提问时醒目可见、便于及时作答（用户 2026-10-01）。
+                         2.20：网页端【锚定】——取消"跟随"，网页版守住自己锚定的
                          会话，别人在电脑版（含会话路由器临时占用）切到别的会话
                          也不跟着跳（adoptSnap：来拍快照选中 != 锚定即冻结正文类
                          字段、只并入会话列表，选中标志改写到锚定行）；点会话行
