@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FYH 远程控制面板 v1.03</title>
+<title>FYH 远程控制面板 v1.05</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -74,6 +74,21 @@
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #333; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* ===== 自动保活开关 ===== */
+  .ka {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px;
+    padding-top: 10px; border-top: 1px dashed #eee; font-size: 13px; color: #666;
+  }
+  .ka .sw { margin-left: auto; position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+  .ka .sw input { display: none; }
+  .ka .sw i { display: block; width: 44px; height: 24px; border-radius: 12px; background: #ccc; transition: .15s; }
+  .ka .sw i::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+    border-radius: 50%; background: #fff; transition: .15s;
+  }
+  .ka .sw input:checked + i { background: #4caf50; }
+  .ka .sw input:checked + i::after { left: 22px; }
+  .ka .sw input:disabled + i { opacity: .45; }
   /* ===== 日志（可折叠） ===== */
   #logPanel {
     background: #fff; border-top: 1px solid #ddd; height: 36vh; flex-shrink: 0;
@@ -103,7 +118,7 @@
 </head>
 <body>
 <header>
-  <h1>FYH 远程控制面板 v1.03</h1>
+  <h1>FYH 远程控制面板 v1.05</h1>
   <span id="wsDot" class="dot off"></span>
   <span id="statusText">未连接</span>
   <button id="logToggle" class="mini">日志</button>
@@ -127,8 +142,10 @@
 <script>
 "use strict";
 // ============================================================
-// FYH 远程控制面板  v1.04
+// FYH 远程控制面板  v1.05
 // ------------------------------------------------------------
+// 1.05   多电脑管理：设备按 ID 识别（昵称仅显示，可重名），指令带 target_id；
+//        每个应用新增「自动保活」开关（keep_alive_set，写回设备端 apps.json）
 // 1.04   频道独立：由 jtb 迁到独立公共频道 fyhbus（多应用共用，各走各的协议头；
 //        协议见 开发资源包\WebSocket测试器\公共WS频道协议_v1.md）
 // 1.03   唯一客户端化：所有请求带 src:"web"（设备只应答不请求，杜绝互问死循环）；
@@ -192,8 +209,9 @@ function log(msg) {
 let ws = null;
 let connected = false;
 let mySenderId = myId();
-let devices = {};          // 设备名 -> 最后在线时间戳
-let selectedDevice = null; // 当前选中的设备名
+let devices = {};          // 设备ID -> {name, t}（v1.05：按 ID 识别，昵称仅显示）
+let selectedDevice = null; // 当前选中的设备ID
+let selectedDevName = "";  // 当前选中设备的昵称（显示用）
 let selectedApps = [];     // 当前设备的应用清单
 let boostLeft = 0;         // 自动刷新窗口剩余秒数（开页 60 秒，点刷新按钮再+60 秒）
 const BAR_SHOW = 5;        // 顶部直接显示的设备方块数，其余进"+"弹窗
@@ -202,13 +220,15 @@ const BAR_SHOW = 5;        // 顶部直接显示的设备方块数，其余进"+
 function aliveDevices() {
   const now = Date.now();
   return Object.keys(devices)
-    .filter(n => now - devices[n] <= 3 * 60 * 1000)
-    .sort();
+    .filter(id => now - devices[id].t <= 3 * 60 * 1000)
+    .map(id => ({ id: id, name: devices[id].name || id }))
+    .sort((a, b) => a.name.localeCompare(b.name, "zh"));
 }
 
-function touchDevice(name) {
-  if (!name) return;
-  devices[name] = Date.now();
+function touchDevice(id, name) {
+  if (!id) return;
+  const cur = devices[id];
+  devices[id] = { name: name || (cur && cur.name) || id, t: Date.now() };
   renderDevices();
 }
 
@@ -220,13 +240,14 @@ function renderDevices() {
     return;
   }
   bar.innerHTML = "";
-  alive.slice(0, BAR_SHOW).forEach(n => {
-    const d = document.createElement("div");
-    d.className = "dev-btn" + (n === selectedDevice ? " active" : "");
-    d.textContent = n;
-    d.title = n;
-    d.onclick = () => selectDevice(n);
-    bar.appendChild(d);
+  alive.slice(0, BAR_SHOW).forEach(d => {
+    const el = document.createElement("div");
+    el.className = "dev-btn" + (d.id === selectedDevice ? " active" : "");
+    const dup = alive.filter(x => x.name === d.name).length > 1;
+    el.textContent = dup ? d.name + "·" + d.id.slice(-4) : d.name;  // 重名时补ID尾号区分
+    el.title = d.name + "（ID " + d.id + "）";
+    el.onclick = () => selectDevice(d.id, d.name);
+    bar.appendChild(el);
   });
   // "+" 更多设备按钮
   const add = document.createElement("div");
@@ -241,9 +262,12 @@ function renderDevices() {
   rf.title = "点击刷新：开启 60 秒自动刷新窗口（5 秒一刷，倒计时结束自动停）";
   rf.onclick = boostRefresh;
   bar.appendChild(rf);
-  // 记忆设备：上次选中的设备在线时，自动优先选中
+  // 记忆设备：上次选中的设备ID在线时，自动优先选中
   const saved = localStorage.getItem("fyh_last_device");
-  if (!selectedDevice && saved && alive.includes(saved)) selectDevice(saved);
+  if (!selectedDevice && saved) {
+    const hit = alive.find(d => d.id === saved);
+    if (hit) selectDevice(hit.id, hit.name);
+  }
 }
 
 function openDevOverlay() {
@@ -253,12 +277,12 @@ function openDevOverlay() {
   if (!alive.length) {
     list.innerHTML = '<div class="empty">暂无在线设备</div>';
   } else {
-    alive.forEach(n => {
-      const d = document.createElement("div");
-      d.className = "full-dev" + (n === selectedDevice ? " active" : "");
-      d.innerHTML = '<span>' + n + '</span><span class="st">在线</span>';
-      d.onclick = () => { closeDevOverlay(); selectDevice(n); };
-      list.appendChild(d);
+    alive.forEach(d => {
+      const el = document.createElement("div");
+      el.className = "full-dev" + (d.id === selectedDevice ? " active" : "");
+      el.innerHTML = '<span>' + d.name + '</span><span class="st">ID ' + d.id + '</span>';
+      el.onclick = () => { closeDevOverlay(); selectDevice(d.id, d.name); };
+      list.appendChild(el);
     });
   }
   document.getElementById("devOverlay").hidden = false;
@@ -274,7 +298,7 @@ function requestApps(quiet) {
     document.getElementById("appArea").innerHTML =
       '<div class="empty"><span class="spinner"></span> 正在请求应用清单…</div>';
   }
-  sendRC({ cmd: "app_list", target: selectedDevice });
+  sendRC({ cmd: "app_list", target_id: selectedDevice });
 }
 
 // ===== 60 秒自动刷新窗口（v1.03）=====
@@ -291,10 +315,11 @@ function boostLabel() {
   return boostLeft > 0 ? "自动刷新剩余 " + boostLeft + " 秒" : "自动刷新已停，点上方 🔄 再刷 60 秒";
 }
 
-function selectDevice(name) {
-  selectedDevice = name;
+function selectDevice(id, name) {
+  selectedDevice = id;
+  selectedDevName = name || (devices[id] && devices[id].name) || id;
   selectedApps = [];
-  localStorage.setItem("fyh_last_device", name); // 记住选择
+  localStorage.setItem("fyh_last_device", id); // 记住选择（存设备ID）
   renderDevices();
   requestApps();
 }
@@ -314,7 +339,7 @@ function renderApps() {
   const title = document.createElement("div");
   title.className = "app-title";
   const tt = document.createElement("span");
-  tt.textContent = "设备：" + selectedDevice + "（" + selectedApps.length + " 个应用）";
+  tt.textContent = "设备：" + (selectedDevName || selectedDevice) + "（" + selectedApps.length + " 个应用）";
   title.appendChild(tt);
   const rb = document.createElement("button");
   rb.className = "mini";
@@ -352,10 +377,20 @@ function renderApps() {
         '<button class="btn primary" data-act="app_open"' + disabled + '>打开</button>' +
         '<button class="btn" data-act="app_restart"' + disabled + '>重启</button>' +
         '<button class="btn danger" data-act="app_close"' + disabled + '>关闭</button>' +
+      '</div>' +
+      '<div class="ka"><span>自动保活（掉线自动拉起）</span>' +
+        '<label class="sw"><input type="checkbox" data-ka="1"' +
+          (app.keep_alive ? ' checked' : '') + (installed ? '' : ' disabled') + '><i></i></label>' +
       '</div>';
     card.querySelectorAll("button").forEach(btn => {
-      btn.onclick = () => sendRC({ cmd: btn.dataset.act, target: selectedDevice, key: app.key });
+      btn.onclick = () => sendRC({ cmd: btn.dataset.act, target_id: selectedDevice, key: app.key });
     });
+    const kaBox = card.querySelector('input[data-ka]');
+    if (kaBox) {
+      kaBox.onchange = () => sendRC({
+        cmd: "keep_alive_set", target_id: selectedDevice, key: app.key, on: kaBox.checked
+      });
+    }
     area.appendChild(card);
   });
 }
@@ -450,15 +485,21 @@ function handleRaw(raw) {
   handlePayload(payload);
 }
 
+function onDevBody(body) {
+  try {
+    const d = JSON.parse(body);
+    if (d && typeof d === "object") { touchDevice(d.id || d.n, d.n); return; }
+  } catch (e) { /* 非 JSON，退化为纯昵称 */ }
+  if (body) touchDevice(body, body);   // 兼容极旧设备（无 id，按昵称识别）
+}
+
 function handlePayload(payload) {
   if (payload.startsWith(PREFIX_DEV)) {
-    const body = stripWrap(payload, PREFIX_DEV, SUFFIX_DEV);
-    try { touchDevice(JSON.parse(body).n); } catch (e) { touchDevice(body); }
+    onDevBody(stripWrap(payload, PREFIX_DEV, SUFFIX_DEV));
     return;
   }
   if (payload.startsWith(PREFIX_HB)) {
-    const body = stripWrap(payload, PREFIX_HB, SUFFIX_HB);
-    try { touchDevice(JSON.parse(body).n); } catch (e) { touchDevice(body); }
+    onDevBody(stripWrap(payload, PREFIX_HB, SUFFIX_HB));
     return;
   }
   if (payload.startsWith(PREFIX_RC)) {
@@ -473,7 +514,10 @@ function handlePayload(payload) {
     } else if (data.cmd === "app_result") {
       if (selectedDevice) {
         const app = selectedApps.find(a => a.key === data.key);
-        if (app && typeof data.running === "boolean") app.running = data.running;
+        if (app) {
+          if (typeof data.running === "boolean") app.running = data.running;
+          if (typeof data.keep_alive === "boolean") app.keep_alive = data.keep_alive;
+        }
         renderApps();
       }
       log((data.ok ? "操作成功" : "操作失败") + "：" + (data.name || data.key || ""));
