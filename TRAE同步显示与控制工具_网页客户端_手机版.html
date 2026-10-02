@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.08</title>
+<title>TRAE远程 v3.09</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -614,6 +614,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="TRAE 开着→重启；没开→启动" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（开着→重启，没开→启动）</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
+    <div class="dmi" id="btn_refresh_model" title="刷新模型">↻ 刷新模型</div>
     <div class="dmi" id="btn_checkin" title="每日签到">✅ 签到</div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
     <div class="dmi" id="btn_prof" title="谷歌分身助手：各分身积分与登录状态">👥 分身状态</div>
@@ -1319,7 +1320,7 @@ const el = {
   send: $('btn_send'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
-  launch: $('btn_launch'), refresh_pts: $('btn_refresh_pts'), checkin: $('btn_checkin'),
+  launch: $('btn_launch'), refresh_pts: $('btn_refresh_pts'), refresh_model: $('btn_refresh_model'), checkin: $('btn_checkin'),
   net: $('btn_net'), netpage: $('page_net'), set_autofix: $('set_autofix'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
@@ -3516,7 +3517,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.08';   /* 3.08：动作回执兜底超时（PEND_DID_TMO）统一到可配置的「服务器回应超时」——发出动作后超过 60 秒（默认，服务端可下发 srvTmo 覆盖）未收到服务端受理回执 → 提示「可能动作失败」 */
+const VER = '3.09';   /* 3.09：主界面新增独立「刷新模型」按钮（§12.1/验收4）；服务端侧同步：会话提示词路由环节（§九）、广播裁成最近三组 5死1活（§四/验收5） */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -5054,6 +5055,18 @@ el.refresh_pts.onclick = () => {         /* 刷新积分：委托服务端立刻
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   flash('正在刷新积分…', 'var(--blue)');
   sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
+};
+
+/* 3.09：主界面「刷新模型」——与收藏页同款，发 model_list 让服务端 CDP
+   重拉最新官方模型列表；结果经 models 事件回来自动刷新下拉与收藏页。
+   同样做 1200ms 防连点。 */
+el.refresh_model.onclick = () => {
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  const b = el.refresh_model; if (b.disabled) return;
+  b.disabled = true; b.textContent = '刷新中…';
+  flash('正在刷新模型…', 'var(--blue)');
+  sendCmd('model_list', null);
+  setTimeout(() => { b.disabled = false; b.textContent = '↻ 刷新模型'; }, 1200);
 };
 
 function b_checkin_reset(){ const b = el.checkin; if (b){ b.disabled = false; b.textContent = '✅ 签到'; } }
