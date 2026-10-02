@@ -6,7 +6,7 @@
 <title>看图</title>
 <!--
   ============================================================
-  看图软件 · 相册网页（"脸"）  v0.14
+  看图软件 · 相册网页（"脸"）  v0.15
   ------------------------------------------------------------
   本页是纯前端，**不碰手机文件**；它的图来自"壳"：
     壳（有权限）扫目录 → wv.evaluateJavascript 把名单灌进来 → 本页画出来。
@@ -34,6 +34,11 @@
     · 勾上后编辑页保存钮变成「替换」，点第一次只是提醒、再点一次才真动手
       （原图被顶掉不可恢复，故留个"点两次"的刹车）；
     · 设置存在 WebView 本地（localStorage 的 kantu.replace），是"这台手机"的偏好。
+
+  v0.15 新增（自由剪裁范围）：
+    · 图不再顶到编辑舞台的边：四周各留 14px 缝，图贴边时四角手柄也露在外面，抓得住；
+    · 最小裁剪比例 8% → 2%，想裁多大一块、多小一条都行，范围更自由。
+    （配套：壳 v0.14 把裁剪改成"先在原图上按原始像素裁、再转翻"，裁剪无损。）
 
   数据结构（壳送来的一串）：
     [ { p:"/storage/.../IMG_1.jpg",   // 完整路径
@@ -181,7 +186,7 @@
 
 <header>
   <h1>看图</h1>
-  <span class="ver" id="ver">v0.14</span>
+  <span class="ver" id="ver">v0.15</span>
   <span class="cnt" id="cnt">等待壳送数据…</span>
   <span class="sp"></span>
   <button id="setbtn" title="设置">⚙</button>
@@ -670,10 +675,14 @@ function 关编辑() {
 function 摆图() {
   if (!编 || !编.原宽 || !编.原高) return;
   var SW = 编台.clientWidth, SH = 编台.clientHeight;
+  // 给裁剪手柄留出一圈缝：手柄 22px、挂在角上要往外扩 11px，图若顶到边，
+  // 手柄就会被 #estage 的 overflow:hidden 裁掉、贴边那角抓不住。留 14px 就稳了。
+  var 边 = 14;
+  var FW = Math.max(1, SW - 边 * 2), FH = Math.max(1, SH - 边 * 2);
   var 转了 = (编.角度 % 180) !== 0;
   var 显比 = 转了 ? (编.原高 / 编.原宽) : (编.原宽 / 编.原高);   // 显示后的 宽/高
-  var dw = SW, dh = dw / 显比;
-  if (dh > SH) { dh = SH; dw = dh * 显比; }
+  var dw = FW, dh = dw / 显比;
+  if (dh > FH) { dh = FH; dw = dh * 显比; }
   dw = Math.max(1, Math.floor(dw));
   dh = Math.max(1, Math.floor(dh));
   var bw = 转了 ? dh : dw, bh = 转了 ? dw : dh;                  // 元素盒子（转前）
@@ -700,7 +709,7 @@ function 画裁框() {
 // 锁比例：以"没被拖的那条边"为锚，先定高再反推宽（都按像素比算 → 归一化里乘个显高/显宽）
 function 锁比例(n, 手柄, o) {
   var k = 比例 * (编.显高 / 编.显宽);          // (r-l) = k * (b-t)
-  var w = n.r - n.l, h = Math.max(0.08, w / k);
+  var w = n.r - n.l, h = Math.max(0.02, w / k);
   if (手柄.indexOf('t') >= 0) { n.b = o.b; n.t = o.b - h; }
   else { n.t = o.t; n.b = o.t + h; }
   if (n.t < 0) { n.t = 0; n.b = h; }
@@ -733,7 +742,7 @@ function 拖中(e) {
   if (!拖 || !编) return;
   e.preventDefault();
   var du = (e.clientX - 拖.sx) / 编.显宽, dv = (e.clientY - 拖.sy) / 编.显高;
-  var o = 拖.原, n = { l: o.l, t: o.t, r: o.r, b: o.b }, 最小 = 0.08;
+  var o = 拖.原, n = { l: o.l, t: o.t, r: o.r, b: o.b }, 最小 = 0.02;
   if (拖.手柄 === '移') {
     var w = o.r - o.l, h = o.b - o.t;
     n.l = 夹(o.l + du, 0, 1 - w); n.r = n.l + w;
