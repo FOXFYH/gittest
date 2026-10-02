@@ -6,7 +6,7 @@
 <title>看图</title>
 <!--
   ============================================================
-  看图软件 · 相册网页（"脸"）  v0.13
+  看图软件 · 相册网页（"脸"）  v0.14
   ------------------------------------------------------------
   本页是纯前端，**不碰手机文件**；它的图来自"壳"：
     壳（有权限）扫目录 → wv.evaluateJavascript 把名单灌进来 → 本页画出来。
@@ -27,7 +27,13 @@
       真正出图交给《相册壳》用原生 Bitmap 做（保原始分辨率、原图绝不动，
       也绕开了 canvas 跨域会把图"污染"到导不出的老问题）
     · 成品另存为 Pictures/看图软件/编辑/<原名>_编辑_<时间>.jpg，存完自动刷新相册
-    · 公开入口：window.编辑完成(结果)（壳出完图回调这里，结果形如 "OK:路径" / "ERR:原因"）
+    · 公开入口：window.编辑完成(结果)（壳出完图回调这里，结果形如 "OK:路径" / "替换:路径" / "ERR:原因"）
+
+  v0.14 新增（设置页）：
+    · 顶栏 ⚙ 进设置页，目前一项：「保存时替换原图」，默认不勾；
+    · 勾上后编辑页保存钮变成「替换」，点第一次只是提醒、再点一次才真动手
+      （原图被顶掉不可恢复，故留个"点两次"的刹车）；
+    · 设置存在 WebView 本地（localStorage 的 kantu.replace），是"这台手机"的偏好。
 
   数据结构（壳送来的一串）：
     [ { p:"/storage/.../IMG_1.jpg",   // 完整路径
@@ -130,10 +136,18 @@
   /* ===== 编辑面板（v0.13 新增）===== */
   #edit{position:fixed; inset:0; z-index:30; display:none; flex-direction:column; background:#0b0c0e}
   #edit.on{display:flex}
-  #etop{display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line)}
-  #etop .t{flex:1; text-align:center; font-size:14px}
-  #etop button{width:auto; padding:6px 14px; font-size:13px}
+  #etop,#stop{display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line)}
+  #etop .t,#stop .t{flex:1; text-align:center; font-size:14px}
+  #etop button,#stop button{width:auto; padding:6px 14px; font-size:13px}
   #etop button[disabled]{opacity:.5}
+  /* ===== 设置页（v0.14 新增）===== */
+  #set{position:fixed; inset:0; z-index:35; display:none; flex-direction:column; background:#0b0c0e}
+  #set.on{display:flex}
+  #sbody{padding:6px 14px calc(14px + env(safe-area-inset-bottom))}
+  .srow{display:flex; align-items:center; gap:10px; padding:14px 2px; border-bottom:1px solid var(--line); font-size:14px}
+  .srow span{flex:1}
+  .srow input{width:22px; height:22px; accent-color:#8a8f98}
+  .snote{color:var(--muted); font-size:12px; line-height:1.7; padding:10px 2px 0}
   #estage{flex:1; position:relative; overflow:hidden; background:#000; touch-action:none}
   #eimg{position:absolute; left:50%; top:50%; transform-origin:center center;
         user-select:none; -webkit-user-drag:none; -webkit-user-select:none}
@@ -167,9 +181,10 @@
 
 <header>
   <h1>看图</h1>
-  <span class="ver" id="ver">v0.13</span>
+  <span class="ver" id="ver">v0.14</span>
   <span class="cnt" id="cnt">等待壳送数据…</span>
   <span class="sp"></span>
+  <button id="setbtn" title="设置">⚙</button>
   <button id="refresh">刷新</button>
 </header>
 
@@ -582,6 +597,18 @@ setTimeout(function () {
     </div>
   </div>
 </div>
+<!-- ============ 设置页（v0.14 新增）============ -->
+<div id="set">
+  <div id="stop">
+    <button id="scancel">关闭</button>
+    <span class="t">设置</span>
+    <button id="sdone" style="visibility:hidden">关</button>
+  </div>
+  <div id="sbody">
+    <label class="srow"><span>保存时替换原图</span><input type="checkbox" id="s替换"></label>
+    <div class="snote">勾上＝编辑完直接顶掉原图（原图不可恢复；非 JPG 的会转成同名 JPG）；不勾＝另存到 Pictures/看图软件/编辑/，原图一个字不动。</div>
+  </div>
+</div>
 <div id="etip"></div>
 
 <script>
@@ -805,13 +832,24 @@ document.getElementById('r重置').onclick = function () {
 // ---------- 保存：把"怎么做"打包成一小段命令交给壳，壳用原生 Bitmap 出图 ----------
 function 复原保存钮() {
   var b = document.getElementById('esave');
-  b.disabled = false; b.textContent = '保存';
+  b.disabled = false; b.textContent = 替换原图 ? '替换' : '保存';
+  替换待确认 = 0;
 }
+var 替换待确认 = 0;
 function 保存编辑() {
   if (!编 || 等待壳) return;
+  // 替换原图是不可逆的（原图会被顶掉、找不回来），所以让用户"点两次"再动手
+  if (替换原图 && !替换待确认) {
+    替换待确认 = 1;
+    document.getElementById('esave').textContent = '确认替换';
+    提示('再点一次 ＝ 用这张顶掉原图（不可恢复）');
+    setTimeout(function () { if (替换待确认) 复原保存钮(); }, 3000);
+    return;
+  }
+  替换待确认 = 0;
   var 项 = { p: 编.路径, rot: 编.角度, fx: 编.翻X, fy: 编.翻Y,
              cx: 编.裁.l, cy: 编.裁.t, cw: 编.裁.r - 编.裁.l, ch: 编.裁.b - 编.裁.t,
-             br: 编.亮, ct: 编.对, sa: 编.饱 };
+             br: 编.亮, ct: 编.对, sa: 编.饱, rp: 替换原图 ? 1 : 0 };
   等待壳 = true;
   document.getElementById('esave').disabled = true;
   document.getElementById('esave').textContent = '导出中…';
@@ -827,7 +865,13 @@ function 编辑完成(结果) {
   等待壳 = false;
   复原保存钮();
   结果 = String(结果 || '');
-  if (结果.indexOf('OK:') === 0) {
+  if (结果.indexOf('替换:') === 0) {
+    提示('已替换原图：' + 结果.slice(3).replace(/^.*\//, ''));
+    setTimeout(function () {
+      关大图(); 关编辑();
+      try { location.href = 'autox://刷新'; } catch (e) {}
+    }, 1100);
+  } else if (结果.indexOf('OK:') === 0) {
     提示('已保存：' + 结果.slice(3).replace(/^.*\//, ''));
     setTimeout(function () {
       关大图(); 关编辑();
@@ -846,6 +890,27 @@ window.addEventListener('resize', function () {
   if (!编) return;
   摆图(); 画裁框();
 });
+</script>
+
+<script>
+// ============ 设置页（v0.14）============
+// 目前只有一项：保存时替换原图。默认不勾（安全起见，原图是不可恢复的）。
+// 跟收藏一样存在 WebView 本地，属"这台手机"的偏好，不往壳里写。
+var 替换原图 = false;
+try { 替换原图 = localStorage.getItem('kantu.replace') === '1'; } catch (e) {}
+
+function 显设置(开) { document.getElementById('set').classList.toggle('on', !!开); }
+
+// 把开关状态落到界面 + 本地，并顺手改编辑页那个保存钮的字
+function 应用设置() {
+  document.getElementById('s替换').checked = 替换原图;
+  try { localStorage.setItem('kantu.replace', 替换原图 ? '1' : '0'); } catch (e) {}
+  if (!等待壳) 复原保存钮();
+}
+document.getElementById('setbtn').onclick = function () { 应用设置(); 显设置(true); };
+document.getElementById('scancel').onclick = function () { 显设置(false); };
+document.getElementById('s替换').onchange = function () { 替换原图 = !!this.checked; 应用设置(); };
+应用设置();
 </script>
 
 </body>
