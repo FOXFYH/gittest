@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.10</title>
+<title>TRAE远程 v3.12</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -3618,7 +3618,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.10';   /* 3.10：补全 §5.4/验收6 差额推送——落盘所有对话名 + 每会话≥10条消息；req 'hist' 增带 have_ids/have_convs；服务端回带 convs/live/seed，过滤已掌握死 ID */
+const VER = '3.12';   /* 3.11/3.12：服务端侧——会话提示词默认词（§九）、重命名动作修复（右键菜单补点击、兜底选择器收紧，§六/验收13） */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
