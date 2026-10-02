@@ -16,6 +16,11 @@ FYH远程控制模块 —— FYH 统一WS 的远程控制执行器（独立下�
 3. 操作后回执：ws_app.send_remote_msg({...}) 统一【FYHRC】格式回状态。
 4. 由 FYH 主程序收到远程控制消息后调用 handle_remote_cmd(body, sender, ws_app)。
    本模块不依赖 sys.path，全部通过参数 ws_app 与统一 WS 模块通信。
+v1.14（2026-10-02）：修操作后回执状态"报反"
+   - 进程快照在一条指令内缓存；打开/关闭/重启后回执里的 running 仍取自操作前的
+     旧快照 → 刚启动的应用回执报 running=False（面板卡片一度显示"未运行"），
+     需手动刷新才转正确。改为回执前清快照重取，操作后状态即时准确。
+   - 抽出 _snapshot_reset() 统一清缓存（_app_open 也改用它）。
 v1.13（2026-10-02）：修"重启"假成功（脚本类应用重启后起不来）
    - 进程快照在本条指令内被缓存复用；重启=先关后开，关掉后旧的快照仍把该应用
      标成"运行中"，_app_open 据此跳过拉起并返回成功 → 面板显示"操作成功"但进程
@@ -51,7 +56,7 @@ v1.06（2026-10-01）：多电脑管理
    - 目标过滤优先按设备ID（device_id 主键，昵称退为辅助；兼容旧的按名 target）；
    - 应用清单回包新增 keep_alive 字段；新增 keep_alive_set 指令（写回 apps.json）。
 """
-APP_VERSION = "1.13"
+APP_VERSION = "1.14"
 
 import os
 import sys
@@ -408,6 +413,14 @@ def _cmdline_snapshot():
     return _CMDLINE_SNAP
 
 
+def _snapshot_reset():
+    """清空本轮进程快照缓存，强制下次重新探测。
+    操作（打开/重启/关闭）后状态必须重取——沿用操作前的旧快照会把刚启动的应用
+    误报"未运行"、把刚关闭的误报"运行中"。"""
+    global _CMDLINE_SNAP
+    _CMDLINE_SNAP = None
+
+
 def _cmdline_procs(mark):
     """返回命令行含 mark 的 python/pythonw 进程 PID 列表（脚本类应用检测用）"""
     m = (mark or "").lower()
@@ -648,10 +661,9 @@ def _app_installed(app):
 def _app_open(app, ws):
     # 脚本类应用：用 pythonw 运行 .pyw（无控制台窗口）
     if app.get("run_detect") == "cmdline":
-        global _CMDLINE_SNAP
         # v1.13：清掉本命令早期的进程快照缓存。重启 = 先关后开，关掉后若不重取，
         # 打开时会拿旧快照误判"仍在运行"而跳过拉起 → 表面回"操作成功"其实没启动。
-        _CMDLINE_SNAP = None
+        _snapshot_reset()
         if _app_running(app):       # v1.08：已在运行就不重复拉起（防止 FYH 等多开产生幽灵设备）
             ws.log_msg(f"远程控制: {app.get('name') or '?'} 已在运行，跳过重复打开")
             return True
@@ -890,6 +902,8 @@ def handle_remote_cmd(body, sender, ws_app):
               "app_close": lambda: _app_close(app, ws_app),
               "app_restart": lambda: _app_restart(app, ws_app)}[cmd]()
         time.sleep(0.8)  # 等进程起来再查状态
+        _snapshot_reset()  # v1.14：重取进程快照。否则沿用操作前的旧快照，会把刚启动的
+                           # 应用误报"未运行"、把刚关闭的误报"运行中"，回执状态与真值反了。
         ws_app.send_remote_msg({"cmd": "app_result", "ok": ok,
                                 "key": app.get("key"), "name": app.get("name"),
                                 "running": _app_running(app)})
