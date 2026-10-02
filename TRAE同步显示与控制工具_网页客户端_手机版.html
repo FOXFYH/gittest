@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.07</title>
+<title>TRAE远程 v3.08</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1859,8 +1859,11 @@ function pendStat(p){
   if (p.state === 'queued')  return ['已进 TRAE 官方排队条，等待 AI 处理…', 'ok'];
   if (p.state === 'sent')    return ['服务器已执行，等待聊天记录浮现…', 'ok'];
   /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
-     历史残留兼容，文案不再写死 15 秒 */
-  if (p.state === 'timeout') return ['⚠ 等待服务器回应·超时（可能未送达，可丢弃/改写/重发）', 'bad'];
+     历史残留兼容，文案不再写死 15 秒。
+     3.08：口径改为「动作回执超时」——发出动作后等服务端回执，超过
+     「服务器回应超时」（默认 60 秒）没等到 → 明说可能动作失败。 */
+  if (p.state === 'timeout') return ['⚠ 服务器超过 ' + Math.round(pendAckTmoMs() / 1000)
+      + ' 秒未回应，可能动作失败（可丢弃/改写/重发）', 'bad'];
   /* sending：send 与 interject 同义——都是「已交给服务端，等它动手」 */
   return ['已发出，等待服务器执行…', ''];
 }
@@ -1958,9 +1961,16 @@ function renderPending(){
    兼容：旧版服务端不广播 did 回执 → 本端卡片到 PEND_DID_TMO 后转
    「⚠ 可能未送达」兜底（见 pendReconcile），不永久悬挂。 */
 
-/* 1.88：兜底超时——旧服务端不广播 did_ack 时，卡片 60 秒后转
-   「⚠ 可能未送达」（用户规定的兜底口径：不能永远挂着）。 */
-const PEND_DID_TMO = 60000;
+/* 3.08：动作回执兜底超时（原 1.88 的 PEND_DID_TMO）——统一走「服务器回应超时」
+   （默认 60 秒；服务端随 hello 下发 srvTmo 覆盖，设置页可调）。
+   口径（用户 2026-10-02 明确）：网页版发出动作指令后，服务端必须回执
+   「已收到该动作」；本端等待超过此时限仍未收到受理回执 → 卡片转
+   「⚠ 可能动作失败」，提示可丢弃/改写/重发（不能永远挂着）。 */
+function pendAckTmoMs(){ return srvDeadMs(); }          /* 动作回执超时（默认 60s） */
+function pendChkMs(){                                    /* 主动查证时刻（超时的 5/6，默认 50s） */
+  const v = Math.round(pendAckTmoMs() * 5 / 6);
+  return v >= 5000 ? v : 50000;
+}
 
 /* 1.88：按 did 精确撤卡——广播里出现本卡 did（服务端 did_ack 回执）
    即认为「服务端已接收」，立即撤下。返回 true 表示有变化需重画。
@@ -1996,18 +2006,18 @@ function pendReconcile(_msgs){
       changed = true;
       return;
     }
-    /* 2.30：兜底核对——50 秒还没收到回执（广播可能丢），主动向
-       服务端问一次该 did 受理没有；已受理→补发 did_ack 消卡，
-       未受理→did_miss 转「可能未送达」。只问一次不刷屏。 */
+    /* 2.30：兜底核对——到「超时的 5/6」（默认 50 秒）还没收到回执
+       （广播可能丢），主动向服务端问一次该 did 受理没有；已受理→补发
+       did_ack 消卡，未受理→did_miss 转「可能动作失败」。只问一次不刷屏。 */
     const _age = now - (p.ts || now);
     if (p.state !== 'chk_sent' && p.state !== 'timeout'
-        && _age > 50000 && _age <= PEND_DID_TMO){
+        && _age > pendChkMs() && _age <= pendAckTmoMs()){
       p.state = 'chk_sent';
       sendJson({t:'chk', did:p.did});
       changed = true;
     }
-    /* 1.88：did 回执未到且超时 → 标「可能未送达」（旧服务端兼容兜底） */
-    if (p.state !== 'timeout' && _age > PEND_DID_TMO){
+    /* 1.88：did 回执未到且超时 → 标「可能动作失败」（旧服务端兼容兜底） */
+    if (p.state !== 'timeout' && _age > pendAckTmoMs()){
       p.state = 'timeout';
       changed = true;
     }
@@ -3506,7 +3516,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.07';   /* 3.07：统一「服务器回应超时」为 60 秒（服务端可下发 srvTmo 覆盖）——判「服务器连接不到」、名册离线、历史取回兜底全部 60s */
+const VER = '3.08';   /* 3.08：动作回执兜底超时（PEND_DID_TMO）统一到可配置的「服务器回应超时」——发出动作后超过 60 秒（默认，服务端可下发 srvTmo 覆盖）未收到服务端受理回执 → 提示「可能动作失败」 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -4082,7 +4092,7 @@ function onEv(kind, v){
         1.88：**旧「按 kind+text 对号撤卡」已旁路**——消卡只认 did
         （did_ack）；服务端对账列表仍是权威，但条目与本地卡的对号
         不再靠文本猜（用户规定：识别相同内容不靠谱）。旧服务端
-        场景由 PEND_DID_TMO 超时兜底转「可能未送达」。 */
+        场景由动作回执超时（pendAckTmoMs，默认 60s）兜底转「可能动作失败」。 */
       return;
     }
     case 'did_ack': {                  /* 1.94：服务端「已受理」回执——仅登记 acked，
@@ -4095,7 +4105,7 @@ function onEv(kind, v){
       return;
     }
     case 'did_miss': {                 /* 2.30：服务端确认没受理过该 did
-        → 卡片直接转「可能未送达」，不必傻等到 60 秒。 */
+        → 卡片直接转「可能动作失败」，不必傻等到 60 秒。 */
       if (v && typeof v === 'string'){
         let hit = false;
         S.pending.forEach(p => { if (p.did === v){ p.state = 'timeout'; hit = true; } });
