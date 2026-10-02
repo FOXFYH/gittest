@@ -16,6 +16,10 @@ FYH远程控制模块 —— FYH 统一WS 的远程控制执行器（独立下�
 3. 操作后回执：ws_app.send_remote_msg({...}) 统一【FYHRC】格式回状态。
 4. 由 FYH 主程序收到远程控制消息后调用 handle_remote_cmd(body, sender, ws_app)。
    本模块不依赖 sys.path，全部通过参数 ws_app 与统一 WS 模块通信。
+v1.13（2026-10-02）：修"重启"假成功（脚本类应用重启后起不来）
+   - 进程快照在本条指令内被缓存复用；重启=先关后开，关掉后旧的快照仍把该应用
+     标成"运行中"，_app_open 据此跳过拉起并返回成功 → 面板显示"操作成功"但进程
+     实际已死。改为 _app_open 开头清快照缓存，重新探测真实运行状态再决定是否拉起。
 v1.12（2026-10-02）：修脚本类应用"运行状态恒显示未运行"
    - 进程快照用 PowerShell 取命令行，输出编码与 Python 解码不一致 → 中文路径乱码
      （"FYH快速访问2.0"→"fyhٷ2.0"）→ 按命令行匹配全部失败，脚本类应用一律误报
@@ -47,7 +51,7 @@ v1.06（2026-10-01）：多电脑管理
    - 目标过滤优先按设备ID（device_id 主键，昵称退为辅助；兼容旧的按名 target）；
    - 应用清单回包新增 keep_alive 字段；新增 keep_alive_set 指令（写回 apps.json）。
 """
-APP_VERSION = "1.12"
+APP_VERSION = "1.13"
 
 import os
 import sys
@@ -644,6 +648,10 @@ def _app_installed(app):
 def _app_open(app, ws):
     # 脚本类应用：用 pythonw 运行 .pyw（无控制台窗口）
     if app.get("run_detect") == "cmdline":
+        global _CMDLINE_SNAP
+        # v1.13：清掉本命令早期的进程快照缓存。重启 = 先关后开，关掉后若不重取，
+        # 打开时会拿旧快照误判"仍在运行"而跳过拉起 → 表面回"操作成功"其实没启动。
+        _CMDLINE_SNAP = None
         if _app_running(app):       # v1.08：已在运行就不重复拉起（防止 FYH 等多开产生幽灵设备）
             ws.log_msg(f"远程控制: {app.get('name') or '?'} 已在运行，跳过重复打开")
             return True
