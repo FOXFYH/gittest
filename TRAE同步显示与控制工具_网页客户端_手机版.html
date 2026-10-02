@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.09</title>
+<title>TRAE远程 v3.10</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1288,6 +1288,7 @@ const S = {
   histMsgs: null,       /* 本地缓存渲染数组 ['u'|'a',文本,tm,rev,del] */
   histRaw: [],          /* 账本原始记录 [{seq,role,text,tm,can_rev,can_del}] */
   histVer: 0, histHave: 0,   /* 游标：会话版本号 + 已存到的 seq */
+  histLive: [],         /* 3.10：差额推送附带「活思维流」——快照无 msgs 时兜底追加 */
   histLoadingPrev: false,    /* 向上补拉老历史防重入 */
   /* ===== 3.01：历史回查折叠（验收7） =====
      foldTotal=总折数；foldN=已取到的最新折序号（1起，递增往老取）；
@@ -1640,6 +1641,7 @@ function renderAll(){
   const snap = S.snap;
   skelCacheSave(snap);                 /* 2.20：骨架缓存写回（秒开列表） */
   ensureHist();                        /* 2.20：本地历史秒开+请求式增量 */
+  syncHistConvs();                     /* 3.10：Δ推送——补齐未掌握会话（每会话≥10条） */
   renderConvs(snap.convs || [], snap.conv_unread, snap.conv_unread_ids);
   /* 1.24：过滤「安装 TRAE Code」类安装引导按钮（误点无意义；
      服务端已滤，此处双保险兼容旧服务端）。1.25：diff 审查
@@ -2224,12 +2226,46 @@ function ledToArr(r){
   return [r.role === 'u' ? 'u' : 'a', r.text || '', r.tm || '',
           r.can_rev ? 1 : 0, r.can_del ? 1 : 0];
 }
+/* —— 3.10（§5.4 差额推送）：已掌握死消息 ID / 已掌握会话名册 —— */
+function histCacheIds(){
+  /* 已掌握的死消息 ID（账本 seq 全局唯一）——各会话缓存并集 */
+  const ids = [];
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
+    if (!o || o.key !== cacheKeyNow() || !o.convs) return ids;
+    for (const k in o.convs){
+      const e = o.convs[k];
+      if (e && Array.isArray(e.msgs))
+        for (const m of e.msgs) if (m && m.seq !== undefined) ids.push(m.seq);
+    }
+  } catch(e){}
+  return ids;
+}
+function histCacheConvs(){
+  /* 已掌握的历史缓存对话名册（键 'p<端口>|<标题>' → 去前缀还原标题） */
+  const out = [];
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
+    if (!o || o.key !== cacheKeyNow() || !o.convs) return out;
+    for (const k in o.convs){
+      const e = o.convs[k];
+      if (e && Array.isArray(e.msgs) && e.msgs.length){
+        const i = k.indexOf('|');
+        out.push(i >= 0 ? k.slice(i + 1) : k);
+      }
+    }
+  } catch(e){}
+  return out;
+}
 /* —— 请求式历史 —— */
 function reqHist(conv, have_seq, ver){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
+  /* 3.10（§5.4）：所需对话 ID=conv；附带「已掌握死消息 ID 列表 have_ids」+
+     「已掌握会话名册 have_convs」。旧服务端忽略多出的字段，行为不变。 */
   sendJson({t: 'req', id: id, c: 'hist', conv: conv || '',
-            have_seq: have_seq | 0, ver: ver | 0});
+            have_seq: have_seq | 0, ver: ver | 0,
+            have_ids: histCacheIds(), have_convs: histCacheConvs()});
 }
 function reqHistPrev(conv, from_seq, count){
   const id = ++reqSeq;
@@ -2335,7 +2371,7 @@ function onRes(id, k, v){
     }
     return;
   }
-  if (k === 'hist') applyHist(rq ? rq.conv : '', v);
+  if (k === 'hist'){ applyHist(rq ? rq.conv : '', v); applyHistExtras(v); }
   else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || []);
   else if (k === 'folds'){                     /* 3.01：总折数 */
     if (!rq || rq.conv !== curTitle()) return;  /* 过期回包（已切会话）丢弃 */
@@ -2377,6 +2413,45 @@ function applyHist(conv, v){
   histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
   renderAll();
 }
+function applyHistExtras(v){
+  /* 3.10（§5.4 / 验收6）：消费差额推送附加项——最新对话列表(落盘所有对话名)、
+     未掌握会话种子(每会话≥10条落盘)、活思维流。任一缺失/异常静默回落。 */
+  try {
+    if (v && Array.isArray(v.convs) && v.convs.length){
+      /* 最新对话列表 + 各对话状态：写回骨架缓存（保证「所有对话名称」落盘） */
+      try {
+        let o = JSON.parse(localStorage.getItem(LS_SKEL) || 'null');
+        if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow()};
+        o.convs = v.convs; o.ts = Date.now();
+        localStorage.setItem(LS_SKEL, JSON.stringify(o));
+      } catch(e){}
+    }
+    if (v && v.seed && typeof v.seed === 'object'){
+      /* 未掌握会话的账本种子：合并落盘到历史缓存（按 seq 去重，时间正序） */
+      let o = null;
+      try { o = JSON.parse(localStorage.getItem(LS_HIST) || 'null'); } catch(e){}
+      if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow(), convs: {}};
+      if (!o.convs) o.convs = {};
+      for (const title in v.seed){
+        const msgs = v.seed[title];
+        if (!Array.isArray(msgs) || !msgs.length) continue;
+        const k = 'p' + S.port + '|' + title;
+        const e = o.convs[k] || {ver: 0, have_seq: 0, msgs: []};
+        if (!Array.isArray(e.msgs)) e.msgs = [];
+        const seen = {};
+        e.msgs.forEach(m => { if (m && m.seq !== undefined) seen[m.seq] = 1; });
+        for (const m of msgs){
+          if (m && m.seq !== undefined && !seen[m.seq]){ seen[m.seq] = 1; e.msgs.push(m); }
+        }
+        e.msgs.sort((a, b) => (a.seq | 0) - (b.seq | 0));
+        e.have_seq = e.msgs.length ? (e.msgs[e.msgs.length - 1].seq | 0) : 0;
+        o.convs[k] = e;
+      }
+      localStorage.setItem(LS_HIST, JSON.stringify(o));
+    }
+    S.histLive = (v && Array.isArray(v.live)) ? v.live : [];   /* 活思维流 */
+  } catch(e){}
+}
 function prependHist(conv, older){
   S.histLoadingPrev = false;
   if (conv !== S.histConv) return;
@@ -2407,10 +2482,36 @@ function ensureHist(){
   foldReset();                                  /* 3.01：切会话重置历史回查 */
   reqFolds(title);                              /* 3.01：取该会话总折数 */
 }
+let syncConvAt = 0;
+function syncHistConvs(){
+  /* 3.10（§5.4 / 验收6）：有「未掌握(本地无缓存)」的对话就节流补一次差额请求，
+     服务端会回带这些会话的种子（每会话≥10条）→ 落盘。全掌握了就不再发。 */
+  const snap = S.snap; if (!snap) return;
+  const now = Date.now();
+  if (now - syncConvAt < 5000) return;
+  const convs = (snap.convs || []).filter(r => r && r[0] === 'c');
+  if (!convs.length) return;
+  let miss = false;
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
+    const have = (o && o.key === cacheKeyNow() && o.convs) ? o.convs : {};
+    for (const r of convs){
+      const e = have['p' + S.port + '|' + (r[1] || '')];
+      if (!e || !Array.isArray(e.msgs) || !e.msgs.length){ miss = true; break; }
+    }
+  } catch(e){ miss = true; }
+  if (!miss) return;
+  const t = curTitle(); if (!t) return;
+  syncConvAt = now;
+  reqHist(t, S.histHave || 0, S.histVer || 0);   /* 携带 have_ids/have_convs 求差额+种子 */
+}
 function curMsgs(){
-  /* 直播权威=快照（每拍全文）；缓存只在快照尚无 msgs 时兜底秒显 */
+  /* 直播权威=快照（每拍全文）；缓存只在快照尚无 msgs 时兜底秒显。
+     3.10：兜底时再追加差额推送带来的「活思维流」（快照未到前也能看到生成中）。 */
   if (S.snap && Array.isArray(S.snap.msgs)) return S.snap.msgs;
-  return (S.histMsgs && S.histMsgs.length) ? S.histMsgs : [];
+  let ms = (S.histMsgs && S.histMsgs.length) ? S.histMsgs.slice() : [];
+  if (Array.isArray(S.histLive) && S.histLive.length) ms = ms.concat(S.histLive);
+  return ms;
 }
 
 /* ========== 1.90：文本转语音小卡片 ========== */
@@ -3517,7 +3618,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.09';   /* 3.09：主界面新增独立「刷新模型」按钮（§12.1/验收4）；服务端侧同步：会话提示词路由环节（§九）、广播裁成最近三组 5死1活（§四/验收5） */
+const VER = '3.10';   /* 3.10：补全 §5.4/验收6 差额推送——落盘所有对话名 + 每会话≥10条消息；req 'hist' 增带 have_ids/have_convs；服务端回带 convs/live/seed，过滤已掌握死 ID */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
