@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.18</title>
+<title>TRAE远程 v3.19</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2227,17 +2227,17 @@ function ledToArr(r){
           r.can_rev ? 1 : 0, r.can_del ? 1 : 0];
 }
 /* —— 3.10（§5.4 差额推送）：已掌握死消息 ID / 已掌握会话名册 —— */
-function histCacheIds(){
-  /* 已掌握的死消息 ID（账本 seq 全局唯一）——各会话缓存并集 */
+function histCacheIds(conv){
+  /* 3.19：已掌握的死消息 ID（账本 seq 是「按会话」自增，非全局唯一！）——
+     只取【当前会话】缓存的 msgs 的 seq。3.10 原来取各会话并集，跨会话过滤
+     会把本会话的新消息误杀（3.17 症状：看不到最新消息）。改为按会话。 */
   const ids = [];
   try {
     const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
     if (!o || o.key !== cacheKeyNow() || !o.convs) return ids;
-    for (const k in o.convs){
-      const e = o.convs[k];
-      if (e && Array.isArray(e.msgs))
-        for (const m of e.msgs) if (m && m.seq !== undefined) ids.push(m.seq);
-    }
+    const e = o.convs['p' + S.port + '|' + (conv || '')];
+    if (e && Array.isArray(e.msgs))
+      for (const m of e.msgs) if (m && m.seq !== undefined) ids.push(m.seq);
   } catch(e){}
   return ids;
 }
@@ -2265,7 +2265,7 @@ function reqHist(conv, have_seq, ver){
      「已掌握会话名册 have_convs」。旧服务端忽略多出的字段，行为不变。 */
   sendJson({t: 'req', id: id, c: 'hist', conv: conv || '',
             have_seq: have_seq | 0, ver: ver | 0,
-            have_ids: histCacheIds(), have_convs: histCacheConvs()});
+            have_ids: histCacheIds(conv), have_convs: histCacheConvs()});
 }
 function reqHistPrev(conv, from_seq, count){
   const id = ++reqSeq;
@@ -2783,30 +2783,123 @@ setInterval(() => {
   });
 }, 20000);
 
+/* 3.19：单条消息指纹（role : 正文 : 可回退 : 可删除）——供增量渲染
+   比对「消息前缀是否一致」，与旧 key 里的逐条拼法完全同源。 */
+function msgFp(m){
+  return m[0] + ':' + m[1] + ':' + (m[3] || 0) + (m[4] || 0);
+}
+
+/* 3.19：抽出「构建单条消息 DOM 节点」（原本内联在 renderMsgs 的
+   forEach 里）。全量重画与增量追加共用同一构建逻辑，避免两处漂移；
+   dataset.mi 记录消息下标，供增量渲染定位/裁剪尾部节点。 */
+function buildMsgNode(m, i, times, msgs, ui){
+  const user = m[0] === 'u';
+  let acts = '';
+  /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息） */
+  acts += '<button class="mact cpy" data-k="copy" data-i="' + i
+        + '">📋 复制</button>';
+  if (user){
+    acts += '<button class="mact ed" data-k="edit" data-i="' + i
+          + '">✎ 重编</button>';
+    if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
+                    + ui + '">↩ 回退</button>';
+    if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
+                    + ui + '">🗑 删除</button>';
+  }
+  const d = document.createElement('div');
+  d.className = 'msg ' + (user ? 'user' : 'agent');
+  d.dataset.mi = String(i);                 /* 3.19：增量渲染定位用 */
+  /* 1.90：AI 消息正文识别 (@fox-play1)...(@fox-play2) 包夹段 →
+     渲染成语音小卡片（占位符先过 mdHtml，再替换成卡片 HTML） */
+  let bodyHtml;
+  if (user){
+    bodyHtml = esc(m[1]);
+  } else {
+    const fsegs = [], asegs = [];
+    bodyHtml = mdHtml(foxAskCards(foxPlayCards(m[1], fsegs), asegs));
+    fsegs.forEach((ft, n) => {
+      bodyHtml = bodyHtml.replace('@@FPC' + n + '@@', foxCardHtml(ft));
+    });
+    asegs.forEach((at, n) => {
+      bodyHtml = bodyHtml.replace('@@FAC' + n + '@@', foxCardHtml(at, true));
+    });
+  }
+  let h = '<div class="who">' + (user ? '我' : 'TRAE')
+        + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
+        + (acts ? '<span class="mract">' + acts + '</span>' : '')
+        + '</div><div class="body">' + bodyHtml + '</div>';
+  d.innerHTML = h;
+  /* 1.90/1.99：语音卡片 ▶ 播放绑定（closest('.foxplay') 取段文本） */
+  d.querySelectorAll('.foxplay .fpbtn').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const card = b.closest('.foxplay');
+      foxPlay(card ? (card.getAttribute('data-seg') || '') : '');
+    };
+  });
+  /* 1.06/1.24：回退/删除（破坏性操作，confirm 二次确认）
+     复制/重编（本地即时完成，不涉服务端） */
+  d.querySelectorAll('.mact').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const k = b.dataset.k, mi = parseInt(b.dataset.mi);
+      if (k === 'copy'){
+        copyText(msgs[parseInt(b.dataset.i)][1]);
+        return;
+      }
+      if (k === 'edit'){
+        const it = msgs[parseInt(b.dataset.i)];
+        el.ent.value = it ? (it[1] || '') : '';
+        refreshSendBtn();
+        try { el.ent.focus(); } catch(e2){}
+        flash('已回填输入框，可修改后重新发送', 'var(--blue)');
+        return;
+      }
+      if (k === 'rewind'){
+        if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
+          + '其后全部对话（含 AI 回复）将一并移除。')) return;
+        flash('正在回退…', 'var(--blue)');
+      } else {
+        if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
+          + '其对应的 AI 回复会一并删除。')) return;
+        flash('正在删除…', 'var(--blue)');
+      }
+      sendCmd(k, mi);
+      /* 1.62：撤回发起后记下时刻——TRAE 会把被撤回的那条话放回它
+         自己的输入框，等下一次快照读到再回填本端（见 revertRefill） */
+      if (k === 'rewind') S.revertPend = Date.now();
+    };
+  });
+  return d;
+}
+
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
-     与 opts（选项卡答完即销毁） */
-  let key = msgs.map(m => m[0] + ':' + m[1] + ':' + (m[3] || 0)
-                              + (m[4] || 0)).join('#');
+     与 opts（选项卡答完即销毁）
+     3.19：key 拆成「消息指纹 msgKey」与「面板指纹 restKey」两段——
+     只有消息在长（直播思维流）时才可能走增量渲染，不必整列重画。 */
+  const fps = msgs.map(msgFp);
+  const msgKey = fps.join('#');
+  let restKey = '';
   if (finish)
-    key += '#fin:' + (finish.inLast ? 'L' : '-') + '|'
+    restKey += '#fin:' + (finish.inLast ? 'L' : '-') + '|'
            + (finish.files || []).join('|') + '~'
            + (finish.text || '').slice(0, 60);
-  key += '#opt:' + opts.map(o => o.t).join('|');
+  restKey += '#opt:' + opts.map(o => o.t).join('|');
   /* 1.27：提问卡指纹参与 key——v1.40 只把 opts 放进 key 而 ask
      独立在外，TRAE 连续多问时第 2 问起 ask 变了但 key 没变 →
      重画被跳过，页面永远停在第一问（用户实测「后面的都被吞了」）。
      指纹含问题文本+各选项文案+选中态+主按钮文字，任何一问变化
      都会触发重画。 */
-  key += '#ask:' + askFp(ask);
+  restKey += '#ask:' + askFp(ask);
   /* 1.29：插话排队条参与指纹（队列增删/立即发送都要及时重画） */
-  key += '#qp:' + (pend || []).map(p => (p.t || '').slice(0, 40)).join('|');
+  restKey += '#qp:' + (pend || []).map(p => (p.t || '').slice(0, 40)).join('|');
   /* 1.09：待确认占位 + 切换在途条参与指纹（状态推进/撤下要重画） */
-  key += '#pend:' + pendSig()
+  restKey += '#pend:' + pendSig()
        + (S.switch_pend ? '#sw:' + S.switch_pend.title : '');
+  const key = msgKey + restKey;
   if (key === S.msgs_key) return;
-  S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
      1.20：非全屏时若用户已上翻找历史（未近底）同样保位置——快照
      每秒重画会把人强拽回底部，永远凑不满进全屏的门槛（鬼打墙
@@ -2815,6 +2908,46 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   const savedTop = el.msgs.scrollTop;
   const nearBottom = el.msgs.scrollHeight - savedTop
       - el.msgs.clientHeight < 200;
+
+  /* 3.19：增量渲染快路径——直播思维流每秒刷新时，通常只有末尾那条 AI
+     消息在长、前面的全部原样。若「面板指纹不变 + 消息前缀一致」，就
+     只重建发生变化的尾部节点，不整列 innerHTML=''，消除剧烈抖动。
+     判定保守：前缀/面板/节点数任一不符即回退全量重画。 */
+  const curNodes = Array.from(
+      el.msgs.querySelectorAll(':scope > .msg[data-mi]'));
+  let cp = 0;
+  if (S.msgs_fps){
+    while (cp < S.msgs_fps.length && cp < fps.length
+           && S.msgs_fps[cp] === fps[cp]) cp++;
+  }
+  if (S.msgs_fps && S.msgs_restkey === restKey
+      && curNodes.length === S.msgs_fps.length && fps.length > 0 && cp >= 1){
+    for (let k = cp; k < curNodes.length; k++) curNodes[k].remove();
+    const emp0 = el.msgs.querySelector(':scope > .empty');
+    if (emp0) emp0.remove();
+    const times3 = resolveTimes(msgs);
+    const uidx3 = [];
+    let uc3 = -1;
+    msgs.forEach(mm => { if (mm[0] === 'u') uc3++; uidx3.push(uc3); });
+    /* 插入锚点：最后一个保留的消息节点之后（即首个面板节点）；
+       无保留节点时退到切换提示条之后 / 容器首个子节点。 */
+    let anchor = null;
+    if (curNodes[cp - 1]) anchor = curNodes[cp - 1].nextSibling;
+    else {
+      const sw0 = el.msgs.querySelector(':scope > .switching');
+      anchor = sw0 ? sw0.nextSibling : el.msgs.firstChild;
+    }
+    for (let i = cp; i < msgs.length; i++)
+      el.msgs.insertBefore(buildMsgNode(msgs[i], i, times3, msgs, uidx3[i]),
+                           anchor);
+    S.msgs_key = key; S.msgs_fps = fps; S.msgs_restkey = restKey;
+    renderPending();
+    if (inF) el.msgs.scrollTop = savedTop;
+    else if (nearBottom) fprog(el.msgs.scrollHeight);
+    else el.msgs.scrollTop = savedTop;
+    return;
+  }
+  S.msgs_key = key; S.msgs_fps = fps; S.msgs_restkey = restKey;
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
   if (empty && !S.pending.length && !S.switch_pend
@@ -2831,95 +2964,13 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   }
   if (empty){ renderPending(); return; }
   const times = resolveTimes(msgs);
-  let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
+  /* 3.19：「我」的消息序号（rewind/del_msg 用）预计算——单条节点构建
+     统一交给 buildMsgNode，全量重画与增量追加两路共用同一逻辑。 */
+  const uidx = [];
+  let uc = -1;
+  msgs.forEach(mm => { if (mm[0] === 'u') uc++; uidx.push(uc); });
   msgs.forEach((m, i) => {
-    const user = m[0] === 'u';
-    let acts = '';
-    /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息——把
-       文本回填输入框改完再发；TRAE 端无法真撤回已入列的消息，
-       反悔机制 = 回填重编后作为新消息发出） */
-    acts += '<button class="mact cpy" data-k="copy" data-i="' + i
-          + '">📋 复制</button>';
-    if (user){
-      ui++;
-      acts += '<button class="mact ed" data-k="edit" data-i="' + i
-            + '">✎ 重编</button>';
-      if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
-                      + ui + '">↩ 回退</button>';
-      if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
-                      + ui + '">🗑 删除</button>';
-    }
-    const d = document.createElement('div');
-    d.className = 'msg ' + (user ? 'user' : 'agent');
-    /* 1.90：AI 消息正文识别 (@fox-play1)...(@fox-play2) 包夹段 →
-       渲染成语音小卡片（占位符先过 mdHtml，再替换成卡片 HTML） */
-    let bodyHtml;
-    if (user){
-      bodyHtml = esc(m[1]);
-    } else {
-      const fsegs = [], asegs = [];
-      /* 2.21：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）
-         互不冲突，先摘语音、后摘提问，再各自回填卡片 */
-      bodyHtml = mdHtml(foxAskCards(foxPlayCards(m[1], fsegs), asegs));
-      fsegs.forEach((ft, n) => {
-        bodyHtml = bodyHtml.replace('@@FPC' + n + '@@',
-                                    foxCardHtml(ft));
-      });
-      asegs.forEach((at, n) => {
-        bodyHtml = bodyHtml.replace('@@FAC' + n + '@@',
-                                    foxCardHtml(at, true));
-      });
-    }
-    let h = '<div class="who">' + (user ? '我' : 'TRAE')
-          + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
-          + (acts ? '<span class="mract">' + acts + '</span>' : '')
-          + '</div><div class="body">' + bodyHtml + '</div>';
-    d.innerHTML = h;
-    /* 1.90：语音卡片 ▶ 播放绑定（1.96：卡片已全量显示原文，data-seg 仍存完整原文供合成）
-       1.99：改为 closest('.foxplay') 取段文本——▶ 按钮的父节点是 .fprow（不是卡片本身），
-       原先写 b.parentElement.getAttribute('data-seg') 取到 null，点 ▶ 等于 foxPlay('')
-       直接 return，按钮形同虚设（CDP 实测：点了横幅不动、无 tts 报文）。 */
-    d.querySelectorAll('.foxplay .fpbtn').forEach(b => {
-      b.onclick = e => {
-        e.stopPropagation();
-        const card = b.closest('.foxplay');
-        foxPlay(card ? (card.getAttribute('data-seg') || '') : '');
-      };
-    });
-    /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
-       1.24：复制/重编（本地即时完成，不涉服务端） */
-    d.querySelectorAll('.mact').forEach(b => {
-      b.onclick = e => {
-        e.stopPropagation();
-        const k = b.dataset.k, mi = parseInt(b.dataset.mi);
-        if (k === 'copy'){
-          copyText(msgs[parseInt(b.dataset.i)][1]);
-          return;
-        }
-        if (k === 'edit'){
-          const it = msgs[parseInt(b.dataset.i)];
-          el.ent.value = it ? (it[1] || '') : '';
-          refreshSendBtn();
-          try { el.ent.focus(); } catch(e2){}
-          flash('已回填输入框，可修改后重新发送', 'var(--blue)');
-          return;
-        }
-        if (k === 'rewind'){
-          if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
-            + '其后全部对话（含 AI 回复）将一并移除。')) return;
-          flash('正在回退…', 'var(--blue)');
-        } else {
-          if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
-            + '其对应的 AI 回复会一并删除。')) return;
-          flash('正在删除…', 'var(--blue)');
-        }
-        sendCmd(k, mi);
-        /* 1.62：撤回发起后记下时刻——TRAE 会把被撤回的那条话放回它
-           自己的输入框，等下一次快照读到再回填本端（见 revertRefill） */
-        if (k === 'rewind') S.revertPend = Date.now();
-      };
-    });
-    el.msgs.appendChild(d);
+    el.msgs.appendChild(buildMsgNode(m, i, times, msgs, uidx[i]));
   });
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 TRAE
      AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
@@ -3618,7 +3669,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.18';   /* 3.18：网页端——①客户端单发闸门（同句 1.5s 内只发一次，防软键盘 Enter 与按钮双触发/双击/重复帧导致「一次操作发两条」）；②版本自愈重载前后保/恢复阅读位置（贴底回底部，治「刷新丢最后一条」）。3.17：修正差额推送误杀（取消 have_ids 过滤，游标增量原样回传）；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页新增「活的」发送区；3.14：主页改预览版会话列表、新增「通用」分页、CDP 操作统一归口会话路由器 */
+const VER = '3.19';   /* 3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -4070,6 +4121,7 @@ function switchSrv(nm){
   setCur(nm);
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  S.msgs_fps = null; S.msgs_restkey = null;   /* 3.19：增量渲染基线作废 */
   S.pending = []; S.switch_pend = null;
   S.busy = false; S.model_busy = false;
   S.points = '—'; el.points.textContent = '积分 —';
@@ -4617,6 +4669,7 @@ function applySwitch(box, port){
   S.box = box; S.port = port;
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  S.msgs_fps = null; S.msgs_restkey = null;   /* 3.19：增量渲染基线作废 */
   S.attach_pending = null; S.model_busy = false;
   /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
   S.pending = []; S.switch_pend = null;
