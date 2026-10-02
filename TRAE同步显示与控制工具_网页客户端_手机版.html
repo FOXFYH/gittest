@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.17</title>
+<title>TRAE远程 v3.18</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -3618,7 +3618,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.17';   /* 3.17：服务端侧——修正差额推送误杀（账本 seq 按会话自增、跨会话过滤会吞掉最新消息）→ 取消 have_ids 过滤，游标增量原样回传，最新消息永不因差额丢失；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页新增「活的」发送区；3.14：主页改预览版会话列表、新增「通用」分页、CDP 操作统一归口会话路由器 */
+const VER = '3.18';   /* 3.18：网页端——①客户端单发闸门（同句 1.5s 内只发一次，防软键盘 Enter 与按钮双触发/双击/重复帧导致「一次操作发两条」）；②版本自愈重载前后保/恢复阅读位置（贴底回底部，治「刷新丢最后一条」）。3.17：修正差额推送误杀（取消 have_ids 过滤，游标增量原样回传）；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页新增「活的」发送区；3.14：主页改预览版会话列表、新增「通用」分页、CDP 操作统一归口会话路由器 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -3626,8 +3626,18 @@ const VER = '3.17';   /* 3.17：服务端侧——修正差额推送误杀（账
 try {
   const _VK = 'trae_webm_ver_seen', _pv = localStorage.getItem(_VK);
   localStorage.setItem(_VK, VER);
-  if (_pv !== null && _pv !== VER)
+  if (_pv !== null && _pv !== VER) {
+    /* 3.18：自愈重载会把用户正在看的最后一条刷没——重载前把消息区滚动位置
+       与「是否贴底」存进 sessionStorage，初始化后由 _restoreScrollOnce 恢复。 */
+    try {
+      const _mb = (typeof el !== 'undefined' && el && el.msgs) ? el.msgs : null;
+      if (_mb) sessionStorage.setItem('trae_webm_scroll', JSON.stringify({
+        top: _mb.scrollTop,
+        bottom: (_mb.scrollHeight - _mb.scrollTop - _mb.clientHeight) < 40
+      }));
+    } catch(e){}
     location.replace(location.href.split('?')[0] + '?v=' + VER);
+  }
 } catch(e){}
 function renderVer(box){
   try{
@@ -4695,6 +4705,17 @@ function renderPorts(){
 
 function cmd(c, a, convSid){
   if (!S.onLine){ flash('正在链接 WS…连上后请重发', 'var(--orange)'); return; }
+  /* 3.18：客户端单发闸门——同一句正文 1.5 秒内只发一次，防软键盘 Enter 与
+     按钮双触发 / 双击 / WS 重复帧造成「一次操作发两条」（一条落地、一条进
+     官方排队条）。只对 send/interject 且正文为非空字符串生效。 */
+  if ((c === 'send' || c === 'interject') && typeof a === 'string'
+      && a.trim()) {
+    const _k = a.trim(), _now = Date.now();
+    if (S._lastSend && S._lastSend.t === _k && (_now - S._lastSend.ts) < 1500) {
+      return;                       /* 判为重复，静默丢弃，不再重复投递 */
+    }
+    S._lastSend = {t: _k, ts: _now};
+  }
   /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
      清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
   /* 1.88：发送/插话自带 10 位随机对话 ID（did）——登记到本卡，
@@ -5551,10 +5572,30 @@ renderVer();                     /* 1.xx：统一版本号（三处同步） */
     rebuildModelOptions();
   }
 }
+/* 3.18：版本自愈重载后恢复阅读位置（贴底则回到底部看最新一条）。 */
+let _scrollRestored = false;
+function _restoreScrollOnce(){
+  if (_scrollRestored) return;
+  _scrollRestored = true;
+  try {
+    const raw = sessionStorage.getItem('trae_webm_scroll');
+    if (!raw) return;
+    sessionStorage.removeItem('trae_webm_scroll');
+    const s = JSON.parse(raw) || {};
+    const mb = el.msgs; if (!mb) return;
+    setTimeout(() => {
+      try {
+        if (s.bottom) mb.scrollTop = mb.scrollHeight;
+        else mb.scrollTop = s.top | 0;
+      } catch(e){}
+    }, 600);
+  } catch(e){}
+}
 renderAcct();                            /* 1.27：账号行先显 — */
 loadSrvs();                              /* v1.84：先恢复落盘的多电脑名册（离线也显） */
 pickCur(); renderSrvList(); renderTop(); /* v1.87：打开即渲染名册 + 直接选中上次那台 */
 connect();
+_restoreScrollOnce();                    /* 3.18：恢复自愈重载前的阅读位置（只执行一次） */
 startProbe();                            /* v1.50：若此前切在副频道，恢复主频道探测 */
 </script>
 </body>
