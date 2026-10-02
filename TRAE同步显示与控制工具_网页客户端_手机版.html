@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.05</title>
+<title>TRAE远程 v3.06</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2230,12 +2230,12 @@ function reqFolds(conv){
 function reqFold(conv, n){
   if (!conv || S.foldBusy) return;
   S.foldBusy = true;
-  renderFoldBar('正在取灰中…');        /* 验收7：明确要求这 6 个字 */
+  renderFoldBar('正在取回历史记录…');   /* 3.06：撞顶即自动取，横幅直接显示进度 */
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv, ts: Date.now(), kind: 'fold', n: n | 0};
   sendJson({t: 'req', id: id, c: 'fold', conv: conv, n: n | 0});
-  setTimeout(function(){                       /* 兜底：15 秒没回也别卡在「取灰中」 */
-    if (S.foldBusy){ S.foldBusy = false; renderFoldBar('取灰超时'); }
+  setTimeout(function(){                       /* 兜底：15 秒没回也别卡在「取回中」 */
+    if (S.foldBusy){ S.foldBusy = false; renderFoldBar('取回超时'); }
   }, 15000);
 }
 function foldReset(){
@@ -2254,26 +2254,27 @@ function foldNext(){
 }
 function renderFoldBar(msg){
   const bar = el.foldbar; if (!bar) return;
-  /* 3.04：默认隐藏——未「撞到顶」时（S.foldVisible=false）不显示回查条 */
+  /* 3.06：默认隐藏——未「撞到顶」时不显示；撞顶出现后即自动取回，
+     横幅只作状态显示（正在取回历史记录… / 共 N 折），不再需要手动点选 */
   if (!curTitle() || !S.foldVisible){
     bar.classList.remove('on'); bar.innerHTML = ''; return;
   }
   bar.classList.add('on');
-  bar.innerHTML =
-    '<span>📦 历史回查 · 共 ' + (S.foldTotal || 0) + ' 折</span>'
-    + '<button id="btn_foldget"' + (S.foldBusy ? ' disabled' : '') + '>取上一折</button>'
-    + (msg ? '<span style="color:var(--orange);">' + esc(msg) + '</span>' : '');
-  const b = $('btn_foldget');
-  if (b) b.onclick = foldNext;
+  bar.innerHTML = msg
+    ? '<span style="color:var(--orange);">📦 ' + esc(msg) + '</span>'
+    : '<span>📦 历史回查 · 共 ' + (S.foldTotal || 0) + ' 折</span>';
 }
-/* 3.04：历史回查条可见性——「撞到顶」才出现；离开顶部收起。
-   显示时顺带刷新内容（共 N 折 / 已取到的折）。 */
+/* 3.06：历史回查条可见性——「撞到顶」才出现；一出现就自动取回（无需点选）；
+   离开顶部自动收起。 */
 function foldSetVisible(on){
   on = !!on && !!curTitle();
   if (on === !!S.foldVisible) return;
   S.foldVisible = on;
-  if (on){ renderFoldBar(''); renderFoldBox(); }
-  else {
+  if (on){
+    renderFoldBar('');
+    renderFoldBox();
+    foldNext();          /* 3.06：撞顶即自动帮取，显示了就代表已在取 */
+  } else {
     if (el.foldbar){ el.foldbar.classList.remove('on'); el.foldbar.innerHTML = ''; }
     if (el.foldbox){ el.foldbox.classList.remove('on'); }
   }
@@ -2313,7 +2314,7 @@ function onRes(id, k, v){
   if (rq) delete S_reqs[id];
   if (!v || !v.ok){                            /* 账本不可用/未知 c */
     if (k === 'fold' || k === 'folds'){        /* 折叠失败：复位，别卡在「取灰中」 */
-      S.foldBusy = false; renderFoldBar('取灰失败');
+      S.foldBusy = false; renderFoldBar('取回失败');
     }
     return;
   }
@@ -3499,7 +3500,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.05';   /* 3.05：在线数改「会话 N」（去分子分母）；历史回查条默认隐藏，上翻撞顶才出现、继续撞自动取折（撞顶即亮条） */
+const VER = '3.06';   /* 3.06：在线数改「会话 N」；历史回查条撞顶才出现、出现即自动取回（横幅显示「正在取回历史记录…」），无需手动点选 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
