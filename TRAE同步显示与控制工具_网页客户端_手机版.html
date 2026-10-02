@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.21</title>
+<title>TRAE远程 v3.22</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -56,29 +56,11 @@ select{font-size:12px;}
 /* ── 消息区 ── */
 #msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   padding:8px 8px 4px; background:#fff;}
-/* 3.01：历史回查条 + 折叠箱（收起隐藏，展开不挤消息区滚动） */
+/* 3.22：取消「折」概念——只留一条取历史的横幅（收起不占位，无折叠箱） */
 #foldbar{display:none; align-items:center; gap:6px; padding:3px 8px;
   background:#f7f9fc; border-bottom:1px solid var(--bd); font-size:12px;
   color:#555; flex-wrap:wrap;}
 #foldbar.on{display:flex;}
-#foldbar button{font-size:12px; padding:1px 8px; min-height:24px;
-  border:1px solid var(--blue); color:var(--blue); background:#fff;
-  border-radius:5px;}
-#foldbar button:disabled{opacity:.5;}
-#foldbox{display:none; max-height:34vh; overflow-y:auto; padding:4px 8px;
-  background:#fbfcfe; border-bottom:1px solid var(--bd);
-  -webkit-overflow-scrolling:touch;}
-#foldbox.on{display:block;}
-.foldgrp{margin:3px 0; border:1px solid var(--bd); border-radius:6px;
-  background:#fff; overflow:hidden;}
-.foldhd{padding:4px 8px; cursor:pointer; font-size:12px; color:#333;
-  background:#eef3fa; user-select:none;}
-.foldbd{padding:4px 8px; font-size:12px; line-height:1.45;}
-.foldrow{margin:2px 0; white-space:pre-wrap; word-break:break-word;}
-.foldrow.u{color:#1565c0;}
-.foldrow.a{color:#0a7d32;}
-.foldrow .ftm{color:#aaa; font-size:11px;}
-.foldrow .fwho{font-weight:bold;}
 /* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
    消息区独占整屏，能看更多历史；body.fmsg 生效 */
 body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
@@ -581,9 +563,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   </div>
 </div>
 
-<!-- 3.01：历史回查条 + 折叠箱（在消息区上方；收起时不占位、不挤滚动） -->
+<!-- 3.22：取消「折」概念——只留一条取历史的横幅（在消息区上方；不占位、不挤滚动） -->
 <div id="foldbar"></div>
-<div id="foldbox"></div>
 <div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
 <div id="attach_row" data-page-node-id="0FRu38I2Y9H4SjISPCj3qv"></div>
 <div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
@@ -1314,7 +1295,7 @@ const el = {
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), loginbar: $('loginbar'),
   msgs: $('msgs'), attach_row: $('attach_row'),
-  foldbar: $('foldbar'), foldbox: $('foldbox'),
+  foldbar: $('foldbar'),
   input_row: $('input_row'),
   attach: $('btn_attach'), ent: $('ent'), take: $('btn_take'),
   copy: $('btn_copy'),
@@ -2278,9 +2259,27 @@ function reqHistPrev(conv, from_seq, count){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
   sendJson({t: 'req', id: id, c: 'hist_prev', conv: conv || '',
-            from_seq: from_seq | 0, count: count | 30});
+            from_seq: from_seq | 0, count: count | 4});
+  /* 3.22：兜底——超过「服务器回应超时」没回，也别卡在「正在取回历史记录…」 */
+  const _t = Date.now(); S.histPrevT0 = _t;
+  setTimeout(function(){
+    if (S.histLoadingPrev && S.histPrevT0 === _t){
+      S.histLoadingPrev = false; renderFoldBar('');
+    }
+  }, srvDeadMs());
 }
-/* ===== 3.01：历史回查折叠（验收7） ===== */
+/* 3.22：向上取历史（唯一入口）——撞顶 / 继续撞都调它：显示横幅 → 每次补 4 条。
+   取消「折」概念后，原 foldNext 的取折职责并入此处（不再请求 fold/folds）。 */
+function histPullOlder(){
+  if (S.histLoadingPrev) return;
+  if (!(S.histRaw && S.histRaw.length)) return;
+  const first = S.histRaw[0];
+  if (!first || !(first.seq > 1)){ flash('已经是最早记录了'); return; }
+  S.histLoadingPrev = true;
+  renderFoldBar('正在取回历史记录…');
+  reqHistPrev(S.histConv, first.seq, 4);
+}
+/* ===== 3.01：历史回查折叠（验收7）——3.22 起网页端不再使用折叠，仅留定义 ===== */
 function reqFolds(conv){
   if (!conv) return;
   const id = ++reqSeq;
@@ -2314,29 +2313,23 @@ function foldNext(){
 }
 function renderFoldBar(msg){
   const bar = el.foldbar; if (!bar) return;
-  /* 3.06：默认隐藏——未「撞到顶」时不显示；撞顶出现后即自动取回，
-     横幅只作状态显示（正在取回历史记录… / 共 N 折），不再需要手动点选 */
-  if (!curTitle() || !S.foldVisible){
+  /* 3.22：取消「折」概念——横幅只在「撞顶取历史」时显示一句进度
+     （正在取回历史记录…），不再有「共 N 折」，也没有折叠箱。 */
+  if (!curTitle() || !S.foldVisible || !msg){
     bar.classList.remove('on'); bar.innerHTML = ''; return;
   }
   bar.classList.add('on');
-  bar.innerHTML = msg
-    ? '<span style="color:var(--orange);">📦 ' + esc(msg) + '</span>'
-    : '<span>📦 历史回查 · 共 ' + (S.foldTotal || 0) + ' 折</span>';
+  bar.innerHTML = '<span style="color:var(--orange);">⏳ ' + esc(msg) + '</span>';
 }
-/* 3.06：历史回查条可见性——「撞到顶」才出现；一出现就自动取回（无需点选）；
-   离开顶部自动收起。 */
+/* 3.22：取历史横幅可见性——「撞到顶」才出现；离开顶部自动收起。
+   真正的取回进度由滚动处理处显示（renderFoldBar('正在取回历史记录…')）；
+   不再有「折」这个概念，也没有折叠箱。 */
 function foldSetVisible(on){
   on = !!on && !!curTitle();
   if (on === !!S.foldVisible) return;
   S.foldVisible = on;
-  if (on){
-    renderFoldBar('');
-    renderFoldBox();
-    foldNext();          /* 3.06：撞顶即自动帮取，显示了就代表已在取 */
-  } else {
-    if (el.foldbar){ el.foldbar.classList.remove('on'); el.foldbar.innerHTML = ''; }
-    if (el.foldbox){ el.foldbox.classList.remove('on'); }
+  if (!on && el.foldbar){
+    el.foldbar.classList.remove('on'); el.foldbar.innerHTML = '';
   }
 }
 function renderFoldBox(){
@@ -2461,6 +2454,7 @@ function applyHistExtras(v){
 }
 function prependHist(conv, older){
   S.histLoadingPrev = false;
+  renderFoldBar('');                           /* 3.22：取回结束，收起横幅 */
   if (conv !== S.histConv) return;
   if (!Array.isArray(older) || !older.length) return;
   const h = el.msgs.scrollHeight;              /* 保阅读位置 */
@@ -2486,8 +2480,7 @@ function ensureHist(){
   }
   renderAll();                                  /* 秒显（快照未到达前） */
   reqHist(title, S.histHave, S.histVer);        /* 游标增量补新/重建 */
-  foldReset();                                  /* 3.01：切会话重置历史回查 */
-  reqFolds(title);                              /* 3.01：取该会话总折数 */
+  foldReset();                                  /* 3.22：切会话收起取历史横幅 */
 }
 let syncConvAt = 0;
 function syncHistConvs(){
@@ -3229,17 +3222,11 @@ el.msgs.addEventListener('scroll', () => {
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
-  /* 3.04：历史回查条只在上翻「撞到顶」时出现，离开顶部自动收起 */
+  /* 3.22：撞到顶才出现取历史横幅，离开顶部自动收起（已无「折」概念） */
   foldSetVisible(m.scrollTop < 60);
-  /* 2.20 新架构：接近顶部且本地缓存还有更老 → 从账本向前补拉 */
-  if (m.scrollTop < 60 && !S.histLoadingPrev
-      && S.histRaw && S.histRaw.length){
-    const first = S.histRaw[0];
-    if (first && first.seq > 1){
-      S.histLoadingPrev = true;
-      reqHistPrev(S.histConv, first.seq, 30);
-    }
-  }
+  /* 2.20 新架构：接近顶部且本地缓存还有更老 → 从账本向前补拉
+     3.22：撞顶即显示横幅，每次向上补 4 条（用户 2026-10-02 定的规则） */
+  if (m.scrollTop < 60) histPullOlder();
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到
      最新」、切换会话。手指怎么滑都不退（鬼打墙根因）。
      进入门槛降为 0.6 屏：一开始往上找历史就进全屏，
@@ -3282,16 +3269,15 @@ el.msgs.addEventListener('wheel', e => {
     flash('已回到最新', 'var(--green)', 500);
   }
 }, {passive: true});
-/* 3.04：到顶后「继续撞」= 自动取上一折（用户要求：撞到顶出现回查条，
-   再继续撞就自动去查）。触屏=到顶后手指继续下拉；滚轮=到顶后继续上滚。
-   600ms 防抖，一轮一次。 */
+/* 3.22：到顶后「继续撞」= 再向上取 4 条历史（用户 2026-10-02 定的规则）。
+   触屏=到顶后手指继续下拉；滚轮=到顶后继续上滚。600ms 防抖，一轮一次。 */
 var foldTouchY2 = 0, foldAtTop = false, foldBumpAt = 0;
 function foldBump(){
   if (Date.now() - foldBumpAt < 600) return;
   foldBumpAt = Date.now();
-  if (S.foldBusy) return;
-  foldSetVisible(true);      /* 3.04：撞到顶即让回查条出现（不依赖 scroll 事件） */
-  foldNext();
+  if (S.histLoadingPrev) return;
+  foldSetVisible(true);      /* 撞到顶即让横幅出现（不依赖 scroll 事件） */
+  histPullOlder();
 }
 el.msgs.addEventListener('touchstart', e => {
   foldTouchY2 = e.touches[0].clientY;
@@ -3676,7 +3662,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.21';   /* 3.21：网页端发送三态（ws_connecting「正在连接 WS…（连上后自动发送）」/ sending「已发送」/ acked「服务器正在执行…」）+ WS 未连时离线排队、连上自动补发；did_ack 置 acked 态、sent 阶段事件按 did 精确匹配。3.20：禁止双开——服务端（主入口）新增单实例锁，产品版本随升。3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
+const VER = '3.22';   /* 3.22：取消「折」概念——历史回查看顶部横幅（正在取回历史记录…），消息区纯平铺无限排队，每次向上补 4 条；移除折叠箱与「共 N 折」。3.21：网页端发送三态（ws_connecting「正在连接 WS…（连上后自动发送）」/ sending「已发送」/ acked「服务器正在执行…」）+ WS 未连时离线排队、连上自动补发；did_ack 置 acked 态、sent 阶段事件按 did 精确匹配。3.20：禁止双开——服务端（主入口）新增单实例锁，产品版本随升。3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
