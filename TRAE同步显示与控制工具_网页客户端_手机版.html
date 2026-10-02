@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.03</title>
+<title>TRAE远程 v3.04</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1286,6 +1286,8 @@ const S = {
      foldTotal=总折数；foldN=已取到的最新折序号（1起，递增往老取）；
      foldBusy=取折在途；foldData[n]=第 n 折的账本行渲染数组 */
   foldTotal: 0, foldN: 0, foldBusy: false, foldData: {},
+  /* 3.04：历史回查条默认隐藏——只有上翻「撞到顶」才出现，继续上拽自动取折 */
+  foldVisible: false,
   /* ===== 2.18 锚定：网页版不再无条件跟随 TRAE 当前选中会话 =====
      用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
      对话」——别人在电脑版操作别的会话，网页版不跟着跳。anchorSid 为
@@ -2238,6 +2240,7 @@ function reqFold(conv, n){
 }
 function foldReset(){
   S.foldTotal = 0; S.foldN = 0; S.foldBusy = false; S.foldData = {};
+  S.foldVisible = false;                       /* 3.04：切会话即收起回查条 */
   if (el.foldbox){ el.foldbox.classList.remove('on'); el.foldbox.innerHTML = ''; }
   if (el.foldbar){ el.foldbar.classList.remove('on'); el.foldbar.innerHTML = ''; }
 }
@@ -2251,7 +2254,10 @@ function foldNext(){
 }
 function renderFoldBar(msg){
   const bar = el.foldbar; if (!bar) return;
-  if (!curTitle()){ bar.classList.remove('on'); bar.innerHTML = ''; return; }
+  /* 3.04：默认隐藏——未「撞到顶」时（S.foldVisible=false）不显示回查条 */
+  if (!curTitle() || !S.foldVisible){
+    bar.classList.remove('on'); bar.innerHTML = ''; return;
+  }
   bar.classList.add('on');
   bar.innerHTML =
     '<span>📦 历史回查 · 共 ' + (S.foldTotal || 0) + ' 折</span>'
@@ -2259,6 +2265,18 @@ function renderFoldBar(msg){
     + (msg ? '<span style="color:var(--orange);">' + esc(msg) + '</span>' : '');
   const b = $('btn_foldget');
   if (b) b.onclick = foldNext;
+}
+/* 3.04：历史回查条可见性——「撞到顶」才出现；离开顶部收起。
+   显示时顺带刷新内容（共 N 折 / 已取到的折）。 */
+function foldSetVisible(on){
+  on = !!on && !!curTitle();
+  if (on === !!S.foldVisible) return;
+  S.foldVisible = on;
+  if (on){ renderFoldBar(''); renderFoldBox(); }
+  else {
+    if (el.foldbar){ el.foldbar.classList.remove('on'); el.foldbar.innerHTML = ''; }
+    if (el.foldbox){ el.foldbox.classList.remove('on'); }
+  }
 }
 function renderFoldBox(){
   const box = el.foldbox; if (!box) return;
@@ -3034,6 +3052,8 @@ el.msgs.addEventListener('scroll', () => {
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
+  /* 3.04：历史回查条只在上翻「撞到顶」时出现，离开顶部自动收起 */
+  foldSetVisible(m.scrollTop < 60);
   /* 2.20 新架构：接近顶部且本地缓存还有更老 → 从账本向前补拉 */
   if (m.scrollTop < 60 && !S.histLoadingPrev
       && S.histRaw && S.histRaw.length){
@@ -3084,6 +3104,32 @@ el.msgs.addEventListener('wheel', e => {
     exitFmsg();
     flash('已回到最新', 'var(--green)', 500);
   }
+}, {passive: true});
+/* 3.04：到顶后「继续撞」= 自动取上一折（用户要求：撞到顶出现回查条，
+   再继续撞就自动去查）。触屏=到顶后手指继续下拉；滚轮=到顶后继续上滚。
+   600ms 防抖，一轮一次。 */
+var foldTouchY2 = 0, foldAtTop = false, foldBumpAt = 0;
+function foldBump(){
+  if (Date.now() - foldBumpAt < 600) return;
+  foldBumpAt = Date.now();
+  if (S.foldBusy) return;
+  foldNext();
+}
+el.msgs.addEventListener('touchstart', e => {
+  foldTouchY2 = e.touches[0].clientY;
+  foldAtTop = el.msgs.scrollTop < 4;
+}, {passive: true});
+el.msgs.addEventListener('touchmove', e => {
+  if (!foldAtTop || Date.now() < fLockUntil) return;
+  if (!document.body.classList.contains('fmsg')) return;
+  if (e.touches[0].clientY - foldTouchY2 > 24){   // 到顶后继续下拉
+    foldAtTop = false;
+    foldBump();
+  }
+}, {passive: true});
+el.msgs.addEventListener('wheel', e => {
+  if (Date.now() < fLockUntil) return;
+  if (e.deltaY < 0 && el.msgs.scrollTop < 4) foldBump();
 }, {passive: true});
 
 function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
@@ -3452,7 +3498,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.03';   /* 3.03：取消「原版/分身」目标下拉（只控原版）；积分只显整数剩余；模型列表按数组协议渲染 */
+const VER = '3.04';   /* 3.04：在线数改「会话 N」（去分子分母）；历史回查条默认隐藏，上翻撞顶才出现、继续撞自动取折 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -4516,7 +4562,8 @@ function srvSeen(){                    // 服务端来向消息：判活 + 即�
 setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
 
 function renderPorts(){
-  el.ports.textContent = '在线 ' + S.alive.size + '/' + S.boxes.length;
+  /* 3.04：不再用「分子/分母」显示在线数，直接给会话个数 */
+  el.ports.textContent = '会话 ' + S.alive.size;
 }
 
 /* ================= 命令 ================= */
