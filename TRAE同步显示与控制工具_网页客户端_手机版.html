@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.20</title>
+<title>TRAE远程 v3.21</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1840,7 +1840,7 @@ function askFp(a){
   ).join('|') + '#' + (a.btn || '');
 }
 
-function pendAdd(kind, text){
+function pendAdd(kind, text, state){
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
   const same = S.pending.find(p => p.text === text);
   if (same) return same;               // 同文本已在册（服务端 pend 回显）
@@ -1848,7 +1848,7 @@ function pendAdd(kind, text){
   /* 1.27：占位挂到发起时的会话上——插话/发送只对当时那个对话有效，
      切到别的对话期间不再显示（切回来仍可见，落地后照常撤下） */
   const p = {id: S.pend_seq, kind: kind, text: text,
-             state: 'sending', ts: Date.now(), conv: curTitle(),
+             state: state || 'sending', ts: Date.now(), conv: curTitle(),
              convSid: curSid()};   /* 2.16：同时记稳定 sid（改名/重排不变） */
   S.pending.push(p);
   return p;
@@ -1857,9 +1857,15 @@ function pendAdd(kind, text){
 function pendStat(p){
   /* 1.83：叫法改口径——原「排队中…」名不副实（我们这边没有自建待发
      队列，命令连上 WS 就直接投给服务端执行；唯一的"队"是 TRAE 官方
-     排队条）。现在一律按「卡在哪一环」说人话，用户实测后拍板。 */
+     排队条）。现在一律按「卡在哪一环」说人话，用户实测后拍板。
+     3.21：发送状态机（用户 2026-10-02 拍板口径），按「卡在哪一环」显示：
+       ws_connecting=WS 还没连上（连上自动发送）；sending=已交给 WS 发出；
+       acked=服务端已受理、进入执行队列（did_ack）；typed/queued/sent=服务端
+       进一步推进（已入 TRAE 输入框 / 已进官方排队条 / 已点发送）。 */
+  if (p.state === 'ws_connecting') return ['正在连接 WS…（连上后自动发送）', ''];
   if (p.state === 'typed')   return ['已输入 TRAE…', ''];
   if (p.state === 'queued')  return ['已进 TRAE 官方排队条，等待 AI 处理…', 'ok'];
+  if (p.state === 'acked')   return ['服务器正在执行…', 'ok'];
   if (p.state === 'sent')    return ['服务器已执行，等待聊天记录浮现…', 'ok'];
   /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
      历史残留兼容，文案不再写死 15 秒。
@@ -1867,8 +1873,9 @@ function pendStat(p){
      「服务器回应超时」（默认 60 秒）没等到 → 明说可能动作失败。 */
   if (p.state === 'timeout') return ['⚠ 服务器超过 ' + Math.round(pendAckTmoMs() / 1000)
       + ' 秒未回应，可能动作失败（可丢弃/改写/重发）', 'bad'];
-  /* sending：send 与 interject 同义——都是「已交给服务端，等它动手」 */
-  return ['已发出，等待服务器执行…', ''];
+  /* 3.21：sending = 已交给 WS 通道发出（用户口径三态之「已发送」）。
+     之后服务端受理会回 did_ack → 转 acked「服务器正在执行…」。 */
+  return ['已发送', ''];
 }
 
 function renderPending(){
@@ -1903,7 +1910,7 @@ function renderPending(){
          再发会多出一份，故不给。
        1.40：复制自 1.40 起恒显，本次连改写/丢弃一起恒显。 */
     let canGo = (p.state === 'sending' || p.state === 'typed'
-                 || p.state === 'timeout');
+                 || p.state === 'ws_connecting' || p.state === 'timeout');
     h += '<span class="pacts"><button class="pendbtn cp" data-cp="'
        + p.id + '">📋 复制</button>'
        + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>';
@@ -3669,7 +3676,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.20';   /* 3.20：禁止双开——服务端（主入口）新增单实例锁，产品版本随升。3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
+const VER = '3.21';   /* 3.21：网页端发送三态（ws_connecting「正在连接 WS…（连上后自动发送）」/ sending「已发送」/ acked「服务器正在执行…」）+ WS 未连时离线排队、连上自动补发；did_ack 置 acked 态、sent 阶段事件按 did 精确匹配。3.20：禁止双开——服务端（主入口）新增单实例锁，产品版本随升。3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -4264,7 +4271,13 @@ function onEv(kind, v){
         才消（did_ack 到达快于聊天记录渲染，若据此秒消会「文字还没出来卡就
         没了」，空档期看不见自己发的话）。消卡改由快照 did_hits 负责。 */
       if (v && typeof v === 'string'){
-        S.pending.forEach(p => { if (p.did === v) p.acked = true; });
+        let hit = false;
+        S.pending.forEach(p => {
+          /* 3.21：三态之「服务器正在执行…」——服务端已受理并进执行队列。
+             后续若收到 typed/queued/sent 阶段事件，再往后推进。 */
+          if (p.did === v){ p.acked = true; p.state = 'acked'; hit = true; }
+        });
+        if (hit) renderAll();
       }
       return;
     }
@@ -4429,8 +4442,13 @@ function onEv(kind, v){
       if (v && typeof v === 'object'){
         stage = v.stage || ''; text = v.text || '';
       } else if (typeof v === 'string') text = v;
-      const p = S.pending.find(x => (!text || x.text === text)
-                                    && x.state !== 'timeout');
+      let p = null;
+      /* 3.21：带 did 的阶段事件优先按 did 精确匹配（文本匹配留作旧服务端兜底） */
+      if (v && typeof v === 'object' && v.did)
+        p = S.pending.find(x => x.did === v.did && x.state !== 'timeout');
+      if (!p)
+        p = S.pending.find(x => (!text || x.text === text)
+                                && x.state !== 'timeout');
       if (p){
         if (stage === 'queued') p.state = 'queued';
         else if (stage === 'clicked') p.state = 'sent';
@@ -4687,6 +4705,13 @@ function applySwitch(box, port){
 function setOnLine(b){
   S.onLine = b;
   if (b){ S.wsOpenAt = Date.now(); S.dropByHide = false; }  // 1.57：连上即清断线标记
+  /* 3.21：连上后自动补发离线期间排队的人类发言（「正在连接 WS」→ 实发），
+     逐条按原 did 投递；服务端受理回 did_ack，卡随 did 消。 */
+  if (b && S.offQueue && S.offQueue.length){
+    const q = S.offQueue; S.offQueue = [];
+    q.forEach(x => sendCmd(x.c, x.a, x.did, x.convSid));
+    renderAll();
+  }
   renderLink();
 }
 
@@ -4757,7 +4782,28 @@ function renderPorts(){
 /* ================= 命令 ================= */
 
 function cmd(c, a, convSid){
-  if (!S.onLine){ flash('正在链接 WS…连上后请重发', 'var(--orange)'); return; }
+  const isSend = ((c === 'send' || c === 'interject')
+                  && typeof a === 'string' && a.trim());
+  /* 3.21：WS 未连时的发送三态——send/interject 不再直接拦住，而是本地立即
+     回显占位卡（态=ws_connecting「正在连接 WS…（连上后自动发送）」），并
+     入 S.offQueue；setOnLine(true) 连上后逐条自动补发。其余命令仍拦住提示。 */
+  if (!S.onLine){
+    if (isSend){
+      const did = newDid();
+      const pp = pendAdd(c, a, 'ws_connecting');
+      if (pp){ pp.did = did; if (convSid) pp.convSid = convSid; }
+      if (!S.sentGuard) S.sentGuard = {};
+      S.sentGuard[a.trim()] = Date.now();
+      if (!S.offQueue) S.offQueue = [];
+      S.offQueue.push({c: c, a: a, did: did, convSid: convSid});
+      el.ent.value = '';
+      flash('正在连接 WS…（连上后自动发送）', 'var(--orange)');
+      renderAll();
+      return;
+    }
+    flash('正在链接 WS…连上后请重发', 'var(--orange)');
+    return;
+  }
   /* 3.18：客户端单发闸门——同一句正文 1.5 秒内只发一次，防软键盘 Enter 与
      按钮双触发 / 双击 / WS 重复帧造成「一次操作发两条」（一条落地、一条进
      官方排队条）。只对 send/interject 且正文为非空字符串生效。 */
@@ -4781,7 +4827,7 @@ function cmd(c, a, convSid){
     /* 1.92 修复：把 did 真正挂到本卡——v1.88 起 pendAdd 一直没存 did
        （形参只有 kind/text），导致 did_ack 广播即使到达也匹配不上、
        卡片永不消；chk 兜底也发的是 undefined did。现在显式补挂。 */
-    const pp = pendAdd(c, a);
+    const pp = pendAdd(c, a, 'sending');   /* 3.21：已交给 WS 发出=「已发送」 */
     if (pp){ pp.did = did;
       /* 2.16：重发传了锁定 sid → 新卡片也绑回原会话，与投递目标一致 */
       if (convSid) pp.convSid = convSid; }
@@ -4789,8 +4835,7 @@ function cmd(c, a, convSid){
        一张无 did 的孤儿卡（100% 卡住的元凶，详见 case 'pend'）。 */
     if (!S.sentGuard) S.sentGuard = {};
     S.sentGuard[a.trim()] = Date.now();
-    if (c === 'send') flash('⏳ 已发出，等待服务器执行…',
-                            'var(--blue)');
+    if (c === 'send') flash('已发送', 'var(--blue)');   // 3.21：已交给 WS 发出
   }
   sendCmd(c, a, did, convSid);
   /* 1.89：发消息/插话=真实人类操作 → 上报 act/send（带当前选中会话
