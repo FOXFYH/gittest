@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.22</title>
+<title>TRAE远程 v3.02</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -55,6 +55,29 @@ select{font-size:12px;}
 /* ── 消息区 ── */
 #msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   padding:8px 8px 4px; background:#fff;}
+/* 3.01：历史回查条 + 折叠箱（收起隐藏，展开不挤消息区滚动） */
+#foldbar{display:none; align-items:center; gap:6px; padding:3px 8px;
+  background:#f7f9fc; border-bottom:1px solid var(--bd); font-size:12px;
+  color:#555; flex-wrap:wrap;}
+#foldbar.on{display:flex;}
+#foldbar button{font-size:12px; padding:1px 8px; min-height:24px;
+  border:1px solid var(--blue); color:var(--blue); background:#fff;
+  border-radius:5px;}
+#foldbar button:disabled{opacity:.5;}
+#foldbox{display:none; max-height:34vh; overflow-y:auto; padding:4px 8px;
+  background:#fbfcfe; border-bottom:1px solid var(--bd);
+  -webkit-overflow-scrolling:touch;}
+#foldbox.on{display:block;}
+.foldgrp{margin:3px 0; border:1px solid var(--bd); border-radius:6px;
+  background:#fff; overflow:hidden;}
+.foldhd{padding:4px 8px; cursor:pointer; font-size:12px; color:#333;
+  background:#eef3fa; user-select:none;}
+.foldbd{padding:4px 8px; font-size:12px; line-height:1.45;}
+.foldrow{margin:2px 0; white-space:pre-wrap; word-break:break-word;}
+.foldrow.u{color:#1565c0;}
+.foldrow.a{color:#0a7d32;}
+.foldrow .ftm{color:#aaa; font-size:11px;}
+.foldrow .fwho{font-weight:bold;}
 /* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
    消息区独占整屏，能看更多历史；body.fmsg 生效 */
 body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
@@ -557,6 +580,9 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   </div>
 </div>
 
+<!-- 3.01：历史回查条 + 折叠箱（在消息区上方；收起时不占位、不挤滚动） -->
+<div id="foldbar"></div>
+<div id="foldbox"></div>
 <div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
 <div id="attach_row" data-page-node-id="0FRu38I2Y9H4SjISPCj3qv"></div>
 <div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
@@ -587,6 +613,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="TRAE 开着→重启；没开→启动" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起（开着→重启，没开→启动）</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
+    <div class="dmi" id="btn_checkin" title="每日签到">✅ 签到</div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
     <div class="dmi" id="btn_prof" title="谷歌分身助手：各分身积分与登录状态">👥 分身状态</div>
   </div>
@@ -659,6 +686,14 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <b data-page-node-id="sqtAJ2SqjLlJyH6aFUI87l">设置</b>
   </div>
   <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
+    <fieldset data-page-node-id="switch_fs">
+      <legend>功能开关</legend>
+      <div class="row" data-page-node-id="switch_autofix_row">
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="checkbox" id="set_autofix" checked> 自动修复标签
+        </label>
+      </div>
+    </fieldset>
     <fieldset data-page-node-id="diag_fs">
       <legend>连接诊断</legend>
       <div class="row"><span>频道（双方约定的房间名）</span><b id="diag_chan" class="diagv">—</b></div>
@@ -1247,6 +1282,10 @@ const S = {
   histRaw: [],          /* 账本原始记录 [{seq,role,text,tm,can_rev,can_del}] */
   histVer: 0, histHave: 0,   /* 游标：会话版本号 + 已存到的 seq */
   histLoadingPrev: false,    /* 向上补拉老历史防重入 */
+  /* ===== 3.01：历史回查折叠（验收7） =====
+     foldTotal=总折数；foldN=已取到的最新折序号（1起，递增往老取）；
+     foldBusy=取折在途；foldData[n]=第 n 折的账本行渲染数组 */
+  foldTotal: 0, foldN: 0, foldBusy: false, foldData: {},
   /* ===== 2.18 锚定：网页版不再无条件跟随 TRAE 当前选中会话 =====
      用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
      对话」——别人在电脑版操作别的会话，网页版不跟着跳。anchorSid 为
@@ -1265,14 +1304,15 @@ const el = {
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), loginbar: $('loginbar'),
   msgs: $('msgs'), attach_row: $('attach_row'),
+  foldbar: $('foldbar'), foldbox: $('foldbox'),
   input_row: $('input_row'),
   attach: $('btn_attach'), ent: $('ent'), take: $('btn_take'),
   copy: $('btn_copy'),
   send: $('btn_send'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
-  launch: $('btn_launch'), refresh_pts: $('btn_refresh_pts'),
-  net: $('btn_net'), netpage: $('page_net'),
+  launch: $('btn_launch'), refresh_pts: $('btn_refresh_pts'), checkin: $('btn_checkin'),
+  net: $('btn_net'), netpage: $('page_net'), set_autofix: $('set_autofix'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'),
@@ -1812,7 +1852,7 @@ function pendStat(p){
   if (p.state === 'sent')    return ['服务器已执行，等待聊天记录浮现…', 'ok'];
   /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
      历史残留兼容，文案不再写死 15 秒 */
-  if (p.state === 'timeout') return ['⚠ 可能未送达（可丢弃/改写/重发）', 'bad'];
+  if (p.state === 'timeout') return ['⚠ 等待服务器回应·超时（可能未送达，可丢弃/改写/重发）', 'bad'];
   /* sending：send 与 interject 同义——都是「已交给服务端，等它动手」 */
   return ['已发出，等待服务器执行…', ''];
 }
@@ -2128,7 +2168,8 @@ function skelCacheSave(snap){
   try {
     const o = {key: cacheKeyNow(), ts: now,
                convs: snap.convs, conv_unread: snap.conv_unread || [],
-               conv_unread_ids: snap.conv_unread_ids || []};
+               conv_unread_ids: snap.conv_unread_ids || [],
+               points: S.points, models: S.models_full};
     localStorage.setItem(LS_SKEL, JSON.stringify(o));
   } catch(e){}
 }
@@ -2177,12 +2218,106 @@ function reqHistPrev(conv, from_seq, count){
   sendJson({t: 'req', id: id, c: 'hist_prev', conv: conv || '',
             from_seq: from_seq | 0, count: count | 30});
 }
+/* ===== 3.01：历史回查折叠（验收7） ===== */
+function reqFolds(conv){
+  if (!conv) return;
+  const id = ++reqSeq;
+  S_reqs[id] = {conv: conv, ts: Date.now(), kind: 'folds'};
+  sendJson({t: 'req', id: id, c: 'folds', conv: conv});
+}
+function reqFold(conv, n){
+  if (!conv || S.foldBusy) return;
+  S.foldBusy = true;
+  renderFoldBar('正在取灰中…');        /* 验收7：明确要求这 6 个字 */
+  const id = ++reqSeq;
+  S_reqs[id] = {conv: conv, ts: Date.now(), kind: 'fold', n: n | 0};
+  sendJson({t: 'req', id: id, c: 'fold', conv: conv, n: n | 0});
+  setTimeout(function(){                       /* 兜底：15 秒没回也别卡在「取灰中」 */
+    if (S.foldBusy){ S.foldBusy = false; renderFoldBar('取灰超时'); }
+  }, 15000);
+}
+function foldReset(){
+  S.foldTotal = 0; S.foldN = 0; S.foldBusy = false; S.foldData = {};
+  if (el.foldbox){ el.foldbox.classList.remove('on'); el.foldbox.innerHTML = ''; }
+  if (el.foldbar){ el.foldbar.classList.remove('on'); el.foldbar.innerHTML = ''; }
+}
+function foldNext(){
+  const t = curTitle();
+  if (!t) return;
+  if (S.foldBusy) return;
+  const n = (S.foldN || 0) + 1;
+  if (S.foldTotal && n > S.foldTotal){ flash('到头了'); return; }
+  reqFold(t, n);
+}
+function renderFoldBar(msg){
+  const bar = el.foldbar; if (!bar) return;
+  if (!curTitle()){ bar.classList.remove('on'); bar.innerHTML = ''; return; }
+  bar.classList.add('on');
+  bar.innerHTML =
+    '<span>📦 历史回查 · 共 ' + (S.foldTotal || 0) + ' 折</span>'
+    + '<button id="btn_foldget"' + (S.foldBusy ? ' disabled' : '') + '>取上一折</button>'
+    + (msg ? '<span style="color:var(--orange);">' + esc(msg) + '</span>' : '');
+  const b = $('btn_foldget');
+  if (b) b.onclick = foldNext;
+}
+function renderFoldBox(){
+  const box = el.foldbox; if (!box) return;
+  const ns = Object.keys(S.foldData || {}).map(Number)
+    .filter(n => n > 0).sort((a, b) => a - b);
+  if (!ns.length){ box.classList.remove('on'); box.innerHTML = ''; return; }
+  box.classList.add('on');
+  box.innerHTML = ns.map(n => {
+    const rows = S.foldData[n] || [];
+    const body = rows.map(r => {
+      const u = r[0] === 'u';
+      return '<div class="foldrow ' + (u ? 'u' : 'a') + '">'
+        + '<span class="fwho">' + (u ? '我' : 'AI') + '</span> '
+        + esc(r[1] || '')
+        + (r[2] ? ' <span class="ftm">' + esc(String(r[2])) + '</span>' : '')
+        + '</div>';
+    }).join('') || '<div class="foldrow" style="color:#999;">（本折无内容）</div>';
+    return '<div class="foldgrp"><div class="foldhd" data-foldn="' + n + '">'
+      + '▸ 第 ' + n + ' 折（1=最新）· ' + rows.length + ' 条</div>'
+      + '<div class="foldbd" style="display:none;">' + body + '</div></div>';
+  }).join('');
+  box.querySelectorAll('.foldhd').forEach(h => {
+    h.onclick = () => {
+      const bd = h.nextElementSibling;
+      if (!bd) return;
+      const open = bd.style.display !== 'none';
+      bd.style.display = open ? 'none' : 'block';
+      h.textContent = (open ? '▸' : '▾') + h.textContent.slice(1);
+    };
+  });
+}
 function onRes(id, k, v){
   const rq = S_reqs[id];
   if (rq) delete S_reqs[id];
-  if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
+  if (!v || !v.ok){                            /* 账本不可用/未知 c */
+    if (k === 'fold' || k === 'folds'){        /* 折叠失败：复位，别卡在「取灰中」 */
+      S.foldBusy = false; renderFoldBar('取灰失败');
+    }
+    return;
+  }
   if (k === 'hist') applyHist(rq ? rq.conv : '', v);
   else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || []);
+  else if (k === 'folds'){                     /* 3.01：总折数 */
+    if (!rq || rq.conv !== curTitle()) return;  /* 过期回包（已切会话）丢弃 */
+    S.foldTotal = v.folds | 0;
+    if (S.foldN > S.foldTotal) S.foldN = S.foldTotal;
+    renderFoldBar('');
+  }
+  else if (k === 'fold'){                      /* 3.01：某一折的账本行 */
+    if (!rq || rq.conv !== curTitle()) return;  /* 过期回包丢弃 */
+    const n = v.n | 0;
+    if (!S.foldData) S.foldData = {};
+    S.foldData[n] = (v.msgs || []).map(ledToArr);
+    S.foldBusy = false;
+    if (v.folds) S.foldTotal = v.folds | 0;
+    if (n > S.foldN) S.foldN = n;
+    renderFoldBar('');
+    renderFoldBox();
+  }
 }
 function applyHist(conv, v){
   if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
@@ -2233,6 +2368,8 @@ function ensureHist(){
   }
   renderAll();                                  /* 秒显（快照未到达前） */
   reqHist(title, S.histHave, S.histVer);        /* 游标增量补新/重建 */
+  foldReset();                                  /* 3.01：切会话重置历史回查 */
+  reqFolds(title);                              /* 3.01：取该会话总折数 */
 }
 function curMsgs(){
   /* 直播权威=快照（每拍全文）；缓存只在快照尚无 msgs 时兜底秒显 */
@@ -3315,32 +3452,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.22';   /* 2.22：消息时间以服务端为准——resolveTimes 优先读 msgs
-                         第 6 位（服务端盖好的北京秒级串）直接显示，不再本地
-                         打戳（本地戳受手机时区/首见时刻影响）。无第 6 位回退
-                         旧本地逻辑。
-                         2.21：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
-                         渲染成醒目琥珀色提问卡（左粗条+暖底+加粗），复用语音卡
-                         同一套 ▶ 播放/TTS 通道，可直接听题。用途：AI 向用户/
-                         其他 AI 提问时醒目可见、便于及时作答（用户 2026-10-01）。
-                         2.20：网页端【锚定】——取消"跟随"，网页版守住自己锚定的
-                         会话，别人在电脑版（含会话路由器临时占用）切到别的会话
-                         也不跟着跳（adoptSnap：来拍快照选中 != 锚定即冻结正文类
-                         字段、只并入会话列表，选中标志改写到锚定行）；点会话行
-                         即换锚；发送/插话附 anchor 供服务端"以网页版为尊"归还。
-                         2.19：分身状态页新增「一键换号迁移」按钮——填目标号码后由
-                         服务端一站式完成「原版换号（沙盒启动器 origin-login）+
-                         对话记录智能迁移（把最重度账号全部会话换新ID 并入）」；
-                         进度经 switch_migrate 事件流回投（阶段+逐行日志），
-                         分身掉线自动拉起助手补登录、收尾自动关掉拉起的窗口。
-                         2.18：分身状态页每行新增「补登录」按钮——借服务端
-                         「谷歌分身助手 / T登录助手」HTTP 接口对指定分身发起
-                         自动登录（服务端可选自动拉起分身助手）；结果经
-                         profiles_login 事件回投提示。
-                         2.17：发送/插话改走「会话路由器」route_send——
-                         带目标会话稳定 sid 自动找上门、到点才临时占用 TRAE
-                         输入框发一条、发完即走（不再长期霸占）；残留取回
-                         退回本端输入框，服务端整段路由事务串行原子执行 */
+const VER = '3.02';   /* 3.02：取消操控互斥锁；网页改挂旧版地址（老地址访问新版） */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -4140,6 +4252,26 @@ function onEv(kind, v){
       if (v && v !== '读取失败') S.points = v;
       el.points.textContent = '积分 ' + v;
       break;
+    case 'checkin': {                      /* 3.0 新增：签到结果 */
+      const v2 = v || {};
+      if (b_checkin_reset) b_checkin_reset();
+      const _new = v2.新签 !== undefined ? v2.新签
+                 : (v2['本次是否新签'] !== undefined ? v2['本次是否新签'] : v2.new);
+      /* 3.01：今日已签 / 本次新签 都算已签 → 只读态 */
+      const _done = v2['今日已签'] || v2['本次是否新签'] || v2.新签;
+      if (v2.ok === false || v2.err){
+        flash('签到失败：' + (v2.err || '未知原因'), 'var(--red)');
+      } else {
+        flash(_new ? '✅ 签到成功' : '今日已签',
+              _new ? 'var(--green)' : 'var(--blue)');
+        if (_done && el.checkin){
+          el.checkin.disabled = true;
+          el.checkin.textContent = '✅ 今日已签';
+        }
+        if (v2.积分) { S.points = String(v2.积分); el.points.textContent = '积分 ' + v2.积分; }
+      }
+      break;
+    }
     case 'points_warn':                    /* 1.27：积分不足预警 */
       warnFlash('⚠ 积分不足：' + (v.points || v)
               + (v.th ? '（阈值 ' + v.th + '）' : '')
@@ -4287,6 +4419,20 @@ function onHello(d){
     S.points = d.points;
     el.points.textContent = '积分 ' + d.points;
   }
+  /* 3.01：签到只读态（hello 只读回传「今日是否已签」） */
+  if (d.checkin){
+    const b = el.checkin;
+    if (b){
+      if (d.checkin.已签){
+        b.disabled = true; b.textContent = '✅ 今日已签';
+        b.title = '今日已签' + (d.checkin.日期 ? '（' + d.checkin.日期 + '）' : '');
+      } else {
+        b.disabled = false; b.textContent = '✅ 签到'; b.title = '每日签到';
+      }
+    }
+  }
+  /* 3.01：兜底补发自动修复标签开关（连上后服务端与网页一致） */
+  sendJson({t:'cmd', c:'autofix', a:{on: autofixGet()}});
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
   if (d.box !== S.box){ applySwitch(d.box, port); }
@@ -4385,7 +4531,7 @@ function renderPorts(){
 /* ================= 命令 ================= */
 
 function cmd(c, a, convSid){
-  if (!S.onLine){ flash('⚠ 还没连上，命令未发出'); return; }
+  if (!S.onLine){ flash('正在链接 WS…连上后请重发', 'var(--orange)'); return; }
   /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
      清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
   /* 1.88：发送/插话自带 10 位随机对话 ID（did）——登记到本卡，
@@ -4865,6 +5011,15 @@ el.refresh_pts.onclick = () => {         /* 刷新积分：委托服务端立刻
   sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
 };
 
+function b_checkin_reset(){ const b = el.checkin; if (b){ b.disabled = false; b.textContent = '✅ 签到'; } }
+el.checkin.onclick = () => {                 /* 3.0 新增：签到：委托服务端执行 */
+  const b = el.checkin; if (b && b.disabled) return;
+  if (b) { b.disabled = true; b.textContent = '⏳ 签到中…'; }
+  flash('正在签到…', 'var(--blue)');
+  sendCmd('checkin', null);
+  setTimeout(() => { if (b){ b.disabled = false; b.textContent = '✅ 签到'; } }, 30000);
+};
+
 /* 1.61：抽成函数——顶栏状态文字与抽屉里「设置页」都可进入诊断页 */
 function openDiagPage(){
   drawerClose();
@@ -4875,6 +5030,24 @@ el.net.onclick = openDiagPage;
 /* 1.61：点顶栏状态文字 → 直接进诊断页（看不懂那几个字时就点它） */
 el.rlink.onclick = openDiagPage;
 el.netback.onclick = () => el.netpage.classList.remove('on');
+
+/* 3.01：自动修复标签开关（localStorage 记忆 + 变更即时下发服务端）；
+   autofixGet 用函数声明（onHello 兜底补发时调用，需先于其可用） */
+const LS_AUTOFIX = 'trae_webm_autofix';
+function autofixGet(){
+  try { const v = localStorage.getItem(LS_AUTOFIX);
+        return v === null ? true : v === '1'; }
+  catch(e){ return true; }
+}
+if (el.set_autofix){
+  el.set_autofix.checked = autofixGet();
+  el.set_autofix.onchange = () => {
+    const on = !!el.set_autofix.checked;
+    try { localStorage.setItem(LS_AUTOFIX, on ? '1' : '0'); } catch(e){}
+    sendJson({t:'cmd', c:'autofix', a:{on: on}});
+    flash(on ? '已开启自动修复标签' : '已关闭自动修复标签', 'var(--blue)');
+  };
+}
 
 /* 1.xx：连接诊断按钮 */
 el.netreconn.onclick = () => {
@@ -5209,6 +5382,15 @@ renderVer();                     /* 1.xx：统一版本号（三处同步） */
   const sk = skelCacheLoad();
   if (sk && sk.convs && sk.convs.length)
     renderConvs(sk.convs, sk.conv_unread, sk.conv_unread_ids);
+  /* 3.01：骨架里带出的积分/模型 → 秒显（服务端 hello 到达后会覆盖） */
+  if (sk && sk.points){
+    S.points = sk.points;
+    el.points.textContent = '积分 ' + sk.points;
+  }
+  if (sk && sk.models && sk.models.length){
+    S.models_full = sk.models;
+    rebuildModelOptions();
+  }
 }
 renderAcct();                            /* 1.27：账号行先显 — */
 loadSrvs();                              /* v1.84：先恢复落盘的多电脑名册（离线也显） */
