@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.32</title>
+<title>TRAE远程 v3.33</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -683,6 +683,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div class="row"><span>收到电脑端回应</span><b id="diag_srv" class="diagv">—</b></div>
       <div class="row"><span>最近回应时间</span><b id="diag_last" class="diagv">—</b></div>
       <div class="row"><span>断线重连 / 出错次数</span><b id="diag_cnt" class="diagv">—</b></div>
+      <div class="row"><span>超时基准（生效）</span><b id="diag_tmo" class="diagv">—</b></div>
       <div class="row" style="justify-content:space-between;">
         <span class="hint">事件日志（最近 8 条）</span>
         <button id="btn_netclear" style="font-size:12px; padding:2px 8px;">清空</button>
@@ -1000,13 +1001,15 @@ const RECONNECT = 3;    // 断线重连间隔（秒）
 /* 1.59：状态灯判活阈值 —— 原来硬编码 16s，手机端太敏感。
    3.07：统一「服务器回应超时」——超时阈值由服务端 hello 的 srvTmo(秒) 下发，
    默认 60s；中间档（中性提示「等待服务器回应」）自动取 1/3（60s→20s）。
-   所以这里的两常量只作**兜底默认**，实际判定走 srvDeadMs()/srvIdleMs()。 */
-const SRV_IDLE_MS = 20000;   /* 兜底：中性提示档（server 20s 无动静只说「等待」） */
-const SRV_DEAD_MS = 60000;   /* 兜底：超时档（server 60s 无动静才判「服务器连接不到」） */
-/* 3.07：统一「服务器回应超时」——服务端 hello 下发 srvTmo(秒) 即覆盖默认；
-   全站所有「等服务器回应 / 判服务器连接不到」的兜底都走这两个函数。 */
+   3.33：删掉多余的 SRV_IDLE_MS 死常量，判定全部走 srvDeadMs()/srvIdleMs()。 */
+/* 3.33：全站超时统一——只有一个基准 = srvDeadMs()（「服务器回应超时」，默认
+   60s，服务端 hello 的 srvTmo(秒) 下发覆盖）。其余阈值全部按比例派生，不再各
+   自写死一套：中性提示「等待服务器回应」= 基准×1/3；动作回执超时「可能动作
+   失败」= 基准（pendAckTmoMs）；动作主动查证 = 基准×5/6（pendChkMs）；会话
+   切换等待上限「切换失败」= 基准×2/5（switchHangMs）。诊断页会一眼列出各档秒数。 */
+const SRV_DEAD_MS = 60000;   /* 基准兜底值：hello 未下发 srvTmo 时用 60s */
 function srvDeadMs(){ const v = (typeof S !== 'undefined' && S && S.srvTmoMs) || SRV_DEAD_MS; return v > 0 ? v : SRV_DEAD_MS; }
-function srvIdleMs(){ const v = Math.round(srvDeadMs() / 3); return v >= 5000 ? v : SRV_IDLE_MS; }
+function srvIdleMs(){ return Math.round(srvDeadMs() / 3); }   /* 中性提示档（基准×1/3） */
 /* v1.32：客户端登录态节流参数 */
 const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 150s 无心跳判下线
 const IDLE_MS = 5 * 60 * 1000;  // 超过 5 分钟无任何操作 → 视为退出登录
@@ -1312,6 +1315,7 @@ const el = {
   btn_chan_back: $('btn_chan_back'), lbl_ws1: $('lbl_ws1'), lbl_ws2: $('lbl_ws2'),
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
+  diag_tmo: $('diag_tmo'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
   check_fulls: $('btn_check_fulls'), lbl_fulls: $('lbl_fulls'),
   netclear: $('btn_netclear'), diagcopy: $('btn_diagcopy'),
@@ -2044,8 +2048,10 @@ function msgsFp(msgs){
   return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
     + (m[3] || 0) + (m[4] || 0)).join('#');
 }
-const SWITCH_HANG_MS = 24000;   /* v2.13：切换等待上限——原 12s 偏短易误判「切换未完成」，
-                                   翻倍为 24s（墙钟兜底撤条 + 快照判定超时共用此值） */
+/* v2.13：切换等待上限（原写死 24s = 12s×2，偏短易误判「切换未完成」）。
+   3.33：改为从「服务器回应超时」基准派生（基准×2/5，默认 60s→24s），
+   不再单独写死一套标准；墙钟兜底撤条 + 快照判定超时共用本函数。 */
+function switchHangMs(){ const v = Math.round(srvDeadMs() * 2 / 5); return v >= 8000 ? v : 8000; }
 function switchHangClear(title){
   /* v1.51：撤条判定块只在 snap 到达时执行；但服务端对 snap 去重，
      目标内容静止时不再转发 → 判定块不再跑 → 「切换中」永挂。
@@ -2060,7 +2066,7 @@ function switchHangClear(title){
       S.switch_pend = null;
       renderAll();
     }
-  }, SWITCH_HANG_MS);
+  }, switchHangMs());
 }
 function pendSwitchSet(title, sid){
   title = title || ''; sid = sid || '';
@@ -3150,16 +3156,16 @@ function renderMsgs(msgs, finish, opts, ask, pend){
             return;
           b.disabled = true;
           flash('已删除排队消息…', 'var(--blue)');
-          sendCmd('pend_del', i);
+          sendCmd('pend_del', {qi: i, sid: curSid(), title: curTitle()});
         } else if (k === 'edit'){
           b.disabled = true;
           S.qedit = i;                     /* 快照回来后回填输入框 */
           flash('正在取出到输入框…', 'var(--blue)');
-          sendCmd('pend_edit', i);
+          sendCmd('pend_edit', {qi: i, sid: curSid(), title: curTitle()});
         } else {
           b.disabled = true;
           flash('已立即发送，不打断当前生成…', 'var(--blue)');
-          sendCmd('pend_sendnow', i);
+          sendCmd('pend_sendnow', {qi: i, sid: curSid(), title: curTitle()});
         }
       };
     });
@@ -3655,6 +3661,14 @@ function diagRender(){
     el.diag_last.textContent = '—';
   }
   el.diag_cnt.textContent = DIAG.reconn + ' 次 / ' + DIAG.err + ' 次';
+  /* 3.33：一眼列出各档生效秒数（全部派生自同一「服务器回应超时」基准，
+     用户嫌标准太多；改基准即全站联动，这里实时反映当前生效值）。 */
+  try {
+    el.diag_tmo.textContent = '基准 ' + Math.round(srvDeadMs() / 1000) + 's'
+      + '（中性提示 ' + Math.round(srvIdleMs() / 1000)
+      + 's · 主动查证 ' + Math.round(pendChkMs() / 1000)
+      + 's · 切换上限 ' + Math.round(switchHangMs() / 1000) + 's）';
+  } catch(e){}
   /* 日志 */
   /* 日志：数据留 60 条（复制可取全量），面板只铺最近 25 条免得滚动太长 */
   const _seen = DIAG.log.slice(-25);
@@ -3673,7 +3687,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.32';   /* 3.32：桌面端（与网页端无关）产品版本随升——主页探针可见化：页首信息条显式标注【该会话＝CDP 当前选中】/【该会话＝未被 CDP 选中】，条数如实报「抓到 N 条」（DOM 路径另注「可视窗口」），选中路径标「1 秒一拍 · 含活思维流/当前空闲」；网页端内容无改动。3.31：桌面端（与网页端无关）产品版本随升——主页改「CDP 实时监听」：消息区不再读账本，本页选中会话＝CDP 当前选中则直接渲染最近快照 DOM（来源「实时DOM」，含活思维流），否则点选即触发免点击 DI 探测（来源「实时API」，每 5 秒再探），卡片标注 时间·角色·来源·消息ID；抓取轮询新增 即时探测 接口。3.30：桌面端（与网页端无关）产品版本随升——移植 2.56「WS 流量统计」子系统：WS桥 1.04（按频道按天收/发流量、收/发×分类明细、监督开关、频道活动日志、断联记录、中继探测、保留天数）在热路径逐频道埋点，网络工具分页 1.01 补「监督频道1/2」勾选与「保留天数」，断联改读桥内存环；网页端内容无改动。3.29：桌面端（与网页端无关）产品版本随升——主页卡片可读性改造（卡顶加「原始信息」：时间 · 角色 · 消息ID · 序号；死卡片限高 12 行、需全量看自己点「展开全文」；活卡片始终全量），并为显示原版消息 ID 给账本加 mid 列、抓取轮询 RPC 路径带 message_id；网页端内容无改动。3.28：桌面端（与网页端无关）产品版本随升——修主页「点会话切不动」（分页_主页：点行自动取消「自动跟随」并锁定、跟随条件收紧为「勾选且未锁定」、重新勾选自动跟随则解除锁定）；网页端内容无改动。3.27：桌面端「通用+设置」合并为「通用设置」页、主页重构为 2.56 聊天界面、全局日志迁为独立分页。3.26：左抽屉删掉多余的「刷新模型」菜单项（功能已在顶栏 ☆ 模型收藏页的 btn_favrefresh，同款发 model_list），并移除其 el.refresh_model 绑定防空引用。3.25：服务端「受理即广播」改为**真正的合并发送**——回执（did_ack）不再单独发，而是搭进同一拍快照帧（snap.did_acks），一条 WS 消息兼顾「报受理 + 群发广播」；服务端新增广播节拍闸门（§5.2 每 3 秒一拍，被合并帧占掉即顺延下一拍，只顺延不丢内容）；WS桥 did_acks 不参与去重指纹。网页端 snap 分支按 did_acks 登记 acked（抽 ackPendingDid 复用）。3.24：服务端操作指令受理（did_ack）即顺手群发一拍广播——算交差完成一次广播任务，并让在线网页端即时刷新（网页端逻辑无改动）。3.23：修「模型列表全带（受限）」假报——根因是 TRAE取数内核把 features.access.data.identity_list（身份白名单列表，实测恒为 [0,5,1,2,3,100]）当布尔 → 非空即判「受限」；改为一律不受限（接口只返回当前账号可见模型），取数内核升 1.01。3.22：取消「折」概念——历史回查看顶部横幅（正在取回历史记录…），消息区纯平铺无限排队，每次向上补 4 条；移除折叠箱与「共 N 折」。3.21：网页端发送三态（ws_connecting「正在连接 WS…（连上后自动发送）」/ sending「已发送」/ acked「服务器正在执行…」）+ WS 未连时离线排队、连上自动补发；did_ack 置 acked 态、sent 阶段事件按 did 精确匹配。3.20：禁止双开——服务端（主入口）新增单实例锁，产品版本随升。3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
+const VER = '3.33';   /* 3.33：修「会话绑定疏漏」+ 超时标准统一——排队三动作/停止生成 回传队列所属 sid/title，服务端先切回该会话并核验再操作（防止误删/误停别人）；全站超时统一派生自同一「服务器回应超时」基准（中性×1/3、动作回执=基准、查证×5/6、切换上限×2/5），删死常量 SRV_IDLE_MS，诊断页一眼列出各档生效秒数。3.32：桌面端（与网页端无关）产品版本随升——主页探针可见化：页首信息条显式标注【该会话＝CDP 当前选中】/【该会话＝未被 CDP 选中】，条数如实报「抓到 N 条」（DOM 路径另注「可视窗口」），选中路径标「1 秒一拍 · 含活思维流/当前空闲」；网页端内容无改动。3.31：桌面端（与网页端无关）产品版本随升——主页改「CDP 实时监听」：消息区不再读账本，本页选中会话＝CDP 当前选中则直接渲染最近快照 DOM（来源「实时DOM」，含活思维流），否则点选即触发免点击 DI 探测（来源「实时API」，每 5 秒再探），卡片标注 时间·角色·来源·消息ID；抓取轮询新增 即时探测 接口。3.30：桌面端（与网页端无关）产品版本随升——移植 2.56「WS 流量统计」子系统：WS桥 1.04（按频道按天收/发流量、收/发×分类明细、监督开关、频道活动日志、断联记录、中继探测、保留天数）在热路径逐频道埋点，网络工具分页 1.01 补「监督频道1/2」勾选与「保留天数」，断联改读桥内存环；网页端内容无改动。3.29：桌面端（与网页端无关）产品版本随升——主页卡片可读性改造（卡顶加「原始信息」：时间 · 角色 · 消息ID · 序号；死卡片限高 12 行、需全量看自己点「展开全文」；活卡片始终全量），并为显示原版消息 ID 给账本加 mid 列、抓取轮询 RPC 路径带 message_id；网页端内容无改动。3.28：桌面端（与网页端无关）产品版本随升——修主页「点会话切不动」（分页_主页：点行自动取消「自动跟随」并锁定、跟随条件收紧为「勾选且未锁定」、重新勾选自动跟随则解除锁定）；网页端内容无改动。3.27：桌面端「通用+设置」合并为「通用设置」页、主页重构为 2.56 聊天界面、全局日志迁为独立分页。3.26：左抽屉删掉多余的「刷新模型」菜单项（功能已在顶栏 ☆ 模型收藏页的 btn_favrefresh，同款发 model_list），并移除其 el.refresh_model 绑定防空引用。3.25：服务端「受理即广播」改为**真正的合并发送**——回执（did_ack）不再单独发，而是搭进同一拍快照帧（snap.did_acks），一条 WS 消息兼顾「报受理 + 群发广播」；服务端新增广播节拍闸门（§5.2 每 3 秒一拍，被合并帧占掉即顺延下一拍，只顺延不丢内容）；WS桥 did_acks 不参与去重指纹。网页端 snap 分支按 did_acks 登记 acked（抽 ackPendingDid 复用）。3.24：服务端操作指令受理（did_ack）即顺手群发一拍广播——算交差完成一次广播任务，并让在线网页端即时刷新（网页端逻辑无改动）。3.23：修「模型列表全带（受限）」假报——根因是 TRAE取数内核把 features.access.data.identity_list（身份白名单列表，实测恒为 [0,5,1,2,3,100]）当布尔 → 非空即判「受限」；改为一律不受限（接口只返回当前账号可见模型），取数内核升 1.01。3.22：取消「折」概念——历史回查看顶部横幅（正在取回历史记录…），消息区纯平铺无限排队，每次向上补 4 条；移除折叠箱与「共 N 折」。3.21：网页端发送三态（ws_connecting「正在连接 WS…（连上后自动发送）」/ sending「已发送」/ acked「服务器正在执行…」）+ WS 未连时离线排队、连上自动补发；did_ack 置 acked 态、sent 阶段事件按 did 精确匹配。3.20：禁止双开——服务端（主入口）新增单实例锁，产品版本随升。3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -4336,7 +4350,7 @@ function onEv(kind, v){
         /* 1.16：到达确认——标题激活还不够（TRAE 先亮标题后加载
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
         const arrived = msgsFp(v.msgs) !== sp.fp0;
-        const timedout = Date.now() - sp.ts > SWITCH_HANG_MS;
+        const timedout = Date.now() - sp.ts > switchHangMs();
         const arrivedOk = act && (spSid ? (act[4] || '') === spSid
                                         : act[1] === sp.title) && arrived;
         if (arrivedOk || !has || timedout){
@@ -4573,7 +4587,7 @@ function onEv(kind, v){
       flash('命令失败：' + v);
       /* 1.11：新建弹窗流程出错 → 收起弹窗（否则卡在「正在展开」） */
       if (S.task_open){ taskDlgClose(); }
-      /* 1.09：命令报错 → 在途占位立刻标「未确认」，别让用户干等 15s */
+      /* 1.09：命令报错 → 在途占位立刻标「未确认」，别让用户干等整套超时 */
       if (S.pending.some(p => p.state === 'sending' || p.state === 'typed')){
         S.pending.forEach(p => {
           if (p.state === 'sending' || p.state === 'typed')
@@ -4721,7 +4735,8 @@ function setOnLine(b){
    「自身是否在线」——客户端自己显然在运行）。判活依据：收到
    服务端任何来向消息（hello 应答 / 每 6s 一轮的 ports 广播 /
    快照…）即算活着。
-   1.59：阈值从硬编码 16s 改成两级 SRV_IDLE_MS(20s) / SRV_DEAD_MS(60s)。
+   1.59：阈值从硬编码 16s 改成两级（中性 / 超时）。3.33：两级均派生自同一
+   基准 srvDeadMs()（中性=基准×1/3，超时=基准），不再另立常量。
    16s 只够容忍丢 2 轮广播，手机切后台或中继抖一下就误报
    「服务器未启动」；现在 20~60s 只显示中性的「同步暂停中…」，
    满 60s 才提示服务器无响应。
@@ -4862,7 +4877,9 @@ el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发�
       cmd('interject', t);
     } else {
       flash('⏳ 已请求停止生成…', 'var(--blue)');   // 1.09：空白期反馈
-      cmd('stop_gen', null);
+      /* 3.33：带上「停止哪个会话」——停止键只属当前选中会话，服务端会先
+         切回本端锚定的会话再点，避免停掉别人（选中会话可能被抢走）。 */
+      cmd('stop_gen', {sid: curSid(), title: curTitle()});
     }
     return;
   }
@@ -5325,7 +5342,7 @@ if (el.set_autofix){
 el.netreconn.onclick = () => {
   /* 1.60：连接本来好好的时候点这个按钮 = 自己把好连接掐断
      （用户误点 → 「一切回来就断线」观感的元凶）→ 先判新鲜度：
-     已在线、且 SRV_IDLE_MS 内还听得到服务端动静，就别重连。 */
+     已在线、且 srvIdleMs() 内还听得到服务端动静，就别重连。 */
   const fresh = S.onLine && S.lastSrv && (Date.now() - S.lastSrv < srvIdleMs());
   if (fresh){ diagLog('连接正常，已跳过重连（免得自断）', 'ok'); return; }
   diagLog('手动重连', 'warn');
@@ -5348,6 +5365,7 @@ el.diagcopy.onclick = () => {
     '收到电脑端回应：' + T(el.diag_srv && el.diag_srv.textContent),
     '最近回应：' + T(el.diag_last && el.diag_last.textContent),
     '断线/出错：' + T(el.diag_cnt && el.diag_cnt.textContent),
+    '超时（生效）：' + T(el.diag_tmo && el.diag_tmo.textContent),
     '主/备中继：' + T(el.lbl_ws1 && el.lbl_ws1.textContent)
       + ' | ' + T(el.lbl_ws2 && el.lbl_ws2.textContent),
     '前台可见：' + (!document.hidden) + '   登录态：' + loggedIn
