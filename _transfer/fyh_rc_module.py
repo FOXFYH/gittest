@@ -16,6 +16,10 @@ FYH远程控制模块 —— FYH 统一WS 的远程控制执行器（独立下�
 3. 操作后回执：ws_app.send_remote_msg({...}) 统一【FYHRC】格式回状态。
 4. 由 FYH 主程序收到远程控制消息后调用 handle_remote_cmd(body, sender, ws_app)。
    本模块不依赖 sys.path，全部通过参数 ws_app 与统一 WS 模块通信。
+v1.11（2026-10-02）：兼容旧版 WS 模块（修 H 端"清单取不到"）
+   - 旧版「FYH统一WS模块.py」没有 get_device_id()，本模块一执行就抛 AttributeError、
+     回包发不出去 → 面板永远收不到该机清单。改为经 _dev_id() 取值：有持久 device_id
+     就用它，没有则退化为设备昵称（旧端仍能被面板按名识别），不再崩溃。
 v1.10（2026-10-02）：清单共享化 + 保活本地化
    - 应用清单改由 WPS 网盘工作台内的共享「应用清单.py」导入读取（改一次全机同步），
      不再读写本机 D 盘 apps.json；共享清单找不到时回落本模块内置默认清单；
@@ -38,7 +42,7 @@ v1.06（2026-10-01）：多电脑管理
    - 目标过滤优先按设备ID（device_id 主键，昵称退为辅助；兼容旧的按名 target）；
    - 应用清单回包新增 keep_alive 字段；新增 keep_alive_set 指令（写回 apps.json）。
 """
-APP_VERSION = "1.10"
+APP_VERSION = "1.11"
 
 import os
 import sys
@@ -792,6 +796,24 @@ def _get_refresh_sec(ws_app):
         return 60
 
 
+def _dev_id(ws_app):
+    """取本机设备标识（v1.11）。
+    优先用 WS 模块的持久 device_id；旧版 WS 模块没实现 get_device_id 时，
+    退化为设备昵称——旧端仍能被面板按名识别，绝不会 AttributeError 崩掉。"""
+    try:
+        getter = getattr(ws_app, "get_device_id", None)
+        if callable(getter):
+            v = (getter() or "").strip()
+            if v:
+                return v
+    except Exception:
+        pass
+    try:
+        return (ws_app.get_device_name() or "").strip()
+    except Exception:
+        return ""
+
+
 def handle_remote_cmd(body, sender, ws_app):
     """统一WS收到【FYHRC】消息 → 解析执行，回状态（由 FYH 主程序调用）
     v1.04 铁律：只有网页面板才是客户端，设备（S/H）都不能发出请求——
@@ -816,7 +838,7 @@ def handle_remote_cmd(body, sender, ws_app):
     # 目标设备过滤（v1.06）：优先按设备ID（主键）；旧面板只带 target 时兼容按昵称
     target_id = data.get("target_id")
     if target_id:
-        if target_id != ws_app.get_device_id():
+        if target_id != _dev_id(ws_app):
             return
     else:
         target = data.get("target")
@@ -827,7 +849,7 @@ def handle_remote_cmd(body, sender, ws_app):
         ws_app.send_remote_msg({"cmd": "app_list",
                                 "refresh_sec": _get_refresh_sec(ws_app),
                                 "req_id": data.get("req_id"),      # v1.08：回带请求号，面板据此只认本轮回应
-                                "device_id": ws_app.get_device_id(),
+                                "device_id": _dev_id(ws_app),
                                 "apps": [_app_info(a, ws_app) for a in apps]})
         ws_app.log_msg(f"远程控制: {sender} 请求应用清单")
     elif cmd in ("app_open", "app_close", "app_restart"):
