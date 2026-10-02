@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.36</title>
+<title>TRAE远程 v3.37</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1279,6 +1279,9 @@ const S = {
   /* 3.36：显示窗口——从最新往前只渲染这么多条定稿（用户 2026-10-03：切会话
      先本地秒显最新 4 条提速；向上翻先把本地多余的那几条放出来，放完才找服务器）。 */
   histShow: 4,
+  /* 3.37：历史深库（IndexedDB）的当前会话内存镜像——7 位定稿行数组，最多 DEEP_MAX 条。
+     供「翻历史先翻本地」翻得更深，少跑服务器；localStorage 只留最近 10 条做秒显。 */
+  histDeep: [],
   histLoadingPrev: false,    /* 向上补拉老历史防重入 */
   /* ===== 3.01：历史回查折叠（验收7） =====
      foldTotal=总折数；foldN=已取到的最新折序号（1起，递增往老取）；
@@ -2190,9 +2193,98 @@ function checkVerBump(){
   if (cacheKey !== null && cacheKey !== k){
     try { localStorage.removeItem(LS_SKEL);
           localStorage.removeItem(LS_HIST); } catch(e){}
+    idbClear();                                   /* 3.37：深库同版本键，一并清 */
     S.histConv = ''; S.histMsgs = null; S.histRaw = [];
+    S.histDeep = [];
   }
   cacheKey = k;
+}
+/* ===== 3.37 历史深库：IndexedDB（用户 2026-10-03 定）=====
+   localStorage 只有 ~5MB 且同步写会卡主线程；IndexedDB 容量按磁盘配额（几十 MB~GB）
+   且异步不卡，故「本地能存多少」不再受限。分工：
+   · localStorage LS_HIST：只留最近 10 条——冷启动/切会话「秒显」用（同步、快）。
+   · IndexedDB hist：每对话最多 DEEP_MAX 条累积历史——供「翻历史先翻本地」翻得
+     更深、少跑服务器；异步写，不卡界面。
+   兜底：浏览器无 IndexedDB / 打开失败 → 各函数静默返回，行为退回纯 localStorage。 */
+const IDB_NAME = 'trae_webm_idb', IDB_VER = 1, IDB_STORE = 'hist', DEEP_MAX = 500;
+let _idbP = null;
+function idbOpen(){
+  if (_idbP) return _idbP;
+  _idbP = new Promise(res => {
+    let rq;
+    try { rq = indexedDB.open(IDB_NAME, IDB_VER); } catch(e){ res(null); return; }
+    rq.onupgradeneeded = () => {
+      const db = rq.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => res(null);
+  });
+  return _idbP;
+}
+function idbGet(key){
+  return idbOpen().then(db => new Promise(res => {
+    if (!db) return res(null);
+    try {
+      const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror = () => res(null);
+    } catch(e){ res(null); }
+  }));
+}
+function idbPut(key, val){
+  return idbOpen().then(db => new Promise(res => {
+    if (!db) return res(null);
+    try {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(val, key);
+      tx.oncomplete = () => res(1);
+      tx.onerror = () => res(null);
+    } catch(e){ res(null); }
+  }));
+}
+function idbClear(){
+  return idbOpen().then(db => new Promise(res => {
+    if (!db) return res(null);
+    try {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).clear();
+      tx.oncomplete = () => res(1);
+      tx.onerror = () => res(null);
+    } catch(e){ res(null); }
+  }));
+}
+function deepKey(conv){ return 'p' + S.port + '|' + (conv || ''); }
+/* 把定稿行并入某会话的深库（按真实 ID 去重、按 (时间,ID) 排序、留最近 DEEP_MAX 条）。
+   入参 rows 必须是 7 位显示行。异步写，不阻塞界面。 */
+function deepWrite(conv, rows){
+  if (!conv || !Array.isArray(rows) || !rows.length) return;
+  const key = deepKey(conv);
+  idbGet(key).then(rec => {
+    const cur = (rec && rec.key === cacheKeyNow() && Array.isArray(rec.msgs)) ? rec.msgs : [];
+    const seen = {};
+    cur.forEach(m => { seen[rowKey(m)] = 1; });
+    for (const m of rows){
+      if (!m || (m[0] !== 'u' && m[0] !== 'a')) continue;
+      const k = rowKey(m);
+      if (seen[k]) continue;
+      seen[k] = 1;
+      const mm = m.slice(); while (mm.length < 7) mm.push('');
+      cur.push(mm);
+    }
+    const msgs = sortRows(cur).slice(-DEEP_MAX);
+    idbPut(key, {key: cacheKeyNow(), ts: Date.now(), msgs: msgs});
+  });
+}
+/* 打开某会话时，从深库异步补出更老的历史（本地优先翻得更深）；已切走则丢弃。 */
+function deepLoad(conv){
+  if (!conv) return;
+  idbGet(deepKey(conv)).then(rec => {
+    if (conv !== S.histConv) return;
+    if (!rec || rec.key !== cacheKeyNow() || !Array.isArray(rec.msgs) || !rec.msgs.length) return;
+    S.histDeep = rec.msgs.map(m => m.slice());
+    renderAll();
+  });
 }
 /* —— 骨架缓存：打开页面即秒显会话列表（不用等连上） —— */
 function skelCacheSave(snap){
@@ -2529,6 +2621,7 @@ function applyHistExtras(v){
         if (e.msgs.length > 10) e.msgs = e.msgs.slice(-10);   /* 3.36：每会话只留最近 10 条 */
         e.have_seq = e.msgs.length ? (e.msgs[e.msgs.length - 1].seq | 0) : 0;
         o.convs[k] = e;
+        deepWrite(title, msgs.map(ledToArr));  /* 3.37：会话种子同样进深库 */
       }
       localStorage.setItem(LS_HIST, JSON.stringify(o));
     }
@@ -2547,6 +2640,7 @@ function prependHist(conv, older){
      不要以为翻到更后就默认中间都在，新来的照样补上）。 */
   S.histShow = (S.histShow | 0) + older.length;
   histCacheWrite(conv, S.histVer, S.histHave, S.histRaw, S.histNear);
+  deepWrite(conv, localPoolRows());            /* 3.37：服务器补回的老历史进深库 */
   renderAll();
   el.msgs.scrollTop = el.msgs.scrollHeight - h;
 }
@@ -2560,6 +2654,7 @@ function ensureHist(){
   S.histConv = title;
   S.histMsgs = null; S.histRaw = []; S.histVer = 0; S.histHave = 0;
   S.histNear = []; S.histLive = [];
+  S.histDeep = [];             /* 3.37：切会话先清空深库镜像，稍后异步从 IndexedDB 补 */
   S.histShow = 4;              /* 3.36：切换即「本地秒显最新 4 条」提速 */
   S.histLoadingPrev = false;
   const c = histCacheRead(title);
@@ -2570,6 +2665,7 @@ function ensureHist(){
     S.histVer = c.ver | 0; S.histHave = c.have_seq | 0;
   }
   renderAll();                                  /* 秒显（快照未到达前） */
+  deepLoad(title);                              /* 3.37：异步补更老历史（本地优先翻更深） */
   reqHist(title, S.histHave, S.histVer);        /* 游标增量补新/重建 */
   foldReset();                                  /* 3.22：切会话收起取历史横幅 */
 }
@@ -2621,6 +2717,7 @@ function mergeNear(rows){
       return m;
     }).slice(-10);
     histCacheWrite(S.histConv, S.histVer, S.histHave, S.histRaw, S.histNear);
+    deepWrite(S.histConv, localPoolRows());   /* 3.37：定稿行同步进深库（异步、不卡） */
   }
   return 变;
 }
@@ -2651,10 +2748,12 @@ function reconcileDeadIds(v){
 }
 function localPoolRows(){
   /* 3.36：本地「定稿池」——histMsgs(账本/骨架) ∪ histNear(近端落盘)，按真实 ID
-     去重、按 (时间,ID) 排序。它是显示与「翻历史先翻本地」的公共数据源。 */
+     去重、按 (时间,ID) 排序。它是显示与「翻历史先翻本地」的公共数据源。
+     3.37：并入 histDeep（IndexedDB 深库的当前会话镜像，最多 500 条）——本地能翻更深。 */
   const seen = {}, pool = [];
   (S.histMsgs || []).forEach(m => { const k = rowKey(m); if (!seen[k]){ seen[k] = 1; pool.push(m); } });
   (S.histNear || []).forEach(m => { const k = rowKey(m); if (!seen[k]){ seen[k] = 1; pool.push(m); } });
+  (S.histDeep || []).forEach(m => { const k = rowKey(m); if (!seen[k]){ seen[k] = 1; pool.push(m); } });
   return sortRows(pool);
 }
 function curMsgs(){
@@ -3831,7 +3930,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.36';   /* 3.36：死号 5→10 + 切会话先出 4 条/本地优先翻（用户 2026-10-03 复盘）——服务端死号清单由最近 5 条扩到最近 10 条（与本地 10 条窗口对齐，杜绝「本地有第 10 条却缺中间第 8/9 条」的空档）；网页端每个对话落盘只留最近 10 条（多则汰老）；切会话先本地秒显最新 4 条提速，向上翻历史先放本地多余的那几条、放完才按 4 条一次找服务器；补回的中间条照样立刻渲染补上。3.35：本地权威 + 真实 ID 报号对账（用户 2026-10-03 铁律）——显示权威改为网页端本地落盘，切换先用本地最新几条秒显；播到的正文按真实消息 ID 去重落盘、按 (时间,ID) 排序；服务端 snap.msgs 固定 7 位带真实 ID+秒级时间，广播=1 活+3 死（带内容）+死号清单，网页端核缺回发 req gap 补内容。3.34：补「切到自己」短路——会话路由器 1.05 的 _做_切换 在定位目标后先比当前选中会话，相同即 0 秒短路返回（不清场/不点击/不等 0.9s），不再「傻切半天」；_确保目标会话 与 _做_发消息 本就带此短路，本次只补 _做_切换 缺口。本轮仅服务端改动，网页端内容无改动，随版本线同步升号。3.33：修「会话绑定疏漏」+ 超时标准统一——排队三动作/停止生成 回传队列所属 sid/title，服务端先切回该会话并核验再操作（防止误删/误停别人）；全站超时统一派生自同一「服务器回应超时」基准（中性×1/3、动作回执=基准、查证×5/6、切换上限×2/5），删死常量 SRV_IDLE_MS，诊断页一眼列出各档生效秒数。3.32：桌面端（与网页端无关）产品版本随升——主页探针可见化：页首信息条显式标注【该会话＝CDP 当前选中】/【该会话＝未被 CDP 选中】，条数如实报「抓到 N 条」（DOM 路径另注「可视窗口」），选中路径标「1 秒一拍 · 含活思维流/当前空闲」；网页端内容无改动。3.31：桌面端（与网页端无关）产品版本随升——主页改「CDP 实时监听」：消息区不再读账本，本页选中会话＝CDP 当前选中则直接渲染最近快照 DOM（来源「实时DOM」，含活思维流），否则点选即触发免点击 DI 探测（来源「实时API」，每 5 秒再探），卡片标注 时间·角色·来源·消息ID；抓取轮询新增 即时探测 接口。3.30：桌面端（与网页端无关）产品版本随升——移植 2.56「WS 流量统计」子系统：WS桥 1.04（按频道按天收/发流量、收/发×分类明细、监督开关、频道活动日志、断联记录、中继探测、保留天数）在热路径逐频道埋点，网络工具分页 1.01 补「监督频道1/2」勾选与「保留天数」，断联改读桥内存环；网页端内容无改动。3.29：桌面端（与网页端无关）产品版本随升——主页卡片可读性改造（卡顶加「原始信息」：时间 · 角色 · 消息ID · 序号；死卡片限高 12 行、需全量看自己点「展开全文」；活卡片始终全量），并为显示原版消息 ID 给账本加 mid 列、抓取轮询 RPC 路径带 message_id；网页端内容无改动。3.28：桌面端（与网页端无关）产品版本随升——修主页「点会话切不动」（分页_主页：点行自动取消「自动跟随」并锁定、跟随条件收紧为「勾选且未锁定」、重新勾选自动跟随则解除锁定）；网页端内容无改动。3.27：桌面端「通用+设置」合并为「通用设置」页、主页重构为 2.56 聊天界面、全局日志迁为独立分页。3.26：左抽屉删掉多余的「刷新模型」菜单项（功能已在顶栏 ☆ 模型收藏页的 btn_favrefresh，同款发 model_list），并移除其 el.refresh_model 绑定防空引用。3.25：服务端「受理即广播」改为**真正的合并发送**——回执（did_ack）不再单独发，而是搭进同一拍快照帧（snap.did_acks），一条 WS 消息兼顾「报受理 + 群发广播」；服务端新增广播节拍闸门（§5.2 每 3 秒一拍，被合并帧占掉即顺延下一拍，只顺延不丢内容）；WS桥 did_acks 不参与去重指纹。网页端 snap 分支按 did_acks 登记 acked（抽 ackPendingDid 复用）。3.24：服务端操作指令受理（did_ack）即顺手群发一拍广播——算交差完成一次广播任务，并让在线网页端即时刷新（网页端逻辑无改动）。3.23：修「模型列表全带（受限）」假报——根因是 TRAE取数内核把 features.access.data.identity_list（身份白名单列表，实测恒为 [0,5,1,2,3,100]）当布尔 → 非空即判「受限」；改为一律不受限（接口只返回当前账号可见模型），取数内核升 1.01。3.22：取消「折」概念——历史回查看顶部横幅（正在取回历史记录…），消息区纯平铺无限排队，每次向上补 4 条；移除折叠箱与「共 N 折」。3.21：网页端发送三态（ws_connecting「正在连接 WS…（连上后自动发送）」/ sending「已发送」/ acked「服务器正在执行…」）+ WS 未连时离线排队、连上自动补发；did_ack 置 acked 态、sent 阶段事件按 did 精确匹配。3.20：禁止双开——服务端（主入口）新增单实例锁，产品版本随升。3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
+const VER = '3.37';   /* 3.37：历史深库迁 IndexedDB（用户 2026-10-03）——localStorage 只有 ~5MB 且同步写会卡主线程，改把更深的历史（每对话最多 DEEP_MAX=500 条累积）存 IndexedDB（异步、容量按磁盘配额），localStorage 只留最近 10 条做冷启动/切会话秒显；翻历史先翻本地深库、翻得更深少跑服务器，切会话仍先亮 4 条；版本变更时深库与 localStorage 一并清；浏览器无 IndexedDB 时静默退回纯 localStorage。3.36：死号 5→10 + 切会话先出 4 条/本地优先翻（用户 2026-10-03 复盘）——服务端死号清单由最近 5 条扩到最近 10 条（与本地 10 条窗口对齐，杜绝「本地有第 10 条却缺中间第 8/9 条」的空档）；网页端每个对话落盘只留最近 10 条（多则汰老）；切会话先本地秒显最新 4 条提速，向上翻历史先放本地多余的那几条、放完才按 4 条一次找服务器；补回的中间条照样立刻渲染补上。3.35：本地权威 + 真实 ID 报号对账（用户 2026-10-03 铁律）——显示权威改为网页端本地落盘，切换先用本地最新几条秒显；播到的正文按真实消息 ID 去重落盘、按 (时间,ID) 排序；服务端 snap.msgs 固定 7 位带真实 ID+秒级时间，广播=1 活+3 死（带内容）+死号清单，网页端核缺回发 req gap 补内容。3.34：补「切到自己」短路——会话路由器 1.05 的 _做_切换 在定位目标后先比当前选中会话，相同即 0 秒短路返回（不清场/不点击/不等 0.9s），不再「傻切半天」；_确保目标会话 与 _做_发消息 本就带此短路，本次只补 _做_切换 缺口。本轮仅服务端改动，网页端内容无改动，随版本线同步升号。3.33：修「会话绑定疏漏」+ 超时标准统一——排队三动作/停止生成 回传队列所属 sid/title，服务端先切回该会话并核验再操作（防止误删/误停别人）；全站超时统一派生自同一「服务器回应超时」基准（中性×1/3、动作回执=基准、查证×5/6、切换上限×2/5），删死常量 SRV_IDLE_MS，诊断页一眼列出各档生效秒数。3.32：桌面端（与网页端无关）产品版本随升——主页探针可见化：页首信息条显式标注【该会话＝CDP 当前选中】/【该会话＝未被 CDP 选中】，条数如实报「抓到 N 条」（DOM 路径另注「可视窗口」），选中路径标「1 秒一拍 · 含活思维流/当前空闲」；网页端内容无改动。3.31：桌面端（与网页端无关）产品版本随升——主页改「CDP 实时监听」：消息区不再读账本，本页选中会话＝CDP 当前选中则直接渲染最近快照 DOM（来源「实时DOM」，含活思维流），否则点选即触发免点击 DI 探测（来源「实时API」，每 5 秒再探），卡片标注 时间·角色·来源·消息ID；抓取轮询新增 即时探测 接口。3.30：桌面端（与网页端无关）产品版本随升——移植 2.56「WS 流量统计」子系统：WS桥 1.04（按频道按天收/发流量、收/发×分类明细、监督开关、频道活动日志、断联记录、中继探测、保留天数）在热路径逐频道埋点，网络工具分页 1.01 补「监督频道1/2」勾选与「保留天数」，断联改读桥内存环；网页端内容无改动。3.29：桌面端（与网页端无关）产品版本随升——主页卡片可读性改造（卡顶加「原始信息」：时间 · 角色 · 消息ID · 序号；死卡片限高 12 行、需全量看自己点「展开全文」；活卡片始终全量），并为显示原版消息 ID 给账本加 mid 列、抓取轮询 RPC 路径带 message_id；网页端内容无改动。3.28：桌面端（与网页端无关）产品版本随升——修主页「点会话切不动」（分页_主页：点行自动取消「自动跟随」并锁定、跟随条件收紧为「勾选且未锁定」、重新勾选自动跟随则解除锁定）；网页端内容无改动。3.27：桌面端「通用+设置」合并为「通用设置」页、主页重构为 2.56 聊天界面、全局日志迁为独立分页。3.26：左抽屉删掉多余的「刷新模型」菜单项（功能已在顶栏 ☆ 模型收藏页的 btn_favrefresh，同款发 model_list），并移除其 el.refresh_model 绑定防空引用。3.25：服务端「受理即广播」改为**真正的合并发送**——回执（did_ack）不再单独发，而是搭进同一拍快照帧（snap.did_acks），一条 WS 消息兼顾「报受理 + 群发广播」；服务端新增广播节拍闸门（§5.2 每 3 秒一拍，被合并帧占掉即顺延下一拍，只顺延不丢内容）；WS桥 did_acks 不参与去重指纹。网页端 snap 分支按 did_acks 登记 acked（抽 ackPendingDid 复用）。3.24：服务端操作指令受理（did_ack）即顺手群发一拍广播——算交差完成一次广播任务，并让在线网页端即时刷新（网页端逻辑无改动）。3.23：修「模型列表全带（受限）」假报——根因是 TRAE取数内核把 features.access.data.identity_list（身份白名单列表，实测恒为 [0,5,1,2,3,100]）当布尔 → 非空即判「受限」；改为一律不受限（接口只返回当前账号可见模型），取数内核升 1.01。3.22：取消「折」概念——历史回查看顶部横幅（正在取回历史记录…），消息区纯平铺无限排队，每次向上补 4 条；移除折叠箱与「共 N 折」。3.21：网页端发送三态（ws_connecting「正在连接 WS…（连上后自动发送）」/ sending「已发送」/ acked「服务器正在执行…」）+ WS 未连时离线排队、连上自动补发；did_ack 置 acked 态、sent 阶段事件按 did 精确匹配。3.20：禁止双开——服务端（主入口）新增单实例锁，产品版本随升。3.19：①修「停止生成」链路（stop_gen 服务端受理→会话路由器点 TRAE 输入栏发送键，生成中即停止键，语音键拒点）；②差额按【会话维度】ID 过滤 + 保底最近 6 条；③活思维流整条完整发（不裁剪）；④消息区增量渲染防抖（buildMsgNode，前缀一致只重建尾部，消除直播思维流每秒整列重画的剧烈抖动）。3.18：①客户端单发闸门；②版本自愈重载保阅读位置。3.17：修正差额推送误杀；3.16：同会话「连续相同文本」过滤；3.15：电脑版主页「活的」发送区；3.14：主页预览版会话列表 */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
