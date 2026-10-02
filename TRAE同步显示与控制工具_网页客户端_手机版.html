@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.06</title>
+<title>TRAE远程 v3.07</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -40,7 +40,8 @@ select{font-size:12px;}
   text-overflow:ellipsis; cursor:pointer;}
 .h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
   flex-wrap:wrap;}
-#lbl_box{flex:1; max-width:42%; min-width:0; font-size:12px; color:var(--gray); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* 3.07：顶部「工作台」目标名不再显示（用户要求；只控原版无需再标目标名） */
+#lbl_box{display:none !important;}
 #cmb_model{flex:2; min-width:0;}
 #lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
@@ -360,8 +361,8 @@ body.fmsg #msgs{padding-top:22px;}
 #btn_take,#btn_copy{display:none;}
 #input_row.grow #btn_take,#input_row.grow #btn_copy{display:inline-flex;
   order:1;}
-#ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
-  line-height:22px; border:none; outline:none; resize:none;
+#ent{flex:1; min-width:0; font-size:15px; height:34px; max-height:390px;
+  line-height:21px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
 /* 1.27：聚焦增高 255px（原 170 再 +50%）；增高时 📎/📂/发送 跳到
    顶行，输入框独占整行矩形（原来左右被按钮夹住，宽度受限） */
@@ -1015,13 +1016,16 @@ const WS_URL_TMPL2 = ('wss://s20307.nyc1.piesocket.com/v3/%s'
                       + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
 const KA_SEC = 25;      // WS 链路心跳间隔（秒，保活）
 const RECONNECT = 3;    // 断线重连间隔（秒）
-/* 1.59：状态灯判活阈值 —— 原来硬编码 16s，手机端太敏感：
-   切后台、中继抖一下、或服务端某轮广播没到，就立刻喊「服务器未启动」，
-   而电脑上其实一切正常。改成两级：
-     20s 无消息  → 「同步暂停中…」（灰、中性，不吓人）
-     60s 仍无消息 → 「服务器无响应」（橙，才值得看一眼电脑） */
-const SRV_IDLE_MS = 20000;
-const SRV_DEAD_MS = 60000;
+/* 1.59：状态灯判活阈值 —— 原来硬编码 16s，手机端太敏感。
+   3.07：统一「服务器回应超时」——超时阈值由服务端 hello 的 srvTmo(秒) 下发，
+   默认 60s；中间档（中性提示「等待服务器回应」）自动取 1/3（60s→20s）。
+   所以这里的两常量只作**兜底默认**，实际判定走 srvDeadMs()/srvIdleMs()。 */
+const SRV_IDLE_MS = 20000;   /* 兜底：中性提示档（server 20s 无动静只说「等待」） */
+const SRV_DEAD_MS = 60000;   /* 兜底：超时档（server 60s 无动静才判「服务器连接不到」） */
+/* 3.07：统一「服务器回应超时」——服务端 hello 下发 srvTmo(秒) 即覆盖默认；
+   全站所有「等服务器回应 / 判服务器连接不到」的兜底都走这两个函数。 */
+function srvDeadMs(){ const v = (typeof S !== 'undefined' && S && S.srvTmoMs) || SRV_DEAD_MS; return v > 0 ? v : SRV_DEAD_MS; }
+function srvIdleMs(){ const v = Math.round(srvDeadMs() / 3); return v >= 5000 ? v : SRV_IDLE_MS; }
 /* v1.32：客户端登录态节流参数 */
 const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 150s 无心跳判下线
 const IDLE_MS = 5 * 60 * 1000;  // 超过 5 分钟无任何操作 → 视为退出登录
@@ -1231,6 +1235,8 @@ function sendCmd(c, a, did, convSid){
 
 const S = {
   ws: null, onLine: false, wsOpenAt: 0, lastSrv: 0,
+  /* 3.07：统一「服务器回应超时」（毫秒）——0=用默认 60s；hello 的 srvTmo(秒) 到达即覆盖 */
+  srvTmoMs: 0,
   /* 1.57：本次断线是否发生在「页面不可见（切后台/锁屏）」期间——
      用于顶栏文案区分「后台断的，回来自动补」与「前台真断了」 */
   dropByHide: false,
@@ -2234,9 +2240,9 @@ function reqFold(conv, n){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv, ts: Date.now(), kind: 'fold', n: n | 0};
   sendJson({t: 'req', id: id, c: 'fold', conv: conv, n: n | 0});
-  setTimeout(function(){                       /* 兜底：15 秒没回也别卡在「取回中」 */
+  setTimeout(function(){        /* 3.07 兜底：统一「服务器回应超时」(默认60s)没回也别卡在「取回中」 */
     if (S.foldBusy){ S.foldBusy = false; renderFoldBar('取回超时'); }
-  }, 15000);
+  }, srvDeadMs());
 }
 function foldReset(){
   S.foldTotal = 0; S.foldN = 0; S.foldBusy = false; S.foldData = {};
@@ -3462,11 +3468,11 @@ function diagRender(){
     el.diag_ws.style.color = '#b26a00'; }
   /* 电脑端回应（1.59：两级判定，别把网络抖动当故障） */
   const srvGap = S.lastSrv ? Date.now() - S.lastSrv : -1;
-  if (S.lastSrv && srvGap < SRV_IDLE_MS){
-    el.diag_srv.textContent = '✅ 正常（' + (SRV_IDLE_MS / 1000) + 's 内收到）';
+  if (S.lastSrv && srvGap < srvIdleMs()){
+    el.diag_srv.textContent = '✅ 正常（' + (srvIdleMs() / 1000) + 's 内收到）';
     el.diag_srv.style.color = '#1a7f37';
     el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
-  } else if (S.lastSrv && srvGap < SRV_DEAD_MS){
+  } else if (S.lastSrv && srvGap < srvDeadMs()){
     el.diag_srv.textContent = '⚠ ' + Math.round(srvGap / 1000)
       + 's 无新消息（抖动/后台，再等等）';
     el.diag_srv.style.color = '#b26a00';
@@ -3500,7 +3506,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.06';   /* 3.06：在线数改「会话 N」；历史回查条撞顶才出现、出现即自动取回（横幅显示「正在取回历史记录…」），无需手动点选 */
+const VER = '3.07';   /* 3.07：统一「服务器回应超时」为 60 秒（服务端可下发 srvTmo 覆盖）——判「服务器连接不到」、名册离线、历史取回兜底全部 60s */
 /* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -3978,8 +3984,8 @@ function pruneSrv(){
     if (now - (s.seen || 0) > SRV_TTL){          /* v1.84：超 7 天未出现→清名册 */
       delete S.servers[nm]; changed = true; continue;
     }
-    if (s.ts && now - s.ts > 75000 && s.conn !== false){
-      s.conn = false; changed = true;            /* v1.84：无心跳→标离线，名册保留 */
+    if (s.ts && now - s.ts > srvDeadMs() && s.conn !== false){
+      s.conn = false; changed = true;   /* 3.07：超「服务器回应超时」(默认60s)无心跳→标离线，名册保留 */
     }
   }
   if (_srv_dirty){ _srv_dirty = false; _srv_save_tm = now; saveSrvs(); }
@@ -4439,6 +4445,11 @@ function onHello(d){
   if (d.acct !== undefined){ S.acct = String(d.acct || ''); renderAcct(); }
   /* 1.33：AI 文本刷新间隔（hello 同步服务端当前值） */
   if (d.poll !== undefined) {/* 1.35：poll 档位 UI 已移除，忽略 */}
+  /* 3.07：统一「服务器回应超时」——服务端下发秒数，换算毫秒存入本地 */
+  if (d.srvTmo !== undefined && d.srvTmo !== null){
+    const ms = Math.round(Number(d.srvTmo) * 1000);
+    if (isFinite(ms) && ms >= 5000 && ms <= 600000) S.srvTmoMs = ms;
+  }
   /* 1.13：目标正被其他客户端占用时提示（操控指令会被 deny） */
   if (d.lock && d.lock.mine === false && d.lock.id){
     flash('🔒 [' + (d.srv || '远方') + '] 正被 ' + d.lock.id
@@ -4523,8 +4534,8 @@ function setOnLine(b){
 const LINKDOC = {
   '链接频道…':        '正在连中转频道（第一次连，或刚点过重连）',
   '链接频道·重试 N':  '频道没连上/刚断——正在自动重试，通常几秒内恢复',
-  '等待服务器回应':   '频道已连通，正在等服务端消息（20~60 秒没动静，多半手机后台被冻或中转抖一下，工作仍在做）',
-  '等待服务器回应·超时': '频道已连通，但 1 分钟没收到服务端消息——多半服务端（电脑上的程序）没在跑，去电脑上看看',
+  '等待服务器回应':   '频道已连通，正在等服务端消息（服务器较慢时会等较久，工作仍在做）',
+  '等待服务器回应·超时': '频道已连通，但超过「服务器回应超时」（默认 60 秒，设置页可调）没收到服务端消息——多半服务端（电脑上的程序）没在跑，去电脑上看看',
   '已连接':           '频道通、服务端正常，可以发指令收消息'
 };
 function renderLink(){
@@ -4539,16 +4550,16 @@ function renderLink(){
     doc = '频道没连上，正在自动重试（第 ' + (n || 1) + ' 次）——通常几秒内恢复';
   } else {
     const gap = Date.now() - (S.lastSrv || S.wsOpenAt);
-    if (S.lastSrv && gap < SRV_IDLE_MS){
+    if (S.lastSrv && gap < srvIdleMs()){
       txt = '已连接'; col = 'var(--green)';
-    } else if (gap < SRV_IDLE_MS){             // 频道通、刚连上，等服务端应答
+    } else if (gap < srvIdleMs()){             // 频道通、刚连上，等服务端应答
       txt = '同步中…'; col = 'var(--gray)';
-    } else if (gap < SRV_DEAD_MS){
-      /* 频道已通，但 20~60 秒没听到服务端动静——后台被冻/中继抖，
-         工作仍在做，中性提示不报故障 */
+    } else if (gap < srvDeadMs()){
+      /* 频道已通，但中间档（默认 20s，随超时 1/3 缩放）没听到服务端动静——
+         后台被冻/中继抖，工作仍在做，中性提示不报故障 */
       txt = '等待服务器回应'; col = 'var(--gray)';
     } else {
-      txt = '等待服务器回应·超时'; col = 'var(--orange)';   // 服务端可能没跑
+      txt = '等待服务器回应·超时'; col = 'var(--orange)';   // 超时（默认60s）后服务端可能没跑
     }
     doc = LINKDOC[txt];
   }
@@ -5078,7 +5089,7 @@ el.netreconn.onclick = () => {
   /* 1.60：连接本来好好的时候点这个按钮 = 自己把好连接掐断
      （用户误点 → 「一切回来就断线」观感的元凶）→ 先判新鲜度：
      已在线、且 SRV_IDLE_MS 内还听得到服务端动静，就别重连。 */
-  const fresh = S.onLine && S.lastSrv && (Date.now() - S.lastSrv < SRV_IDLE_MS);
+  const fresh = S.onLine && S.lastSrv && (Date.now() - S.lastSrv < srvIdleMs());
   if (fresh){ diagLog('连接正常，已跳过重连（免得自断）', 'ok'); return; }
   diagLog('手动重连', 'warn');
   connect();
