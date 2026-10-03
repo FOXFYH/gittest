@@ -3022,7 +3022,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.70';   /* 1.70：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
+const VER = '1.71';   /* 1.71：去掉无主的「默认服务端」幻影条目（用户 2026-10-03）——
+                         ① handleBody 取消「无 srv → 默认服务端」兜底，无 srv 报文一律
+                         丢弃；② loadSrvs 把历史遗留的「默认服务端」从内存与落盘
+                         （localStorage wb_cli_srvs）一并剔除。左侧菜单只列真实电脑名。
+                         1.70：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
                          渲染成醒目琥珀色提问卡（左粗条+暖底+加粗），复用语音卡
                          同一套 ▶ 播放/TTS 通道，可直接听题（1:1 对齐 TRAE 2.21）。
                          用途：AI 向用户/其他 AI 提问时醒目可见、便于及时作答。 */
@@ -3239,9 +3243,13 @@ function handleBody(body){
   try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
   /* 1.12 多服务端：报文按 'srv' 源头名归册；只渲染当前操控服务端
-     的内容（hello/srv 心跳同时维护名册）。旧版服务端无 'srv' 字段
-     → 归入「默认服务端」兼容单机场景。 */
-  const nm = d.srv || '默认服务端';
+     的内容（hello/srv 心跳同时维护名册）。
+     1.71（用户 2026-10-03）：**取消**旧「无 srv → 默认服务端」兜底——本机
+     服务端恒带 srv（电脑名称恒非空，见 host.srv_name 回退计算机名），该兜底
+     只会凭空造出一条无主的「默认服务端」幻影条目。无 srv 的报文一律丢弃、
+     不注册名册。 */
+  const nm = (d.srv || '').trim();
+  if (!nm) return;
   regSrv(nm, d);
   if (d.t === 'srv'){
     if (nm === S.cur && d.alive){ S.alive = new Set(d.alive); renderPorts(); }
@@ -3277,13 +3285,20 @@ function loadSrvs(){
   try { raw = JSON.parse(localStorage.getItem(LS_SRVS)); } catch(e){}
   if (!raw || typeof raw !== 'object') return;
   const now = Date.now();
+  /* 1.71（用户 2026-10-03）：清掉历史遗留的「默认服务端」僵尸条目——它没有
+     真实来源（本机服务端恒带 srv），只是旧版落盘名册反复恢复出来的幻影；
+     内存与落盘一起剔除。 */
+  if (S.servers['默认服务端']) delete S.servers['默认服务端'];
+  let 有残留 = false;
   for (const nm of Object.keys(raw)){
+    if (nm === '默认服务端'){ 有残留 = true; continue; }
     const seen = Number(raw[nm]) || 0;   /* 毫秒时间戳超 32 位，|0 会截断成负数致名册恒被清空 */
     if (!nm || !seen || now - seen > SRV_TTL) continue;    /* 超期不恢复 */
     const s = S.servers[nm];
     if (!s) S.servers[nm] = {name: nm, ts: 0, seen: seen, conn: false};
     else s.seen = Math.max(s.seen || 0, seen);
   }
+  if (有残留) saveSrvs();                /* 把残留从落盘里一并剔掉 */
   renderSrvList();
 }
 function saveSrvs(){
