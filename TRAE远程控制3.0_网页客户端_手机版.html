@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.19</title>
+<title>TRAE远程 v3.23</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1429,6 +1429,12 @@ const S = {
      『空』表示尚未锚定（首拍或锚定会话已被删），此时自动吸附到当前
      选中会话；一旦锚定，除非用户自己切会话/锚定会话消失，否则不换。 */
   anchorSid: '', anchorTitle: '',
+  /* 3.23：最近一拍快照里「随会话走」的状态字段（sendIdle/inputText/tail/
+     finish/官方排队条 pend/ask/opts）到底属于哪个会话——由 adoptSnap 如实
+     记录。''=归属未知。renderState/renderAll 据此判定能否拿它给本端锚定
+     会话显示状态（治用户 2026-10-05 报：切到别的会话还残留上一个会话的
+     「输出中/输入中」与官方排队条）。 */
+  snapSid: '',
 };
 
 /* ================= DOM 快捷 ================= */
@@ -1739,23 +1745,32 @@ function adoptSnap(v){
   /* 锚定会话已消失（被删/改名到认不出）：改锚到当前选中，放行原快照 */
   if (S.anchorSid && !hasSidIn(v, S.anchorSid)){
     S.anchorSid = inSid; S.anchorTitle = inTitle;
+    S.snapSid = inSid || S.anchorSid;    /* 3.23：放行原快照=字段属当前选中 */
     return v;
   }
   /* 用户自己的切换在途：放行原快照内容，但选中标志一律以本地锚点为准——
      3.46 起用户点会话行会「本地秒切」，服务端确认前到的旧快照绝不能把
      「显示会话」和列表高亮拽回旧会话；且目标会话的 ask/opts/排队/附件等
      「随会话走」的字段不能沿用旧会话的（否则新会话正文上会盖着旧会话的
-     提问卡/选项/队列）。等切换真正落地（inSid===anchorSid）后自然放行。 */
+     提问卡/选项/队列）。等切换真正落地（inSid===anchorSid）后自然放行。
+     3.23：不仅 ask/opts/pend/attach，连 inputText/tail/sendIdle/finish 这些
+     驱动顶部「输出中/输入中」的字段也一并清——否则桌面还没切过去时，顶部
+     会一直挂着旧会话的生成态（用户 2026-10-05 报）。并置 snapSid='' 标记
+     「本拍随会话字段已作废、归属未知」。 */
   if (S.switch_pend){
     if (S.anchorSid && inSid && inSid !== S.anchorSid){
       v.convs = (v.convs || []).map(r => (r && r[0] === 'c')
           ? [r[0], r[1], (r[4] || '') === S.anchorSid, r[3], r[4]] : r);
       v.opts = []; v.ask = null; v.pend = []; v.attach = [];
+      v.inputText = ''; v.tail = null; v.sendIdle = null; v.finish = null;
+      S.snapSid = '';
+    } else {
+      S.snapSid = inSid || S.anchorSid;  /* 3.23：字段已属锚定会话 */
     }
     return v;
   }
   const stolen = !!(S.anchorSid && inSid && inSid !== S.anchorSid);
-  if (!stolen) return v;
+  if (!stolen){ S.snapSid = inSid || S.anchorSid; return v; }   /* 3.23 */
   const old = S.snap || {};
   v.convs = (v.convs || []).map(r => (r && r[0] === 'c')
       ? [r[0], r[1], (r[4] || '') === S.anchorSid, r[3], r[4]] : r);
@@ -1769,7 +1784,21 @@ function adoptSnap(v){
   v.pend = Array.isArray(old.pend) ? old.pend : (v.pend || []);
   v.opts = old.opts || [];
   S.anchorTitle = selTitleOf(v) || S.anchorTitle;
+  /* 3.23：stolen 冻结的是【旧会话】的随会话字段，归属保持旧值不动
+     （S.snapSid 未在本函数前段被改写）——只要它仍等于锚定会话，
+     顶部状态与排队条照常显示；若它本就不属锚定，则 renderState/renderAll
+     会因失配而隐藏，绝不误显别人的状态。 */
   return v;
+}
+
+/* 3.23：状态归属失配——S.snap 里那些「随会话走」的字段（sendIdle/inputText/
+   tail/finish/ask/opts/官方排队条 pend）由 adoptSnap 记在 S.snapSid 上。当它
+   不属本端锚定会话（用户刚本地秒切、桌面还没切过去；或归属未知）时，绝不能
+   拿它给锚定会话显示「输出中/输入中」与官方排队条——否则切会话会残留上一个
+   会话的状态（用户 2026-10-05 报）。失配期间 renderState/renderAll 改显
+   切换/同步态，等快照归属对齐（S.snapSid===anchorSid）后自然恢复。 */
+function 状态失配(){
+  return !S.snapSid || !!(S.anchorSid && S.snapSid !== S.anchorSid);
 }
 
 /* ================= 渲染 ================= */
@@ -1805,8 +1834,13 @@ function renderAll(){
       if (/^(全部)?(撤销|保留)$/.test(t)) return false;
       return true;
     });
-  renderMsgs(curMsgs(), snap.finish, opts0, snap.ask || null,
-             snap.pend || []);
+  /* 3.23：状态归属失配时，finish/opts/ask/官方排队条 pend 都可能是【别的会话】
+     的——正文区一律不显示它们（正文区顶部那条「官方排队条」面板尤甚，用户
+     2026-10-05 报切会话后不跟会话走）。归属对齐后自然恢复。 */
+  const 失配 = 状态失配();
+  renderMsgs(curMsgs(), 失配 ? null : snap.finish, 失配 ? [] : opts0,
+             (失配 ? null : snap.ask) || null,
+             (失配 ? [] : snap.pend) || []);
   renderState(snap);
   revertRefill(snap);              // 1.62：撤回后把被撤回的话补回输入框
   renderAttach(snap.attach || []);
@@ -3912,6 +3946,27 @@ function renderState(snap){
     fbarSync();                            // 1.62：全屏状态条跟随
     return;
   }
+  /* 3.23：状态归属失配——快照里那些「随会话走」的状态字段（sendIdle/
+     inputText/tail）不属本端锚定会话（用户刚本地秒切、桌面还没切过去；
+     或别人占着桌面把它切走了）。此时绝不能拿它给锚定会话显示「输出中/
+     输入中」（用户 2026-10-05 报：切到别的会话还残留上一个会话的状态）。
+     改显切换/同步态，等快照归属对齐后自然恢复。 */
+  if (状态失配()){
+    S.gen = false;
+    const ct4 = (curTitle() || '').trim();
+    if (S.switch_pend){
+      el.state.textContent = '正在切换到「' + S.switch_pend.title + '」…';
+      el.state.style.color = 'var(--blue)';
+    } else {
+      el.state.textContent = '⟳ 同步中…'
+        + (ct4 ? ' · ' + (ct4.length > 14 ? ct4.slice(0, 14) + '…' : ct4) : '');
+      el.state.style.color = 'var(--gray)';
+    }
+    refreshSendBtn();
+    renderLoginBar(snap);
+    fbarSync();
+    return;
+  }
   const idle = snap.sendIdle, inp = snap.inputText || '',
         tail = snap.tail;
   if (!idle && !inp){                        // 生成中
@@ -4207,7 +4262,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.22';   /* 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.23';   /* 3.23（2026-10-05）：状态归属绑定会话（治「切会话残留上一会话状态」）——新增 S.snapSid，记录快照里「随会话走」的字段（sendIdle/inputText/tail/finish/ask/opts/官方排队条 pend）到底属于哪个会话，由 adoptSnap 如实维护：切换在途且桌面还没切过去时（inSid!==anchorSid）连 inputText/tail/sendIdle/finish 一并清、并置 snapSid=''；stolen 冻结旧会话字段时归属保持旧值。配套新增 状态失配()；renderState 失配时不显示他会话的「输出中/输入中」改显「正在切换到…/⟳ 同步中…」，renderAll 失配时摘除他会话的 finish/opts/ask/官方排队条。switchSrv/applySwitch 换目标即清 snapSid。纯网页端，服务端逻辑零改动。 原 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
@@ -4710,6 +4765,7 @@ function switchSrv(nm){
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.msgs_fps = null; S.msgs_restkey = null;   /* 3.19：增量渲染基线作废 */
   S.pending = []; S.switch_pend = null;
+  S.snapSid = '';               /* 3.23：换目标→随会话状态归属作废 */
   S.qseen = {}; S.qact = {};    /* 3.53：换会话即清排队条台账（队列属该会话） */
   S.busy = false; S.model_busy = false;
   S.points = '—'; el.points.textContent = '积分 —';
@@ -5427,6 +5483,7 @@ function applySwitch(box, port){
   S.pending = []; S.switch_pend = null;
   /* 3.01：换服务端目标——锚点/watch/pane 缓存一并作废（新目标要重新吸附+声明） */
   S.anchorSid = ''; S.anchorTitle = ''; S.watchSid = ''; S.panes = {};
+  S.snapSid = '';               /* 3.23：换服务端目标→随会话状态归属作废 */
   /* 3.05：删掉此处「S.autofixSent = undefined」——换服务端目标并非新连接，
      清记录会在同一条连接内漏出一次 autofix 上报（3.04 自报已删、实被 WPS 半截
      回写回退）。autofix 闸门只认「连接代次 autofixGen」：每连接最多 1 条。 */
