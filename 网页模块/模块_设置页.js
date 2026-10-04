@@ -8,8 +8,8 @@
  * 【同一全局作用域】经典脚本，可直接用主文件的 el / S / CFG / flash / esc /
  * $ / sendCmd / sendJson / connect / diagLog / diagRender / renderToday /
  * srvIdleMs / ttsVoice / ttsRate / ttsClearCache / chanGet / curSel / netDay /
- * statsFlush / fmtBytes / idbOpen / idbClear / ensureHist / copyText / DIAG 等
- * 全局；切勿重复声明主文件已有的 const/let/function 名。
+ * statsFlush / fmtBytes / ensureHist / copyText / DIAG 等全局；切勿重复声明主文件
+ * 已有的 const/let/function 名。（3.20：原 idbOpen/idbClear 已随 IndexedDB 深库删除。）
  *
  * 【特意留在主文件的「常驻件」】以下在主文件里是**启动/常驻**用（连接诊断记
  * 录、每秒诊断刷新、积分流量今日行、频道名渲染、副频道探测），故不拆出：
@@ -56,38 +56,8 @@ function _fmtBytes(n){
 function _lsBytes(k){
   try { const v = localStorage.getItem(k); return v ? v.length * 2 : 0; } catch(e){ return 0; }
 }
-function _histConvCount(){
-  /* 3.75：历史仓库唯一在 IndexedDB，此处统计内存镜像里已有近端记录的会话数。 */
-  try {
-    const m = S.histMeta || {};
-    let n = 0;
-    for (const k in m){
-      const e = m[k];
-      if (e && Array.isArray(e.msgs) && e.msgs.length) n++;
-    }
-    return n;
-  } catch(e){ return 0; }
-}
-function idbStats(){
-  /* 深库（IndexedDB）逐条游标统计：会话数 / 条数 / 估算字节 */
-  return idbOpen().then(db => new Promise(res => {
-    if (!db) return res(null);
-    try {
-      const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).openCursor();
-      let recs = 0, rows = 0, bytes = 0;
-      rq.onsuccess = () => {
-        const cur = rq.result;
-        if (!cur) return res({recs: recs, rows: rows, bytes: bytes});
-        recs++;
-        const msgs = (cur.value && cur.value.msgs) || [];
-        rows += msgs.length;
-        try { bytes += JSON.stringify(cur.value).length * 2; } catch(e){}
-        cur.continue();
-      };
-      rq.onerror = () => res(null);
-    } catch(e){ res(null); }
-  }));
-}
+/* 3.20（主文件）：聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / LS_TM）
+   已整删，故原 _histConvCount / idbStats 一并移除；面板对应项显示「已停用」。 */
 function cacheStatsRender(){
   if (!el.cache_ls) return;
   try {
@@ -103,40 +73,28 @@ function cacheStatsRender(){
     }
     明细.sort((a, b) => b[1] - a[1]);
     el.cache_skel.textContent = _fmtBytes(lsSkel);
-    /* 3.75：历史仓库已统一到 IndexedDB（localStorage 历史键废弃）——
-       此处显示内存镜像会话数，实际大小见下方「历史深库（IndexedDB）」。 */
-    el.cache_ls.textContent = '仅 IndexedDB（内存镜像 ' + _histConvCount() + ' 个对话）';
+    /* 3.20（主文件）：聊天记录缓存层（内存镜像 S.histMeta / IndexedDB 深库）已整删——
+       纯实时广播不落聊天记录，此项显示「已停用」，不再有体积可算（0 而非 undefined）。 */
+    el.cache_ls.textContent = '已停用（0 B）';
     el.cache_all.textContent = _fmtBytes(total) + ' · localStorage ' + keys + ' 项';
-    /* 3.84（用户 2026-10-03 问「localStorage 有那么多项目吗？里面有会话记录吗？」）：
-       把「11 项」摊开——列出 ≥2KB 的键与大小（按大→小），
-       用户一眼就能看到到底是谁占地方（实测最大户＝times：按消息文本哈希累积的
-       首见时间表；里面**没有任何消息正文**，正文只在 IndexedDB 深库）。 */
+    /* 3.84：把 ≥2KB 的 trae_webm 键摊开——均设置项，**没有任何消息正文**。 */
     if (el.cache_lsk_det){
       el.cache_lsk_det.textContent = 明细.length
         ? 明细.map(x => x[0] + ' ' + _fmtBytes(x[1])).join(' · ')
         : '（均 <2KB：设备号/频道/名册/骨架/开关等设置项）';
     }
   } catch(e){}
-  idbStats().then(st => {
-    if (!el.cache_idb) return;
-    el.cache_idb.textContent = st
-      ? (st.recs + ' 个对话 · ' + st.rows + ' 条 · ' + _fmtBytes(st.bytes))
-      : '不可用';
-  }).catch(() => { if (el.cache_idb) el.cache_idb.textContent = '不可用'; });
+  if (el.cache_idb) el.cache_idb.textContent = '已停用（历史深库已删）';
 }
 function clearHistCache(){
-  /* 清「聊天记录」缓存：IndexedDB 深库 + 内存镜像（历史仓库唯一存放处）；
-     不删 LS_SKEL（会话列表，秒开用）与频道名等设置。清完 ensureHist 按需重取当前会话。
-     3.84：一并清 LS_TM（按消息文本哈希累积的首见时间表）——它是消息派生数据，
-     也是 localStorage 里唯一会随消息数长大的键；只是兜底时间，清掉由服务端
-     第 6 位时间接管，不影响显示。 */
-  idbClear().then(() => cacheStatsRender());
-  try { localStorage.removeItem(LS_TM); } catch(e){}
+  /* 3.20（主文件）：聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / LS_TM）
+     已整删，本按钮不再需要清任何落盘缓存——保留空动作（清内存显示池 + 重取当前
+     会话），避免误触报错；面板「聊天记录缓存/历史深库」均显示「已停用」。
+     仍不删 LS_SKEL（会话列表，秒开用）与频道名等设置。 */
   S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histNear = [];
-  S.histDeep = []; S.histLive = []; S.lastLiveRow = null; S.histVer = 0; S.histHave = 0; S.histShow = 4;
-  S.histMeta = {};              /* 3.75：历史仓库唯一在 IndexedDB，同步清内存镜像 */
-  flash('已清空缓存的聊天记录（本端）', 'var(--blue)');
-  ensureHist();                 /* 清完立刻按需重取当前会话（只取这一个，不全量灌溉） */
+  S.histLive = []; S.lastLiveRow = null; S.histVer = 0; S.histHave = 0; S.histShow = 4;
+  flash('聊天记录缓存已停用（纯实时广播，无落盘记录可清）', 'var(--blue)');
+  ensureHist();                 /* 重取当前会话（只取这一个，不全量灌溉） */
   cacheStatsRender();
 }
 
