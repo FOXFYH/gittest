@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.25</title>
+<title>TRAE远程 v3.26</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -47,6 +47,19 @@ select{font-size:12px;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* 3.26（用户 2026-10-05）人类动作回执悬浮窗——半透明，挂在「顶部横幅（输出中/
+   规划中）」之下；不占位、不挤压布局。z-index 仅低于全屏预警条(1200)，好让它
+   盖过抽屉(30)/会话菜单(90)/设置页(40)等浮层，操作后在哪都能看见回执。 */
+#actbox{display:none; position:fixed; z-index:1190; left:50%;
+  transform:translateX(-50%); max-width:88vw;
+  background:rgba(24,26,32,.66); color:#fff; border-radius:12px;
+  padding:3px 12px; font-size:12px; line-height:1.6; text-align:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  pointer-events:none; box-shadow:0 2px 10px rgba(0,0,0,.28);
+  backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);}
+#actbox.on{display:block;}
+#actbox .a1{opacity:.95;}
+#actbox .a2{opacity:.6;}
 /* 1.31b：未登录横幅——默认必须隐藏（此前漏了这段 CSS，横幅
    常驻飘着=误报）。仅快照 login===false 时 JS 加 .on 才显示 */
 #loginbar{display:none; flex:none; padding:6px 12px; font-size:12px;
@@ -565,6 +578,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <button id="btn_fav" title="模型收藏管理" data-page-node-id="QQf0z68kfKCspuI3tgt6md">☆</button>
   </div>
   <div id="statebar" data-page-node-id="CWWwN1Nx4NvBnM1wGfRZ6V">连接中…</div>
+  <!-- 3.26：人类动作回执悬浮窗（半透明，JS 按状态行下沿动态定位；见 actSend/actBox） -->
+  <div id="actbox"></div>
   <div id="loginbar" data-page-node-id="LoGiNbAr20260914v131">⚠ TRAE 未登录——发送会失败，请在电脑上重新登录</div>
 </div>
 
@@ -1276,6 +1291,96 @@ function sendJson(d){
   }
   foxSend(JSON.stringify(d));
 }
+/* ===== 3.26（用户 2026-10-05）人类动作回执悬浮窗 =====
+   「一切人类发给服务器的指令，都要给一个反馈，否则人会感到很无聊。」
+   凡网页端的人动作帧（sendCmd 的各命令 / 上传附件 / 语音合成）都经 actSend：
+   ① 判 WS 是否在线 → 不在线显示「连接 WS 中…」，在线交给 WS 发出显示
+      「等待服务器回应…」；② 服务端一收到就回 ack_r{_rid} → 显示「服务器已收到 ✓」
+      （约 2.6s 后自动隐去）；③ 8s 没回 → 「服务器未回应」，再留 3s 隐去。
+   自动帧（hello/login/watch/boot/重放与投递/check_fulls…）走 sendJson，
+   不经 actSend，不登记、不弹窗——否则一上线就刷屏。 */
+const ACT_NAME = {
+  route_send:'发送消息', send:'发送消息', interject:'插话发送', stop_gen:'停止生成',
+  toggle_folder:'折叠/展开分组', switch:'切换会话',
+  conv_pin:'置顶会话', conv_del:'删除会话', conv_rename:'重命名会话',
+  rewind:'回退消息', del:'删除消息',
+  ask_pick:'选择选项', ask_other:'提交自定义回答', ask_submit:'提交答案',
+  ask_cancel:'取消提问', ask_prev:'回到上一题', pick_opt:'选择选项',
+  pend_del:'删除排队条', pend_edit:'取出排队条', pend_sendnow:'立即发送排队条',
+  attach_rm:'移除附件', attach_files:'上传附件', input_take:'取回输入框',
+  points:'刷新积分', checkin:'每日签到', tts:'语音合成',
+  sched_add:'定时·新建', sched_set:'定时·修改', sched_del:'定时·删除',
+  sched_ls:'定时·列表', sched_clear:'定时·清空'
+};
+let actRid = 0;
+let actSeq = 0;                 /* 单调序号：同一毫秒内的多条也能稳定「最新在前」 */
+const S_acts = {};              /* _rid -> {名, st, ts, sq, tmo}；st: offline/pending/done/timeout */
+const ACT_TTL = 8000;           /* 8s 无 ack → 判「服务器未回应」 */
+const ACT_KEEP = 2600;          /* 已收到 ✓ / 未回应 ⚠ 展示时长，过后隐去 */
+/* 登记一条回执（返回 _rid）。rid 传入＝复用（离线补发时沿用同一条，不另起一条）。 */
+function actNew(名, st, rid){
+  const id = rid || ('a' + (++actRid) + Date.now().toString(36));
+  const old = S_acts[id];
+  if (old && old.tmo) clearTimeout(old.tmo);   /* 复用时先撤旧超时计时器，防误判 */
+  S_acts[id] = {名: 名 || '操作',
+                st: st || (S.onLine ? 'pending' : 'offline'),
+                ts: Date.now(), sq: (++actSeq), tmo: 0};
+  return id;
+}
+/* 人动作帧统一出口：登记 → 渲染 → 发出（发送失败也保留回执，由超时兜底）。 */
+function actSend(d, 名, rid){
+  let id = '';
+  try { id = actNew(名, '', rid); d._rid = id; } catch(e){ id = ''; }
+  actBox();
+  try { sendJson(d); } catch(e){}
+  if (id) actTimer(id);
+  return id;
+}
+/* 在途回执的超时兜底：8s 内未收到 ack_r → 标「服务器未回应」，再留 3s 清掉。 */
+function actTimer(id){
+  const a = S_acts[id]; if (!a) return;
+  if (a.tmo) clearTimeout(a.tmo);
+  a.tmo = setTimeout(() => {
+    if (!S_acts[id] || S_acts[id].st !== 'pending') return;
+    S_acts[id].st = 'timeout'; actBox();
+    setTimeout(() => { if (S_acts[id]){ delete S_acts[id]; actBox(); } }, 3000);
+  }, ACT_TTL);
+}
+/* 服务端 ack_r：把对应回执打成「服务器已收到 ✓」，约 2.6s 后隐去。 */
+function onAckR(rid){
+  const a = S_acts[rid]; if (!a) return;
+  if (a.tmo) clearTimeout(a.tmo);
+  a.st = 'done'; actBox();
+  setTimeout(() => { if (S_acts[rid]){ delete S_acts[rid]; actBox(); } }, ACT_KEEP);
+}
+/* 渲染悬浮窗：优先列「仍在途」的最近两条（次新一条稍暗），全空则整块隐藏。
+   位置：全屏时贴 #fbar 下沿，否则贴 #statebar 下沿，恒在「顶部横幅底下」。 */
+function actBox(){
+  const box = $('actbox'); if (!box) return;
+  const rows = Object.keys(S_acts).map(id => [id, S_acts[id]]);
+  rows.sort((x, y) => (y[1].sq || 0) - (x[1].sq || 0));
+  const live = rows.filter(r => r[1].st !== 'done').slice(0, 2);
+  const show = live.length ? live : rows.slice(0, 1);
+  if (!show.length){ box.classList.remove('on'); return; }
+  const one = (r, dim) => {
+    const st = r[1].st;
+    let ico = '⏳', tail = '等待服务器回应…';
+    if (st === 'offline'){ ico = '📡'; tail = '连接 WS 中…'; }
+    else if (st === 'done'){ ico = '✓'; tail = '服务器已收到'; }
+    else if (st === 'timeout'){ ico = '⚠'; tail = '服务器未回应'; }
+    return '<div class="' + (dim ? 'a2' : 'a1') + '">'
+         + ico + ' ' + esc(r[1].名) + ' · ' + tail + '</div>';
+  };
+  box.innerHTML = show.map((r, i) => one(r, i > 0)).join('');
+  let top = 8;
+  const anchor = document.body.classList.contains('fmsg') ? $('fbar') : $('statebar');
+  if (anchor){
+    const rc = anchor.getBoundingClientRect();
+    if (rc && rc.bottom) top = Math.round(rc.bottom) + 4;
+  }
+  box.style.top = top + 'px';
+  box.classList.add('on');
+}
 /* 3.01：多会话监管引擎（6.0 移植）——声明本端「要盯的会话 sid」，请服务端
    下发该会话 pane 全文（含在 TRAE 里未选中、以 visibility:hidden 挂着的隐藏
    pane）。同一 sid 只发一次（避免反复触发服务端「预热会话」静默切换）；换锚
@@ -1293,29 +1398,34 @@ function watchAnchor(){
 function newDid(){
   return String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
 }
-function sendCmd(c, a, did, convSid){
+function sendCmd(c, a, did, convSid, opt){
   /* 2.17：发送/插话统一改走「会话路由器」——带着目标会话稳定 sid 自动
      找上门，到点才临时占用 TRAE 输入框发一条、发完立刻走人（不再长期
      霸占输入框）。正文 + 目标 sid + 模式都放进 arg；服务端
      _cmd_route_send 把整段路由事务（切会话→核验→取回残留→写入→回读→
      发送）作为【一条 cmdq 命令】串行执行，段内插不进任何人。
      2.11/2.16：外部传入锁定 sid（重发）就用它、绝不现取 curSid()。
-     旧服务端忽略多余字段（无 route_send 时退回原 send/interject）。 */
+     旧服务端忽略多余字段（无 route_send 时退回原 send/interject）。
+     3.26：opt={静默, rid, 名}——人动作默认登记回执悬浮窗（actSend）；自动动作
+     （重放队列/投递/自动补切）传 静默:1 走 sendJson，不弹窗、不刷屏。 */
+  opt = opt || {};
+  const 名 = opt.名 || ACT_NAME[c] || ('命令·' + c);
+  let d;
   if (c === 'send' || c === 'interject'){
     const sid = convSid || curSid() || '';
     /* 2.18：附带网页版【锚定】的 sid——服务端路由若临时把桌面挪去别处
        发消息，结束时按"网页版为尊"归还到锚定会话（见 会话路由器.anchor）。 */
-    const d = {t:'cmd', c:'route_send',
-               a:{sid: sid, text: a, mode: (c === 'interject'
-                                            ? 'interject' : 'auto'),
-                  anchor: S.anchorSid || ''}};
+    d = {t:'cmd', c:'route_send',
+         a:{sid: sid, text: a, mode: (c === 'interject'
+                                      ? 'interject' : 'auto'),
+            anchor: S.anchorSid || ''}};
     if (did) d.did = did;   /* 1.88：did 仅用于消卡回执 */
-    sendJson(d);
-    return;
+  } else {
+    d = {t:'cmd', c:c, a:a};
+    if (did) d.did = did;
   }
-  const d = {t:'cmd', c:c, a:a};
-  if (did) d.did = did;
-  sendJson(d);
+  if (opt.静默) sendJson(d);
+  else actSend(d, 名, opt.rid);
 }
 /* 3.72（按需广播）：网页端主动提广播需求——走既有 req/res RPC（c='bc'）。
    · mode='start' 启动广播：应用刷新 / 重新打开 / 掉线重连（cliLogin）时发出。
@@ -1519,6 +1629,7 @@ function fbarSync(){
   if (!fb || !el.state) return;
   fb.textContent = el.state.textContent || '';
   fb.style.color = el.state.style.color || 'var(--gray)';
+  actBox();          /* 3.26：状态行文案变了（含进出全屏）→ 回执悬浮窗重新贴位 */
 }
 let ftoastTimer = null;
 function ftoast(msg, color, ms){
@@ -2618,7 +2729,7 @@ function fullsCheckFire(title){
   if (!S.onLine) return;                 // 仅 WS 连通时才问（网络正常前提）
   confirmFulls(
     '切换对话超过 15 秒仍未载入内容，是否查询是否有窗口最大化/全屏压制原版渲染？',
-    () => sendCmd('check_fulls'));
+    () => sendCmd('check_fulls', null, null, null, {静默: 1}));
 }
 /* ========== 1.xx：最大化/全屏预警条 ========== */
 const FULLS_LATER = 15 * 60 * 1000;    // 稍后提醒：15 分钟后再提醒
@@ -2885,7 +2996,7 @@ function onRes(id, k, v){
       if (v.选中 === false && v.conv
           && (typeof S.switch_pend !== 'object' || !S.switch_pend)){
         try {
-          sendCmd('switch', {sid: curSid() || '', title: v.conv});
+          sendCmd('switch', {sid: curSid() || '', title: v.conv}, null, null, {静默: 1});
         } catch(e){}
       }
     }
@@ -3376,7 +3487,7 @@ function foxPlay(seg){
   const doSend = () => {
     if (_sent || !_tts_pend[id]) return;
     _sent = true;
-    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
+    actSend({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()}, '语音合成');
     ttsStage(seg, '任务已提交', 'var(--blue)');      // 阶段②：帧已交给 WS
     flash('🔈 任务已提交，等服务器接收…', 'var(--blue)');
   };
@@ -3389,7 +3500,7 @@ function cliFlushTts(){
     const seg = _tts_wait[id];
     delete _tts_wait[id];
     if (!_tts_pend[id]) return;
-    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
+    actSend({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()}, '语音合成');
     ttsStage(seg, '任务已提交', 'var(--blue)');
   });
 }
@@ -4352,7 +4463,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.25';   /* 3.25（2026-10-05）：末行兜底补严——「人类最后一条发言底下永远要有文字」（用户 2026-10-05 铁律：「人类最后一条发言底下总是有东西的……它不可能是空的，但是我无数次观察到它是空的……这个地方永远要有文字啊，网页版要自己检查，如果这个地方没有内容可以显示，就应该主动向服务器去索取」）。病灶：curMsgs 末行兜底原只有「活条 / 最后一次完整回复」两级，两级都取不到时什么都不补 → 末行就是人问、底下留白（刷新后 lastLiveRow=null、histLive 空、池里只有人问，ensureHist 的 400ms 宽限见 histNear 有人问即跳过索取，服务端那拍 live 又空窗，正是高发场景）。整改：①三级兜底——两级都取不到就补一条 role='p' 灰字占位「（正在取回这条回复…）」（不是「…」），永不留白；②缺料自检——置 S.回复缺料，renderAll 里 补料自检() 据此主动 reqHist 向服务端要最新一段（节流+退避：前 3 次每 4 秒、之后每 15 秒、上限 12 次；缺料解除/换会话即归零）；③buildMsgNode 为 role='p' 单出「无 who 头、无操作按钮」的灰字节点，正牌 AI 行一到即顶替。纯网页端，服务端逻辑零改动。 原 3.24（2026-10-05）：刷新后「回到我选定的对话」（用户 2026-10-05 铁律：「我在左侧列表选中了一个对话，我拼命刷新就是为了进入它，别给我跳到别的地方去——我的选中就是我的旨意」）。新增 LS_ANCHOR 锚定会话落盘：localSwitchTo 时把锚定 sid+标题写盘；页面启动（骨架列表渲染前）读盘恢复锚点并把骨架高亮对齐到它，杜绝「先亮错会话再跳」；首拍带回会话列表后若桌面停在别处则主动 sendCmd('switch') 把桌面切过去（一次性，anchor_need_switch）。adoptSnap 的「锚定会话已消失」分支加 hasList 守卫——hello 框架版快照暂无 convs 时不误判、不丢刚恢复的锚点，并在真消失时把新锚随实落盘。纯网页端，服务端逻辑零改动。 原 3.23（2026-10-05）：状态归属绑定会话（治「切会话残留上一会话状态」）——新增 S.snapSid，记录快照里「随会话走」的字段（sendIdle/inputText/tail/finish/ask/opts/官方排队条 pend）到底属于哪个会话，由 adoptSnap 如实维护：切换在途且桌面还没切过去时（inSid!==anchorSid）连 inputText/tail/sendIdle/finish 一并清、并置 snapSid=''；stolen 冻结旧会话字段时归属保持旧值。配套新增 状态失配()；renderState 失配时不显示他会话的「输出中/输入中」改显「正在切换到…/⟳ 同步中…」，renderAll 失配时摘除他会话的 finish/opts/ask/官方排队条。switchSrv/applySwitch 换目标即清 snapSid。纯网页端，服务端逻辑零改动。 原 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.26';   /* 3.26（2026-10-05）：人类动作回执悬浮窗（用户 2026-10-05：「一切人类发给服务器的指令，都要给一个反馈，否则人会感到很无聊……搞一个半透明的悬浮窗，放在这个输出中、规划中，这个顶部横幅的底下……我做出动作以后，首先判断 WS 有没有在线，如果 WS 不在线的话，就要显示连接 WS 中；如果在线已经发出去了，那就显示等待服务器回应。凡是人发出去的动作，服务器必须给回应。我们收到回应以后，就可以显示服务器已收到。」）。实现：①新增半透明 #actbox 悬浮窗（rgba 深底 + 毛玻璃，pointer-events:none 不挡手），恒贴在「顶部横幅（#statebar，全屏时 #fbar）下沿」，随状态行变化/进出全屏自动重贴；②新增 actSend/actNew/actTimer/onAckR/actBox：凡网页端「人动作帧」经 actSend 出——登记一条回执（_rid）→ 不上线显示「📡 连接 WS 中…」、已交 WS 发显示「⏳ 等待服务器回应…」、收到服务端 ack_r 显示「✓ 服务器已收到」（约 2.6s 隐去）、8s 无回显示「⚠ 服务器未回应」；③sendCmd 增 opt={静默,rid,名}——人动作默认登记回执，自动动作（重放队列/补发投递/自动补切/check_fulls）传 静默:1 不弹窗（防上线刷屏）；④穷举接线（人动作）：发送/插话、停止生成、折叠展开分组、切换会话、置顶/删除/重命名会话、回退/删除消息、问询卡各键（选择/自定义/提交/取消/上一题/选题）、排队条三键（删除/取出编辑/立即发送）、移除附件、上传附件、取回输入框、刷新积分、每日签到、语音合成、定时自我激活（新建/修改/删除/列表/清空）——共 20+ 项，全部有人动作命名与回执；⑤离线发送沿用同一条回执：cmd() 未连时先登记「连接 WS 中…」并记 rid 入 offQueue，连上补发时原地翻成「等待服务器回应…」不另起一条。服务端 网页服务 1.115 配套：_入向 最前面「收到即回执」——凡带 _rid 的帧立刻回 ack_r{_rid}（WS桥 1.28 加「动作回执」中文用途）。 原 3.25（2026-10-05）：末行兜底补严——「人类最后一条发言底下永远要有文字」（用户 2026-10-05 铁律：「人类最后一条发言底下总是有东西的……它不可能是空的，但是我无数次观察到它是空的……这个地方永远要有文字啊，网页版要自己检查，如果这个地方没有内容可以显示，就应该主动向服务器去索取」）。病灶：curMsgs 末行兜底原只有「活条 / 最后一次完整回复」两级，两级都取不到时什么都不补 → 末行就是人问、底下留白（刷新后 lastLiveRow=null、histLive 空、池里只有人问，ensureHist 的 400ms 宽限见 histNear 有人问即跳过索取，服务端那拍 live 又空窗，正是高发场景）。整改：①三级兜底——两级都取不到就补一条 role='p' 灰字占位「（正在取回这条回复…）」（不是「…」），永不留白；②缺料自检——置 S.回复缺料，renderAll 里 补料自检() 据此主动 reqHist 向服务端要最新一段（节流+退避：前 3 次每 4 秒、之后每 15 秒、上限 12 次；缺料解除/换会话即归零）；③buildMsgNode 为 role='p' 单出「无 who 头、无操作按钮」的灰字节点，正牌 AI 行一到即顶替。纯网页端，服务端逻辑零改动。 原 3.24（2026-10-05）：刷新后「回到我选定的对话」（用户 2026-10-05 铁律：「我在左侧列表选中了一个对话，我拼命刷新就是为了进入它，别给我跳到别的地方去——我的选中就是我的旨意」）。新增 LS_ANCHOR 锚定会话落盘：localSwitchTo 时把锚定 sid+标题写盘；页面启动（骨架列表渲染前）读盘恢复锚点并把骨架高亮对齐到它，杜绝「先亮错会话再跳」；首拍带回会话列表后若桌面停在别处则主动 sendCmd('switch') 把桌面切过去（一次性，anchor_need_switch）。adoptSnap 的「锚定会话已消失」分支加 hasList 守卫——hello 框架版快照暂无 convs 时不误判、不丢刚恢复的锚点，并在真消失时把新锚随实落盘。纯网页端，服务端逻辑零改动。 原 3.23（2026-10-05）：状态归属绑定会话（治「切会话残留上一会话状态」）——新增 S.snapSid，记录快照里「随会话走」的字段（sendIdle/inputText/tail/finish/ask/opts/官方排队条 pend）到底属于哪个会话，由 adoptSnap 如实维护：切换在途且桌面还没切过去时（inSid!==anchorSid）连 inputText/tail/sendIdle/finish 一并清、并置 snapSid=''；stolen 冻结旧会话字段时归属保持旧值。配套新增 状态失配()；renderState 失配时不显示他会话的「输出中/输入中」改显「正在切换到…/⟳ 同步中…」，renderAll 失配时摘除他会话的 finish/opts/ask/官方排队条。switchSrv/applySwitch 换目标即清 snapSid。纯网页端，服务端逻辑零改动。 原 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
@@ -4722,6 +4833,8 @@ function handleBody(body){
     return;
   }
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
+  /* 3.26：人类动作回执——服务端收到带 _rid 的人动作帧即回 ack_r → 悬浮窗打勾 */
+  if (d.t === 'ack_r') { onAckR(d._rid); return; }
   /* 2.20 新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
   /* 1.90：TTS 语音合成回执配对（id → b64/err） */
@@ -5076,7 +5189,7 @@ function onEv(kind, v){
           S.anchor_need_switch = false;
           if (S.anchorSid && hasSidIn(v, S.anchorSid) && bcSid0 !== S.anchorSid){
             pendSwitchSet(S.anchorTitle, S.anchorSid);  /* 切换在途提示 + 15s 判空/24s 兜底 */
-            sendCmd('switch', {sid: S.anchorSid, title: S.anchorTitle});
+            sendCmd('switch', {sid: S.anchorSid, title: S.anchorTitle}, null, null, {静默: 1});
           }
         }
       }
@@ -5613,7 +5726,9 @@ function setOnLine(b){
      逐条按原 did 投递；服务端受理回 did_ack，卡随 did 消。 */
   if (b && S.offQueue && S.offQueue.length){
     const q = S.offQueue; S.offQueue = [];
-    q.forEach(x => sendCmd(x.c, x.a, x.did, x.convSid));
+    /* 3.26：补发沿用离线时登记的那条回执（rid）——连上后原地翻成「等待服务器
+       回应…」并重挂超时，不再另起一条、也不残留。 */
+    q.forEach(x => sendCmd(x.c, x.a, x.did, x.convSid, {rid: x.rid}));
     renderAll();
   }
   renderLink();
@@ -5700,7 +5815,11 @@ function cmd(c, a, convSid){
       if (!S.sentGuard) S.sentGuard = {};
       S.sentGuard[a.trim()] = Date.now();
       if (!S.offQueue) S.offQueue = [];
-      S.offQueue.push({c: c, a: a, did: did, convSid: convSid});
+      /* 3.26：先登记一条「连接 WS 中…」回执（离线态），把 rid 存进队列项——
+         连上后 setOnLine 补发时原地翻成「等待服务器回应…」，不另起一条。 */
+      const rid = actNew(ACT_NAME[c] || '发送消息', 'offline');
+      actTimer(rid); actBox();
+      S.offQueue.push({c: c, a: a, did: did, convSid: convSid, rid: rid});
       el.ent.value = '';
       flash('正在连接 WS…（连上后自动发送）', 'var(--orange)');
       renderAll();
@@ -5992,9 +6111,8 @@ el.file.onchange = async () => {
   S.attach_pending = arr.map(f => f.n);     // 反馈①：灰 chips 占位
   renderAttach([]);
   flash('📎 附加中…（' + arr.length + ' 个文件）', 'var(--orange)');
-  sendJson({t: 'attach_files', files: arr});
+  actSend({t: 'attach_files', files: arr}, '上传附件');
 };
-
 /* —— 1.07：导出功能整体移除（用户要求网页版不要导出）：
    抽屉导出区 / export_full 命令 / collected 落盘链路均已删，
    服务端 export_full 处理保留不影响（无人触发即不执行） —— */
