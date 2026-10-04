@@ -1071,16 +1071,14 @@ const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
 const LS_CFG = 'trae_webm_cfg', LS_NET = 'trae_webm_net',
-      LS_TM = 'trae_webm_times', LS_SRV = 'trae_webm_srv',
+      LS_SRV = 'trae_webm_srv',
       LS_SRVS = 'trae_webm_srvs',     /* v1.84：多电脑名册落盘（name→最后出现毫秒） */
       LS_CH = 'trae_webm_channel',
       /* v1.50：副频道名 + 当前选中频道（main/backup，本地落盘、不固化） */
       LS_CH2 = 'trae_webm_channel2', LS_SEL = 'trae_webm_selct';
 
-/* 3.84：LS_TM（trae_webm_times，人问文本哈希→首见时间）的条数上限——超上限
-   只留最近 TM_KEEP 条。原「只写不删」会随消息数无限增长（实测数百 KB），
-   而它只是兜底（服务端第 6 位时间优先），故限长即可、不影响显示。 */
-const TM_CAP = 1500, TM_KEEP = 700;
+/* 3.20：原 LS_TM（trae_webm_times，人问文本哈希→首见时间）及其上限 TM_CAP/TM_KEEP
+   已删——它是消息派生数据，纯实时下由服务端第 6 位时间接管，不再落盘。 */
 
 function cfgGet(){
   try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
@@ -1414,14 +1412,8 @@ const S = {
   /* 3.36：显示窗口——从最新往前只渲染这么多条定稿（用户 2026-10-03：切会话
      先本地秒显最新 4 条提速；向上翻先把本地多余的那几条放出来，放完才找服务器）。 */
   histShow: 4,
-  /* 3.37：历史深库（IndexedDB）的当前会话内存镜像——7 位定稿行数组，最多 DEEP_MAX 条。
-     供「翻历史先翻本地」翻得更深，少跑服务器；每会话近端（raw/near）与游标另存 histMeta。 */
-  histDeep: [],
-  /* 3.75：历史仓库唯一存放处=IndexedDB。此对象是各会话记录的「同步内存镜像」：
-     {'p<端口>|<标题>': {ver, have_seq, msgs(账本原始行,≤10), near(7位定稿行,≤10)}}。
-     histCacheXxx 读写时同步维护它（只读写它 + 异步落 IDB），
-     保证请求式历史的游标(ver/have_seq)与秒显不因 localStorage 历史库移除而丢失。 */
-  histMeta: {},
+  /* 3.20：原 histDeep（IndexedDB 深库内存镜像）与 histMeta（各会话落盘镜像）已删——
+     IndexedDB 历史深库整套移除（纯实时下只写不读，见 3.20 维护记录）。 */
   histLoadingPrev: false,    /* 向上补拉老历史防重入 */
   histEnd: false,            /* 3.77 ①：已到最早（服务端回 end 或本端游标未前进），不再重复请求 */
   histPullFrom: 0,           /* 3.77 ①：上次向上拉用的游标；再请求时若未前进即判到底、短路 */
@@ -1650,82 +1642,24 @@ function mdHtml(text){
   return out.join('');
 }
 
-/* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
+/* ================= 消息时间（3.20：本地首见时间表已删，只认服务端时间） ================= */
 
-function djb2(s){
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = (h*33 ^ s.charCodeAt(i)) >>> 0;
-  return h.toString(16).padStart(8, '0').slice(0, 10);
-}
-function timesGet(){
-  try { return JSON.parse(localStorage.getItem(LS_TM)) || {}; }
-  catch(e){ return {}; }
-}
-function fmtTime(iso){                    // 北京时间 + 完整日期（YYYY-MM-DD HH:MM）
-  if (!iso) return '';
-  /* 历史缓存是 toISOString().slice(0,19) 的「无时区 UTC 串」（丢 .000Z），
-     Date.parse 会按本机时区解释 → 显示比北京慢 8 小时（v1.36 只改了
-     fmtTime 的 getHours 分支、没改缓存写入端，故当时「改了没效果」）。
-     这里对无时区尾缀的串显式补 Z 按 UTC 解析，旧缓存一并自动纠正。 */
-  let ms;
-  if (typeof iso === 'number') ms = iso;
-  else {
-    const s = String(iso);
-    const bare = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(s);
-    ms = Date.parse(bare ? s + '.000Z' : s);
-  }
-  if (isNaN(ms)) return '';               // 解析失败不显示错误时间
-  /* 统一显示北京时间(UTC+8)墙钟——手机时区若被切走，这里显式 +8
-     对齐消息真实时刻，显示不随本机时区漂移 */
-  const bj = new Date(ms + 8 * 3600 * 1000);
-  const s = bj.toISOString();             // epoch+8h 的 UTC 表示 = 北京墙钟
-  return s.slice(0, 10) + ' ' + s.slice(11, 19);   // YYYY-MM-DD HH:MM:SS（秒级）
-  /* 排序口径（v1.69，用户决策）：消息不发明 seq 编号，排序直接采用时间。
-     - 主依据：秒级时间（首见缓存/沿用，直播≈真实时刻）。
-     - 同秒碰撞：同一拍快照抓到的新消息首见时间同为 now（同一秒），
-       以数组顺序（=TRAE DOM 顺序）为次级依据——它天然存在，不算编号。
-     - 老数据：分钟级字符串解析后秒=00，仍可正确显示与参与排序。 */
-}
 function resolveTimes(msgs){
-  /* 2.22：时间以服务端为准——服务端快照给每条消息盖好第 6 位（已格式化的
-     北京秒级串 'YYYY-MM-DD HH:MM:SS'），有则直接显示，不再本地打戳（本地
-     打戳会因手机时区/首见时刻不准）。无第 6 位（老服务端/本地乐观追加行）
-     回退旧本地逻辑。last 统一存「已格式化」串，AI 消息直接沿用，不再二次
-     fmtTime（避免对已格式化串再解析造成时区偏移）。 */
-  const cache = timesGet(), title = curTitle(), out = [];
+  /* 3.20：本地首见时间表（LS_TM）及 djb2/timesGet/fmtTime 已删——原「无服务端时间
+     则本地打戳」的兜底撤销。现只认服务端快照第 6 位（已格式化的北京秒级串）；
+     无第 6 位（老服务端/本地乐观追加行）退回上一条已知时间，不再本地落盘时间表。 */
   let last = '';
+  const out = [];
   for (const m of msgs){
     let t = '';
     if (m.length > 5 && m[5]){            // 服务端时间戳优先
       t = String(m[5]);
       if (m[0] === 'u') last = t;
-    } else if (m[0] === 'u'){
-      const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
-      if (!cache[k]) cache[k] = new Date().toISOString().slice(0,19);
-      last = fmtTime(cache[k]);
-      t = last;
     } else {
-      t = last;                           // AI 消息沿用其提问时间
+      t = last;                           // 无服务端时间：沿用上一条已知时间
     }
     out.push(t);
   }
-  /* 3.84（用户 2026-10-03 问「LocalStorage 里难不成还有会话记录吗？」）：
-     这张表按「端口|标题|人问文本哈希」累积**只写不删**（每见一条人问就加一项），
-     实测能涨到几百 KB——是 localStorage 里的最大户（里面**没有正文**，只有时间，
-     但键是按消息文本算的，容易让人误以为存了记录）。且它现在只是兜底（服务端
-     第 6 位时间优先），故加**上限**：超过 TM_CAP 条就只留「时间最近」的一半。
-     另：值本身就是 ISO 时间串，直接按字符串取最近即可，无需解析。 */
-  const _ks = Object.keys(cache);
-  if (_ks.length > TM_CAP){
-    const _keep = _ks.map(k => [k, String(cache[k] || '')])
-                     .sort((a, b) => (a[1] < b[1] ? 1 : (a[1] > b[1] ? -1 : 0)))
-                     .slice(0, TM_KEEP);
-    const _o = {};
-    for (const kv of _keep) _o[kv[0]] = cache[kv[0]];
-    for (const k of Object.keys(cache)) delete cache[k];
-    for (const k of Object.keys(_o)) cache[k] = _o[k];
-  }
-  try { localStorage.setItem(LS_TM, JSON.stringify(cache)); } catch(e){}
   return out;
 }
 function curTitle(){
@@ -2369,7 +2303,7 @@ function 池有该文(文本){
   const a = _normTxt(文本);
   if (!a) return false;
   const n = Math.min(24, a.length);
-  const 池 = [].concat(S.histNear || [], S.histMsgs || [], S.histDeep || []);
+  const 池 = [].concat(S.histNear || [], S.histMsgs || []);
   for (const m of 池){
     if (!m || m[0] !== 'u') continue;
     const b = _normTxt(m[1]);
@@ -2672,13 +2606,12 @@ const S_reqs = {};                       /* id → {conv, ts}（防过期回包�
 const CACHE_FMT = 1;
 function cacheKeyNow(){ return 'f' + CACHE_FMT; }
 function checkVerBump(){
-  /* 首次定键 / 版本变化 → 清空本地骨架与历史缓存（改版重下） */
+  /* 首次定键 / 版本变化 → 清空本地骨架缓存（改版重下）。3.20：历史深库（IndexedDB）
+     已删，此处不再清库、不再重置已删的内存镜像。 */
   const k = cacheKeyNow();
   if (cacheKey !== null && cacheKey !== k){
     try { localStorage.removeItem(LS_SKEL); } catch(e){}
-    idbClear();                                   /* 3.37：深库同版本键，一并清 */
     S.histConv = ''; S.histMsgs = null; S.histRaw = [];
-    S.histDeep = []; S.histMeta = {};
   }
   cacheKey = k;
   /* 3.75：历史仓库统一到 IndexedDB——遗留的 localStorage 历史键一次性清掉，
@@ -2697,135 +2630,11 @@ function purgeStaleCache(){
     if (o1 && o1.key && o1.key !== k) localStorage.removeItem(LS_SKEL);
   } catch(e){}
 }
-/* ===== 3.37 历史深库：IndexedDB（用户 2026-10-03 定）=====
-   localStorage 只有 ~5MB 且同步写会卡主线程；IndexedDB 容量按磁盘配额（几十 MB~GB）
-   且异步不卡，故「本地能存多少」不再受限。3.75：历史仓库【唯一】放 IndexedDB——
-   · IndexedDB hist：每对话最多 DEEP_MAX 条累积历史（手机 10 条、电脑 500 条），
-     并同时保存该会话游标(ver/have_seq)与近端 raw/near（供秒显 + 请求式历史）。异步写，不卡界面。
-   兜底：浏览器无 IndexedDB / 打开失败 → 各函数静默返回，行为退回纯内存镜像。 */
-/* 3.75：DEEP_MAX 按设备自适应——手机空间有限只留最新 10 条，电脑存最新 500 条。
-   顺序：IS_MOBILE 必须在 DEEP_MAX 之前声明，且两者都在 deepWrite 之前。 */
-const IS_MOBILE = (/Android|iPhone|iPod|Mobile/i.test(navigator.userAgent)) ||
-                   (navigator.maxTouchPoints > 1 && window.matchMedia &&
-                    matchMedia('(pointer:coarse)').matches);
-const IDB_NAME = 'trae_webm_idb', IDB_VER = 1, IDB_STORE = 'hist';
-const DEEP_MAX = IS_MOBILE ? 10 : 500;
-let _idbP = null;
-function idbOpen(){
-  if (_idbP) return _idbP;
-  _idbP = new Promise(res => {
-    let rq;
-    try { rq = indexedDB.open(IDB_NAME, IDB_VER); } catch(e){ res(null); return; }
-    rq.onupgradeneeded = () => {
-      const db = rq.result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
-    };
-    rq.onsuccess = () => res(rq.result);
-    rq.onerror = () => res(null);
-  });
-  return _idbP;
-}
-function idbGet(key){
-  return idbOpen().then(db => new Promise(res => {
-    if (!db) return res(null);
-    try {
-      const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
-      rq.onsuccess = () => res(rq.result || null);
-      rq.onerror = () => res(null);
-    } catch(e){ res(null); }
-  }));
-}
-function idbPut(key, val){
-  return idbOpen().then(db => new Promise(res => {
-    if (!db) return res(null);
-    try {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(val, key);
-      tx.oncomplete = () => res(1);
-      tx.onerror = () => res(null);
-    } catch(e){ res(null); }
-  }));
-}
-function idbClear(){
-  return idbOpen().then(db => new Promise(res => {
-    if (!db) return res(null);
-    try {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).clear();
-      tx.oncomplete = () => res(1);
-      tx.onerror = () => res(null);
-    } catch(e){ res(null); }
-  }));
-}
-function deepKey(conv){ return 'p' + S.port + '|' + (conv || ''); }
-/* 3.75：历史仓库唯一入口是 IndexedDB，deepWrite / histCacheWrite 都是「读-改-写」
-   同一条会话记录；两条并发会互相覆盖。故用一个全局串行链把所有 IDB 写/水合排队，
-   逐条执行（本端写入量很小，串行无感知代价）。 */
-let _idbChain = Promise.resolve();
-function idbEnqueue(fn){ _idbChain = _idbChain.then(fn, fn); return _idbChain; }
-/* 把定稿行并入某会话的深库（按真实 ID 去重、按 (时间,ID) 排序、留最近 DEEP_MAX 条）。
-   入参 rows 必须是 7 位显示行。异步写，不阻塞界面；同时保留该会话的
-   游标(ver/have_seq)与近端(raw/near)，避免被深库覆盖写冲掉。 */
-function deepWrite(conv, rows){
-  if (!conv || !Array.isArray(rows) || !rows.length) return;
-  const key = deepKey(conv);
-  idbEnqueue(function(){ return idbGet(key).then(function(rec){
-    const base = (rec && rec.key === cacheKeyNow()) ? rec : {};
-    const cur = Array.isArray(base.msgs) ? base.msgs : [];
-    const seen = {};
-    cur.forEach(m => { seen[rowKey(m)] = 1; });
-    for (const m of rows){
-      if (!m || (m[0] !== 'u' && m[0] !== 'a')) continue;
-      const k = rowKey(m);
-      if (seen[k]) continue;
-      seen[k] = 1;
-      const mm = m.slice(); while (mm.length < 7) mm.push('');
-      cur.push(mm);
-    }
-    return idbPut(key, {key: cacheKeyNow(), ts: Date.now(),
-                        msgs: sortRows(cur).slice(-DEEP_MAX),
-                        raw: Array.isArray(base.raw) ? base.raw : [],
-                        near: Array.isArray(base.near) ? base.near : [],
-                        ver: base.ver | 0, have_seq: base.have_seq | 0});
-  }); });
-}
-/* 打开某会话时，从深库异步补出更老的历史（本地优先翻得更深）；已切走则丢弃。 */
-function deepLoad(conv){
-  if (!conv) return;
-  idbGet(deepKey(conv)).then(rec => {
-    if (conv !== S.histConv) return;
-    if (!rec || rec.key !== cacheKeyNow() || !Array.isArray(rec.msgs) || !rec.msgs.length) return;
-    S.histDeep = rec.msgs.map(m => m.slice());
-    renderAll();
-  });
-}
-/* 3.75：冷启动水合——把 IndexedDB 里各会话的游标(ver/have_seq) + 近端 raw/near
-   灌进内存镜像 S.histMeta，让 histCacheRead/Ids/Convs 与请求式历史的游标在
-   「刷新/重开」后依然可用（此前靠 localStorage 持久提供）。只填空缺、不覆盖
-   本会话已更新的镜像。经由 _idbChain 串行，避免与在途写入互相覆盖。 */
-function idbHydrateMeta(){
-  return idbEnqueue(function(){ return idbOpen().then(function(db){
-    return new Promise(function(res){
-      if (!db) return res(0);
-      try {
-        const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).openCursor();
-        if (!S.histMeta) S.histMeta = {};
-        rq.onsuccess = function(){
-          const cur = rq.result;
-          if (!cur) return res(1);
-          const key = cur.key, rec = cur.value;
-          if (rec && rec.key === cacheKeyNow() && !S.histMeta[key]){
-            S.histMeta[key] = {ver: rec.ver | 0, have_seq: rec.have_seq | 0,
-                               msgs: Array.isArray(rec.raw) ? rec.raw : [],
-                               near: Array.isArray(rec.near) ? rec.near : []};
-          }
-          cur.continue();
-        };
-        rq.onerror = function(){ res(0); };
-      } catch(e){ res(0); }
-    });
-  }); });
-}
+/* 3.20（用户 2026-10-05）：IndexedDB 历史深库整套已删——自 3.14 纯现场直发后，
+   显示层恒走实时档（isLiveMode 恒 true），深库「只写不读」纯白占地方，故连同
+   IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP 一并摘除；读写成对删干净，不再复建。 */
+/* 3.20：idbOpen/idbGet/idbPut/idbClear 已删（深库读写整套移除）。 */
+/* 3.20：deepKey/idbEnqueue/deepWrite/deepLoad/idbHydrateMeta 已删（深库整套移除）。 */
 /* —— 骨架缓存：打开页面即秒显会话列表（不用等连上） —— */
 function skelCacheSave(snap){
   if (!snap || !Array.isArray(snap.convs) || !snap.convs.length) return;
@@ -2847,49 +2656,8 @@ function skelCacheLoad(){
     return o;
   } catch(e){ return null; }
 }
-/* —— 历史缓存：按 (端口|会话标题) 存账本记录 + 游标（3.75：唯一落在 IndexedDB，
-      内存镜像 S.histMeta 提供同步秒显，读写两不误）—— */
-function histCacheRead(conv){
-  if (!S.histMeta) return null;
-  const e = S.histMeta['p' + S.port + '|' + (conv || '')];
-  if (!e) return null;
-  const msgs = Array.isArray(e.msgs) ? e.msgs : [];
-  const near = Array.isArray(e.near) ? e.near : [];
-  if (!msgs.length && !near.length) return null;
-  return {ver: e.ver | 0, have_seq: e.have_seq | 0, msgs: msgs, near: near};
-}
-function histCacheWrite(conv, ver, have_seq, msgs, near){
-  const key = deepKey(conv);
-  if (!S.histMeta) S.histMeta = {};
-  const prev = S.histMeta[key] || {};
-  /* 3.36（用户 2026-10-03）：每个对话近端只留最近 10 条，多了自动汰老。 */
-  const rawArr = (msgs || []).slice(-10);
-  const nearArr = (near || prev.near || []).slice(-10);
-  /* 同步镜像：立即能被 histCacheRead/Ids/Convs 与请求式历史游标读到（秒显不退化）。 */
-  S.histMeta[key] = {ver: ver | 0, have_seq: have_seq | 0, msgs: rawArr, near: nearArr};
-  /* 异步落 IndexedDB 同一条记录：写游标 + 近端，保留深库 msgs 不动。 */
-  idbEnqueue(function(){ return idbGet(key).then(function(rec){
-    const base = (rec && rec.key === cacheKeyNow()) ? rec : {};
-    return idbPut(key, {key: cacheKeyNow(), ts: Date.now(),
-                        msgs: Array.isArray(base.msgs) ? base.msgs : [],
-                        raw: rawArr, near: nearArr,
-                        ver: ver | 0, have_seq: have_seq | 0});
-  }); });
-}
-/* 3.70：内存 ⇄ 落盘「焊死」（用户 2026-10-03 铁律）。
-   账本查看器只是逻辑保证，实际仍以内存为主读入/读数；但原理上焊死了：
-   「凡是能在内存里看见的定稿行（仓库行），必定同时已落本地」。
-   本函数是唯一落盘入口——把当前会话内存池一次写全（均落 IndexedDB 同一条会话记录）：
-     · 近端：最近 10 条 raw + near + 游标（供冷启动/切会话秒显 + 请求式历史）
-     · 深库：最多 DEEP_MAX 条（localPoolRows 全池，供本地深翻；手机 10/电脑 500）
-   【规矩】凡改动 S.histRaw / S.histMsgs / S.histNear 的「定稿行」，改完必须紧跟
-   一次 histPersist(会话)，不得只改内存不落盘。活思维流（histLive）是可变的
-   「正在生成的那一条」，不属仓库，不落盘（否则刷新会复活半截回答）。 */
-function histPersist(conv){
-  if (!conv) return;
-  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw, S.histNear);
-  deepWrite(conv, localPoolRows());
-}
+/* 3.20：histCacheRead / histCacheWrite / histPersist 已删（内存镜像 S.histMeta
+   与 IndexedDB 深库读写整套移除——纯现场直发下这两层只写不读）。 */
 function ledToArr(r){
   /* 3.35：账本记录 → 固定 7 位显示行
      [role,文本,tm(显示),可回退,可删除,tm(服务端到秒),真实ID]
@@ -3024,7 +2792,9 @@ function onRes(id, k, v){
        3.77 ②：同一 sender 指纹未变 → 服务端只回轻量 reuse 回执，跳过整包落盘；
        多标签/重连各自 sender 独立，指纹变了才走全量 applyBootcast。 */
     if (v.mode === 'start'){
-      if (v.reuse) reloadAnchorFromCache(); else applyBootcast(v);
+      /* 3.20：reuse（指纹未变轻量回执）→ 无需落盘，直接跳过（原 reloadAnchorFromCache
+         恒 live 空转，已随缓存层删除）。 */
+      if (!v.reuse) applyBootcast(v);
       /* 3.89（用户 2026-10-03）：喊话时本端带上了「我当前选中的是哪个对话」，
          服务端回 '选中' 说明**它那头有没有切到这个对话**。若没切到 → 立刻补一次
          切换申请，让服务端当场切过去，别让本端干等。 */
@@ -3072,12 +2842,12 @@ function applyHist(conv, v){
   }
   S.histHave = S.histRaw.length
     ? S.histRaw[S.histRaw.length - 1].seq : 0;
-  histPersist(conv);            /* 3.70：账本回包进内存，同步落盘（近端10 + 深库500） */
   renderAll();
 }
 function applyHistExtras(v){
-  /* 3.10（§5.4 / 验收6）：消费差额推送附加项——最新对话列表(落盘所有对话名)、
-     种子(3.57 起仅【本次请求的会话】，不再全量灌溉)、活思维流。任一缺失/异常静默回落。 */
+  /* 3.10（§5.4 / 验收6）：消费差额推送附加项——最新对话列表(落盘所有对话名)、活思维流。
+     3.20：原「种子(seed) 落内存镜像/IndexedDB 深库」整块已删（纯现场直发下只写不读）。
+     任一缺失/异常静默回落。 */
   try {
     if (v && Array.isArray(v.convs) && v.convs.length){
       /* 最新对话列表 + 各对话状态：写回骨架缓存（保证「所有对话名称」落盘） */
@@ -3088,63 +2858,14 @@ function applyHistExtras(v){
         localStorage.setItem(LS_SKEL, JSON.stringify(o));
       } catch(e){}
     }
-    if (v && v.seed && typeof v.seed === 'object'){
-      /* 未掌握会话的账本种子：合并落库（按 seq 去重，时间正序）。
-         3.75：历史仓库唯一落 IndexedDB——histCacheWrite 同步更新内存镜像 + 异步落 IDB。 */
-      for (const title in v.seed){
-        const msgs = v.seed[title];
-        if (!Array.isArray(msgs) || !msgs.length) continue;
-        const kk = 'p' + S.port + '|' + title;
-        const prev = (S.histMeta && S.histMeta[kk]) || {};
-        const e = {ver: prev.ver | 0,
-                   msgs: Array.isArray(prev.msgs) ? prev.msgs.slice() : [],
-                   near: Array.isArray(prev.near) ? prev.near.slice() : []};
-        const seen = {};
-        e.msgs.forEach(m => { if (m && m.seq !== undefined) seen[m.seq] = 1; });
-        for (const m of msgs){
-          if (m && m.seq !== undefined && !seen[m.seq]){ seen[m.seq] = 1; e.msgs.push(m); }
-        }
-        e.msgs.sort((a, b) => (a.seq | 0) - (b.seq | 0));
-        if (e.msgs.length > 10) e.msgs = e.msgs.slice(-10);   /* 3.36：每会话只留最近 10 条 */
-        const have_seq = e.msgs.length ? (e.msgs[e.msgs.length - 1].seq | 0) : 0;
-        histCacheWrite(title, e.ver, have_seq, e.msgs, e.near);
-        deepWrite(title, msgs.map(ledToArr));  /* 3.37：会话种子同样进深库 */
-      }
-    }
     setHistLive(v && Array.isArray(v.live) ? v.live : []);   /* 3.61：只写不清，缺料保留上次 */
   } catch(e){}
 }
 function applyBootcast(v){
   /* 3.72 启动广播：网页端刷新 / 重开 / 掉线重连时服务端回的「给足料」包。
-     鉴别后落盘入库——applyHistExtras 负责 convs 骨架 + seed 账本行落盘
-     （近端 10 条 + IndexedDB 深库 DEEP_MAX 条，均在 IndexedDB）；不入库就显示不了。
-     随后把【锚定会话】从本地库补进内存并重渲染（快照未到时兜底重试两次）。 */
+     3.20：applyHistExtras 现只负责 convs 骨架落盘；原「seed 账本行落盘 + 随后
+     从本地库 reloadAnchorFromCache 补屏」已删（纯现场直发下只写不读、恒空转）。 */
   applyHistExtras(v);
-  reloadAnchorFromCache();
-  setTimeout(reloadAnchorFromCache, 900);
-  setTimeout(reloadAnchorFromCache, 2400);
-}
-function reloadAnchorFromCache(){
-  /* 3.72：若本端内存历史为空（刚刷新/重连，快照与账本回包都还没到），从本地
-     落盘库把锚定会话的最新记录读进内存并渲染——「没进入网页版的库就显示不了」。
-     秒显口径与 ensureHist 一致（近端 10 条 + 深库异步补更老）。 */
-  try {
-    /* 3.10 纯实时：现场直播模式不从本地缓存铺屏（冷启动/重连只等服务端快照）。 */
-    if (isLiveMode()) return;
-    if (S.histMsgs && S.histMsgs.length) return;   /* 内存已有数据，不打扰 */
-    const title = curTitle();
-    if (!title || title === '当前会话') return;     /* 锚定会话未定，等下一拍重试 */
-    const c = histCacheRead(title);
-    if (!c) return;
-    S.histConv = title;
-    S.histRaw = (c.msgs || []).slice();
-    S.histMsgs = S.histRaw.map(ledToArr);
-    S.histNear = (c.near || []).slice();
-    S.histVer = c.ver | 0; S.histHave = c.have_seq | 0;
-    if (!(S.histShow | 0)) S.histShow = 4;         /* 首显最新 4 条（本地秒显口径） */
-    renderAll();
-    deepLoad(title);                               /* 异步补更老历史 */
-  } catch(e){}
 }
 function prependHist(conv, older, end){
   S.histLoadingPrev = false;
@@ -3168,7 +2889,6 @@ function prependHist(conv, older, end){
     /* 3.36：服务器补回的老历史要「立刻看得见」——窗口相应放大（用户 2026-10-03：
        不要以为翻到更后就默认中间都在，新来的照样补上）。 */
     S.histShow = (S.histShow | 0) + older.length;
-    histPersist(conv);                        /* 3.70：补回的老历史进内存即落盘 */
     renderAll();
   });
 }
@@ -3182,38 +2902,26 @@ function ensureHist(){
   S.histConv = title;
   S.histMsgs = null; S.histRaw = []; S.histVer = 0; S.histHave = 0;
   S.histNear = []; S.histLive = []; S.lastLiveRow = null;   /* 3.61：换锚会话才清活条记忆 */
-  S.histDeep = [];             /* 3.37：切会话先清空深库镜像，稍后异步从 IndexedDB 补 */
   S.histShow = 4;              /* 3.36：切换即「本地秒显最新 4 条」提速 */
   S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;       /* 3.77 ①：换锚会话重置到底标记/游标短路 */
   /* 3.10 纯实时（用户 2026-10-04 明令）：现场直播模式下，切换/进入会话**不得**
      用本地缓存（localStorage/IndexedDB）预填铺屏，也不做本地 4 条秒显——
-     只渲染服务端实时快照；未回帧宁可空屏，也不拿旧缓存顶上。 */
-  const c = (isLiveMode()) ? null : histCacheRead(title);
-  if (c){                                       /* 本地秒显历史（含近端 10 条） */
-    S.histRaw = (c.msgs || []).slice();
-    S.histMsgs = S.histRaw.map(ledToArr);
-    S.histNear = (c.near || []).slice();
-    S.histVer = c.ver | 0; S.histHave = c.have_seq | 0;
-  }
+     只渲染服务端实时快照；未回帧宁可空屏，也不拿旧缓存顶上。
+     3.20：本地缓存层（histCacheRead/deepLoad）已整删，此处不再有本地预填分支。 */
   renderAll();                                  /* live：渲染空/活条，等服务端帧 */
-  if (!isLiveMode()) deepLoad(title);  /* live：不从深库异步铺屏 */
   /* 3.93（用户 2026-10-03）：**区分冷启动与切会话增量**——本地无该会话缓存时，
      别立刻空手 reqHist(0,0)（那会触发服务端「整库重建」）。先给 bc(start) 的
      seed / 广播落盘一个 400ms 宽限窗；窗内已被喂到（histMsgs/histNear 有料）
      就跳过这一步，否则再按需请求（此时服务端也已收口为只回最近 30 条）。 */
-  if (c){
-    reqHist(title, S.histHave, S.histVer);      /* 有本地缓存：走游标增量（便宜） */
-  } else {
-    const _t = title;
-    setTimeout(function(){
-      if (S.histConv !== _t) return;            /* 已切走 → 不发 */
-      const got = (S.histMsgs && S.histMsgs.length) ||
-                  (S.histNear && S.histNear.length);
-      if (got) return;                          /* 已被 seed/广播喂到 → 不空手要 */
-      reqHist(_t, S.histHave, S.histVer);
-    }, 400);
-  }
+  const _t = title;
+  setTimeout(function(){
+    if (S.histConv !== _t) return;            /* 已切走 → 不发 */
+    const got = (S.histMsgs && S.histMsgs.length) ||
+                (S.histNear && S.histNear.length);
+    if (got) return;                          /* 已被广播喂到 → 不空手要 */
+    reqHist(_t, S.histHave, S.histVer);
+  }, 400);
   foldReset();                                  /* 3.22：切会话收起取历史横幅 */
 }
 /* 3.57（用户 2026-10-03）：原 syncHistConvs（全量补种）已删——见 renderAll 注释。
@@ -3242,7 +2950,6 @@ function mergeNear(rows){
       while (m.length < 7) m.push('');
       return m;
     }).slice(-10);
-    histPersist(S.histConv);                  /* 3.70：广播定稿行进内存即落盘 */
     /* 3.74「入账即上屏」（用户 2026-10-03：网页版有新入账的时候得赶紧到前台
        显示，不要默默入账却不显示）：只要真有新行走这条唯一入口进库，就地重画
        一次，绝不把「入库」和「显示」拆开。renderMsgs 自带指纹去重，调用方
@@ -3254,11 +2961,10 @@ function mergeNear(rows){
 function localPoolRows(){
   /* 3.36：本地「定稿池」——histMsgs(账本/骨架) ∪ histNear(近端落盘)，按真实 ID
      去重、按 (时间,ID) 排序。它是显示与「翻历史先翻本地」的公共数据源。
-     3.37：并入 histDeep（IndexedDB 深库的当前会话镜像，最多 500 条）——本地能翻更深。 */
+     3.20：原 histDeep（IndexedDB 深库镜像）已删，池只剩 histMsgs ∪ histNear。 */
   const seen = {}, pool = [];
   (S.histMsgs || []).forEach(m => { const k = rowKey(m); if (!seen[k]){ seen[k] = 1; pool.push(m); } });
   (S.histNear || []).forEach(m => { const k = rowKey(m); if (!seen[k]){ seen[k] = 1; pool.push(m); } });
-  (S.histDeep || []).forEach(m => { const k = rowKey(m); if (!seen[k]){ seen[k] = 1; pool.push(m); } });
   return sortRows(pool);
 }
 function curMsgs(){
@@ -4500,7 +4206,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.19';   /* 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.20';   /* 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
@@ -5705,10 +5411,8 @@ function onHello(d){
      状态栏「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒——正是用户 2026-10-04
      报的「一闪一闪」。连接状态本就由顶栏 renderLink 的「已连接/同步中…/等待服务器
      回应」单独显示，不必再借会话状态栏；本栏固定只示会话状态。 */
-  /* 3.75：hello 定键后，把 IndexedDB 里的历史（游标 ver/have_seq + 近端 raw/near）
-     水合进内存镜像 S.histMeta——刷新/重开后请求式历史的游标与秒显照旧可用；
-     水合完成再补一次锚定会话渲染（内存已有数据会自动早退）。 */
-  idbHydrateMeta().then(function(){ try { reloadAnchorFromCache(); } catch(e){} });
+  /* 3.20：原「hello 定键后从 IndexedDB 水合历史/补锚定渲染」已删——纯现场直发下
+     本地缓存层整删，hello 后只等服务端实时快照。 */
 }
 
 function applySwitch(box, port){
@@ -6214,9 +5918,10 @@ function isLiveMode(){
 /* 1.xx：连接诊断按钮（重连/测电脑端回应/检测最大化/清空日志）——
    3.87：连同 diagTest 一并拆到 网页模块\模块_设置页.js（打开本页时才加载）。 */
 
-/* 3.87：本地缓存查看 + 一键清空聊天记录（_fmtBytes/_lsBytes/_histConvCount/
-   idbStats/cacheStatsRender/clearHistCache 及 cacheclear/cacheref 绑定）整块拆到
-   网页模块\模块_设置页.js（打开设置页时才加载）。 */
+/* 3.87：本地缓存查看 + 一键清空聊天记录（_fmtBytes/_lsBytes/cacheStatsRender/
+   clearHistCache 及 cacheclear/cacheref 绑定）整块拆到
+   网页模块\模块_设置页.js（打开设置页时才加载）。3.20：原 _histConvCount/idbStats
+   随聊天记录缓存层（IndexedDB 深库/内存镜像）一并删除。 */
 
 /* ===== 3.57（用户 2026-10-03）：网页端「自组织节拍」 =====
    广播只保证「最新思维流直达前台 + 其余内容/ID 进本地仓库」；前台显示由网页端
