@@ -135,6 +135,31 @@ body.fmsg #msgs{padding-top:22px;}
   color:#222;}
 .cmsheet button:active{background:#f0f2f5;}
 .cmsheet button.cmcancel{color:var(--gray); text-align:center;}
+/* ── 1.94：定时自我激活（长按会话菜单入口）弹窗 + 会话行 ⏰ 角标 ── */
+.schedbdg{margin-left:6px; font-size:12px; opacity:.85; flex-shrink:0;}
+#scheddlg{position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:95;
+  display:flex; align-items:center; justify-content:center; padding:14px;}
+.sd_card{background:#fff; border-radius:14px; width:100%; max-width:420px;
+  max-height:86vh; overflow:auto; padding:14px;}
+.sd_title{font-size:15px; font-weight:600; margin:0 0 10px; color:#222;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.sd_lbl{font-size:12px; color:var(--gray); margin:8px 2px 4px;}
+.sd_in{width:100%; box-sizing:border-box; border:1px solid #ddd; border-radius:8px;
+  padding:10px; font-size:14px; background:#fafafa; color:#222;}
+.sd_row{display:flex; gap:8px;}
+.sd_btns{display:flex; gap:8px; margin-top:14px;}
+.sd_btns button{flex:1; padding:11px; border:none; border-radius:9px;
+  font-size:15px; background:#f0f2f5; color:#222;}
+.sd_btns button.pri{background:var(--blue); color:#fff;}
+.sd_btns button:active{opacity:.85;}
+.sd_job{border:1px solid #eee; border-radius:9px; padding:9px 10px; margin:6px 0;
+  font-size:12px; color:#333;}
+.sd_job b{color:#222;}
+.sd_jb{display:flex; gap:8px; margin-top:7px;}
+.sd_jb button{flex:1; padding:7px; border:none; border-radius:7px; font-size:12px;
+  background:#f0f2f5; color:#222;}
+.sd_jb button.rm{color:var(--red);}
+.sd_none{font-size:12px; color:#999; padding:4px 2px;}
 /* ── 1.06：消息操作（回退/删除）+ AI 选项卡 ── */
 .msg .who{display:flex; align-items:center; gap:4px;}
 .who .mract{margin-left:auto; display:flex; gap:3px; flex-shrink:0;}
@@ -1220,10 +1245,14 @@ const WS_USE_MAP = {
   'cmd:ack':'人类发言入库回执', 'cmd:autofix':'设置自动修复',
   'cmd:pend_del':'删除排队条', 'cmd:pend_sendnow':'立即发送排队条',
   'cmd:pend_edit':'取出排队条编辑', boot:'引导启动会话', switch_box:'切换会话',
+  'cmd:sched_add':'定时自我激活·新建', 'cmd:sched_set':'定时自我激活·修改',
+  'cmd:sched_ls':'定时自我激活·列表', 'cmd:sched_del':'定时自我激活·删除',
+  'cmd:sched_clear':'定时自我激活·清空',
   attach_files:'附带文件', poll_set:'设置轮询档位', poll_cfg:'轮询配置',
   tts:'请求语音合成', tts_resp:'语音合成回执', tts_ack:'语音合成受理',
   'ev:snap':'快照广播', 'ev:msgs':'AI 正文广播', 'ev:models':'模型列表广播',
   'ev:profiles':'配置档广播', 'ev:points':'积分广播', 'ev:account':'账号广播',
+  'ev:sched':'定时自我激活回执',
   'ev:did_ack':'人类发言入库回执', 'ev:did_miss':'人类发言未入库告知',
   'ev:path_check':'路径检查', 'ev:srv_peers':'服务端名册',
   'ev:srv_conflict':'服务端冲突', 'ev:rcmd':'远程命令', 'ev:remote':'远程动作',
@@ -1875,9 +1904,14 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
   const ur = new Set(Array.isArray(conv_unread) ? conv_unread : []);
   const useId = Array.isArray(conv_unread_ids);
   const uri = new Set(useId ? conv_unread_ids : []);
+  /* 1.94：定时自我激活——按 sid 归集任务（供会话行画 ⏰ 角标）。 */
+  const schedJs = (S.snap && Array.isArray(S.snap.sched)) ? S.snap.sched : [];
+  const schedSet = new Set();
+  schedJs.forEach(j => { if (j && j.sid) schedSet.add(String(j.sid)); });
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
-    + '#uri:' + Array.from(uri).sort().join('|');
+    + '#uri:' + Array.from(uri).sort().join('|')
+    + '#sc:' + Array.from(schedSet).sort().join('|');
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
@@ -1936,6 +1970,15 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       const tspan = document.createElement('span');
       tspan.textContent = title;
       d.appendChild(tspan);
+      /* 1.94：已设定时自我激活 → 会话行尾画 ⏰ 角标（多条标条数）。 */
+      if (sid && schedSet.has(String(sid))){
+        const n = schedJs.filter(j => j && String(j.sid) === String(sid)).length;
+        const bd = document.createElement('span');
+        bd.className = 'schedbdg';
+        bd.textContent = '⏰' + (n > 1 ? n : '');
+        bd.title = '已设定时自我激活' + (n > 1 ? '（' + n + ' 条）' : '');
+        d.appendChild(bd);
+      }
       const i = idx;
       /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
       let lpTimer = null, lpFired = false;
@@ -1993,6 +2036,7 @@ function convMenuOpen(title, sid){
   ov.innerHTML = '<div class="cmsheet">'
     + '<div class="cmtitle">' + esc(title) + '</div>'
     + '<button data-act="pin">📌 置顶 / 取消置顶</button>'
+    + '<button data-act="sched">⏰ 定时自我激活</button>'
     + '<button data-act="ren">✎ 重命名</button>'
     + '<button data-act="del" style="color:var(--red)">🗑 删除</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
@@ -2010,6 +2054,11 @@ function convMenuOpen(title, sid){
         sendCmd('conv_pin', sid ? [sid, title] : title);
         return;
       }
+      if (act === 'sched'){
+        ov.remove();
+        schedDlgOpen(title, sid);
+        return;
+      }
       if (act === 'del'){
         ov.remove();
         if (!confirm('删除会话「' + title + '」？\n删除后不可恢复。')) return;
@@ -2025,6 +2074,102 @@ function convMenuOpen(title, sid){
     };
   });
   document.body.appendChild(ov);
+}
+
+/* 1.94：定时自我激活弹窗（长按会话菜单 → ⏰ 定时自我激活）。
+   给该会话登记「自动输入内容 + 重复间隔(分钟) + 重复次数」——到点服务端自动
+   往该会话发一条消息（走会话路由器，按稳定 sid 锁定、改名免疫）。下方列出该
+   会话已有任务，可「编辑 / 取消」。协议：sched_add/sched_set/sched_del。 */
+function schedDlgOpen(title, sid){
+  sid = sid || '';
+  const old = $('scheddlg');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'scheddlg';
+  ov.innerHTML = '<div class="sd_card">'
+    + '<div class="sd_title">⏰ 定时自我激活 · ' + esc(title) + '</div>'
+    + '<div id="sd_jobs"></div>'
+    + '<div class="sd_lbl">自动输入内容（留空则发默认提醒）</div>'
+    + '<textarea id="sd_text" class="sd_in" rows="3" '
+    +   'placeholder="例如：继续把剩下的做完"></textarea>'
+    + '<div class="sd_row">'
+    +   '<div style="flex:1"><div class="sd_lbl">间隔（分钟，≥0.5）</div>'
+    +     '<input id="sd_every" class="sd_in" type="number" min="0.5" '
+    +     'step="0.5" value="5"></div>'
+    +   '<div style="flex:1"><div class="sd_lbl">重复次数</div>'
+    +     '<input id="sd_total" class="sd_in" type="number" min="1" '
+    +     'step="1" value="6"></div>'
+    + '</div>'
+    + '<div class="sd_btns">'
+    +   '<button class="pri" id="sd_save">保存</button>'
+    +   '<button id="sd_close">关闭</button>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+
+  let editId = '';
+  const jobsOf = () => ((S.snap && Array.isArray(S.snap.sched)) ? S.snap.sched : [])
+                       .filter(j => j && String(j.sid) === String(sid));
+  function drawJobs(){
+    const box = ov.querySelector('#sd_jobs');
+    const js = jobsOf();
+    if (!js.length){ box.innerHTML = '<div class="sd_none">该会话暂无定时任务</div>'; return; }
+    box.innerHTML = '';
+    js.forEach(j => {
+      const d = document.createElement('div');
+      d.className = 'sd_job';
+      const nx = j.next ? new Date(j.next * 1000) : null;
+      const p2 = n => (n < 10 ? '0' : '') + n;
+      const nxs = nx ? (p2(nx.getHours()) + ':' + p2(nx.getMinutes())) : '—';
+      d.innerHTML = '<b>' + esc(j.id || '') + '</b> · 每 '
+        + (Math.round((j.every || 0) / 6) / 10) + ' 分钟 · '
+        + (j.done || 0) + '/' + (j.total || 0) + ' · 下次 ' + nxs
+        + '<div class="sd_jb"><button class="ed">编辑</button>'
+        + '<button class="rm">取消</button></div>';
+      d.querySelector('.ed').onclick = () => {
+        editId = j.id || '';
+        ov.querySelector('#sd_text').value = j.text || '';
+        ov.querySelector('#sd_every').value = Math.max(0.5, (j.every || 0) / 60);
+        ov.querySelector('#sd_total').value = j.total || 1;
+        ov.querySelector('#sd_save').textContent = '保存修改';
+        flash('编辑任务 ' + editId + '，改好点「保存修改」', 'var(--blue)');
+      };
+      d.querySelector('.rm').onclick = () => {
+        if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+        sendCmd('sched_del', j.id);
+        flash('已请求取消任务 ' + j.id, 'var(--blue)');
+      };
+      box.appendChild(d);
+    });
+  }
+  S.sched_refresh = drawJobs;              /* 收到 k='sched' 事件时刷新此列表 */
+  ov.querySelector('#sd_close').onclick = () => {
+    S.sched_refresh = null;
+    ov.remove();
+  };
+  ov.querySelector('#sd_save').onclick = () => {
+    if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+    const text = (ov.querySelector('#sd_text').value || '').trim();
+    const every = parseFloat(ov.querySelector('#sd_every').value);
+    const total = parseInt(ov.querySelector('#sd_total').value, 10);
+    if (!(every > 0) || !(total >= 1)){
+      flash('间隔与次数必须为正数 / 整数', 'var(--red)');
+      return;
+    }
+    if (every < 0.5){
+      flash('间隔不能小于 0.5 分钟（服务端下限 30 秒）', 'var(--red)');
+      return;
+    }
+    if (editId){
+      sendCmd('sched_set', [editId, text, every, total]);
+      flash('已提交修改 ' + editId + '，保存后进度重排', 'var(--blue)');
+    } else {
+      sendCmd('sched_add', [sid, text, every, total]);
+      flash('已提交新建定时任务', 'var(--blue)');
+    }
+  };
+  drawJobs();
 }
 
 /* ============ 1.09：待确认项（空窗期反馈） ============
@@ -4438,7 +4583,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.05';   /* 3.05（2026-10-04）：补删 applySwitch 内清 S.autofixSent 的行（3.04 自报已删、实被 WPS 半截回写回退）——autofix 闸门只认连接代次 autofixGen，真正达成「每连接最多 1 条 + 值变才发」。原 3.04（2026-10-04）：收 autofix——改「每连接最多 1 条 + 值变才发」的连接代次闸门（S.autofixGen 在 ws.onopen +1；autofixReport 仅当值变或本连接未报过才发）。根治「刷新两页 3 秒内 6 条」：一次加载到多条 hello（连接 + loginWatch 连发 login/hello + 服务端公告）、且 applySwitch 曾清 S.autofixSent 致同连接内多发。原 3.03（2026-10-04）：P0 修【思维流一闪一闪】——case 'pane' 改「显示中立」（只缓存 S.panes + 处理 did_hits；绝不 mergeNear/setHistLive、绝不动 histLive/lastLiveRow/显示窗口）：此前 3.01 把 pane 正文 mergeNear 进 histNear，curMsgs「本轮正主真清」据此误清 histLive 成空 → 每 5~6 秒活条一亮一灭、末条退回旧死卡。活条锚点回归 snap 通道唯一权威。原 3.02（2026-10-04）：多会话监管引擎·复核整改——① pane 下行帧两级裁剪（最近 8 条 + 4096B 字节上限兜底，只改下行拷贝）；② 自动修复标签改「值变化才上报 + 每端点只报一次」闸门（治同一客户端 0.4s 内连发两条）。原 3.01（2026-10-04）：多会话监管引擎（6.0 移植）——收 ev:pane（按 sid 落盘/渲染，未选中会话也能看正文）、发 {t:'watch',sid}、处理 ev:prime_done；本端只把「锚定会话」的 pane 并入本地落盘（不串会话），pane.sel=true（桌面当前选中）时不重复并入（顶层 snap 已处理）。原 3.00（2026-10-04）：**版本号重置·3.0 重新出发**——用户定：本条线不再沿用 3.97/3.98 的连续，从 3.00 重新起算（手机版/网页版/桌面端显示同源），此后每改一次仍 +0.01。3.00 基线＝四处整改（抓取轮询 1.17 只取终极定稿表面 + pend 并入指纹；账本 v2.37 剥壳/mid 锚定/空行不入库；网页服务 1.88 受理后补推两拍 + 人类新发言事件放行；网页端 AI 空行兜底）。原 3.98：修【发出去的消息迟迟不进网页端 / 不进官方排队条】——①AI 行取不到正文时不再画空白卡，显示「（本条 AI 回复未取到）」占位（配合服务端 抓取轮询 1.17 / 账本 v2.37「宁缺不脏」）；②服务端 _立即推快照 受理后补推两拍（+0.4s/+0.9s）、_快照 对「人类新发言」事件放行 3 秒节拍闸门、指纹并入官方排队条 pend —— 发消息后最快 ~1s 内上屏，不必刷新。原 3.97：修「撤卡不及时」——撤卡口径两边不一致：服务端 did命中 把「原文进 TRAE 官方排队条」也算送达（消息一发出去就在排队条里命中），而网页端 3.86 起只认「正文已进聊天记录池」才撤，于是插话类（正文停在排队条、AI 未消费前进不了聊天记录）永远凑不齐第二个条件 → 占位卡干挂，且 didhit 卡还享「5 分钟免死金牌」不给失败提示。现统一口径：插话卡一经 did_hits 确认送达即撤（正文交给官方排队条面板显示，v1.31d 历史口径）；5 分钟豁免只留普通发送卡（保 3.86「衔接」、只差正文上屏的瞬时）。 原 3.96：修「补缺死循环」——补缺来的行是 7 位、不带 seq，只落 histNear，而 histCacheIds 只报 histRaw 的 seq，服务端于是永远判「缺」、把同一批原样反复重发；现本端新增上报 have_mids（histRaw+histNear 的 mid），服务端按 seq 或 mid 命中即算已掌握。 原 3.95：修「广播需求启动/保持的回执特别大」——服务端启动包原会给「最多 4 个会话 × 每会话 12 条全文」；现按 ID 只补缺：本端已有的会话（新增上报 have_convs）不再塞种子、本次请求的会话交给缺额补（按 have_ids 精准补最新 ≤8 条）、未掌握的会话每会话最多 8 条。 原 3.94：修「人类发言入库回执狂发」——服务端 did命中 只查不消费，同一 did 每拍都报进 did_hits（实测 5 分钟 28 条 ack）；现服务端「命中即消费、真正出帧后才消费」（回执只报一次），网页端 ackHumanDid 再加「同一 did 只回一次」的闸（双保险）。 原 3.93：修「一个敢要一个敢给」的 WS 空耗——①缓存键不再绑软件版本号（改用缓存行格式版本 CACHE_FMT，升级不再清全体缓存 →「存了也算没存」根治）；②ensureHist 区分冷启动（给 seed 400ms 宽限、不空手 reqHist(0,0)）与切会话增量。配套服务端 网页服务 1.83：hist 整库重建收口为「只回最近 30 条」。实测病根：出向 res:hist 占 ~72%、单条 400~723KB、账本 500 条。 原 3.92：网页端逻辑零改动（本轮全在服务端：WS桥去自发心跳、会话路由器认「系统排队」+ 网页动作优先插队、网页服务缺额补「最新两条先发」+ 发消息后立即推快照）。仅随版本线升号刷缓存。 原 3.91：仅桌面端（下级模块）修复——TRAE本地账本 v2.36「入库人问/入库AI答只收完整时间、残缺留空待 RPC 回填」+ 本地对话记录管理器 1.03「残缺时间标（待补全）」（用户 2026-10-03：「本地对话管理器记录的最新一条时间只有一个普通的时间，没有年月日，并且这一条是还没落地的思维流，干嘛记到这里来呢？」）。网页端逻辑零改动，仅随版本线升号刷缓存。 原 3.90：服务器「报」的窗口统一 8 条 + 保持广播也带 ID 补缺（用户 2026-10-03：「我说网页版有在线的话，它每隔 1 分钟都会喊话让服务器保持广播……这一条也一样，要带上自己掌握的聊天记录 ID，方便服务器判断是不是需要对它进行补发。」「前面说要补到 10 条，我说错了，统一服务器给它汇报到 8 条就行了。留两条冗余，避免喂不饱网页版，然后陷入死循环。」「所以服务器自报家门的时候，报 8 条就行了，我们能把它这 8 条喂饱就好了。」）。落地：① 缺额补上限 10→**8**（_缺额补行 默认 8 / _发缺额补 传 8）；② 死号清单（服务器「报」的窗口）10→**8**（广播渲染器 1.07，只此一处算死号，网页服务 _裁剪消息 透传）；③ 服务端 c='bc' **mode='keep'（保持广播，在线每 1 分钟一条）也调 _发缺额补**——据本端 have_ids 判断要不要补发，喂饱即不再索要，从根上杜绝死循环；④ 客户端 sendBootcast 本就对 start/keep 都带 conv_sid + have_ids（3.89 已做）。 原 3.89：切会话 / 喊话广播改「申请式·带 ID 补缺额」（用户 2026-10-03：「切换会话的时候需要申请，同时列出网页版在这个会话中拥有哪些对话 ID，服务器立刻回应，根据那个对话 ID 判断出网页版缺少的 ID，然后让网页版去记录并显示——本来这个只是收到工作的回应，现在变成既回复收到工作，又帮他补最新的缺额的对话记录。」「掉线或者新上线或者刷新的时候会发一条喊话要求广播，要求广播的时候必须带上自己当前选中的是哪个对话，并且服务器也需要确认有没有切换到这个对话。」「像这种喊话的时候也要带上（缺额），先前两条这样反应快，再补其他缺额，到满 10 条。」）。落地：
+const VER = '3.06';   /* 3.06（2026-10-04）：新增「定时自我激活」全链路——网页会话长按菜单 / 桌面端会话右键 / CLI 三入口，可配「自动输入内容 + 重复间隔 + 重复次数」，到点服务端经会话路由器向目标会话投递；会话行据 snap.sched 画 ⏰ 角标。原 3.05：补删 applySwitch 内清 S.autofixSent 的行（3.04 自报已删、实被 WPS 半截回写回退）——autofix 闸门只认连接代次 autofixGen，真正达成「每连接最多 1 条 + 值变才发」。原 3.04（2026-10-04）：收 autofix——改「每连接最多 1 条 + 值变才发」的连接代次闸门（S.autofixGen 在 ws.onopen +1；autofixReport 仅当值变或本连接未报过才发）。根治「刷新两页 3 秒内 6 条」：一次加载到多条 hello（连接 + loginWatch 连发 login/hello + 服务端公告）、且 applySwitch 曾清 S.autofixSent 致同连接内多发。原 3.03（2026-10-04）：P0 修【思维流一闪一闪】——case 'pane' 改「显示中立」（只缓存 S.panes + 处理 did_hits；绝不 mergeNear/setHistLive、绝不动 histLive/lastLiveRow/显示窗口）：此前 3.01 把 pane 正文 mergeNear 进 histNear，curMsgs「本轮正主真清」据此误清 histLive 成空 → 每 5~6 秒活条一亮一灭、末条退回旧死卡。活条锚点回归 snap 通道唯一权威。原 3.02（2026-10-04）：多会话监管引擎·复核整改——① pane 下行帧两级裁剪（最近 8 条 + 4096B 字节上限兜底，只改下行拷贝）；② 自动修复标签改「值变化才上报 + 每端点只报一次」闸门（治同一客户端 0.4s 内连发两条）。原 3.01（2026-10-04）：多会话监管引擎（6.0 移植）——收 ev:pane（按 sid 落盘/渲染，未选中会话也能看正文）、发 {t:'watch',sid}、处理 ev:prime_done；本端只把「锚定会话」的 pane 并入本地落盘（不串会话），pane.sel=true（桌面当前选中）时不重复并入（顶层 snap 已处理）。原 3.00（2026-10-04）：**版本号重置·3.0 重新出发**——用户定：本条线不再沿用 3.97/3.98 的连续，从 3.00 重新起算（手机版/网页版/桌面端显示同源），此后每改一次仍 +0.01。3.00 基线＝四处整改（抓取轮询 1.17 只取终极定稿表面 + pend 并入指纹；账本 v2.37 剥壳/mid 锚定/空行不入库；网页服务 1.88 受理后补推两拍 + 人类新发言事件放行；网页端 AI 空行兜底）。原 3.98：修【发出去的消息迟迟不进网页端 / 不进官方排队条】——①AI 行取不到正文时不再画空白卡，显示「（本条 AI 回复未取到）」占位（配合服务端 抓取轮询 1.17 / 账本 v2.37「宁缺不脏」）；②服务端 _立即推快照 受理后补推两拍（+0.4s/+0.9s）、_快照 对「人类新发言」事件放行 3 秒节拍闸门、指纹并入官方排队条 pend —— 发消息后最快 ~1s 内上屏，不必刷新。原 3.97：修「撤卡不及时」——撤卡口径两边不一致：服务端 did命中 把「原文进 TRAE 官方排队条」也算送达（消息一发出去就在排队条里命中），而网页端 3.86 起只认「正文已进聊天记录池」才撤，于是插话类（正文停在排队条、AI 未消费前进不了聊天记录）永远凑不齐第二个条件 → 占位卡干挂，且 didhit 卡还享「5 分钟免死金牌」不给失败提示。现统一口径：插话卡一经 did_hits 确认送达即撤（正文交给官方排队条面板显示，v1.31d 历史口径）；5 分钟豁免只留普通发送卡（保 3.86「衔接」、只差正文上屏的瞬时）。 原 3.96：修「补缺死循环」——补缺来的行是 7 位、不带 seq，只落 histNear，而 histCacheIds 只报 histRaw 的 seq，服务端于是永远判「缺」、把同一批原样反复重发；现本端新增上报 have_mids（histRaw+histNear 的 mid），服务端按 seq 或 mid 命中即算已掌握。 原 3.95：修「广播需求启动/保持的回执特别大」——服务端启动包原会给「最多 4 个会话 × 每会话 12 条全文」；现按 ID 只补缺：本端已有的会话（新增上报 have_convs）不再塞种子、本次请求的会话交给缺额补（按 have_ids 精准补最新 ≤8 条）、未掌握的会话每会话最多 8 条。 原 3.94：修「人类发言入库回执狂发」——服务端 did命中 只查不消费，同一 did 每拍都报进 did_hits（实测 5 分钟 28 条 ack）；现服务端「命中即消费、真正出帧后才消费」（回执只报一次），网页端 ackHumanDid 再加「同一 did 只回一次」的闸（双保险）。 原 3.93：修「一个敢要一个敢给」的 WS 空耗——①缓存键不再绑软件版本号（改用缓存行格式版本 CACHE_FMT，升级不再清全体缓存 →「存了也算没存」根治）；②ensureHist 区分冷启动（给 seed 400ms 宽限、不空手 reqHist(0,0)）与切会话增量。配套服务端 网页服务 1.83：hist 整库重建收口为「只回最近 30 条」。实测病根：出向 res:hist 占 ~72%、单条 400~723KB、账本 500 条。 原 3.92：网页端逻辑零改动（本轮全在服务端：WS桥去自发心跳、会话路由器认「系统排队」+ 网页动作优先插队、网页服务缺额补「最新两条先发」+ 发消息后立即推快照）。仅随版本线升号刷缓存。 原 3.91：仅桌面端（下级模块）修复——TRAE本地账本 v2.36「入库人问/入库AI答只收完整时间、残缺留空待 RPC 回填」+ 本地对话记录管理器 1.03「残缺时间标（待补全）」（用户 2026-10-03：「本地对话管理器记录的最新一条时间只有一个普通的时间，没有年月日，并且这一条是还没落地的思维流，干嘛记到这里来呢？」）。网页端逻辑零改动，仅随版本线升号刷缓存。 原 3.90：服务器「报」的窗口统一 8 条 + 保持广播也带 ID 补缺（用户 2026-10-03：「我说网页版有在线的话，它每隔 1 分钟都会喊话让服务器保持广播……这一条也一样，要带上自己掌握的聊天记录 ID，方便服务器判断是不是需要对它进行补发。」「前面说要补到 10 条，我说错了，统一服务器给它汇报到 8 条就行了。留两条冗余，避免喂不饱网页版，然后陷入死循环。」「所以服务器自报家门的时候，报 8 条就行了，我们能把它这 8 条喂饱就好了。」）。落地：① 缺额补上限 10→**8**（_缺额补行 默认 8 / _发缺额补 传 8）；② 死号清单（服务器「报」的窗口）10→**8**（广播渲染器 1.07，只此一处算死号，网页服务 _裁剪消息 透传）；③ 服务端 c='bc' **mode='keep'（保持广播，在线每 1 分钟一条）也调 _发缺额补**——据本端 have_ids 判断要不要补发，喂饱即不再索要，从根上杜绝死循环；④ 客户端 sendBootcast 本就对 start/keep 都带 conv_sid + have_ids（3.89 已做）。 原 3.89：切会话 / 喊话广播改「申请式·带 ID 补缺额」（用户 2026-10-03：「切换会话的时候需要申请，同时列出网页版在这个会话中拥有哪些对话 ID，服务器立刻回应，根据那个对话 ID 判断出网页版缺少的 ID，然后让网页版去记录并显示——本来这个只是收到工作的回应，现在变成既回复收到工作，又帮他补最新的缺额的对话记录。」「掉线或者新上线或者刷新的时候会发一条喊话要求广播，要求广播的时候必须带上自己当前选中的是哪个对话，并且服务器也需要确认有没有切换到这个对话。」「像这种喊话的时候也要带上（缺额），先前两条这样反应快，再补其他缺额，到满 10 条。」）。落地：
    ① 服务端新增「缺额补包」（_缺额补行 / _发缺额补）——按本端上报的 have_ids 从账本算差集，**先发 2 条（反应快）、再发其余、合计最多 10 条**，走新事件 '补缺'；行形状＝固定 7 位（与历史包同口径），网页端直接复用唯一落库入口 mergeNear 落盘即显示。
    ② 切会话改申请式：sendCmd('switch', {sid, title, have_ids})——服务端受理即补缺（既回复收到、又补缺额）。
    ③ 喊话广播：sendBootcast 带 conv_sid + have_ids；服务端回包加 '选中' / '选中标题'，确认「有没有切到这个对话」，未切到则网页端补发一次切换申请。
@@ -5062,6 +5207,23 @@ function onEv(kind, v){
         （did_ack）；服务端对账列表仍是权威，但条目与本地卡的对号
         不再靠文本猜（用户规定：识别相同内容不靠谱）。旧服务端
         场景由动作回执超时（pendAckTmoMs，默认 60s）兜底转「可能动作失败」。 */
+      return;
+    }
+    case 'sched': {                    /* 1.94：定时自我激活受理回执 / 列表刷新 */
+      /* 服务端 sched_add/set/ls/del/clear 受理后回 ev k='sched'，v 带最新全量
+         任务列表（jobs）——就地更新 S.snap.sched，刷新会话行 ⏰ 角标与弹窗列表。 */
+      if (v && Array.isArray(v.jobs)){
+        if (!S.snap) S.snap = {};
+        S.snap.sched = v.jobs;
+      }
+      const _op = (v && v.op) || '';
+      const _tip = {add:'已登记定时任务', set:'已修改定时任务',
+                    del:'已取消定时任务', clear:'已清空定时任务'};
+      if (_tip[_op]) flash('⏰ ' + _tip[_op], 'var(--green)');
+      try { if (typeof S.sched_refresh === 'function') S.sched_refresh(); } catch(e){}
+      renderConvs((S.snap && S.snap.convs) || [],
+                  S.snap && S.snap.conv_unread,
+                  S.snap && S.snap.conv_unread_ids);
       return;
     }
     case 'did_ack': {                  /* 1.94：服务端「已受理」回执——仅登记 acked，
