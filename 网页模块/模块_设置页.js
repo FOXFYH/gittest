@@ -89,7 +89,7 @@ function cacheStatsRender(){
 function clearHistCache(){
   /* 3.20（主文件）：聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / LS_TM）
      已整删，纯实时广播不落聊天记录——本按钮不再需要清任何「在写」的缓存。
-     3.21：仍保留一次性「遗留残渣清理」——把 3.19 及更早版本写下的 trae_webm_times
+     3.22：仍保留一次性「遗留残渣清理」——把 3.19 及更早版本写下的 trae_webm_times
      与 IndexedDB 库 trae_webm_idb 删掉（**只删不建**），免老数据白占地方。
      仍不删 LS_SKEL（会话列表，秒开用）与频道名等设置。 */
   try { localStorage.removeItem('trae_webm_times'); } catch(e){}
