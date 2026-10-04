@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.16</title>
+<title>TRAE远程 v3.17</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -4450,7 +4450,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.16';   /* 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.17';   /* 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
@@ -5348,14 +5348,10 @@ function onEv(kind, v){
       S.attach_pending = null;
       renderAttach([]);
       break;
-    case 'connected':
-      if (v !== S.port) return;
-      flash('● 已连接（' + v + '）', 'var(--green)');
-      /* v1.34：连接/登录不再触发积分与模型查询——服务端后台周期
-         自查（积分 10 分钟/有人在线，模型 60 分钟），hello 重放缓存。
-         客户端零触发，避免每次上线都打断 TRAE 开菜单。 */
-      break;
-    case 'pend_edit_out': {                /* 1.53：取出编辑成功——直接回填
+    /* 3.17：原 case 'connected'（flash「● 已连接（端口）」）已删——其唯一触发源是
+       hello 帧的 d.conn，hello 重放/登录重试会反复触发、盖住状态栏会话状态（见
+       onHello 内 3.17 说明）。连接状态由顶栏 renderLink 单独显示，本栏只示会话状态。 */
+    case 'pend_edit_out': {        /* 1.53：取出编辑成功——直接回填
         （服务端主动读回 TRAE 输入框文本推送，不依赖快照时机，
         切走会话也不丢） */
       S.qedit = null;
@@ -5632,7 +5628,11 @@ function onHello(d){
   const port = parseInt(d.port);
   if (d.box !== S.box){ applySwitch(d.box, port); }
   else if (port !== S.port){ S.port = port; }
-  if (d.conn) onEv('connected', S.port);
+  /* 3.17：原此处 `if (d.conn) onEv('connected', S.port)` 已删——hello 重放/登录重试
+     （loginWatch 每 3s 重发 hello，最多 4 次）会反复触发 'connected' 的 flash，把
+     状态栏「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒——正是用户 2026-10-04
+     报的「一闪一闪」。连接状态本就由顶栏 renderLink 的「已连接/同步中…/等待服务器
+     回应」单独显示，不必再借会话状态栏；本栏固定只示会话状态。 */
   /* 3.75：hello 定键后，把 IndexedDB 里的历史（游标 ver/have_seq + 近端 raw/near）
      水合进内存镜像 S.histMeta——刷新/重开后请求式历史的游标与秒显照旧可用；
      水合完成再补一次锚定会话渲染（内存已有数据会自动早退）。 */
