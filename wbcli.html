@@ -195,6 +195,10 @@ body.fmsg #fexit{display:block;}
 .loadmore::after{content:''; display:inline-block; width:6px; height:6px;
   margin-left:6px; border-radius:50%; background:var(--gray);
   animation:pulse 1s infinite;}
+/* ── 1.69：翻页 30s 未回包 → 改显「掉线」红条（撤掉转圈、文案变求助） ── */
+.loadmore.fail{background:rgba(198,40,40,.08); border-color:rgba(198,40,40,.4);
+  color:#c62828;}
+.loadmore.fail::after{display:none;}
 /* ── 1.67：托管排队条（对齐 TRAE 官方排队条样式）——不再悬挂顶栏，
    改为渲染在聊天记录**末尾**、随聊天一起滚动；每条=左侧两行文字（点一下
    展开全文）+ 右侧按钮块（上行 ⚡发送，下行 ✎/🗑 并排）。 ── */
@@ -1041,9 +1045,13 @@ const S = {
   more: false,          /* 更老方向是否还有（可继续向上翻） */
   prevBusy: false,      /* 翻页请求在途（防重入） */
   loadingMore: false,   /* 是否显示「正在加载更早的消息…」 */
+  loadMoreFail: false,  /* 1.69：翻页请求超 30s 没回包 → 横幅改口报「掉线」 */
   recall: null,         /* 1.53：队列取回修改态 {id,pred}——服务端已把该条撤下，
                            原文已进输入框；发送走 queue_restore 放回原位 */
 };
+/* 1.69：翻页看护计时器（撞顶→亮横幅→30s 未回包改口报掉线）。全局一个即可，
+   切会话/回包/重置分页都会清掉它。 */
+let loadMoreTimer = null;
 
 /* ================= DOM 快捷 ================= */
 
@@ -1598,6 +1606,7 @@ function ledToArr(r){
 }
 /* —— 分页窗口：重置 / 请求 / 落地 —— */
 function resetPaging(){
+  clearLoadMoreWatch();                        /* 1.69：切会话/重置即撤看护 */
   S.older = []; S.pageGroups = 0; S.headSeq = 0;
   S.more = false; S.prevBusy = false; S.loadingMore = false;
   /* 1.57：切会话/换轮即收回已展开的气泡（符合「切到别的对话自动又折叠」） */
@@ -1608,6 +1617,32 @@ function reqHistPrev(conv, from_seq, groups){
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
   sendJson({t: 'req', id: id, c: 'hist_prev', conv: conv || '',
             from_seq: from_seq | 0, groups: groups | 0});
+}
+/* 1.69：翻页看护。撞顶即亮「正在加载更早的消息…」；30 秒还没等到回包
+   （网络差/中继抖/服务端断）就把横幅改口成「掉线，请刷新网络」。此前
+   撞顶分支卡着 S.onLine——网络一断连横幅都不亮，用户看着像撞墙无反应，
+   误以为「功能没做」。现在离线也照样亮，只是等了 30s 后如实报掉线。 */
+const LOADMORE_TIMEOUT = 30000;
+const LOADMORE_FAIL_TXT = '网络掉线，无法拉取历史记录，请刷新网络';
+function startLoadMoreWatch(){
+  if (loadMoreTimer) clearTimeout(loadMoreTimer);
+  loadMoreTimer = setTimeout(() => {
+    loadMoreTimer = null;
+    if (!S.loadingMore) return;        /* 已回包/已撤下：无事发生 */
+    S.loadMoreFail = true;
+    S.prevBusy = false;                /* 放开防重入，网络恢复后可再滑重试 */
+    const div = el.msgs.querySelector('.loadmore');
+    if (div){                          /* 原位改口，不整屏重画（免得拽动滚动位置） */
+      div.classList.add('fail');
+      div.textContent = LOADMORE_FAIL_TXT;
+    } else {
+      renderAll();
+    }
+  }, LOADMORE_TIMEOUT);
+}
+function clearLoadMoreWatch(){
+  if (loadMoreTimer){ clearTimeout(loadMoreTimer); loadMoreTimer = null; }
+  S.loadMoreFail = false;
 }
 /* 1.57：点「展开气泡」→ 按需去账本取该轮被折叠的中间气泡（省广播字节） */
 function reqBubbles(sk, seq){
@@ -1633,6 +1668,7 @@ function onRes(id, k, v){
   }
 }
 function applyPrev(conv, older, more){
+  clearLoadMoreWatch();                        /* 1.69：回包到达，撤掉看护 */
   S.prevBusy = false; S.loadingMore = false;
   if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
   if (!Array.isArray(older) || !older.length){ /* 到底了：撤掉「加载中」 */
@@ -2390,6 +2426,7 @@ function renderMsgs(msgs, finish, opts, ask){
        + (S.loadingConv ? '#ld:' + S.loadingConv.title : '')
        + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80)
        + '#more:' + (S.loadingMore ? 1 : 0)
+       + '#moref:' + (S.loadMoreFail ? 1 : 0)    /* 1.69：报掉线时也要重画横幅 */
        /* 1.57：折叠条展开/收起参与指纹（否则展开后不重画） */
        + '#fold:' + Object.keys(S.foldOpen).filter(k => S.foldOpen[k]).join(',')
        /* 1.67：托管排队条也画在本函数里（挂在聊天记录末尾），队列的增删/改序/
@@ -2427,8 +2464,9 @@ function renderMsgs(msgs, finish, opts, ask){
   }
   if (S.loadingMore){                    // 分页窗口：向上补拉老历史在途
     const lmdiv = document.createElement('div');
-    lmdiv.className = 'loadmore';
-    lmdiv.textContent = '正在加载更早的消息…';
+    lmdiv.className = 'loadmore' + (S.loadMoreFail ? ' fail' : '');
+    lmdiv.textContent = S.loadMoreFail
+      ? LOADMORE_FAIL_TXT : '正在加载更早的消息…';   /* 1.69：30s 未回包改口报掉线 */
     el.msgs.appendChild(lmdiv);
   }
   if (empty){ renderPending(); return; }
@@ -2738,14 +2776,20 @@ el.msgs.addEventListener('scroll', () => {
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
-  /* 分页窗口：滑到顶且更老方向还有 → 再往前翻 3 组（先亮「加载中」） */
-  if (m.scrollTop < 60 && !S.prevBusy && S.more && S.onLine
+  /* 分页窗口：滑到顶且更老方向还有 → 再往前翻 3 组（先亮「加载中」）。
+     1.69：不再卡 S.onLine——网络断时也要亮横幅，由 30s 看护如实改口报掉线；
+     离线阶段只亮条、不推进游标也不发请求（免得重连后一次拉过头）。 */
+  if (m.scrollTop < 60 && !S.prevBusy && S.more
       && S.histConv && S.histConv === curConvId() && S.winHeadSeq){
     S.prevBusy = true;
-    S.pageGroups += 3;
     S.loadingMore = true;
+    S.loadMoreFail = false;
     renderAll();
-    reqHistPrev(S.histConv, S.winHeadSeq, S.pageGroups);
+    if (S.onLine){
+      S.pageGroups += 3;
+      reqHistPrev(S.histConv, S.winHeadSeq, S.pageGroups);
+    }
+    startLoadMoreWatch();
   }
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到
      最新」、切换会话。手指怎么滑都不退（鬼打墙根因）。
@@ -3183,7 +3227,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.74';   /* 1.74：输入框「公私隔离」——修「别人来输入把我清空」。
+const VER = '1.75';   /* 1.75：翻页撞顶离线也亮横幅，30s 未回包改口报「掉线，请刷新网络」。
+                         1.74：输入框「公私隔离」——修「别人来输入把我清空」。
                          case 'sent'(3774) 无条件清 #ent 改为「仅本机自己发的这条
                          (p.rid===rid) 才清」；别端/AI 的 sent 广播不再清掉本机草稿
                          （Py 公用 / 网页私用）。本机自发早在 cmd() 清过，此处对本地幂等。
@@ -4096,6 +4141,17 @@ function applySwitch(box, port, keepSnap){
 function setOnLine(b){
   S.onLine = b;
   if (b){ S.wsOpenAt = Date.now(); S.dropByHide = false; }  // 1.25：连上即清断线标记
+  /* 1.69：网络恢复 → 自动把「掉线时撞顶没拉成」的历史补回来，
+     省得用户先看到「请刷新网络」还得自己再滑一次。 */
+  if (b && S.loadingMore && S.loadMoreFail && S.more
+      && S.histConv && S.histConv === curConvId() && S.winHeadSeq){
+    S.loadMoreFail = false;
+    S.prevBusy = true;
+    S.pageGroups += 3;
+    renderAll();
+    reqHistPrev(S.histConv, S.winHeadSeq, S.pageGroups);
+    startLoadMoreWatch();
+  }
   renderLink();
 }
 
