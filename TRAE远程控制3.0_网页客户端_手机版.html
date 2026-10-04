@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.17</title>
+<title>TRAE远程 v3.18</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1951,9 +1951,11 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
          v1.95：未读优先按稳定 ID 命中（改名不丢灯），无 ID 回退标题。 */
       const uread = (st === 'done') &&
         (useId && sid ? uri.has(sid) : ur.has(title));
-      if (st === 'run' || st === 'fail' || st === 'stop' || uread){
+      /* 3.18：快照陈旧时 run 灯（蓝·脉动）不再可信 → 置灰（stop），提示「非实时」 */
+      const st2 = (st === 'run' && 快照陈旧()) ? 'stop' : st;
+      if (st2 === 'run' || st2 === 'fail' || st2 === 'stop' || uread){
         const dot = document.createElement('span');
-        dot.className = 'stdot ' + (uread ? 'stdot-uread' : 'stdot-' + st);
+        dot.className = 'stdot ' + (uread ? 'stdot-uread' : 'stdot-' + st2);
         d.appendChild(dot);
       }
       const tspan = document.createElement('span');
@@ -2374,12 +2376,35 @@ function 池有该文(文本){
     if (!b) continue;
     /* 服务端可能给人问补了提示词尾巴（正文＝原文+尾巴），故按「前 24 字互为前缀」判 */
     if (b.slice(0, n) === a.slice(0, n)) return true;
+    /* 3.18：口径对齐服务端 did命中（probe in b，子串命中）——提示词若**前置于**
+       正文，前缀判会失败、服务端却已判命中，造成「服务端报命中、本端池门失配」
+       卡不撤。故补一条子串判（n≥8 防短文本误配）。 */
+    if (n >= 8 && b.indexOf(a.slice(0, n)) >= 0) return true;
   }
   return false;
 }
 function 卡文(did){
   const p = S.pending.find(x => x.did === did);
   return p ? (p.text || '') : '';
+}
+
+/* 3.18：撤卡**重试**（回 2.57「命中可重报」的可靠口径，用户 2026-10-05 报
+   「经常遇到占位小卡片得不到消除」）。病灶＝服务端 did_hits 自 3.94 起
+   「出帧即消费」**只报一次**，而命中口径含「原文进官方排队条」——那一拍正文
+   尚未进聊天记录 ⇒ 本端 3.86 的「池有该文」门过不了 ⇒ 卡不撤；等正文真进
+   聊天记录时，did 早已被消费、**再无第二次 did_hits** ⇒ 卡只能靠 5 分钟豁免
+   干挂。此处每拍对「已 didhit 且未撤」的卡**重跑一次池判**，正文一进池即撤，
+   等效恢复 2.57 的可重试撤卡。（插话卡在 did_hits 当拍已按排队条撤掉，不走此路。） */
+function 重跑撤卡(){
+  if (!S.pending || !S.pending.length) return false;
+  let changed = false;
+  S.pending.slice().forEach(p => {
+    if (!p || !p.didhit || !p.did || p.kind === 'interject') return;
+    if (池有该文(p.text || '')){
+      if (pendClearByDid(p.did)) changed = true;
+    }
+  });
+  return changed;
 }
 
 /* 3.25：登记「服务端已受理」某 did——三态之「服务器正在执行…」。
@@ -2445,6 +2470,16 @@ function pendReconcile(_msgs){
 /* 1.88：兜底超时巡检——不依赖快照到达也会到点转「可能未送达」 */
 function pendTick(){
   if (S.pending.length && pendReconcile(null)) renderAll();
+  /* 3.18：撤卡重试也走定时巡检——即便服务端不再补发 did_hits（3.94 只报一次），
+     只要正文某刻进了本端池，这里也能把它对应的占位卡撤掉。 */
+  if (重跑撤卡()) renderAll();
+  /* 3.18：陈旧兜底也走本定时器——超 40s 无快照时，每 5 秒把状态栏刷成
+     「⟳ 同步中…」、左栏 run 灯置灰，无需等下一拍（快照恰好不来就没有下一拍）。 */
+  if (快照陈旧()){
+    renderState(S.snap);
+    renderConvs((S.snap && S.snap.convs) || [], S.snap && S.snap.conv_unread,
+                S.snap && S.snap.conv_unread_ids);
+  }
 }
 setInterval(pendTick, 5000);
 
@@ -4153,6 +4188,13 @@ function revertRefill(snap){
   flash('↩ 已撤回并取回：' + pv, 'var(--blue)', 6000);
 }
 
+/* 3.18：快照陈旧判定——距最近一次收到快照超过 40 秒即视为陈旧
+   （切后台/中继丢帧/服务端按需广播窗口过期都会造成）。状态栏与左栏 run 灯
+   据此转「同步中…/置灰」，不再拿过期快照冒充实时（治用户 2026-10-05 报
+   「电脑上对话早结束了、网页还显示输出中、灯还亮着」）。 */
+function 快照陈旧(){
+  return !!(S.snapTs && (Date.now() - S.snapTs > 40000));
+}
 function renderState(snap){
   S.gen = false;
   S.ready = !!(snap && snap.online);
@@ -4200,6 +4242,14 @@ function renderState(snap){
   if (S.switch_pend && !curMsgs().length){
     el.state.textContent = '正在切换到「' + S.switch_pend.title + '」…';
     el.state.style.color = 'var(--blue)';
+  }
+  /* 3.18：陈旧兜底——超 40 秒未收到快照时，状态栏不再显示过期的「输出中/空闲」，
+     改显「⟳ 同步中…」（否则用户被陈旧状态误导，见用户 2026-10-05 报）。 */
+  if (快照陈旧()){
+    const ct3 = (curTitle() || '').trim();
+    el.state.textContent = '⟳ 同步中…'
+      + (ct3 ? ' · ' + (ct3.length > 14 ? ct3.slice(0, 14) + '…' : ct3) : '');
+    el.state.style.color = 'var(--gray)';
   }
   /* 1.77：未登录异常横幅——1.31 本有此设计，但 el 映射漏挂 loginbar 键，
      横幅从未亮过；现补键修活，并按用户要求加「持续门槛」：
@@ -4450,7 +4500,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.17';   /* 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.18';   /* 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
@@ -4678,8 +4728,16 @@ function cliLogout(reason){
 function cliResume(reason){
   if (ws && ws.readyState === 1){
     const stale = !lastBeatOk || (Date.now() - lastBeatOk > 120000);
-    if (!loggedIn || stale) cliLogin(reason || '回前台');
-    /* 3.43：不再发 hb 自报；在线窗口尚在（<120s）就什么都不发 */
+    if (!loggedIn || stale){
+      cliLogin(reason || '回前台');
+    } else {
+      /* 3.18（用户 2026-10-05 报「切后台回来还显示输出中」）：在线窗口尚在
+         （<120s）时不再「什么都不发」——补发一次 hello，强制服务端重放**最新**
+         缓存快照（服务端在广播窗口外也持续在更 _last_snap），使状态栏/左栏灯/
+         正文立即追平，不必干等下一拍。低频（仅 visibilitychange/pageshow 触发），
+         不扰按需广播窗口、不增常态流量。 */
+      sendHello();
+    }
   } else {
     ensureConnect();
   }
@@ -5150,6 +5208,7 @@ function onEv(kind, v){
       const bcSid0 = selSidOf(v);
       const sameAsAnchor0 = !S.anchorSid || !bcSid0 || bcSid0 === S.anchorSid;
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
+      S.snapTs = Date.now();   /* 3.18：陈旧兜底时间戳（renderState/快照陈旧 用） */
       watchAnchor();           /* 3.01：锚点就绪即声明 watch（每 sid 只发一次） */
       try {
         if (sameAsAnchor0){
@@ -5203,6 +5262,8 @@ function onEv(kind, v){
         });
         if (_撤) renderAll();
       }
+      /* 3.18：撤卡重试——已 didhit、但那一拍正文尚未进池而没撤掉的卡，每拍重跑池判 */
+      if (重跑撤卡()) renderAll();
       /* 3.25：服务端 1.25 起把「受理回执」**合并进本快照帧**（did_acks）——
          一条 WS 消息同时报受理 + 群发广播，省中继条数（用户 2026-10-02 定）。
          按 did 登记「服务器正在执行…」（与 did_ack 事件同义）。 */
@@ -5289,6 +5350,8 @@ function onEv(kind, v){
         });
         if (_撤p) renderAll();
       }
+      /* 3.18：撤卡重试（同 snap 口径） */
+      if (重跑撤卡()) renderAll();
       return;
     }
     case 'prime_done': {                 /* 3.01：多会话监管——会话预热完成回执 */
