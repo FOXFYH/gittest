@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FYH 远程控制面板 v1.11</title>
+<title>FYH 远程控制面板 v1.12</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -26,10 +26,11 @@
     padding: 2px 10px; font-size: 12px; cursor: pointer; flex-shrink: 0;
   }
   .mini.on { background: #555; color: #fff; }
-  /* v1.11：网盘同步开关（WPS云同步）状态配色——绿=在线 / 红=离线 / 灰=未知 */
-  .mini.wps-on { background: #4caf50; border-color: #4caf50; color: #fff; }
-  .mini.wps-off { background: #e74c3c; border-color: #e74c3c; color: #fff; }
-  .mini.wps-unk { opacity: .6; }
+  /* v1.12：网盘同步开关与设备列表按钮同规格（.dev-btn 方块），绿=在线 / 红=离线 / 灰=未知 */
+  .dev-btn.wpsbtn { font-size: 20px; font-weight: 600; }
+  .dev-btn.wpsbtn.wps-on { background: #4caf50; border-color: #4caf50; color: #fff; }
+  .dev-btn.wpsbtn.wps-off { background: #e74c3c; border-color: #e74c3c; color: #fff; }
+  .dev-btn.wpsbtn.wps-unk { opacity: .6; }
   /* ===== 设备栏（顶部横排方块按钮） ===== */
   #devBar {
     display: flex; gap: 8px; padding: 8px 12px; overflow-x: auto;
@@ -123,10 +124,9 @@
 </head>
 <body>
 <header>
-  <h1>FYH 远程控制面板 v1.11</h1>
+  <h1>FYH 远程控制面板 v1.12</h1>
   <span id="wsDot" class="dot off"></span>
   <span id="statusText">未连接</span>
-  <button id="wpsBtn" class="mini" title="WPS网盘同步（对当前选中设备）">☁</button>
   <button id="logToggle" class="mini">日志</button>
 </header>
 <div id="devBar"><div class="dev-title">等待设备上线…</div></div>
@@ -148,8 +148,10 @@
 <script>
 "use strict";
 // ============================================================
-// FYH 远程控制面板  v1.11
+// FYH 远程控制面板  v1.12
 // ------------------------------------------------------------
+// 1.12   「☁」云同步开关从顶部挪进设备列表，做成与其他设备按钮同规格的普通方块
+//        （.dev-btn.wpsbtn，绿=在线/红=离线/灰=未知）；WS 指令/二次确认/设备侧一律不变。
 // 1.11   新增顶部「☁」WPS网盘同步开关（针对当前选中设备）：绿=在线/红=离线，
 //        点击二次确认后经 WS 下发 {"cmd":"wps_sync","action":"off"/"on"}；
 //        设备侧由 FYH远程控制模块 执行（含防复活守护线程）。
@@ -284,6 +286,13 @@ function renderDevices() {
   rf.title = "点击刷新：开启 60 秒自动刷新窗口（5 秒一刷，倒计时结束自动停）";
   rf.onclick = boostRefresh;
   bar.appendChild(rf);
+  // v1.12：WPS云同步开关——与设备列表其他按钮同规格的普通方块按钮
+  const wb = document.createElement("div");
+  wb.className = "dev-btn wpsbtn";
+  wb.textContent = "☁";
+  wb.onclick = onWpsBtnClick;
+  bar.appendChild(wb);
+  updateWpsBtn();           // 按其状态刷新配色（绿=在线 / 红=离线 / 灰=未知）
   // 记忆设备：上次选中的设备ID在线时，自动优先选中
   const saved = localStorage.getItem("fyh_last_device");
   if (!selectedDevice && saved) {
@@ -540,7 +549,7 @@ function handlePayload(payload) {
         return;
       }
       selectedApps = data.apps || [];
-      // v1.11：设备清单里若带 wps_sync 字段，同步刷新顶部「☁」按钮状态
+      // v1.11：设备清单里若带 wps_sync 字段，同步刷新设备列表「☁」按钮状态
       if (typeof data.wps_sync === "boolean") { wpsSync = data.wps_sync; updateWpsBtn(); }
       renderApps();
       log("收到 " + (data.apps || []).length + " 个应用清单（" + boostLabel() + "）");
@@ -567,12 +576,12 @@ function handlePayload(payload) {
   // 其余为剪贴板消息，面板忽略
 }
 
-// ================= 网盘同步开关（v1.11） =================
-// 顶部「☁」按钮：反映当前选中设备的 WPS 云同步在线状态，点击开关
+// ================= 网盘同步开关（v1.11；v1.12 从顶部挪入设备列表） =================
+// 设备列表「☁」按钮：反映当前选中设备的 WPS 云同步在线状态，点击开关
 function updateWpsBtn() {
-  const b = document.getElementById("wpsBtn");
+  const b = document.querySelector(".dev-btn.wpsbtn");
   if (!b) return;
-  b.className = "mini" + (wpsSync === true ? " wps-on"
+  b.className = "dev-btn wpsbtn" + (wpsSync === true ? " wps-on"
                         : wpsSync === false ? " wps-off" : " wps-unk");
   const name = selectedDevName || selectedDevice || "（未选设备）";
   b.title = "WPS网盘同步：" + (wpsSync === true ? "在线" : wpsSync === false ? "离线" : "未知")
@@ -621,11 +630,9 @@ setInterval(() => {                     // 面板是唯一客户端：平时每 
   if (connected) askDevices();
 }, 900000);
 setInterval(() => { renderDevices(); }, 5000);
-// v1.11：接线顶部「☁」网盘同步开关
-document.getElementById("wpsBtn").onclick = onWpsBtnClick;
-updateWpsBtn();
+// v1.12：☁ 开关随设备列表在 renderDevices() 内创建并接线（不再有顶部专属按钮）
 connect();
-log("FYH 远程控制面板 v1.11 已加载（本面板ID " + mySenderId + "）");
+log("FYH 远程控制面板 v1.12 已加载（本面板ID " + mySenderId + "）");
 </script>
 </body>
 </html>
