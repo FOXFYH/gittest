@@ -109,6 +109,37 @@ body.fmsg #fexit{display:block;}
 .cmsheet button:active{background:#f0f2f5;}
 .cmsheet button.cmcancel{color:var(--gray); text-align:center;}
 .cmsheet button.cmdel{color:var(--red);}   /* 1.4x：删除会话（危险项） */
+/* ── 1.72：定时自我激活（会话行⏰角标 + 设置弹窗） ── */
+.std-sched{flex:none; font-size:12px; line-height:1; margin-left:1px;
+  vertical-align:middle;}
+#scheddlg{position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:95;
+  display:flex; align-items:flex-end; justify-content:center;}
+#scheddlg .sd-sheet{background:#fff; border-radius:14px 14px 0 0; width:100%;
+  max-width:460px; max-height:88vh; overflow-y:auto; padding:12px 14px 16px;}
+#scheddlg .sd-h{font-size:14px; font-weight:bold; color:#222;}
+#scheddlg .sd-sub{font-size:12px; color:var(--gray); margin:2px 0 10px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+#scheddlg .sd-job{border:1px solid #e6e8eb; border-radius:10px; padding:8px 10px;
+  margin-bottom:8px; background:#fafbfc;}
+#scheddlg .sd-job .jt{font-size:13px; color:#222; word-break:break-word;}
+#scheddlg .sd-job .jm{font-size:12px; color:var(--gray); margin-top:3px;}
+#scheddlg .sd-job .ja{margin-top:6px; display:flex; gap:8px;}
+#scheddlg .sd-job .ja button{font-size:13px; padding:3px 12px; border-radius:8px;
+  border:1px solid #d3d7dc; background:#fff; color:#333;}
+#scheddlg .sd-job .ja button.jdel{color:var(--red);}
+#scheddlg .sd-form label{display:block; font-size:13px; color:#444; margin:10px 0 4px;}
+#scheddlg .sd-form input,#scheddlg .sd-form textarea{width:100%; box-sizing:border-box;
+  border:1px solid #d3d7dc; border-radius:8px; padding:9px 10px; font-size:15px;
+  font-family:inherit; background:#fff;}
+#scheddlg .sd-form textarea{min-height:64px; resize:vertical;}
+#scheddlg .sd-row{display:flex; gap:10px;}
+#scheddlg .sd-row > div{flex:1;}
+#scheddlg .sd-tip{font-size:12px; color:var(--gray); margin-top:8px; line-height:1.5;}
+#scheddlg .sd-btns{display:flex; gap:10px; margin-top:14px;}
+#scheddlg .sd-btns button{flex:1; padding:11px 0; border-radius:10px; border:none;
+  font-size:15px;}
+#scheddlg .sd-btns .sd-ok{background:var(--blue); color:#fff;}
+#scheddlg .sd-btns .sd-cancel{background:#eef0f2; color:#555;}
 /* ── 1.06：消息操作（回退/删除）+ AI 选项卡 ── */
 .msg .who{display:flex; align-items:center;}
 /* 1.49：4 个操作按钮改「横向长方形」——不换行、不被压缩、字号收小。
@@ -1673,6 +1704,8 @@ function renderAll(){
   syncModel(snap.model || '');
   renderAcct();
   renderEditRow();                     /* 1.53：队列取回修改横幅 */
+  /* 1.72：定时设置弹窗开着时，随快照刷新任务清单（表单输入值不被覆盖） */
+  if ($('scheddlg')) schedDlgRender();
 }
 
 /* F4：renderAll 合并节流——snap 连续到达（每 2s 一拍）合并进 rAF 一帧
@@ -1784,8 +1817,14 @@ function renderConvs(rows, conv_unread){
      （v1.50 起服务端改发 sid；旧服务端发展示名，下面的判定两者都认）。
      无该字段/空 → 不亮橙灯（安全回退）。清单参与指纹——unread 变化也要重绘。 */
   const ur = new Set(Array.isArray(conv_unread) ? conv_unread : []);
+  /* 1.72：有定时任务的会话 sid 集合（身份 key=sid，与展示名解耦——改名不影响）。
+     参与 fingerprint：设置/取消定时后角标要立即增删。 */
+  const schedSids = new Set(((S.snap && Array.isArray(S.snap.sched))
+                            ? S.snap.sched : [])
+                            .map(j => j && j.sid).filter(Boolean));
   const key = rows.map(r => r.join('|')).join('#')
-    + '#ur:' + Array.from(ur).sort().join('|');
+    + '#ur:' + Array.from(ur).sort().join('|')
+    + '#sc:' + Array.from(schedSids).sort().join('|');
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
@@ -1841,6 +1880,14 @@ function renderConvs(rows, conv_unread){
         dot.className = 'stdot ' + (uread ? 'stdot-uread' : 'stdot-' + st);
         d.appendChild(dot);
       }
+      /* 1.72：该会话有定时自我激活任务 → 行首闹钟角标（身份 key=sid） */
+      if (schedSids.has(title)){
+        const ck = document.createElement('span');
+        ck.className = 'std-sched';
+        ck.textContent = '⏰';
+        ck.title = '已设置定时自我激活';
+        d.appendChild(ck);
+      }
       const tspan = document.createElement('span');
       tspan.textContent = disp || title;
       d.appendChild(tspan);
@@ -1886,12 +1933,17 @@ function renderConvs(rows, conv_unread){
    只是会话ID(身份key)，仅用于 conv_del/conv_display_name 传参。 */
 function convMenuOpen(title, disp){
   const view = disp || title;                 /* 展示名，与列表一致 */
+  /* 1.72：该会话已有定时任务数（身份 key=sid），决定菜单项是否带「（N）」 */
+  const nSched = ((S.snap && Array.isArray(S.snap.sched)) ? S.snap.sched : [])
+                 .filter(j => j && j.sid === title).length;
   const old = $('convmenu');
   if (old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'convmenu';
   ov.innerHTML = '<div class="cmsheet">'
     + '<div class="cmtitle">' + esc(view) + '</div>'
+    + '<button data-act="sched">⏰ 定时自我激活'
+    + (nSched ? '（' + nSched + '）' : '') + '</button>'
     + '<button data-act="ren">✎ 重命名</button>'
     + '<button class="cmdel" data-act="del">🗑 删除任务</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
@@ -1901,6 +1953,7 @@ function convMenuOpen(title, disp){
     b.onclick = e => {
       e.stopPropagation();
       ov.remove();
+      if (b.dataset.act === 'sched'){ schedDlgOpen(title, view); return; }
       if (b.dataset.act !== 'ren' && b.dataset.act !== 'del') return;
       // 1.4x：删除走二次确认（本地 confirm），避免误触
       if (b.dataset.act === 'del'){
@@ -1919,6 +1972,114 @@ function convMenuOpen(title, disp){
     };
   });
   document.body.appendChild(ov);
+}
+
+/* ============ 1.72：定时自我激活设置弹窗 ============
+   入口：会话行右键菜单「⏰ 定时自我激活」。身份 key=sid，会话改名不影响。
+   新建→sched_add；编辑→sched_set（改后进度归零、重排）；取消→sched_del。
+   任务清单来自 S.snap.sched（服务端全量），命令执行后服务端 refresh_snap 把新
+   清单推回，本弹窗在 renderAll 里随之重绘（表单输入值保留，不被覆盖）。 */
+function schedMinStr(sec){                 /* 秒 → 分钟显示（去无谓小数） */
+  const m = (Number(sec) || 0) / 60;
+  return String(Math.round(m * 100) / 100);
+}
+function schedJobsOf(sid){
+  const arr = (S.snap && Array.isArray(S.snap.sched)) ? S.snap.sched : [];
+  return arr.filter(j => j && j.sid === sid);
+}
+function schedDlgOpen(sid, view){
+  const old = $('scheddlg');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'scheddlg';
+  ov.innerHTML = '<div class="sd-sheet">'
+    + '<div class="sd-h">⏰ 定时自我激活</div>'
+    + '<div class="sd-sub">' + esc(view) + '</div>'
+    + '<div id="sd_list"></div>'
+    + '<div class="sd-form">'
+    +   '<label>唤起内容（到点发给这个对话的话）</label>'
+    +   '<textarea id="sd_text" placeholder="例如：继续把剩下的做完"></textarea>'
+    +   '<div class="sd-row">'
+    +     '<div><label>每隔（分钟）</label><input id="sd_every" type="number"'
+    +          ' min="0.5" step="0.5" value="5"></div>'
+    +     '<div><label>总共（次）</label><input id="sd_total" type="number"'
+    +          ' min="1" step="1" value="1"></div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="sd-tip" id="sd_tip">到点服务端自动把内容排进托管队列，AI 忙完'
+    +   '即放行唤起。首次触发=保存后满一个间隔。</div>'
+    + '<div class="sd-btns">'
+    +   '<button class="sd-cancel" id="sd_cancel">关闭</button>'
+    +   '<button class="sd-ok" id="sd_ok">新建</button>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  ov._sid = sid; ov._edit = null;
+  $('sd_cancel').onclick = () => ov.remove();
+  $('sd_ok').onclick = () => schedDlgSubmit();
+  schedDlgRender();
+}
+function schedDlgRender(){
+  const ov = $('scheddlg'); if (!ov) return;
+  const box = $('sd_list'); if (!box) return;
+  const jobs = schedJobsOf(ov._sid);
+  box.innerHTML = '';
+  if (!jobs.length){
+    box.innerHTML = '<div class="sd-tip">这个对话还没有定时任务。</div>';
+    return;
+  }
+  jobs.forEach(j => {
+    const card = document.createElement('div');
+    card.className = 'sd-job';
+    card.innerHTML = '<div class="jt">' + esc(j.text || '') + '</div>'
+      + '<div class="jm">每 ' + schedMinStr(j.every) + ' 分 · 共 '
+      + (j.total | 0) + ' 次 · 已 ' + (j.done | 0) + ' 次</div>';
+    const ja = document.createElement('div');
+    ja.className = 'ja';
+    const bE = document.createElement('button'); bE.textContent = '编辑';
+    const bD = document.createElement('button');
+    bD.className = 'jdel'; bD.textContent = '取消定时';
+    bE.onclick = () => {                    /* 编辑 = 表单回填 + 切「保存修改」 */
+      ov._edit = j;
+      $('sd_text').value = j.text || '';
+      $('sd_every').value = schedMinStr(j.every);
+      $('sd_total').value = j.total | 0;
+      $('sd_ok').textContent = '保存修改';
+      $('sd_tip').textContent = '保存后按新参数重跑一轮（进度归零）。';
+    };
+    bD.onclick = () => {
+      if (!confirm('取消这个对话的定时任务？')) return;
+      if (!S.onLine){ flash('⚠ 还没连上，稍后再试', 'var(--red)'); return; }
+      sendCmd('sched_del', j.id);
+      flash('已取消定时…', 'var(--blue)');
+      if (ov._edit && ov._edit.id === j.id){
+        ov._edit = null; $('sd_ok').textContent = '新建';
+      }
+    };
+    ja.appendChild(bE); ja.appendChild(bD);
+    card.appendChild(ja);
+    box.appendChild(card);
+  });
+}
+function schedDlgSubmit(){
+  const ov = $('scheddlg'); if (!ov) return;
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试', 'var(--red)'); return; }
+  const text = ($('sd_text').value || '').trim();
+  const every = parseFloat($('sd_every').value);
+  const total = parseInt($('sd_total').value, 10);
+  if (!(every > 0)){ flash('「每隔」要填正数（分钟）', 'var(--red)'); return; }
+  if (!(total >= 1)){ flash('「总共」要填 ≥1 的整数', 'var(--red)'); return; }
+  if (ov._edit){                            /* 编辑：改后重排 */
+    sendCmd('sched_set', [ov._edit.id, text, every, total]);
+    flash('正在保存定时修改…', 'var(--blue)');
+    ov._edit = null; $('sd_ok').textContent = '新建';
+  } else {                                  /* 新建 */
+    if (!text){ flash('请先填「唤起内容」', 'var(--red)'); return; }
+    sendCmd('sched_add', [ov._sid, text, every, total]);
+    flash('正在新建定时…', 'var(--blue)');
+  }
+  $('sd_text').value = '';
 }
 
 /* ============ 1.09：待确认项（空窗期反馈） ============
@@ -3022,7 +3183,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.71';   /* 1.71：去掉无主的「默认服务端」幻影条目（用户 2026-10-03）——
+const VER = '1.72';   /* 1.72：定时自我激活上网页端——会话行右键菜单「⏰ 定时自我激活」
+                         （新建/编辑/取消），有任务的会话行显闹钟角标；走服务端
+                         sched_add/sched_set/sched_del，清单随快照 S.snap.sched 下发。
+                         1.71：去掉无主的「默认服务端」幻影条目（用户 2026-10-03）——
                          ① handleBody 取消「无 srv → 默认服务端」兜底，无 srv 报文一律
                          丢弃；② loadSrvs 把历史遗留的「默认服务端」从内存与落盘
                          （localStorage wb_cli_srvs）一并剔除。左侧菜单只列真实电脑名。
