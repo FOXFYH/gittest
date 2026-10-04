@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.10</title>
+<title>TRAE远程 v3.11</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -4303,12 +4303,19 @@ function revertRefill(snap){
   flash('↩ 已撤回并取回：' + pv, 'var(--blue)', 6000);
 }
 
+function stateTag(){
+  /* 3.11：id（ID拼接）档为非实时档——状态条追加醒目标识，避免误以为也是纯实时。
+     依据总管 2026-10-04 定稿范围 ②。 */
+  return bcmodeGet() === 'id' ? ' 【ID拼接·非实时档】' : '';
+}
+
 function renderState(snap){
   S.gen = false;
   S.ready = !!(snap && snap.online);
   if (!S.ready){
     el.state.textContent = 'TRAE 界面未就绪';
     el.state.style.color = 'var(--red)';
+    el.state.textContent += stateTag();
     setSendBtn(false, false);
     fbarSync();                            // 1.62：全屏状态条跟随
     return;
@@ -4355,6 +4362,7 @@ function renderState(snap){
      横幅从未亮过；现补键修活，并按用户要求加「持续门槛」：
      连续未登录满 60 秒才算确诊（与服务端钉钉报警同一门槛，瞬断不误报）。 */
   renderLoginBar(snap);
+  el.state.textContent += stateTag();
   fbarSync();                              // 1.62：全屏状态条镜像 #statebar
 }
 /* 1.77：未登录横幅判定——60 秒持续门槛 + 每 5 秒复核 */
@@ -4600,7 +4608,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.10';   /* 3.10（2026-10-04）：纯实时口径——现场直播模式下切换/进入会话不再读本地缓存
+const VER = '3.11';   /* 3.11（2026-10-04）：ID(/id) 拼接档在状态条追加「【ID拼接·非实时档】」醒目标识
+                       （总管定稿范围②）；live 档维持严格纯实时（③未回帧不顶旧缓存）。
+   3.10（2026-10-04）：纯实时口径——现场直播模式下切换/进入会话不再读本地缓存
    （IndexedDB/localStorage）预填、不做本地 4 条秒显，只渲染服务端实时快照；未回帧
    宁可空屏。IndexedDB 深库保留写入与「请求式历史」（上翻仍可读），但不再作首屏来源；
    ID拼接模式不变。配套把 VER 一并由 3.08 递进（见下）。
