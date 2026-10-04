@@ -3183,7 +3183,12 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.72';   /* 1.72：定时自我激活上网页端——会话行右键菜单「⏰ 定时自我激活」
+const VER = '1.73';   /* 1.73：占位卡「无 rid 不建」——修「小卡片永不消除」。
+                         queued(3785)/pend(3831) 各加 rid 非空门槛：无 rid 的对端
+                         /AI 来件不再冒名建「我方待确认卡」（本地随机 rid 永不命中
+                         snap.acks，卡永驻）。自己发送必带 rid、多端同看别端卡自
+                         带 rid，均不受影响。
+                         1.72：定时自我激活上网页端——会话行右键菜单「⏰ 定时自我激活」
                          （新建/编辑/取消），有任务的会话行显闹钟角标；走服务端
                          sched_add/sched_set/sched_del，清单随快照 S.snap.sched 下发。
                          1.71：去掉无主的「默认服务端」幻影条目（用户 2026-10-03）——
@@ -3781,7 +3786,9 @@ function onEv(kind, v){
                                            : (!qt || x.text === qt))
                                      && x.state !== 'timeout');
       if (qp) qp.state = (qstage === 'sent') ? 'sent' : 'queued';
-      if (qstage === 'wait' && qt
+      /* 1.73：建卡必须有 rid——能撤的卡才建；无 rid 的 queued（对端/AI 来件）
+         一律不冒名建「我方待确认卡」，否则本地随机 rid 永远撤不掉、卡永驻。 */
+      if (qstage === 'wait' && qt && qrid
           && !S.pending.some(x => x.text === qt)) pendAdd('send', qt, qrid);
       flash(qstage === 'sent' ? '▶ 托管队列已放行发出 1 条'
                               : '🕘 已挂入托管队列（服务端已确认收到）',
@@ -3828,7 +3835,8 @@ function onEv(kind, v){
         renderAll();
         break;
       }
-      if (pt && !S.pending.some(x => x.text === pt)){
+      /* 1.73：同上——无 rid 的 pend（别端/AI 受理广播）不建「我方占位卡」 */
+      if (pt && pr && !S.pending.some(x => x.text === pt)){
         pendAdd(pk, pt, pr);
         renderAll();
       }
