@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.14</title>
+<title>TRAE远程 v3.15</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -2899,31 +2899,7 @@ function sortRows(rows){
     return a[1] - b[1];
   }).map(x => x[0]);
 }
-/* —— 3.10（§5.4 差额推送）：已掌握死消息 ID / 已掌握会话名册 —— */
-function histCacheIds(conv){
-  /* 3.19：已掌握的死消息 ID（账本 seq 是「按会话」自增，非全局唯一！）——
-     只取【当前会话】缓存的 msgs 的 seq。3.10 原来取各会话并集，跨会话过滤
-     会把本会话的新消息误杀（3.17 症状：看不到最新消息）。改为按会话。
-     3.75：改读内存镜像（同源 IndexedDB）。 */
-  const ids = [];
-  const e = S.histMeta && S.histMeta['p' + S.port + '|' + (conv || '')];
-  if (e && Array.isArray(e.msgs))
-    for (const m of e.msgs) if (m && m.seq !== undefined) ids.push(m.seq);
-  return ids;
-}
-function histCacheMids(conv){
-  /* 3.96（用户 2026-10-03）：本端已掌握的**真实消息 ID**——histRaw(带 mid) +
-     histNear(7 位行第 7 位)。起因：补缺来的行是 7 位、**不带 seq**，只落进 histNear，
-     而 histCacheIds 只报 histRaw 的 seq → 服务端永远判「缺」→ 同一批补缺被原样
-     反复重发（死循环）。改为把 mid 也报上去，服务端按 seq **或** mid 命中即算已掌握。 */
-  const out = [];
-  const e = S.histMeta && S.histMeta['p' + S.port + '|' + (conv || '')];
-  if (e && Array.isArray(e.msgs))
-    for (const m of e.msgs) if (m && m.mid) out.push(String(m.mid));
-  if (Array.isArray(S.histNear))
-    for (const m of S.histNear) if (m && m[6]) out.push(String(m[6]));
-  return out;
-}
+/* —— 3.10（§5.4）：已掌握会话名册（histCacheIds / histCacheMids 已于 3.15 删——其调用方 have_ids/have_mids 上报已于 3.14 删）—— */
 function histCacheConvs(){
   /* 已掌握的历史缓存对话名册（键 'p<端口>|<标题>' → 去前缀还原标题）。
      3.75：改读内存镜像（同源 IndexedDB）。 */
@@ -4521,7 +4497,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.14';   /* 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.15';   /* 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
