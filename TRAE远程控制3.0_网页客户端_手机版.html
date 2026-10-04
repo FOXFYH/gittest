@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.11</title>
+<title>TRAE远程 v3.12</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -3171,7 +3171,7 @@ function reloadAnchorFromCache(){
      秒显口径与 ensureHist 一致（近端 10 条 + 深库异步补更老）。 */
   try {
     /* 3.10 纯实时：现场直播模式不从本地缓存铺屏（冷启动/重连只等服务端快照）。 */
-    if (bcmodeGet() === 'live') return;
+    if (isLiveMode()) return;
     if (S.histMsgs && S.histMsgs.length) return;   /* 内存已有数据，不打扰 */
     const title = curTitle();
     if (!title || title === '当前会话') return;     /* 锚定会话未定，等下一拍重试 */
@@ -3231,7 +3231,7 @@ function ensureHist(){
      用本地缓存（localStorage/IndexedDB）预填铺屏，也不做本地 4 条秒显——
      只渲染服务端实时快照；未回帧宁可空屏，也不拿旧缓存顶上。
      ID拼接模式不变（其完整内容本就依赖本地仓库+请求式回补拼接）。 */
-  const c = (bcmodeGet() === 'live') ? null : histCacheRead(title);
+  const c = (isLiveMode()) ? null : histCacheRead(title);
   if (c){                                       /* 本地秒显历史（含近端 10 条） */
     S.histRaw = (c.msgs || []).slice();
     S.histMsgs = S.histRaw.map(ledToArr);
@@ -3239,7 +3239,7 @@ function ensureHist(){
     S.histVer = c.ver | 0; S.histHave = c.have_seq | 0;
   }
   renderAll();                                  /* live：渲染空/活条，等服务端帧 */
-  if (bcmodeGet() !== 'live') deepLoad(title);  /* live：不从深库异步铺屏 */
+  if (!isLiveMode()) deepLoad(title);  /* live：不从深库异步铺屏 */
   /* 3.93（用户 2026-10-03）：**区分冷启动与切会话增量**——本地无该会话缓存时，
      别立刻空手 reqHist(0,0)（那会触发服务端「整库重建」）。先给 bc(start) 的
      seed / 广播落盘一个 400ms 宽限窗；窗内已被喂到（histMsgs/histNear 有料）
@@ -3914,7 +3914,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   if (empty && !S.pending.length && !S.switch_pend
       && !(pend || []).length){
     el.msgs.innerHTML =
-      '<div class="empty">（暂无消息，发送一条开始对话）</div>';
+      '<div class="empty">'
+      + (isLiveMode() ? '等待实时帧…' : '（暂无消息，发送一条开始对话）')
+      + '</div>';
     return;
   }
   /* 3.46：本地秒切已能立刻显示目标会话缓存的最新 4 条时，不再挂「正在切换」
@@ -3925,6 +3927,12 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     sw.className = 'switching';
     sw.textContent = '正在切换到「' + S.switch_pend.title + '」…';
     el.msgs.appendChild(sw);
+  }
+  if (empty && isLiveMode()){
+    const _w = document.createElement('div');
+    _w.className = 'empty';
+    _w.textContent = '等待实时帧…';
+    el.msgs.appendChild(_w);
   }
   if (empty){ renderPending(); return; }
   const times = resolveTimes(msgs);
@@ -4306,7 +4314,7 @@ function revertRefill(snap){
 function stateTag(){
   /* 3.11：id（ID拼接）档为非实时档——状态条追加醒目标识，避免误以为也是纯实时。
      依据总管 2026-10-04 定稿范围 ②。 */
-  return bcmodeGet() === 'id' ? ' 【ID拼接·非实时档】' : '';
+  return isLiveMode() ? '' : ' 【ID拼接·非实时档】';
 }
 
 function renderState(snap){
@@ -4608,7 +4616,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.11';   /* 3.11（2026-10-04）：ID(/id) 拼接档在状态条追加「【ID拼接·非实时档】」醒目标识
+const VER = '3.12';   /* 3.12（2026-10-04）：直播模式显示层硬闸——新增 isLiveMode() 单一真源（以 hello 的
+                        bcmode 为准）；ensureHist/reloadAnchorFromCache 本地预填一律经其
+                        判定；live 未回帧显示「等待实时帧…」，绝不落回本地旧消息。
+   3.11（2026-10-04）：ID(/id) 拼接档在状态条追加「【ID拼接·非实时档】」醒目标识
                        （总管定稿范围②）；live 档维持严格纯实时（③未回帧不顶旧缓存）。
    3.10（2026-10-04）：纯实时口径——现场直播模式下切换/进入会话不再读本地缓存
    （IndexedDB/localStorage）预填、不做本地 4 条秒显，只渲染服务端实时快照；未回帧
@@ -6301,6 +6312,13 @@ function bcmodeGet(){
         return v === 'id' ? 'id' : 'live'; }
   catch(e){ return 'live'; }
 }
+function isLiveMode(){
+  /* 3.12：显示层唯一模式真源——以「服务端 hello 确认的 bcmode」为准（S.bcmode），
+     hello 未到前回退本地偏好；返回 true=现场直播(live)，false=ID拼接(id)。
+     总管 2026-10-04 加急令：直播档必须硬闸显示层，绝不落回本地旧消息。 */
+  const m = (typeof S.bcmode === 'string' && S.bcmode) ? S.bcmode : bcmodeGet();
+  return m !== 'id';
+}
 function bcmodeReport(){
   const m = bcmodeGet();
   const gen = S.autofixGen || 0;
@@ -6313,18 +6331,26 @@ function bcmodeApply(serverMode){
   /* 服务端 hello 回显的模式：本端**无本地偏好**时采纳服务端值（首次访问）；
      已有本地偏好则本端为准（由 onHello 的 bcmodeReport 推给服务端）。 */
   if (serverMode === undefined || serverMode === null) return;
+  const _prevBc = S.bcmode;
+  S.bcmode = (String(serverMode) === 'id') ? 'id' : 'live';
   let has = null; try { has = localStorage.getItem(LS_BCMODE); } catch(e){}
   if (has === null){
     const sm = (String(serverMode) === 'id') ? 'id' : 'live';
     try { localStorage.setItem(LS_BCMODE, sm); } catch(e){}
   }
   if (el.set_bcmode) el.set_bcmode.value = bcmodeGet();
+  if (_prevBc !== S.bcmode){
+    S.histConv = '';                       /* 强制重判锚定会话 */
+    try { ensureHist(); } catch(e){}
+    try { renderAll(); } catch(e){}
+  }
 }
 if (el.set_bcmode){
   el.set_bcmode.value = bcmodeGet();
   el.set_bcmode.onchange = () => {
     const m = (el.set_bcmode.value === 'id') ? 'id' : 'live';
     try { localStorage.setItem(LS_BCMODE, m); } catch(e){}
+    S.bcmode = m;
     bcmodeReport();
     flash(m === 'id' ? '已切到 ID拼接模式' : '已切到 现场直播模式', 'var(--blue)');
   };
