@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.15</title>
+<title>TRAE远程 v3.16</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -236,13 +236,6 @@ body.fmsg #msgs{padding-top:22px;}
 .pendbtn{font-size:11px; min-height:22px; padding:0 8px; border-radius:4px;}
 .pendbtn.go{color:var(--blue);}
 .pendbtn.drop{color:var(--gray);}
-.switching{background:rgba(21,101,192,.07); border:1px dashed
-  rgba(21,101,192,.35); color:var(--blue); font-size:12px;
-  border-radius:8px; padding:6px 10px; margin:0 0 8px; text-align:center;}
-.switching::after{content:''; display:inline-block; width:6px; height:6px;
-  margin-left:6px; border-radius:50%; background:var(--blue);
-  animation:pulse 1s infinite;}
-@keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
 /* ── 1.90：文本转语音小卡片（(@fox-play1)...(@fox-play2) 包夹段）── */
 .foxplay{display:flex;flex-direction:column;gap:4px;margin:6px 0;
   padding:6px 10px;border:1px solid rgba(21,101,192,.35);
@@ -1241,7 +1234,7 @@ const WS_USE_MAP = {
   deny:'请求被拒', res:'请求回执', req:'索取数据',
   'req:hist':'索取历史账本', 'req:hist_prev':'索取更早历史',
   'req:folds':'索取折叠列表', 'req:fold':'索取折叠内容',
-  'req:gap':'索取缺失消息', 'req:model_list':'索取模型列表',
+  'req:model_list':'索取模型列表',
   'req:bc':'广播需求（启动/保持）',
   act:'上报界面动作', chk:'核对补发（did）',
   ctl_free:'释放操控权', ctl_hb:'操控续期',
@@ -1343,11 +1336,7 @@ function sendBootcast(mode){
   /* 3.89（用户 2026-10-03）：喊话要求广播时**必须带上自己当前选中的是哪个对话**
      （标题 + 稳定 sid），服务端据此确认「有没有切到这个对话」。 */
   sendJson({t: 'req', id: id, c: 'bc', mode: mode || 'keep', conv: conv,
-            conv_sid: conv ? curSid() : '',
-            /* 3.95（用户 2026-10-03）：喊话必须带上「本端已掌握历史的会话名册」
-               ——服务端据此**只补缺的**（本端已有的会话不再塞种子），免得记录
-               来回传。与 hist 请求同口径（histCacheConvs）。 */
-            have_convs: histCacheConvs()});
+            conv_sid: conv ? curSid() : ''});
 }
 
 /* ================= 状态 ================= */
@@ -2899,30 +2888,13 @@ function sortRows(rows){
     return a[1] - b[1];
   }).map(x => x[0]);
 }
-/* —— 3.10（§5.4）：已掌握会话名册（histCacheIds / histCacheMids 已于 3.15 删——其调用方 have_ids/have_mids 上报已于 3.14 删）—— */
-function histCacheConvs(){
-  /* 已掌握的历史缓存对话名册（键 'p<端口>|<标题>' → 去前缀还原标题）。
-     3.75：改读内存镜像（同源 IndexedDB）。 */
-  const out = [];
-  const m = S.histMeta || {};
-  for (const k in m){
-    const e = m[k];
-    if (e && Array.isArray(e.msgs) && e.msgs.length){
-      const i = k.indexOf('|');
-      out.push(i >= 0 ? k.slice(i + 1) : k);
-    }
-  }
-  return out;
-}
 /* —— 请求式历史 —— */
 function reqHist(conv, have_seq, ver){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
-  /* 3.10（§5.4）：所需对话 ID=conv；附带「已掌握会话名册 have_convs」。
-     旧服务端忽略多出的字段，行为不变。 */
+  /* 3.10（§5.4）：所需对话 ID=conv。 */
   sendJson({t: 'req', id: id, c: 'hist', conv: conv || '',
-            have_seq: have_seq | 0, ver: ver | 0,
-            have_convs: histCacheConvs()});
+            have_seq: have_seq | 0, ver: ver | 0});
 }
 function reqHistPrev(conv, from_seq, count){
   const id = ++reqSeq;
@@ -3028,15 +3000,6 @@ function onRes(id, k, v){
         } catch(e){}
       }
     }
-    return;
-  }
-  else if (k === 'gap'){
-    /* 3.35：对账补内容回包——服务端按真实 ID 补齐缺失定稿行，并入本地落盘
-       即瞬间显示（用户 2026-10-03：缺哪条回哪条，服务端立刻补）。 */
-    const conv = rq ? rq.conv : '';
-    if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
-    const rows = (v.msgs || []).map(ledToArr);
-    if (mergeNear(rows)) renderAll();
     return;
   }
   else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || [], v.end);
@@ -3780,12 +3743,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     let uc3 = -1;
     msgs.forEach(mm => { if (mm[0] === 'u') uc3++; uidx3.push(uc3); });
     /* 插入锚点：最后一个保留的消息节点之后（即首个面板节点）；
-       无保留节点时退到切换提示条之后 / 容器首个子节点。 */
+       无保留节点时退到容器首个子节点。 */
     let anchor = null;
     if (curNodes[cp - 1]) anchor = curNodes[cp - 1].nextSibling;
     else {
-      const sw0 = el.msgs.querySelector(':scope > .switching');
-      anchor = sw0 ? sw0.nextSibling : el.msgs.firstChild;
+      anchor = el.msgs.firstChild;
     }
     for (let i = cp; i < msgs.length; i++)
       el.msgs.insertBefore(buildMsgNode(msgs[i], i, times3, msgs, uidx3[i]),
@@ -3807,15 +3769,6 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       + (isLiveMode() ? '等待实时帧…' : '（暂无消息，发送一条开始对话）')
       + '</div>';
     return;
-  }
-  /* 3.46：本地秒切已能立刻显示目标会话缓存的最新 4 条时，不再挂「正在切换」
-     条（用户 2026-10-03：本地有货就该瞬间丝滑，别显示像卡住的在途提示）；
-     仅当目标会话本地暂无内容可显时才提示，等服务器首拍。 */
-  if (S.switch_pend && empty){           // 1.09：切换在途提示条
-    const sw = document.createElement('div');
-    sw.className = 'switching';
-    sw.textContent = '正在切换到「' + S.switch_pend.title + '」…';
-    el.msgs.appendChild(sw);
   }
   if (empty && isLiveMode()){
     const _w = document.createElement('div');
@@ -4240,7 +4193,7 @@ function renderState(snap){
   /* 1.16 / 3.46：切换在途且目标会话本地暂无内容可显时才显示「正在切换」——
      本地秒切（localSwitchTo）已把目标会话缓存的最新 4 条显出来时不再显示
      在途态，免得正文明明已到位、状态栏却还挂着「正在切换」像在等服务器。
-     3.52：文案与正文区在途条（renderMsgs 的 .switching）统一为「正在切换到」
+     3.16：正文区那条虚线在途条已按用户令删除，只留本条状态栏；3.52：文案与正文区在途条统一为「正在切换到」
      ——原来一个「正在切换到」、一个「正在切换」，用户 2026-10-03 误以为是
      重复代码；实为两处 UI（正文区在途条 v1.09 / 状态栏在途态 v1.16），
      触发条件相同故同时出现，此处只统一措辞，不涉任何等待逻辑。 */
@@ -4497,7 +4450,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.15';   /* 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.16';   /* 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
