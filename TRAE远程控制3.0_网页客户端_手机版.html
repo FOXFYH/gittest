@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.26</title>
+<title>TRAE远程 v3.27</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -4463,7 +4463,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.26';   /* 3.26（2026-10-05）：人类动作回执悬浮窗（用户 2026-10-05：「一切人类发给服务器的指令，都要给一个反馈，否则人会感到很无聊……搞一个半透明的悬浮窗，放在这个输出中、规划中，这个顶部横幅的底下……我做出动作以后，首先判断 WS 有没有在线，如果 WS 不在线的话，就要显示连接 WS 中；如果在线已经发出去了，那就显示等待服务器回应。凡是人发出去的动作，服务器必须给回应。我们收到回应以后，就可以显示服务器已收到。」）。实现：①新增半透明 #actbox 悬浮窗（rgba 深底 + 毛玻璃，pointer-events:none 不挡手），恒贴在「顶部横幅（#statebar，全屏时 #fbar）下沿」，随状态行变化/进出全屏自动重贴；②新增 actSend/actNew/actTimer/onAckR/actBox：凡网页端「人动作帧」经 actSend 出——登记一条回执（_rid）→ 不上线显示「📡 连接 WS 中…」、已交 WS 发显示「⏳ 等待服务器回应…」、收到服务端 ack_r 显示「✓ 服务器已收到」（约 2.6s 隐去）、8s 无回显示「⚠ 服务器未回应」；③sendCmd 增 opt={静默,rid,名}——人动作默认登记回执，自动动作（重放队列/补发投递/自动补切/check_fulls）传 静默:1 不弹窗（防上线刷屏）；④穷举接线（人动作）：发送/插话、停止生成、折叠展开分组、切换会话、置顶/删除/重命名会话、回退/删除消息、问询卡各键（选择/自定义/提交/取消/上一题/选题）、排队条三键（删除/取出编辑/立即发送）、移除附件、上传附件、取回输入框、刷新积分、每日签到、语音合成、定时自我激活（新建/修改/删除/列表/清空）——共 20+ 项，全部有人动作命名与回执；⑤离线发送沿用同一条回执：cmd() 未连时先登记「连接 WS 中…」并记 rid 入 offQueue，连上补发时原地翻成「等待服务器回应…」不另起一条。服务端 网页服务 1.115 配套：_入向 最前面「收到即回执」——凡带 _rid 的帧立刻回 ack_r{_rid}（WS桥 1.28 加「动作回执」中文用途）。 原 3.25（2026-10-05）：末行兜底补严——「人类最后一条发言底下永远要有文字」（用户 2026-10-05 铁律：「人类最后一条发言底下总是有东西的……它不可能是空的，但是我无数次观察到它是空的……这个地方永远要有文字啊，网页版要自己检查，如果这个地方没有内容可以显示，就应该主动向服务器去索取」）。病灶：curMsgs 末行兜底原只有「活条 / 最后一次完整回复」两级，两级都取不到时什么都不补 → 末行就是人问、底下留白（刷新后 lastLiveRow=null、histLive 空、池里只有人问，ensureHist 的 400ms 宽限见 histNear 有人问即跳过索取，服务端那拍 live 又空窗，正是高发场景）。整改：①三级兜底——两级都取不到就补一条 role='p' 灰字占位「（正在取回这条回复…）」（不是「…」），永不留白；②缺料自检——置 S.回复缺料，renderAll 里 补料自检() 据此主动 reqHist 向服务端要最新一段（节流+退避：前 3 次每 4 秒、之后每 15 秒、上限 12 次；缺料解除/换会话即归零）；③buildMsgNode 为 role='p' 单出「无 who 头、无操作按钮」的灰字节点，正牌 AI 行一到即顶替。纯网页端，服务端逻辑零改动。 原 3.24（2026-10-05）：刷新后「回到我选定的对话」（用户 2026-10-05 铁律：「我在左侧列表选中了一个对话，我拼命刷新就是为了进入它，别给我跳到别的地方去——我的选中就是我的旨意」）。新增 LS_ANCHOR 锚定会话落盘：localSwitchTo 时把锚定 sid+标题写盘；页面启动（骨架列表渲染前）读盘恢复锚点并把骨架高亮对齐到它，杜绝「先亮错会话再跳」；首拍带回会话列表后若桌面停在别处则主动 sendCmd('switch') 把桌面切过去（一次性，anchor_need_switch）。adoptSnap 的「锚定会话已消失」分支加 hasList 守卫——hello 框架版快照暂无 convs 时不误判、不丢刚恢复的锚点，并在真消失时把新锚随实落盘。纯网页端，服务端逻辑零改动。 原 3.23（2026-10-05）：状态归属绑定会话（治「切会话残留上一会话状态」）——新增 S.snapSid，记录快照里「随会话走」的字段（sendIdle/inputText/tail/finish/ask/opts/官方排队条 pend）到底属于哪个会话，由 adoptSnap 如实维护：切换在途且桌面还没切过去时（inSid!==anchorSid）连 inputText/tail/sendIdle/finish 一并清、并置 snapSid=''；stolen 冻结旧会话字段时归属保持旧值。配套新增 状态失配()；renderState 失配时不显示他会话的「输出中/输入中」改显「正在切换到…/⟳ 同步中…」，renderAll 失配时摘除他会话的 finish/opts/ask/官方排队条。switchSrv/applySwitch 换目标即清 snapSid。纯网页端，服务端逻辑零改动。 原 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.27';   /* 3.27（2026-10-05）：智能省流·固定块复用（用户口述）：服务端把快照里「相对固定、非思维流」的部位（msgs/convs/sched）按内容指纹切成固定块，首发 ev k='blk' {id,ts,data} 下发整块内容，随后快照里该部位改写为引用 {_blk:id}；网页端把收到的块静存 IndexedDB（trae_webm_blk）并回 blk_ack{ids} 告知「已记录」，解析快照时遇 {_blk:id} 从本地取回拼好再渲染；缺块回 blk_need{ids} 索要、并用上一拍旧内容兜底免空白；块超 15 分钟未被再次引用即作废（双侧 TTL），服务端发 ev k='blk_del' {ids} 时本地同步清理。配套服务端 省流块.py 新建、网页服务 1.116、WS桥 1.29。 原 3.26（2026-10-05）：人类动作回执悬浮窗（用户 2026-10-05：「一切人类发给服务器的指令，都要给一个反馈，否则人会感到很无聊……搞一个半透明的悬浮窗，放在这个输出中、规划中，这个顶部横幅的底下……我做出动作以后，首先判断 WS 有没有在线，如果 WS 不在线的话，就要显示连接 WS 中；如果在线已经发出去了，那就显示等待服务器回应。凡是人发出去的动作，服务器必须给回应。我们收到回应以后，就可以显示服务器已收到。」）。实现：①新增半透明 #actbox 悬浮窗（rgba 深底 + 毛玻璃，pointer-events:none 不挡手），恒贴在「顶部横幅（#statebar，全屏时 #fbar）下沿」，随状态行变化/进出全屏自动重贴；②新增 actSend/actNew/actTimer/onAckR/actBox：凡网页端「人动作帧」经 actSend 出——登记一条回执（_rid）→ 不上线显示「📡 连接 WS 中…」、已交 WS 发显示「⏳ 等待服务器回应…」、收到服务端 ack_r 显示「✓ 服务器已收到」（约 2.6s 隐去）、8s 无回显示「⚠ 服务器未回应」；③sendCmd 增 opt={静默,rid,名}——人动作默认登记回执，自动动作（重放队列/补发投递/自动补切/check_fulls）传 静默:1 不弹窗（防上线刷屏）；④穷举接线（人动作）：发送/插话、停止生成、折叠展开分组、切换会话、置顶/删除/重命名会话、回退/删除消息、问询卡各键（选择/自定义/提交/取消/上一题/选题）、排队条三键（删除/取出编辑/立即发送）、移除附件、上传附件、取回输入框、刷新积分、每日签到、语音合成、定时自我激活（新建/修改/删除/列表/清空）——共 20+ 项，全部有人动作命名与回执；⑤离线发送沿用同一条回执：cmd() 未连时先登记「连接 WS 中…」并记 rid 入 offQueue，连上补发时原地翻成「等待服务器回应…」不另起一条。服务端 网页服务 1.115 配套：_入向 最前面「收到即回执」——凡带 _rid 的帧立刻回 ack_r{_rid}（WS桥 1.28 加「动作回执」中文用途）。 原 3.25（2026-10-05）：末行兜底补严——「人类最后一条发言底下永远要有文字」（用户 2026-10-05 铁律：「人类最后一条发言底下总是有东西的……它不可能是空的，但是我无数次观察到它是空的……这个地方永远要有文字啊，网页版要自己检查，如果这个地方没有内容可以显示，就应该主动向服务器去索取」）。病灶：curMsgs 末行兜底原只有「活条 / 最后一次完整回复」两级，两级都取不到时什么都不补 → 末行就是人问、底下留白（刷新后 lastLiveRow=null、histLive 空、池里只有人问，ensureHist 的 400ms 宽限见 histNear 有人问即跳过索取，服务端那拍 live 又空窗，正是高发场景）。整改：①三级兜底——两级都取不到就补一条 role='p' 灰字占位「（正在取回这条回复…）」（不是「…」），永不留白；②缺料自检——置 S.回复缺料，renderAll 里 补料自检() 据此主动 reqHist 向服务端要最新一段（节流+退避：前 3 次每 4 秒、之后每 15 秒、上限 12 次；缺料解除/换会话即归零）；③buildMsgNode 为 role='p' 单出「无 who 头、无操作按钮」的灰字节点，正牌 AI 行一到即顶替。纯网页端，服务端逻辑零改动。 原 3.24（2026-10-05）：刷新后「回到我选定的对话」（用户 2026-10-05 铁律：「我在左侧列表选中了一个对话，我拼命刷新就是为了进入它，别给我跳到别的地方去——我的选中就是我的旨意」）。新增 LS_ANCHOR 锚定会话落盘：localSwitchTo 时把锚定 sid+标题写盘；页面启动（骨架列表渲染前）读盘恢复锚点并把骨架高亮对齐到它，杜绝「先亮错会话再跳」；首拍带回会话列表后若桌面停在别处则主动 sendCmd('switch') 把桌面切过去（一次性，anchor_need_switch）。adoptSnap 的「锚定会话已消失」分支加 hasList 守卫——hello 框架版快照暂无 convs 时不误判、不丢刚恢复的锚点，并在真消失时把新锚随实落盘。纯网页端，服务端逻辑零改动。 原 3.23（2026-10-05）：状态归属绑定会话（治「切会话残留上一会话状态」）——新增 S.snapSid，记录快照里「随会话走」的字段（sendIdle/inputText/tail/finish/ask/opts/官方排队条 pend）到底属于哪个会话，由 adoptSnap 如实维护：切换在途且桌面还没切过去时（inSid!==anchorSid）连 inputText/tail/sendIdle/finish 一并清、并置 snapSid=''；stolen 冻结旧会话字段时归属保持旧值。配套新增 状态失配()；renderState 失配时不显示他会话的「输出中/输入中」改显「正在切换到…/⟳ 同步中…」，renderAll 失配时摘除他会话的 finish/opts/ask/官方排队条。switchSrv/applySwitch 换目标即清 snapSid。纯网页端，服务端逻辑零改动。 原 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
@@ -4804,6 +4804,100 @@ function onMsg(msg){
   handleBody(body);
 }
 
+/* ===== 3.27 智能省流·固定块复用 =====
+   服务端把快照里「相对固定、非思维流」的部位（msgs/convs/sched）按内容指纹
+   切成固定块：首发 `ev k='blk' {id,ts,data}` 下发整块内容；随后快照里该部位
+   改写成引用 `{_blk:id}`。本端把收到的块静存本地（内存 + IndexedDB
+   `trae_webm_blk`），并回 `blk_ack{ids}` 告知「已记录」；解析快照时遇
+   `{_blk:id}` 即从本地取回内容拼好再渲染。本地缺块则回 `blk_need{ids}` 索要，
+   并用上一拍旧内容兜底免空白（块回来下一拍自愈）。某块超 15 分钟未被再次
+   引用即作废；服务端发 `ev k='blk_del' {ids}` 时本地同步清理。 */
+const BLK = Object.create(null);        /* id -> {data, last} */
+const BLK_TTL = 15*60*1000;             /* 15 分钟 TTL */
+const BLK_MISS_GAP = 5000;              /* 同一缺块 5 秒内不重复索要 */
+const BLK_STORE = ['msgs','convs','sched'];
+let _blk_db = null;
+const _blk_needAt = Object.create(null);
+
+function blkDb(){                       /* 打开/复用 IndexedDB（惰性、失败降级 null） */
+  if (_blk_db) return Promise.resolve(_blk_db);
+  return new Promise(res => {
+    try {
+      const rq = indexedDB.open('trae_webm_blk', 1);
+      rq.onupgradeneeded = () => {
+        const db = rq.result;
+        if (!db.objectStoreNames.contains('blk')) db.createObjectStore('blk');
+      };
+      rq.onsuccess = () => { _blk_db = rq.result; res(_blk_db); };
+      rq.onerror = () => res(null);
+    } catch(e){ res(null); }
+  });
+}
+function blkPut(id, data){              /* 存块：内存 + IndexedDB */
+  if (!id || data === undefined) return;
+  BLK[id] = {data: data, last: Date.now()};
+  blkDb().then(db => {
+    if (!db) return;
+    try { db.transaction('blk', 'readwrite').objectStore('blk').put(data, id); }
+    catch(e){}
+  });
+}
+function blkDrop(ids){                  /* 作废清理：内存 + IndexedDB */
+  (ids || []).forEach(id => {
+    if (!id) return;
+    delete BLK[id]; delete _blk_needAt[id];
+    blkDb().then(db => {
+      if (!db) return;
+      try { db.transaction('blk', 'readwrite').objectStore('blk').delete(id); }
+      catch(e){}
+    });
+  });
+}
+function blkLoad(){                     /* 启动：从 IndexedDB 恢复块表（载入即续命） */
+  blkDb().then(db => {
+    if (!db) return;
+    try {
+      const rq = db.transaction('blk', 'readonly').objectStore('blk').openCursor();
+      rq.onsuccess = () => {
+        const cur = rq.result;
+        if (!cur) return;
+        if (cur.value !== undefined) BLK[cur.key] = {data: cur.value, last: Date.now()};
+        cur.continue();
+      };
+    } catch(e){}
+  });
+}
+function blkNeed(id){                   /* 索要缺失块（限流，避免惊群） */
+  if (!id) return;
+  const now = Date.now();
+  if (_blk_needAt[id] && now - _blk_needAt[id] < BLK_MISS_GAP) return;
+  _blk_needAt[id] = now;
+  try { sendJson({t: 'blk_need', ids: [id]}); } catch(e){}
+}
+function blkResolve(snap){              /* 快照解析：{_blk:id} → 本地内容拼回 */
+  if (!snap || typeof snap !== 'object') return;
+  BLK_STORE.forEach(k => {
+    const v = snap[k];
+    if (!v || typeof v !== 'object' || Array.isArray(v) || !v._blk) return;
+    const id = v._blk;
+    if (BLK[id] && BLK[id].data !== undefined){
+      BLK[id].last = Date.now();        /* 命中即续命 */
+      snap[k] = BLK[id].data;
+      return;
+    }
+    blkNeed(id);                        /* 缺块 → 索要 */
+    const old = S.snap && S.snap[k];    /* 兜底：上一拍旧内容，免空白 */
+    snap[k] = (old && !old._blk) ? old : (k === 'sched' ? [] : []);
+  });
+}
+function blkSweep(){                    /* 定时清理：超 15 分钟未引用即作废 */
+  const now = Date.now(), del = [];
+  for (const id in BLK){
+    if (now - (BLK[id].last || 0) > BLK_TTL) del.push(id);
+  }
+  if (del.length) blkDrop(del);
+}
+
 function handleBody(body){
   let d;
   try { d = JSON.parse(body); } catch(e){ return; }
@@ -4832,7 +4926,8 @@ function handleBody(body){
             'var(--red)');
     return;
   }
-  if (d.t === 'ev') { onEv(d.k, d.v); return; }
+  /* 3.27：快照里的固定块引用 {_blk:id} 先还原成本地内容，再交渲染 */
+  if (d.t === 'ev') { if (d.k === 'snap') blkResolve(d.v); onEv(d.k, d.v); return; }
   /* 3.26：人类动作回执——服务端收到带 _rid 的人动作帧即回 ack_r → 悬浮窗打勾 */
   if (d.t === 'ack_r') { onAckR(d._rid); return; }
   /* 2.20 新架构：请求-响应配对（req_id → res） */
@@ -5111,6 +5206,17 @@ if (el.srvwho) el.srvwho.onclick = (ev) => { ev.stopPropagation(); srvWho(false)
 
 function onEv(kind, v){
   switch (kind){
+    case 'blk': {                      /* 3.27：固定块下发——静存本地并回执「已记录」 */
+      if (v && v.id){
+        blkPut(v.id, v.data);
+        try { sendJson({t: 'blk_ack', ids: [v.id]}); } catch(e){}
+      }
+      return;
+    }
+    case 'blk_del': {                  /* 3.27：固定块作废——本地同步清理 */
+      if (v && Array.isArray(v.ids)) blkDrop(v.ids);
+      return;
+    }
     case 'pendlist': {                 /* 1.35：服务端对账结果即时同步——
         撤卡/超时/排队推送不再等下一拍快照（poll=3s 时撤卡滞后 0~3s
         的根因）。服务端 _pend 是权威：列表里没有 = 已确认撤卡；
@@ -6337,6 +6443,10 @@ function 加载模块(名, 回调){
    没起就不跑）；此后全文件再无任何写入路径 → 不再复建。同 3.75 清 LS_HIST 的遗留清键路数。 */
 try { localStorage.removeItem('trae_webm_times'); } catch(e){}
 try { indexedDB.deleteDatabase('trae_webm_idb'); } catch(e){}
+
+/* 3.27：固定块复用——启动时从 IndexedDB 恢复块表，并每分钟清理超 15 分钟未引用的块。 */
+try { blkLoad(); } catch(e){}
+try { setInterval(blkSweep, 60000); } catch(e){}
 
 /* 3.24：刷新后先恢复「上次选定的对话」——在骨架列表渲染前把高亮对齐到它，免得
    秒出的骨架列表先亮错别的会话、随后再跳（用户 2026-10-05：「我在左侧选中了一个
