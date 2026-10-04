@@ -88,9 +88,12 @@ function cacheStatsRender(){
 }
 function clearHistCache(){
   /* 3.20（主文件）：聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / LS_TM）
-     已整删，本按钮不再需要清任何落盘缓存——保留空动作（清内存显示池 + 重取当前
-     会话），避免误触报错；面板「聊天记录缓存/历史深库」均显示「已停用」。
+     已整删，纯实时广播不落聊天记录——本按钮不再需要清任何「在写」的缓存。
+     3.21：仍保留一次性「遗留残渣清理」——把 3.19 及更早版本写下的 trae_webm_times
+     与 IndexedDB 库 trae_webm_idb 删掉（**只删不建**），免老数据白占地方。
      仍不删 LS_SKEL（会话列表，秒开用）与频道名等设置。 */
+  try { localStorage.removeItem('trae_webm_times'); } catch(e){}
+  try { indexedDB.deleteDatabase('trae_webm_idb'); } catch(e){}
   S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histNear = [];
   S.histLive = []; S.lastLiveRow = null; S.histVer = 0; S.histHave = 0; S.histShow = 4;
   flash('聊天记录缓存已停用（纯实时广播，无落盘记录可清）', 'var(--blue)');
