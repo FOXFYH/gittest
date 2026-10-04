@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.13</title>
+<title>TRAE远程 v3.14</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -47,10 +47,6 @@ select{font-size:12px;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-/* 3.13：ID拼接档「非实时档」醒目标识——黑底白字小徽章，与状态文字区分开 */
-#statebar .idchip{display:inline-block; margin-left:5px; padding:0 6px;
-  border-radius:3px; background:#222; color:#fff; font-weight:700;
-  font-size:11px; line-height:17px; vertical-align:1px; letter-spacing:0.3px;}
 /* 1.31b：未登录横幅——默认必须隐藏（此前漏了这段 CSS，横幅
    常驻飘着=误报）。仅快照 login===false 时 JS 加 .on 才显示 */
 #loginbar{display:none; flex:none; padding:6px 12px; font-size:12px;
@@ -706,14 +702,10 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
           <input type="checkbox" id="set_autofix" checked> 自动修复标签
         </label>
       </div>
-      <div class="row" data-page-node-id="switch_bcmode_row">
-        <label style="display:flex; align-items:center; gap:6px;">
-          广播模式
-          <select id="set_bcmode" style="font-size:12px; padding:2px 6px;">
-            <option value="live">现场直播模式</option>
-            <option value="id">ID拼接模式</option>
-          </select>
-        </label>
+      <!-- 3.14 §二：一键拉起/聚焦原版 TRAE（带调试端口）；结果经 launch_ack 回执 -->
+      <div class="row" style="gap:8px; margin-top:8px;">
+        <button id="btn_launch_trae" style="flex:1;">拉起 TRae</button>
+        <b id="lbl_launch_trae" class="diagv" style="flex:1;">—</b>
       </div>
     </fieldset>
     <fieldset data-page-node-id="diag_fs">
@@ -1250,7 +1242,7 @@ const WS_USE_MAP = {
   'req:hist':'索取历史账本', 'req:hist_prev':'索取更早历史',
   'req:folds':'索取折叠列表', 'req:fold':'索取折叠内容',
   'req:gap':'索取缺失消息', 'req:model_list':'索取模型列表',
-  'req:bc':'广播需求（启动/保持）', 'req:lq':'活组人问核缺',
+  'req:bc':'广播需求（启动/保持）',
   act:'上报界面动作', chk:'核对补发（did）',
   ctl_free:'释放操控权', ctl_hb:'操控续期',
   cmd:'操控命令', 'cmd:route_send':'发送发言（路由）', 'cmd:send':'发送发言',
@@ -1349,14 +1341,9 @@ function sendBootcast(mode){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv, ts: Date.now(), kind: 'bc'};
   /* 3.89（用户 2026-10-03）：喊话要求广播时**必须带上自己当前选中的是哪个对话**
-     （标题 + 稳定 sid），服务端据此确认「有没有切到这个对话」；并带上本端在该
-     会话已掌握的 ID 列表 have_ids，服务端按缺额回补（先 2 条、合计最多 8 条）。
-     3.90：保持广播（mode='keep'，在线每 1 分钟一条）同样带这套字段——服务端据此
-     判断要不要给它补发；喂饱这 8 条即不再索要，杜绝死循环。 */
+     （标题 + 稳定 sid），服务端据此确认「有没有切到这个对话」。 */
   sendJson({t: 'req', id: id, c: 'bc', mode: mode || 'keep', conv: conv,
             conv_sid: conv ? curSid() : '',
-            have_ids: conv ? histCacheIds(conv) : [],
-            have_mids: conv ? histCacheMids(conv) : [],
             /* 3.95（用户 2026-10-03）：喊话必须带上「本端已掌握历史的会话名册」
                ——服务端据此**只补缺的**（本端已有的会话不再塞种子），免得记录
                来回传。与 hist 请求同口径（histCacheConvs）。 */
@@ -1435,7 +1422,6 @@ const S = {
   /* 3.35：本地「近端落盘」——广播/hist-live/gap 收到的定稿行（7 位、带真实
      ID），按 mid 去重后并入显示基，保证「网页看的都是自己落盘的」。 */
   histNear: [],
-  gapSentAt: 0,         /* 3.35：dead_ids 核缺回发节流时刻 */
   /* 3.36：显示窗口——从最新往前只渲染这么多条定稿（用户 2026-10-03：切会话
      先本地秒显最新 4 条提速；向上翻先把本地多余的那几条放出来，放完才找服务器）。 */
   histShow: 4,
@@ -1483,7 +1469,6 @@ const el = {
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
   launch: $('btn_launch'), refresh_pts: $('btn_refresh_pts'), checkin: $('btn_checkin'),
   net: $('btn_net'), netpage: $('page_net'), set_autofix: $('set_autofix'),
-  set_bcmode: $('set_bcmode'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'),
@@ -1497,6 +1482,7 @@ const el = {
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
   check_fulls: $('btn_check_fulls'), lbl_fulls: $('lbl_fulls'),
   netclear: $('btn_netclear'), diagcopy: $('btn_diagcopy'),
+  launch_trae: $('btn_launch_trae'), lbl_launch_trae: $('lbl_launch_trae'),
   cache_ls: $('cache_ls'), cache_idb: $('cache_idb'), cache_skel: $('cache_skel'),
   cache_all: $('cache_all'), cacheclear: $('btn_cacheclear'), cacheref: $('btn_cacheref'),
   cache_lsk_det: $('cache_lsk_det'),
@@ -2024,11 +2010,8 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
           foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
           flash('已切到「' + title + '」', 'var(--blue)');
           /* 3.89（用户 2026-10-03）：切换会话改「申请式」——申请里带上目标会话
-             标题 + 本端在该会话已掌握的 ID 列表（have_ids）；服务端受理即按 ID 差集
-             算缺额回补（先 2 条快的、再补其余，合计最多 8 条），不止回一句"收到"。 */
-          sendCmd('switch', {sid: sid || String(i), title: title,
-                             have_ids: histCacheIds(title),
-                             have_mids: histCacheMids(title)});
+             标题 + 稳定 sid，服务端受理即切并回执，不止回一句"收到"。 */
+          sendCmd('switch', {sid: sid || String(i), title: title});
           drawerClose();
         }
       };
@@ -2959,11 +2942,11 @@ function histCacheConvs(){
 function reqHist(conv, have_seq, ver){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
-  /* 3.10（§5.4）：所需对话 ID=conv；附带「已掌握死消息 ID 列表 have_ids」+
-     「已掌握会话名册 have_convs」。旧服务端忽略多出的字段，行为不变。 */
+  /* 3.10（§5.4）：所需对话 ID=conv；附带「已掌握会话名册 have_convs」。
+     旧服务端忽略多出的字段，行为不变。 */
   sendJson({t: 'req', id: id, c: 'hist', conv: conv || '',
             have_seq: have_seq | 0, ver: ver | 0,
-            have_ids: histCacheIds(conv), have_convs: histCacheConvs()});
+            have_convs: histCacheConvs()});
 }
 function reqHistPrev(conv, from_seq, count){
   const id = ++reqSeq;
@@ -3061,13 +3044,11 @@ function onRes(id, k, v){
       if (v.reuse) reloadAnchorFromCache(); else applyBootcast(v);
       /* 3.89（用户 2026-10-03）：喊话时本端带上了「我当前选中的是哪个对话」，
          服务端回 '选中' 说明**它那头有没有切到这个对话**。若没切到 → 立刻补一次
-         切换申请（带本端已有 ID），让服务端当场切过去并按缺额回补，别让本端干等。 */
+         切换申请，让服务端当场切过去，别让本端干等。 */
       if (v.选中 === false && v.conv
           && (typeof S.switch_pend !== 'object' || !S.switch_pend)){
         try {
-          sendCmd('switch', {sid: curSid() || '', title: v.conv,
-                             have_ids: histCacheIds(v.conv),
-                             have_mids: histCacheMids(v.conv)});
+          sendCmd('switch', {sid: curSid() || '', title: v.conv});
         } catch(e){}
       }
     }
@@ -3233,8 +3214,7 @@ function ensureHist(){
   S.histEnd = false; S.histPullFrom = 0;       /* 3.77 ①：换锚会话重置到底标记/游标短路 */
   /* 3.10 纯实时（用户 2026-10-04 明令）：现场直播模式下，切换/进入会话**不得**
      用本地缓存（localStorage/IndexedDB）预填铺屏，也不做本地 4 条秒显——
-     只渲染服务端实时快照；未回帧宁可空屏，也不拿旧缓存顶上。
-     ID拼接模式不变（其完整内容本就依赖本地仓库+请求式回补拼接）。 */
+     只渲染服务端实时快照；未回帧宁可空屏，也不拿旧缓存顶上。 */
   const c = (isLiveMode()) ? null : histCacheRead(title);
   if (c){                                       /* 本地秒显历史（含近端 10 条） */
     S.histRaw = (c.msgs || []).slice();
@@ -3296,77 +3276,6 @@ function mergeNear(rows){
     renderAll();
   }
   return 变;
-}
-function reconcileDeadIds(v){
-  /* 3.35：稳态广播只带死号清单，网页端核对自身落盘，全有→静默；
-     缺哪条就把缺的真实 ID 回发（req gap），服务端按 ID 补内容立刻还我。
-     3.36：清单由最近 5 条扩到最近 10 条（与本地 10 条窗口对齐，杜绝中间空档）。 */
-  const ids = (v && Array.isArray(v.dead_ids)) ? v.dead_ids : [];
-  if (!ids.length) return;
-  const have = {};
-  (S.histMsgs || []).forEach(m => { const k = rowMid(m); if (k) have[k] = 1; });
-  (S.histNear || []).forEach(m => { const k = rowMid(m); if (k) have[k] = 1; });
-  const miss = ids.filter(x => x && !have[String(x)]);
-  if (!miss.length) return;                       /* 全有 → 静默 */
-  /* 已问过的号不再重复催（服务端查不到就查不到，别 1.5s 一次空转） */
-  if (!S.gapAsked) S.gapAsked = {};
-  const conv = curTitle();
-  if (!conv) return;
-  const ask = miss.filter(x => S.gapAsked[conv + '|' + x] !== 1);
-  if (!ask.length) return;
-  const now = Date.now();
-  if (now - (S.gapSentAt || 0) < 1500) return;    /* 节流：最多 1.5s 一次 */
-  S.gapSentAt = now;
-  ask.forEach(x => { S.gapAsked[conv + '|' + x] = 1; });
-  const id = ++reqSeq;
-  S_reqs[id] = {conv: conv, ts: now, kind: 'gap'};
-  sendJson({t: 'req', id: id, c: 'gap', conv: conv, ids: ask});
-}
-function askLiveIngest(ids){
-  /* 3.79 通用「提醒入库」（用户 2026-10-03：「发思维流的时候也再次提醒网页版
-     这边赶紧入库」）：把一组「人类发言真实 ID」核对本地**已落盘**的池，
-     缺哪条就回发（req lq）上报，服务端下一拍 snap 把完整内容打包
-     （live_q_msgs）搭车发回 → mergeNear 落盘。3.73 起用于 live_q_ids；
-     3.79 起多会话活条里的人问也走同一通道。 */
-  if (!ids || !ids.length) return;
-  const have = {};
-  (S.histMsgs || []).forEach(m => { const k = rowMid(m); if (k) have[k] = 1; });
-  (S.histNear || []).forEach(m => { const k = rowMid(m); if (k) have[k] = 1; });
-  (S.histDeep || []).forEach(m => { const k = rowMid(m); if (k) have[k] = 1; });
-  /* 3.79：histLive 里那条「正在生成的活卡片」只是**显示**、不算已入库——
-     故此处只认「已落盘的三池」。活条里仅显示、未落盘的人问会被判缺 → 上报，
-     请服务端帮忙补一次、随即落盘。 */
-  const miss = ids.filter(x => x && !have[String(x)]);
-  if (!miss.length) return;                       /* 全有 → 沉默 */
-  if (!S.lqAsked) S.lqAsked = {};
-  const conv = curTitle();
-  if (!conv) return;
-  const ask = miss.filter(x => S.lqAsked[conv + '|' + x] !== 1);
-  if (!ask.length) return;
-  const now = Date.now();
-  if (now - (S.lqSentAt || 0) < 1500) return;     /* 节流：最多 1.5s 一次 */
-  S.lqSentAt = now;
-  ask.forEach(x => { S.lqAsked[conv + '|' + x] = 1; });
-  const id = ++reqSeq;
-  S_reqs[id] = {conv: conv, ts: now, kind: 'lq'};
-  sendJson({t: 'req', id: id, c: 'lq', conv: conv, ids: ask});
-}
-function remindLiveIngest(rows){
-  /* 3.79：从一组活条（多会话 live_multi 的 rows）里抽出人问 mid，走同一套
-     「提醒入库」通道——这些行只在本端当活条显示，未落盘。 */
-  const ids = [];
-  (rows || []).forEach(m => {
-    if (m && m[0] === 'u'){ const k = rowMid(m); if (k) ids.push(k); }
-  });
-  askLiveIngest(ids);
-}
-function reconcileLiveQ(v){
-  /* 3.73 活组人问兜底（用户 2026-10-03）：广播思维流时随 snap 带「最后一条 AI
-     正牌回复之后全部人类发言 ID」（v.live_q_ids，正常 1 条、连续空发可多条）。
-     目的：绝不允许手机只看到思维流却不知它在回复哪个问题。核对/上报见
-     askLiveIngest（3.79 起抽出复用）。 */
-  const ids = (v && Array.isArray(v.live_q_ids)) ? v.live_q_ids : [];
-  askLiveIngest(ids);
 }
 function localPoolRows(){
   /* 3.36：本地「定稿池」——histMsgs(账本/骨架) ∪ histNear(近端落盘)，按真实 ID
@@ -4315,26 +4224,12 @@ function revertRefill(snap){
   flash('↩ 已撤回并取回：' + pv, 'var(--blue)', 6000);
 }
 
-function stateTag(){
-  /* 3.11：id（ID拼接）档为非实时档——状态条加醒目标识，避免误以为也是纯实时（总管定稿②）。
-     3.13：由「同色纯文字后缀」升级为「黑底白字小徽章」，更醒目、一眼区分两档（总管收尾令）。
-     用 appendChild 生成节点（不走 innerHTML，免转义风险）；直播档（isLiveMode()=true）不加。
-     el.state.textContent 仍含徽章文字，故 #fbar 全屏镜像照常带出该文案。 */
-  if (isLiveMode()) return;
-  el.state.appendChild(document.createTextNode(' '));
-  const chip = document.createElement('span');
-  chip.className = 'idchip';
-  chip.textContent = 'ID拼接·非实时档';
-  el.state.appendChild(chip);
-}
-
 function renderState(snap){
   S.gen = false;
   S.ready = !!(snap && snap.online);
   if (!S.ready){
     el.state.textContent = 'TRAE 界面未就绪';
     el.state.style.color = 'var(--red)';
-    stateTag();
     setSendBtn(false, false);
     fbarSync();                            // 1.62：全屏状态条跟随
     return;
@@ -4381,7 +4276,6 @@ function renderState(snap){
      横幅从未亮过；现补键修活，并按用户要求加「持续门槛」：
      连续未登录满 60 秒才算确诊（与服务端钉钉报警同一门槛，瞬断不误报）。 */
   renderLoginBar(snap);
-  stateTag();
   fbarSync();                              // 1.62：全屏状态条镜像 #statebar
 }
 /* 1.77：未登录横幅判定——60 秒持续门槛 + 每 5 秒复核 */
@@ -4627,7 +4521,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.13';   /* 3.13（2026-10-04）：ID(/id) 拼接档「非实时档」标识升级为黑底白字醒目标徽章
+const VER = '3.14';   /* 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+                        （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
+                        回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
+                        的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
+                        /gapSentAt/req gap 消费）、删 live_q_ids 及 req lq 上报（reconcileLiveQ
+                        /askLiveIngest/remindLiveIngest/live_q_msgs）、删 have_ids/have_mids
+                        上报（switch/bootcast/reqHist）、删 '补缺' 事件整段。广播只剩「纯现场
+                        直发」。原 3.13（2026-10-04）：ID(/id) 拼接档「非实时档」标识升级为黑底白字醒目标徽章
                         （原 3.11 为同色纯文字后缀）——让用户一眼区分两档（总管收尾令）；直播档不加。
    3.12（2026-10-04）：直播模式显示层硬闸——新增 isLiveMode() 单一真源（以 hello 的
                         bcmode 为准）；ensureHist/reloadAnchorFromCache 本地预填一律经其
@@ -5296,15 +5197,6 @@ function onEv(kind, v){
       }
       return;
     }
-    case '补缺': {                     /* 3.89：服务端按「本端已有 ID」算出的缺额补包 */
-      /* 切会话申请 / 喊话广播 时，服务端据本端上报的 have_ids 立刻算缺额回补：
-         首批 2 条（先两条，反应快）→ 其余（合计最多 8 条，留 2 条冗余）。行形状与历史包同
-         口径（固定 7 位），直接走唯一落库入口 mergeNear——落盘即显示，不必另写解析。 */
-      if (!v || v.conv !== curTitle()) return;      /* 只认当前锚定会话，防串台 */
-      const rows = (v.msgs || []).filter(m => m && (m[0] === 'u' || m[0] === 'a'));
-      if (mergeNear(rows)) renderAll();
-      return;
-    }
     case 'did_miss': {                 /* 2.30：服务端确认没受理过该 did
         → 卡片直接转「可能动作失败」，不必傻等到 60 秒。 */
       if (v && typeof v === 'string'){
@@ -5338,13 +5230,6 @@ function onEv(kind, v){
           const dead = (v.msgs || []).filter(m => m && !liveK[rowKey(m)]);
           mergeNear(dead);
           setHistLive(Array.isArray(v.live) ? v.live : []);
-          reconcileDeadIds(v);
-          reconcileLiveQ(v);
-          /* 3.73：服务端上一拍接到本端「缺活组人问」上报后，把其完整内容搭本次
-             snap（live_q_msgs）带回 → 并入本地落盘并重绘，帮本端入库。 */
-          if (Array.isArray(v.live_q_msgs) && v.live_q_msgs.length){
-            if (mergeNear(v.live_q_msgs.map(ledToArr))) renderAll();
-          }
         } else {
           /* 3.47：本拍广播的选中会话=别人，本端锚定会话在 TRAE 里【未被选中】。
              这拍附带 live_multi（服务端一拍读出所有生成中会话，含隐藏 pane）→
@@ -5353,10 +5238,6 @@ function onEv(kind, v){
           const lmRows = pickLiveMulti(v, S.anchorSid, S.anchorTitle);
           if (lmRows){
             setHistLive(lmRows);
-            /* 3.79：多会话（未选中）活思维流里也含「活组人问」那一行——它同样
-               只是显示、未落盘。抽其人问 mid 走同一套「提醒入库」通道，请服务端
-               下一拍搭车补内容、随即 mergeNear 落盘。 */
-            remindLiveIngest(lmRows);
           }
         }
         /* 3.61：不再按秒撤活条（用户明确否决 3.59 的「等 6 秒」）——某拍缺活条
@@ -5818,9 +5699,6 @@ function onHello(d){
   /* 3.02：兜底补发自动修复标签开关（连上后服务端与网页一致）——改「值变化才上报」
      +「每端点只报一次」的闸门（见 autofixReport）。 */
   autofixReport();
-  /* 3.08：广播模式——先按服务端回显对齐（本端无偏好时），再把本端偏好推给服务端 */
-  try { bcmodeApply(d && d.bcmode); } catch(e){}
-  bcmodeReport();
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
   if (d.box !== S.box){ applySwitch(d.box, port); }
@@ -6317,56 +6195,19 @@ if (el.set_autofix){
     flash(on ? '已开启自动修复标签' : '已关闭自动修复标签', 'var(--blue)');
   };
 }
-/* 3.08：广播模式切换（ID拼接模式 ↔ 现场直播模式）——与 autofix 同款闸门：
-   值变或本连接未报过才发，避免一次加载多条 hello 反复上报。 */
-const LS_BCMODE = 'trae_webm_bcmode';
-function bcmodeGet(){
-  try { const v = localStorage.getItem(LS_BCMODE);
-        return v === 'id' ? 'id' : 'live'; }
-  catch(e){ return 'live'; }
-}
-function isLiveMode(){
-  /* 3.12：显示层唯一模式真源——以「服务端 hello 确认的 bcmode」为准（S.bcmode），
-     hello 未到前回退本地偏好；返回 true=现场直播(live)，false=ID拼接(id)。
-     总管 2026-10-04 加急令：直播档必须硬闸显示层，绝不落回本地旧消息。 */
-  const m = (typeof S.bcmode === 'string' && S.bcmode) ? S.bcmode : bcmodeGet();
-  return m !== 'id';
-}
-function bcmodeReport(){
-  const m = bcmodeGet();
-  const gen = S.autofixGen || 0;
-  if (S.bcmodeSent === m && S.bcmodeSentGen === gen) return;
-  S.bcmodeSent = m;
-  S.bcmodeSentGen = gen;
-  sendJson({t:'cmd', c:'bcmode', a:{mode: m}});
-}
-function bcmodeApply(serverMode){
-  /* 服务端 hello 回显的模式：本端**无本地偏好**时采纳服务端值（首次访问）；
-     已有本地偏好则本端为准（由 onHello 的 bcmodeReport 推给服务端）。 */
-  if (serverMode === undefined || serverMode === null) return;
-  const _prevBc = S.bcmode;
-  S.bcmode = (String(serverMode) === 'id') ? 'id' : 'live';
-  let has = null; try { has = localStorage.getItem(LS_BCMODE); } catch(e){}
-  if (has === null){
-    const sm = (String(serverMode) === 'id') ? 'id' : 'live';
-    try { localStorage.setItem(LS_BCMODE, sm); } catch(e){}
-  }
-  if (el.set_bcmode) el.set_bcmode.value = bcmodeGet();
-  if (_prevBc !== S.bcmode){
-    S.histConv = '';                       /* 强制重判锚定会话 */
-    try { ensureHist(); } catch(e){}
-    try { renderAll(); } catch(e){}
-  }
-}
-if (el.set_bcmode){
-  el.set_bcmode.value = bcmodeGet();
-  el.set_bcmode.onchange = () => {
-    const m = (el.set_bcmode.value === 'id') ? 'id' : 'live';
-    try { localStorage.setItem(LS_BCMODE, m); } catch(e){}
-    S.bcmode = m;
-    bcmodeReport();
-    flash(m === 'id' ? '已切到 ID拼接模式' : '已切到 现场直播模式', 'var(--blue)');
+/* 3.14 §二：拉起 TRae（带调试端口启动/聚焦原版 TRAE）——点一下发 {t:'boot'}，
+   服务端 _on_boot → 拉起TRae() 执行三态并把结果经 launch_ack 回执（见 onEv）。 */
+if (el.launch_trae){
+  el.launch_trae.onclick = () => {
+    try { sendJson({t:'boot'}); } catch(e){}
+    flash('正在拉起 TRae…', 'var(--blue)');
+    if (el.lbl_launch_trae) el.lbl_launch_trae.textContent = '拉起中…';
   };
+}
+/* 3.14：广播只剩「纯现场直发」——显示层恒为直播档。保留 isLiveMode() 单一真源
+   供既有调用点使用（恒返回 true），不再依赖任何模式状态/本地偏好。 */
+function isLiveMode(){
+  return true;
 }
 
 /* 1.xx：连接诊断按钮（重连/测电脑端回应/检测最大化/清空日志）——
