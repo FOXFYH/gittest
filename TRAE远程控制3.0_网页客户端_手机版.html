@@ -2606,9 +2606,9 @@ const S_reqs = {};                       /* id → {conv, ts}（防过期回包�
 const CACHE_FMT = 1;
 function cacheKeyNow(){ return 'f' + CACHE_FMT; }
 function checkVerBump(){
-  /* 首次定键 / 版本变化 → 清空本地骨架缓存（改版重下）。3.21：历史深库（IndexedDB）
-     与内存镜像已整删，此处不再按版本变化清库；3.19 及更早的遗留残渣由下方一次性清
-     理统一收拾（只删不建）。 */
+  /* 首次定键 / 版本变化 → 清空本地骨架缓存（改版重下）。3.22：历史深库（IndexedDB）
+     与内存镜像已整删，此处不再按版本变化清库；3.19 及更早的遗留残渣改由页面「启动」处
+     一次性清理（打开即清、不依赖连上服务端，只删不建）。 */
   const k = cacheKeyNow();
   if (cacheKey !== null && cacheKey !== k){
     try { localStorage.removeItem(LS_SKEL); } catch(e){}
@@ -2618,12 +2618,6 @@ function checkVerBump(){
   /* 3.75：历史仓库统一到 IndexedDB——遗留的 localStorage 历史键一次性清掉，
      防旧数据干扰（此后不再写入，全文件仅此一处 removeItem(LS_HIST)）。 */
   try { localStorage.removeItem(LS_HIST); } catch(e){}
-  /* 3.21（用户 2026-10-05）：聊天记录缓存层已整删——把 3.20 及更早版本写下的遗留
-     残渣一次性清掉：times 首见时间表（trae_webm_times）+ IndexedDB 历史深库
-     （trae_webm_idb，3.19 之前「只写不读」写下的真实数据）。此处**只删不建**，
-     此后全文件再无任何写入路径 → 不再复建。 */
-  try { localStorage.removeItem('trae_webm_times'); } catch(e){}
-  try { indexedDB.deleteDatabase('trae_webm_idb'); } catch(e){}
   purgeStaleCache();                              /* 3.57：顺手清掉磁盘上键号过期的旧缓存 */
 }
 function purgeStaleCache(){
@@ -4213,7 +4207,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.21';   /* 3.21（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于 checkVerBump 与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.22';   /* 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
@@ -6054,6 +6048,13 @@ function 加载模块(名, 回调){
 }
 
 /* ================= 启动 ================= */
+
+/* 3.22（用户 2026-10-05）：打开页面即一次性清掉「聊天记录缓存」的遗留残渣——times 首见
+   时间表（trae_webm_times）+ IndexedDB 历史深库（trae_webm_idb，3.19 及更早「只写不读」
+   写下的真实数据）。此处**只删不建**、不依赖是否连上服务端（checkVerBump 走 hello，服务端
+   没起就不跑）；此后全文件再无任何写入路径 → 不再复建。同 3.75 清 LS_HIST 的遗留清键路数。 */
+try { localStorage.removeItem('trae_webm_times'); } catch(e){}
+try { indexedDB.deleteDatabase('trae_webm_idb'); } catch(e){}
 
 renderVer();                     /* 1.xx：统一版本号（三处同步） */
 /* 2.20 新架构：骨架秒出——本地缓存的会话列表直接渲染，不用等连上 */
