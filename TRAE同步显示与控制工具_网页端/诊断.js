@@ -32,7 +32,7 @@ function syncModel(cur){
 
 /* ================= 连接 / 事件流 ================= */
 
-let ws = null, reconnectTimer = null, kaTimer = null;
+let ws = null, reconnectTimer = null;
 let helloTimer = null, helloTries = 0, gotHello = false;
 
 /* ========== 1.xx：连接诊断（网络页） ==========
@@ -110,7 +110,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.41';   /* 2.41：一键换号迁移弹窗加同款设置——「保留最近 N 轮」（默认 100）+
+const VER = '2.42';   /* 2.42：删除链路保活 PING——网页端 kaTimer/ws.send('ping')、常量
+                         KA_SEC，与服务端 run_forever 底层 PING、KA_SEC 保活分支
+                         一并去除（本软件免 PING，由中继自动保持在线）。
+                         2.41：一键换号迁移弹窗加同款设置——「保留最近 N 轮」（默认 100）+
                          ☑清理其它账号 + ☐智能迁移最重度账号 + ☑自动压缩；下发改为
                          dict `{目标,轮次,清理,压缩,迁移}`（服务端换号内核 1.10 起支持，
                          与电脑上的「TRAE换号工具」同一款内核）。旧式纯号码仍兼容。

@@ -12,7 +12,7 @@ function renderVer(box){
 
 /* 1.60：统一「拆旧连接」。
    原来只摘了 onclose，留下三个后患（用户「频繁掉线」观感的主因之一）：
-     ① 旧连接的 kaTimer / hbTimer 停不掉 → 定时器泄漏，越重连越多个心跳在跑；
+     ① 旧连接的 hbTimer 停不掉 → 定时器泄漏，越重连越多个心跳在跑；
      ② 旧连接的 onerror 还活着 → 关它时把「WS 错误」计数刷高（数字虚高，
         会误判成中继不稳）；关闭旧连接过程中也会触发 onerror。
      ③ 若保留旧 onclose，会再排一次重连定时器 → 叠加连接风暴。
@@ -24,7 +24,6 @@ function teardownWs(){
       ws.close();
     }
   } catch(e){}
-  clearInterval(kaTimer);  kaTimer = null;
   clearInterval(hbTimer);  hbTimer = null;
   clearTimeout(helloTimer);
   clearTimeout(reconnectTimer);
@@ -56,10 +55,7 @@ function connect(){
     DIAG.reconn = 0; DIAG.reconnActive = false;   // 1.66：成功连上=一轮结束，重试计数归零
     diagLog('已连上中转服务器', 'ok');
     setOnLine(true);
-    clearInterval(kaTimer);
-    kaTimer = setInterval(() => {
-      try { ws.send('ping'); statsAdd(0, 4, 0, 1); } catch(e){}
-    }, KA_SEC * 1000);
+    /* 2.42：删除链路保活 PING（本软件免 PING，由中继自动保持在线） */
     /* v1.32：登录 → 服务端开始广播；loginWatch 兜底握手首条被中继丢弃 */
     cliRebind();
     cliLogin('上线');
@@ -85,7 +81,6 @@ function connect(){
                           : '断线（' + RECONNECT + 's 后重连 #' + DIAG.reconn + '）'),
             'bad');
     setOnLine(false);
-    clearInterval(kaTimer);
     clearTimeout(helloTimer);
     loggedIn = false; clearInterval(hbTimer);   // 断线＝退出登录
     lastBeatOk = 0;                             // 1.57：心跳计时重置
