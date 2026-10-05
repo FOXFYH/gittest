@@ -9,6 +9,8 @@
    2.34：字号落盘 localStorage——调好一次长期生效，不必每回重调。
    2.36：去掉自带右键/长按小菜单——复制/粘贴等改用浏览器原生菜单
          （自绘菜单与原生菜单会重叠，故取消）。
+   2.37：正文顶部下拉 → 松手从头重读本文件（抓取电脑上最新内容，
+         与 📂 浏览页列表的下拉刷新同款手感）。
    ★ 发送钩子：_send(t, params) —— 移植时若你的发送函数不叫
      sendJson，只改 _send 里那一行即可。 */
 (function(){
@@ -56,9 +58,13 @@
   /* ---- DOM + CSS 注入（一次性） ---- */
   var box = null, ttl = null, pre = null, note = null, more = null,
       fm = null, fp = null, fsz = null,
-      ed = null, saveBtn = null, cancelBtn = null;
+      ed = null, saveBtn = null, cancelBtn = null,
+      fbody = null, frPull = null;
   var origText = '';          /* 进入编辑时的原文本（取消时还原） */
   var pendingEdit = false;    /* 未读完就点 ✎：先自动续读到底再进编辑 */
+  /* 2.37：正文下拉刷新状态（松手从头重读本文件） */
+  var FR_PULL_MAX = 84, FR_PULL_TRIG = 56;
+  var frStartY = 0, frActive = false, frDist = 0;
   function applyFont(){            /* 应用当前字号到正文 + 刷新读数 */
     if (pre) pre.style.fontSize = fontSize + 'px';
     if (fsz) fsz.textContent = fontSize;
@@ -88,6 +94,12 @@
       '#freader .fr_note{padding:20px 14px;color:#888;font-size:14px;text-align:center}' +
       '#freader .fr_more{display:block;width:calc(100% - 24px);margin:0 12px 40px;padding:12px;' +
         'border:1px solid #e8e8e8;background:#fafafa;color:#222;border-radius:8px;font-size:14px}' +
+      '#freader .fr_pull{height:0;overflow:hidden;display:flex;align-items:center;' +
+        'justify-content:center;gap:6px;font-size:13px;color:#888}' +
+      '#freader .fr_pull.settle{transition:height .18s ease}' +
+      '#freader .fr_pull.ready{color:#222}' +
+      '#freader .fr_pull.load .fp_spin{display:inline-block;animation:frspin .8s linear infinite}' +
+      '@keyframes frspin{from{transform:rotate(0)}to{transform:rotate(360deg)}}' +
       '#freader .fr_save,#freader .fr_cancel{display:none}' +
       '#freader.edit .fr_ed,#freader.edit .fr_fm,#freader.edit .fr_fsz,#freader.edit .fr_fp{display:none}' +
       '#freader.edit .fr_save,#freader.edit .fr_cancel{display:inline-block}' +
@@ -119,6 +131,7 @@
         '<button class="fr_fp" title="放大字号">A+</button>' +
       '</div>' +
       '<div class="fr_body">' +
+        '<div class="fr_pull"><span class="fp_spin">↻</span><span class="fp_txt">下拉刷新</span></div>' +
         '<pre></pre>' +
         '<button class="fr_more" style="display:none"></button>' +
         '<div class="fr_note"></div>' +
@@ -135,6 +148,9 @@
     ed = box.querySelector('.fr_ed');
     saveBtn = box.querySelector('.fr_save');
     cancelBtn = box.querySelector('.fr_cancel');
+    fbody = box.querySelector('.fr_body');
+    frPull = box.querySelector('.fr_pull');
+    bindPull();
 
     box.querySelector('.fr_back').onclick = close;
     ed.onclick = enterEdit;
@@ -166,12 +182,67 @@
     }
     cur = null;
     pendingEdit = false;
+    frPullReset();
   }
 
   function pull(){
     if (!cur) return;
     note.textContent = '读取中…';
     _send('bench_read', {p: cur.path, off: cur.off});
+  }
+
+  /* ---- 2.37：正文下拉刷新（松手从头重读本文件，抓取电脑上最新内容） ---- */
+  function frPullSet(h, txt, settle){
+    if (!frPull) return;
+    frPull.classList.toggle('settle', !!settle);
+    frPull.style.height = Math.max(0, h) + 'px';
+    if (txt != null) frPull.querySelector('.fp_txt').textContent = txt;
+  }
+  function frPullReset(){
+    frActive = false; frDist = 0;
+    if (!frPull) return;
+    frPull.classList.remove('load', 'ready');
+    frPullSet(0, '下拉刷新', true);
+  }
+  function frReload(){             /* 松手过阈：从头重读本文件 */
+    frActive = false;
+    if (frPull){ frPull.classList.add('load'); frPull.classList.remove('ready'); }
+    frPullSet(FR_PULL_TRIG, '刷新中…', true);
+    if (!cur) return;
+    cur.off = 0; cur.size = 0;
+    pre.textContent = '';
+    more.style.display = 'none';
+    note.textContent = '读取中…';
+    if (fbody) fbody.scrollTop = 0;
+    pull();
+  }
+  function bindPull(){
+    if (!fbody) return;
+    fbody.addEventListener('touchstart', function(e){
+      if (!box.classList.contains('on') || box.classList.contains('edit')){
+        frActive = false; return;
+      }
+      if (fbody.scrollTop <= 0){ frStartY = e.touches[0].clientY; frActive = true; frDist = 0; }
+      else frActive = false;
+    }, {passive: true});
+    fbody.addEventListener('touchmove', function(e){
+      if (!frActive) return;
+      var dy = e.touches[0].clientY - frStartY;
+      if (dy <= 0 || fbody.scrollTop > 0){
+        if (frDist){ frDist = 0; if (frPull) frPull.classList.remove('ready'); frPullSet(0, '下拉刷新', false); }
+        return;
+      }
+      frDist = Math.min(FR_PULL_MAX, dy * 0.5);
+      if (frPull) frPull.classList.toggle('ready', frDist >= FR_PULL_TRIG);
+      frPullSet(frDist, frDist >= FR_PULL_TRIG ? '松手刷新' : '下拉刷新', false);
+      if (e.cancelable) e.preventDefault();
+    }, {passive: false});
+    fbody.addEventListener('touchend', function(){
+      if (!frActive) return;
+      frActive = false;
+      if (frDist >= FR_PULL_TRIG) frReload(); else frPullReset();
+    });
+    fbody.addEventListener('touchcancel', function(){ if (frActive) frPullReset(); });
   }
 
   /* ---- 编辑 / 保存（2.33：顶部 ✎ 就地编辑 → 💾 写回电脑原文件）---- */
@@ -251,12 +322,14 @@
     more.style.display = 'none';
     ttl.textContent = baseName(path);
     box.classList.add('on');
-    box.querySelector('.fr_body').scrollTop = 0;
+    frPullReset();
+    if (fbody) fbody.scrollTop = 0;
     pull();
   }
 
   function onData(v){
     if (!cur || !box || !box.classList.contains('on')) return;
+    frPullReset();                 /* 2.37：任一应答到达即收起下拉区 */
     if (v && v.path && cur.path && v.path !== cur.path) return;   /* 非本次阅读，忽略 */
     if (!v || !v.ok){
       if (pendingEdit) pendingEdit = false;

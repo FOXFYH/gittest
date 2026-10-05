@@ -110,7 +110,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.42';   /* 2.42：删除链路保活 PING——网页端 kaTimer/ws.send('ping')、常量
+const VER = '2.43';   /* 2.43：TXT 阅读器正文加「下拉刷新」——正文顶部下拽、松手从头重读
+                         本文件，抓取电脑上最新内容（与 📂 浏览页列表的下拉刷新同款）。
+                         2.42：删除链路保活 PING——网页端 kaTimer/ws.send('ping')、常量
                          KA_SEC，与服务端 run_forever 底层 PING、KA_SEC 保活分支
                          一并去除（本软件免 PING，由中继自动保持在线）。
                          2.41：一键换号迁移弹窗加同款设置——「保留最近 N 轮」（默认 100）+
