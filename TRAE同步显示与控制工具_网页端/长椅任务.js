@@ -12,6 +12,7 @@ function benchIns(path){
   flash('已插入路径', 'var(--green)');
 }
 function benchOpen(path){          /* 2.28：本地主动弹窗——直接打开浏览页到指定路径 */
+  if (window.FileRead) FileRead.close();   /* 关掉可能盖在上面的阅读器 */
   S.bench_mode = 'ins';
   el.benchpage.classList.add('on');
   benchReq(path || '');
