@@ -29,6 +29,11 @@ function onEv(kind, v){
       }
       return;
     }
+    case 'bench_write': {              /* 2.33：阅读器「编辑→保存」写回结果
+        （v={ok,path,size,enc} 或 {ok:False,err}）→ 交给阅读器收尾 */
+      if (window.FileRead && FileRead.onSaved) FileRead.onSaved(v);
+      return;
+    }
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
       /* 1.xx：登录轻启动——服务端 hello 只发「框架版」快照（无 msgs，
