@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>本地文件查看器</title>
+<style>
+:root{--bg:#fff;--fg:#222;--sub:#888;--line:#e8e8e8;--card:#fafafa;--acc:#333}
+@media(prefers-color-scheme:dark){:root{--bg:#161616;--fg:#ddd;--sub:#888;--line:#2c2c2c;--card:#1e1e1e;--acc:#ccc}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;line-height:1.5}
+#bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--line)}
+#bar button{flex:none;width:36px;height:36px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;font-size:16px;padding:0}
+#bar button:active{background:var(--line)}
+#title{flex:1;min-width:0;font-size:14px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#crumbs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 10px;font-size:13px;border-bottom:1px solid var(--line)}
+#crumbs span{cursor:pointer;color:var(--sub)}
+#crumbs span b{color:var(--fg);font-weight:600}
+#list{padding:2px 0 40px}
+.row{display:flex;align-items:center;gap:10px;padding:12px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.row:active{background:var(--card)}
+.row .ic{flex:none;width:22px;text-align:center;font-size:17px}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .meta{flex:none;font-size:12px;color:var(--sub)}
+.row.dir .nm{font-weight:600}
+#reader{display:none;padding:0 0 60px}
+#text{margin:0;padding:14px 14px 60px;white-space:pre-wrap;word-break:break-word;
+      font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+      font-size:16px;line-height:1.75;color:var(--fg)}
+#more{display:block;width:calc(100% - 24px);margin:10px 12px 40px;padding:12px;border:1px solid var(--line);
+      background:var(--card);color:var(--fg);border-radius:8px;font-size:14px}
+#note{padding:20px 14px;color:var(--sub);font-size:14px;text-align:center}
+#status{position:fixed;left:0;right:0;bottom:0;padding:5px 10px;font-size:11px;color:var(--sub);
+        background:var(--bg);border-top:1px solid var(--line);display:flex;justify-content:space-between}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#bbb;margin-right:5px;vertical-align:middle}
+.dot.on{background:#3aa655}.dot.off{background:#c0392b}
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="btnBack">←</button>
+  <div id="title">加载中…</div>
+  <button id="btnHome">⌂</button>
+  <button id="btnUp">↑</button>
+  <button id="btnFont">A</button>
+</div>
+<div id="crumbs"></div>
+<div id="list"></div>
+<div id="reader"><pre id="text"></pre><div id="note"></div></div>
+<div id="status"><span id="stLeft"><span class="dot" id="dot"></span><span id="stTxt">连接中…</span></span><span id="stVer">v1.00</span></div>
+
+<script>
+// ============ 配置（由服务端注入） ============
+const CHANNEL="fyhbus", API_KEY="ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug", TOKEN="fvwr9k2q7x", NS="FVWR";
+const WS_URL="wss://free.blr2.piesocket.com/v3/"+CHANNEL+"?api_key="+API_KEY;
+const REQ_PRE="【"+NS+"Q】", REQ_SUF="【/"+NS+"Q】", RESP_PRE="【"+NS+"A】", RESP_SUF="【/"+NS+"A】";
+
+// ============ 工具 ============
+const MY_ID=(()=>{let i=localStorage.getItem("fvwr_id");if(!i){i="";for(let k=0;k<10;k++)i+=Math.floor(Math.random()*10);localStorage.setItem("fvwr_id",i);}return i;})();
+let ridSeq=0;
+function pad3(n){return String(n).padStart(3,"0");}
+function foxWrap(payload){
+  const d=new Date(),p=n=>String(n).padStart(2,"0");
+  const ts=""+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());
+  let r="";const C="abcdefghijklmnopqrstuvwxyz";for(let i=0;i<8;i++)r+=C[Math.floor(Math.random()*26)];
+  const mid=ts+r, seg=4000;
+  if(payload.length<=seg) return ["【FOXID:"+mid+MY_ID+"=cut(001/001)】"+payload];
+  const total=Math.ceil(payload.length/seg), out=[];
+  for(let i=0;i<total;i++) out.push("【FOXID:"+mid+MY_ID+"=cut("+pad3(i+1)+"/"+pad3(total)+")】"+payload.substr(i*seg,seg));
+  return out;
+}
+const FOX_RE=/^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】([\s\S]*)/;
+function fmtSize(n){if(n==null)return"";if(n<1024)return n+"B";if(n<1048576)return (n/1024).toFixed(1)+"K";if(n<1073741824)return (n/1048576).toFixed(1)+"M";return (n/1073741824).toFixed(1)+"G";}
+function fmtTime(s){if(!s)return"";const d=new Date(s*1000);const p=n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"/"+p(d.getMonth()+1)+"/"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes());}
+
+// ============ WS ============
+let ws=null, connected=false, recvBuf={}, pending={};
+function setStatus(cls,txt){document.getElementById("dot").className="dot "+cls;document.getElementById("stTxt").textContent=txt;}
+function connect(){
+  setStatus("","连接中…");
+  try{ws=new WebSocket(WS_URL);}catch(e){setStatus("off","连接失败");return;}
+  ws.onopen=()=>{connected=true;setStatus("on","已连接");probe();};
+  ws.onclose=()=>{connected=false;setStatus("off","离线，重连中…");setTimeout(connect,5000);};
+  ws.onerror=()=>{setStatus("off","连接异常");};
+  ws.onmessage=(ev)=>onMessage(ev.data);
+}
+function sendPayload(payload){
+  if(!connected||!ws)return;
+  const items=foxWrap(payload);
+  items.forEach((it,i)=>setTimeout(()=>{try{ws.send(it);}catch(e){}},i*30));
+}
+function onMessage(raw){
+  const m=FOX_RE.exec(raw); if(!m)return;
+  const sender=m[3], mid=m[1]+m[2], idx=parseInt(m[4]), total=parseInt(m[5]), body=m[6];
+  if(sender===MY_ID)return;  // 自己的回显
+  let payload=body;
+  if(total>1){
+    if(!recvBuf[mid])recvBuf[mid]={total:total,parts:{}};
+    recvBuf[mid].parts[idx]=body;
+    if(Object.keys(recvBuf[mid].parts).length<total)return;
+    let a=[];for(let i=1;i<=total;i++)a.push(recvBuf[mid].parts[i]||"");
+    payload=a.join("");delete recvBuf[mid];
+  }
+  if(payload.startsWith(RESP_PRE)&&payload.endsWith(RESP_SUF)){
+    let obj;try{obj=JSON.parse(payload.slice(RESP_PRE.length,payload.length-RESP_SUF.length));}catch(e){return;}
+    const p=pending[obj.rid];
+    if(!p)return;
+    clearTimeout(p.timer);delete pending[obj.rid];p.resolve(obj);
+  }
+}
+function req(t,params,timeout){
+  timeout=timeout||20000;
+  return new Promise(resolve=>{
+    const rid=MY_ID+"_"+(++ridSeq);
+    const obj=Object.assign({v:1,t:t,tk:TOKEN,rid:rid},params||{});
+    const payload=REQ_PRE+JSON.stringify(obj)+REQ_SUF;
+    const timer=setTimeout(()=>{delete pending[rid];resolve({ok:false,err:"本地服务未响应（可能没开）"});},timeout);
+    pending[rid]={resolve:resolve,timer:timer};
+    sendPayload(payload);
+  });
+}
+
+// ============ 导航状态 ============
+let curPath=null;     // 当前目录（null=盘符根视图）
+let inReader=false;
+let reading=null;     // 当前阅读中的文件 {path,off,size}
+let fontSize=16;
+function el(id){return document.getElementById(id);}
+function showBrowse(){inReader=false;el("reader").style.display="none";el("list").style.display="block";el("crumbs").style.display="flex";}
+function showReader(){inReader=true;el("list").style.display="none";el("crumbs").style.display="none";el("reader").style.display="block";}
+
+function probe(){ req("roots").then(r=>{ if(r.ok){ renderRoots(r); } else { el("note").textContent=r.err||"连接失败"; } }); }
+
+function renderRoots(r){
+  showBrowse(); curPath=null;
+  el("title").textContent="此电脑";
+  el("crumbs").innerHTML="";
+  const box=el("list");box.innerHTML="";
+  (r.shortcuts||[]).forEach(s=>box.appendChild(rowEl(s.n,true,s.p,0,0)));
+  (r.drives||[]).forEach(d=>box.appendChild(rowEl("盘符 "+d,true,d,0,0)));
+}
+function rowEl(name,isDir,path,size,mtime){
+  const d=document.createElement("div");
+  d.className="row"+(isDir?" dir":"");
+  d.innerHTML='<span class="ic">'+(isDir?"📁":"📄")+'</span><span class="nm"></span><span class="meta"></span>';
+  d.querySelector(".nm").textContent=name;
+  d.querySelector(".meta").textContent=isDir?"":fmtSize(size);
+  d.onclick=()=>{ if(isDir) openDir(path); else openFile(path); };
+  return d;
+}
+function openDir(path){
+  req("ls",{path:path}).then(r=>{
+    if(!r.ok){alert(r.err||"打开失败");return;}
+    curPath=r.path||path;
+    showBrowse();
+    el("title").textContent=curPath;
+    renderCrumbs(curPath);
+    const box=el("list");box.innerHTML="";
+    (r.entries||[]).forEach(e=>{
+      const full=curPath.replace(/[\\/]$/,"")+"\\"+e.n;
+      box.appendChild(rowEl(e.n,e.d,full,e.s,e.m));
+    });
+    if(!(r.entries||[]).length){box.innerHTML='<div id="note">空文件夹</div>';}
+    window.scrollTo(0,0);
+  });
+}
+function renderCrumbs(path){
+  const c=el("crumbs");c.innerHTML="";
+  const parts=path.split(/[\\/]/).filter(x=>x!=="");
+  // 盘符（如 D:）
+  const root=parts[0]||"";
+  let acc=root+"\\";
+  const s0=document.createElement("span");s0.innerHTML="<b>"+root+"</b>";s0.onclick=()=>openDir(acc);c.appendChild(s0);
+  for(let i=1;i<parts.length;i++){
+    acc=acc.replace(/[\\/]$/,"")+"\\"+parts[i];
+    const sp=document.createElement("span");sp.textContent="›";c.appendChild(sp);
+    const s=document.createElement("span");s.textContent=parts[i];
+    (function(p){s.onclick=()=>openDir(p);})(acc);
+    c.appendChild(s);
+  }
+}
+function openFile(path){
+  showReader();
+  el("text").textContent="";
+  el("note").textContent="读取中…";
+  el("more").style.display="none";
+  reading={path:path,off:0,size:0,first:true};
+  el("title").textContent=path.split(/[\\/]/).pop();
+  pullChunk();
+}
+function pullChunk(){
+  if(!reading)return;
+  req("read",{path:reading.path,off:reading.off}).then(r=>{
+    if(!r||!r.ok){el("note").textContent=(r&&r.err)||"读取失败";return;}
+    if(r.bin){el("note").textContent=r.err||"非文本文件";el("text").textContent="";return;}
+    if(r.err){el("note").textContent=r.err;return;}
+    el("note").textContent="";
+    el("text").textContent+=r.text;
+    reading.size=r.size;
+    el("title").textContent=reading.path.split(/[\\/]/).pop()+"（"+fmtSize(r.size)+"）";
+    if(r.next!=null){
+      reading.off=r.next;
+      const b=el("more");
+      b.style.display="block";
+      b.textContent="继续加载（已到 "+fmtSize(reading.off)+" / "+fmtSize(r.size)+"）";
+    }
+  });
+}
+function goBack(){
+  if(inReader){ reading=null; showBrowse(); if(curPath)openDir(curPath); else probe(); return; }
+  if(curPath){
+    const parts=curPath.split(/[\\/]/).filter(x=>x!=="");
+    if(parts.length<=1){ probe(); return; }
+    parts.pop();
+    let p=parts[0]+"\\"; if(parts.length>1) p=parts[0]+"\\"+parts.slice(1).join("\\");
+    openDir(p);
+  }
+}
+function goUp(){
+  if(inReader){ goBack(); return; }
+  goBack();
+}
+function goHome(){ if(inReader){reading=null;} showBrowse(); probe(); }
+
+// ============ 事件 ============
+el("btnBack").onclick=goBack;
+el("btnUp").onclick=goUp;
+el("btnHome").onclick=goHome;
+el("btnFont").onclick=()=>{
+  fontSize=fontSize>=24?14:fontSize+2;
+  el("text").style.fontSize=fontSize+"px";
+  el("btnFont").textContent="A"+fontSize;
+};
+document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
+// 阻止双击缩放
+let lastTouch=0;
+document.addEventListener("touchend",e=>{const n=Date.now();if(n-lastTouch<300)e.preventDefault();lastTouch=n;},{passive:false});
+
+connect();
+</script>
+</body>
+</html>
