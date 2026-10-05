@@ -26,7 +26,9 @@
 
   /* ---- 状态 ---- */
   var cur = null;         /* 当前阅读中的文件 {path, off, size} */
-  var fontSize = 16;      /* 正文默认字号（14~24 循环） */
+  /* 正文字号：A- / A+ 手动调节，下限 6 号（用户 2026-10-05 要求） */
+  var MIN_FONT = 6, MAX_FONT = 24, FONT_STEP = 2;
+  var fontSize = 16;
 
   function fmtSize(n){
     if (n == null) return '';
@@ -40,7 +42,12 @@
   }
 
   /* ---- DOM + CSS 注入（一次性） ---- */
-  var box = null, ttl = null, pre = null, note = null, more = null, fbtn = null;
+  var box = null, ttl = null, pre = null, note = null, more = null,
+      fm = null, fp = null, fsz = null;
+  function applyFont(){            /* 应用当前字号到正文 + 刷新读数 */
+    if (pre) pre.style.fontSize = fontSize + 'px';
+    if (fsz) fsz.textContent = fontSize;
+  }
 
   function inject(){
     if (box) return;
@@ -55,6 +62,7 @@
         'background:#fafafa;color:#222;border-radius:8px;font-size:16px;padding:0 8px}' +
       '#freader .fr_bar button:active{background:#e8e8e8}' +
       '#freader .fr_ttl{flex:1;min-width:0;font-size:14px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '#freader .fr_fsz{flex:none;min-width:26px;text-align:center;font-size:14px;color:#666}' +
       '#freader .fr_body{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:0 0 60px}' +
       '#freader pre{margin:0;padding:14px 14px 60px;white-space:pre-wrap;word-break:break-word;' +
         'font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;' +
@@ -68,6 +76,7 @@
         '#freader .fr_bar button{background:#1e1e1e;color:#ddd;border-color:#2c2c2c}' +
         '#freader .fr_bar button:active{background:#2c2c2c}' +
         '#freader pre{color:#ddd}' +
+        '#freader .fr_fsz{color:#aaa}' +
         '#freader .fr_note{color:#888}' +
         '#freader .fr_more{background:#1e1e1e;color:#ddd;border-color:#2c2c2c}' +
       '}';
@@ -79,7 +88,9 @@
       '<div class="fr_bar">' +
         '<button class="fr_back" title="返回">←</button>' +
         '<span class="fr_ttl"></span>' +
-        '<button class="fr_font" title="字号">A16</button>' +
+        '<button class="fr_fm" title="缩小字号">A-</button>' +
+        '<span class="fr_fsz">16</span>' +
+        '<button class="fr_fp" title="放大字号">A+</button>' +
       '</div>' +
       '<div class="fr_body">' +
         '<pre></pre>' +
@@ -92,13 +103,18 @@
     pre = box.querySelector('pre');
     note = box.querySelector('.fr_note');
     more = box.querySelector('.fr_more');
-    fbtn = box.querySelector('.fr_font');
+    fm = box.querySelector('.fr_fm');
+    fp = box.querySelector('.fr_fp');
+    fsz = box.querySelector('.fr_fsz');
 
     box.querySelector('.fr_back').onclick = close;
-    fbtn.onclick = function(){                 /* 字号：14~24 循环 */
-      fontSize = fontSize >= 24 ? 14 : fontSize + 2;
-      pre.style.fontSize = fontSize + 'px';
-      fbtn.textContent = 'A' + fontSize;
+    fm.onclick = function(){                   /* A-：缩小，下限 6 号 */
+      fontSize = Math.max(MIN_FONT, fontSize - FONT_STEP);
+      applyFont();
+    };
+    fp.onclick = function(){                   /* A+：放大，上限 24 号 */
+      fontSize = Math.min(MAX_FONT, fontSize + FONT_STEP);
+      applyFont();
     };
     more.onclick = function(){ pull(); };       /* 继续加载 */
     document.addEventListener('keydown', function(e){
@@ -120,6 +136,7 @@
   /* ---- 公开 API ---- */
   function open(path){
     inject();
+    applyFont();                 /* 沿用上次调好的字号（含读数刷新） */
     cur = {path: path, off: 0, size: 0};
     pre.textContent = '';
     note.textContent = '读取中…';
