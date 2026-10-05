@@ -3,7 +3,9 @@
    ② 顶部路径改可点击面包屑（点任一级回退到该上级）。记忆键沿用
    trae_webm_* 命名，读写失败静默，绝不影响浏览主流程。
    2.37：下拉刷新——目录列表是「静态拉取」（服务端 bench_ls 只应答、不广播），
-   目录里新出现的文件必须主动重拉；故在列表顶部下拽 → 松手重取当前目录。 */
+   目录里新出现的文件必须主动重拉；故在列表顶部下拽 → 松手重取当前目录。
+   2.38：行尾 ➕ 左边加 ⋯ 操作面板——对单个文件/目录重命名、移动（剪切）、
+   删除（二次确认弹框）、复制路径；另加「移动模式」选目标目录。 */
 const BENCH_LAST_KEY = 'trae_webm_bench_last';
 function benchLastRel(){
   try { return localStorage.getItem(BENCH_LAST_KEY) || ''; } catch(e){ return ''; }
@@ -73,10 +75,21 @@ function benchOpen(path){          /* 2.28：本地主动弹窗——直接打�
 }
 function benchModeUI(){                 // 1.06：按模式切换头钮/底栏提示
   const pick = S.bench_mode === 'newdir';
-  el.bench_ok.style.display = pick ? '' : 'none';
-  el.bfoot.textContent = pick
-    ? '📁 单击进入子目录 · ✅ 选定该目录（新建任务用）'
-    : '📁 目录单击进入 · 📄 文件单击查看 · ➕ 插入路径';
+  const move = S.bench_mode === 'move';        // 2.38：移动模式（选目标目录）
+  el.bench_ok.style.display = (pick || move) ? '' : 'none';
+  if (move){
+    el.bench_ok.textContent = '📦 移到此';
+    el.bench_ok.title = '把待移动对象移动到当前浏览的目录';
+    el.bench_ok.style.minWidth = '76px';
+  } else {
+    el.bench_ok.textContent = '✅';
+    el.bench_ok.title = '选定当前浏览的目录（新建任务）';
+    el.bench_ok.style.minWidth = '52px';
+  }
+  el.bfoot.textContent = move
+    ? '📦 单击进入子目录 · ✅ 移动到此处（点行尾 ✅ 移进该子目录）'
+    : pick ? '📁 单击进入子目录 · ✅ 选定该目录（新建任务用）'
+    : '📁 目录单击进入 · 📄 文件单击查看 · ➕ 插入路径 · ⋯ 更多操作';
 }
 function benchPick(path){               // 1.08：选定目录 → 回填弹窗
   el.benchpage.classList.remove('on');
@@ -102,7 +115,8 @@ function benchRender(v){
   }
   S.bench_retry_last = false;
   S.bench = v;
-  const pick = S.bench_mode === 'newdir';
+  const move = S.bench_mode === 'move';        /* 2.38：移动模式（选目标目录） */
+  const pick = S.bench_mode === 'newdir' || move;
   const rel = v.rel || '';
   /* 2.68：只在工作台内才记忆——跃迁到上级/别的盘是临时的，下次自动回工作台 */
   benchSaveLast(v.in_root ? rel : '');
@@ -123,10 +137,11 @@ function benchRender(v){
     d.textContent = '📁 ' + n;
     d.onclick = () => benchReq(sub);       // 目录单击进入（手机无双击）
     const b = document.createElement('span');
-    if (pick){                              // 1.06：选目录模式 → ✅ 选定
+    if (pick){                              // 1.06：选目录/移动模式 → ✅
       b.textContent = '✅';
-      b.title = '选定此目录新建任务';
-      b.onclick = e => { e.stopPropagation(); benchPick(v.path + '\\' + n); };
+      b.title = move ? '移动到此目录' : '选定此目录新建任务';
+      b.onclick = e => { e.stopPropagation();
+        move ? benchMoveInto(v.path + '\\' + n) : benchPick(v.path + '\\' + n); };
     } else {                                // 原模式 → ➕ 插路径
       b.textContent = '➕';
       b.title = '插入此目录路径';
@@ -134,6 +149,7 @@ function benchRender(v){
     }
     b.className = 'plus';
     d.appendChild(b);
+    if (!pick) d.appendChild(benchOpsBtn(v.path + '\\' + n, true));  /* 2.38：⋯ */
     box.appendChild(d);
   }
   if (!pick){                               // 选目录模式不列文件
@@ -148,6 +164,7 @@ function benchRender(v){
       b.onclick = e => { e.stopPropagation(); benchIns(v.path + '\\' + n); };
       b.className = 'plus';
       d.appendChild(b);
+      d.appendChild(benchOpsBtn(v.path + '\\' + n, false));   /* 2.38：⋯ */
       box.appendChild(d);
     }
   }
@@ -277,6 +294,10 @@ el.benchback.onclick = () => {
 };
 el.bench_up.onclick = () => benchReq((S.bench || {}).parent_abs || '');
 el.bench_ok.onclick = () => {               // 1.06：选定当前浏览目录
+  if (S.bench_mode === 'move'){             // 2.38：移动模式 → 移到当前目录
+    benchMoveInto((S.bench && S.bench.path) || '');
+    return;
+  }
   const b = S.bench;
   if (b && b.ok) benchPick(b.path);
 };
@@ -400,3 +421,195 @@ el.refresh_pts.onclick = () => {         /* 刷新积分：委托服务端立刻
 };
 
 /* 1.61：抽成函数——顶栏状态文字与抽屉里「设置页」都可进入诊断页 */
+
+/* ================= 2.38：浏览页「文件操作」——行尾 ⋯ 面板 =================
+   ⋯ 位于 ➕ 左边，点它对单个文件/目录做常见操作：重命名、移动（剪切）、
+   删除、复制路径。删除走二次确认弹框（用户要求「删除要慎重」）。
+   操作经 bench_rename/bench_move/bench_del 交给服务端执行，结果以同名
+   事件回投（benchOnRename/benchOnMove/benchOnDel），成功后重拉当前目录。
+   移动采用「先入移动模式 → 再选目标目录」：进模式后行尾 ✅ 变「移到此」，
+   可逐级进入目标目录后点 ✅，或直接点头部「📦 移到此」移到当前目录。 */
+
+let bsEl = null;
+function bsInject(){                 /* 底部操作面板（一次性注入） */
+  if (bsEl) return;
+  const st = document.createElement('style');
+  st.textContent =
+    '#bs_mask{position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.35);display:none}' +
+    '#bs_mask.on{display:block}' +
+    '#bs_sheet{position:fixed;left:0;right:0;bottom:0;z-index:99991;background:#fff;color:#222;' +
+      'border-radius:16px 16px 0 0;padding:6px 0 calc(8px + env(safe-area-inset-bottom));' +
+      'transform:translateY(110%);transition:transform .2s ease;max-height:80vh;overflow:auto}' +
+    '#bs_sheet.on{transform:translateY(0)}' +
+    '#bs_sheet .bs_ttl{padding:11px 18px 9px;font-size:13px;color:#888;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid #eef1f4}' +
+    '#bs_sheet .bs_it{display:flex;align-items:center;gap:10px;padding:14px 18px;font-size:16px;' +
+      'color:#222;cursor:pointer;border-bottom:1px solid #f3f5f7}' +
+    '#bs_sheet .bs_it:active{background:#eef4fb}' +
+    '#bs_sheet .bs_it.danger{color:#c62828}' +
+    '#bs_sheet .bs_it .ic{width:22px;text-align:center}' +
+    '#bs_sheet .bs_msg{padding:16px 18px 6px;font-size:15px;color:#333;line-height:1.6;' +
+      'white-space:pre-line}' +
+    '#bs_sheet .bs_in{display:block;width:calc(100% - 36px);margin:8px 18px 4px;padding:11px 12px;' +
+      'font-size:16px;border:1px solid #d5dbe1;border-radius:8px;box-sizing:border-box}' +
+    '#bs_sheet .bs_btns{display:flex;gap:10px;padding:12px 18px 6px}' +
+    '#bs_sheet .bs_btn{flex:1;height:44px;border:none;border-radius:10px;font-size:16px;' +
+      'background:#f0f2f5;color:#333}' +
+    '#bs_sheet .bs_btn.primary{background:var(--blue);color:#fff}' +
+    '#bs_sheet .bs_btn.danger{background:#c62828;color:#fff}' +
+    '@media(prefers-color-scheme:dark){' +
+      '#bs_sheet{background:#1c1c1c;color:#ddd}' +
+      '#bs_sheet .bs_ttl{color:#999;border-color:#2c2c2c}' +
+      '#bs_sheet .bs_it{color:#ddd;border-color:#262626}' +
+      '#bs_sheet .bs_it:active{background:#2a2a2a}' +
+      '#bs_sheet .bs_msg{color:#ddd}' +
+      '#bs_sheet .bs_in{background:#111;color:#eee;border-color:#333}' +
+      '#bs_sheet .bs_btn{background:#2a2a2a;color:#ddd}' +
+    '}';
+  document.head.appendChild(st);
+  const mask = document.createElement('div');
+  mask.id = 'bs_mask';
+  mask.onclick = bsClose;
+  const sheet = document.createElement('div');
+  sheet.id = 'bs_sheet';
+  document.body.appendChild(mask);
+  document.body.appendChild(sheet);
+  bsEl = {mask: mask, sheet: sheet};
+}
+function bsOpen(ttl){                /* 打开面板，返回可挂内容的容器 */
+  bsInject();
+  bsEl.sheet.innerHTML = '';
+  if (ttl){
+    const t = document.createElement('div');
+    t.className = 'bs_ttl'; t.textContent = ttl;
+    bsEl.sheet.appendChild(t);
+  }
+  const body = document.createElement('div');
+  bsEl.sheet.appendChild(body);
+  bsEl.mask.classList.add('on');
+  requestAnimationFrame(() => bsEl.sheet.classList.add('on'));
+  return body;
+}
+function bsClose(){
+  if (!bsEl) return;
+  bsEl.sheet.classList.remove('on');
+  bsEl.mask.classList.remove('on');
+}
+function bsBtn(label, cls, fn){
+  const b = document.createElement('button');
+  b.className = 'bs_btn' + (cls ? ' ' + cls : '');
+  b.textContent = label;
+  b.onclick = fn;
+  return b;
+}
+function benchOpsBtn(path, isDir){   /* 行尾 ⋯ 按钮（挂在 ➕ 左边） */
+  const s = document.createElement('span');
+  s.className = 'ops';
+  s.textContent = '⋯';
+  s.title = '更多操作（重命名 / 移动 / 删除）';
+  s.onclick = e => { e.stopPropagation(); benchOpsOpen(path, isDir); };
+  return s;
+}
+function benchOpsOpen(path, isDir){
+  const name = String(path).split(/[\\\/]/).filter(Boolean).pop() || path;
+  const box = bsOpen('操作：' + name);
+  const item = (ic, label, danger, fn) => {
+    const it = document.createElement('div');
+    it.className = 'bs_it' + (danger ? ' danger' : '');
+    const a = document.createElement('span'); a.className = 'ic'; a.textContent = ic;
+    const b = document.createElement('span'); b.textContent = label;
+    it.appendChild(a); it.appendChild(b);
+    it.onclick = () => { bsClose(); setTimeout(fn, 160); };
+    box.appendChild(it);
+  };
+  item('✏️', '重命名', false, () => benchRenameDlg(path, name));
+  item('📦', '移动 / 剪切', false, () => benchMoveStart(path));
+  item('🗑️', '删除', true, () => benchDelConfirm(path, name, isDir));
+  item('📋', '复制路径', false, () => copyText(path));
+}
+function benchRenameDlg(path, name){
+  const box = bsOpen('重命名');
+  const inp = document.createElement('input');
+  inp.className = 'bs_in';
+  inp.type = 'text';
+  inp.value = name;
+  box.appendChild(inp);
+  const btns = document.createElement('div');
+  btns.className = 'bs_btns';
+  btns.appendChild(bsBtn('取消', '', bsClose));
+  btns.appendChild(bsBtn('确定', 'primary', () => {
+    const nv = inp.value.trim();
+    bsClose();
+    if (!nv || nv === name) return;
+    if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+    flash('✏️ 正在重命名…', 'var(--blue)');
+    sendJson({t: 'bench_rename', p: path, name: nv});
+  }));
+  box.appendChild(btns);
+  setTimeout(() => { try { inp.focus(); inp.select(); } catch(e){} }, 240);
+}
+function benchDelConfirm(path, name, isDir){   /* 删除必须二次确认 */
+  const box = bsOpen('删除确认');
+  const msg = document.createElement('div');
+  msg.className = 'bs_msg';
+  msg.textContent = '确定要删除' + (isDir ? '文件夹「' : '文件「') + name + '」吗？'
+    + (isDir ? '\n其中的内容会一并删除，' : '') + '此操作不可恢复！';
+  box.appendChild(msg);
+  const btns = document.createElement('div');
+  btns.className = 'bs_btns';
+  btns.appendChild(bsBtn('取消', '', bsClose));
+  btns.appendChild(bsBtn('删除', 'danger', () => {
+    bsClose();
+    if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+    flash('🗑 正在删除…', 'var(--red)');
+    sendJson({t: 'bench_del', p: path});
+  }));
+  box.appendChild(btns);
+}
+function benchMoveStart(path){       /* 进入移动模式：从源所在目录开始选目标 */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  S.bench_move_src = path;
+  S.bench_mode = 'move';
+  benchModeUI();
+  const par = String(path).replace(/[\\\/][^\\\/]*$/, '');
+  benchReq(par || '');
+  flash('📦 请选择目标文件夹（行尾 ✅ 或头部「📦 移到此」）', 'var(--blue)');
+}
+function benchMoveInto(dst){
+  const src = S.bench_move_src;
+  if (!src){ flash('没有待移动的对象'); benchMoveCancel(); return; }
+  if (!dst){ flash('目标目录无效'); return; }
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  flash('📦 正在移动…', 'var(--blue)');
+  sendJson({t: 'bench_move', src: src, dst: dst});
+  benchMoveCancel();                /* 先退出移动态防重复提交 */
+}
+function benchMoveCancel(){
+  S.bench_mode = 'ins';
+  benchModeUI();
+}
+function benchReload(){ benchReq((S.bench && S.bench.path) || ''); }
+function benchAfterOp(msg){
+  flash(msg, 'var(--green)');
+  if (bpPageOn()) benchReload();
+}
+function benchOnDel(v){              /* 服务端 bench_del 应答 */
+  if (v && v.ok) benchAfterOp('✅ 已删除');
+  else flash('删除失败：' + ((v && v.err) || '未知错误'));
+}
+function benchOnRename(v){           /* 服务端 bench_rename 应答 */
+  if (v && v.ok) benchAfterOp('✅ 已重命名');
+  else flash('重命名失败：' + ((v && v.err) || '未知错误'));
+}
+function benchOnMove(v){             /* 服务端 bench_move 应答 */
+  if (v && v.ok){
+    S.bench_move_src = '';
+    benchAfterOp('✅ 已移动');
+  } else {
+    flash('移动失败：' + ((v && v.err) || '未知错误'));
+    if (S.bench_move_src){          /* 失败→回到移动模式供重选目标 */
+      S.bench_mode = 'move';
+      benchModeUI();
+    }
+  }
+}

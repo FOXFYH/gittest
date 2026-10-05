@@ -21,6 +21,7 @@ const S = {
   busy: false, gen: false, ready: false, bench: null,
   bench_mode: 'ins',
   bench_retry_last: false,   /* 2.30：本次是否在尝试「上次目录」（失效则回落根） */
+  bench_move_src: '',        /* 2.38：移动模式下的待移动源路径（'' = 无） */
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
   /* 1.08 新建任务弹窗 / 1.11 task_lock=锁定文件夹 */
   /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡；

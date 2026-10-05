@@ -308,6 +308,15 @@ function onEv(kind, v){
     case 'bench_ls':                       // 1.01：📂 目录应答
       benchRender(v);
       break;
+    case 'bench_del':                      // 2.38：⋯ 删除应答
+      benchOnDel(v);
+      break;
+    case 'bench_move':                     // 2.38：⋯ 移动应答
+      benchOnMove(v);
+      break;
+    case 'bench_rename':                   // 2.38：⋯ 重命名应答
+      benchOnRename(v);
+      break;
     case 'bench_read':                     // 0.11：📄 文件阅读应答（分块）
       FileRead.onData(v);
       break;
