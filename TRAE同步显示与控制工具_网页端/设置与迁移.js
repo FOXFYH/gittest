@@ -284,10 +284,12 @@ function setSel(sel){
 let probeTimer = null;
 function stopProbe(){ if (probeTimer){ clearTimeout(probeTimer); probeTimer = null; } }
 function startProbe(){
-  /* 处于副频道时：等 60s 后开始每分钟探测主频道，恢复即自动切回。
-     探测用临时连接，不 login、不心跳，不耗流量配额。 */
+  /* 处于副频道时：等 15 分钟后开始每 15 分钟探测主频道，恢复即自动切回。
+     探测用临时连接，不 login、不心跳，不耗流量配额。
+     （2.44：原「等 60s 后每分钟探测」改为 15 分钟首探 + 15 分钟重试。） */
   if (curSel() !== 'backup') return;
   stopProbe();
+  const FIRST_MS = 15 * 60 * 1000, GAP_MS = 15 * 60 * 1000;
   const tick = () => {
     if (curSel() !== 'backup'){ stopProbe(); return; }   // 已切回/停用
     const ch = chanGet('main');
@@ -305,9 +307,9 @@ function startProbe(){
       p.onclose = () => {};
       p.onerror = () => { try { if (p) p.close(); } catch(e){} };
     }catch(e){}
-    probeTimer = setTimeout(tick, 60 * 1000);
+    probeTimer = setTimeout(tick, GAP_MS);
   };
-  probeTimer = setTimeout(tick, 60 * 1000);
+  probeTimer = setTimeout(tick, FIRST_MS);
 }
 function switchChan(sel){
   if (sel === curSel()){ flash((sel === 'backup' ? '已处于副频道' : '已处于主频道')); return; }
