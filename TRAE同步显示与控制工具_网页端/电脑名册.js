@@ -83,13 +83,8 @@ function setCur(nm){
     if (nm) localStorage.setItem(LS_SRV, nm);
     else localStorage.removeItem(LS_SRV);
   } catch(e){}
-  /* 1.89：S.cur 变化=真实人类操作（切操控服务端）→ 上报 act/click
-     清掉当前选中会话橙灯（title 取当前快照里 sel 的会话，与 curTitle()
-     同口径；snap 尚未到达时兜底不上报）。 */
-  if (nm){
-    const ct = (curTitle() || '').trim();
-    if (ct) sendJson({t: 'act', k: 'click', title: ct, sid: curSid()});
-  }
+  /* 2.25：切操控服务端=真实人类操作 → actSend('click')（闸门见 通用工具.js） */
+  if (nm) actSend('click');
 }
 /* 1.14：切换后快照看门狗——hello 应答经中继可能丢，3 秒内没等到
    快照就重发 hello（最多 5 次），别让「正在连接」一直卡着。
