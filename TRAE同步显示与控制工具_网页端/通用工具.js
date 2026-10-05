@@ -228,6 +228,48 @@ function curSid(){
   return '';
 }
 
+/* ===== 2.25：act 上报统一闸门（用户 2026-10-05 三条约束）=====
+   act = 网页端→服务端的「人类活动」上行信号，只用于清掉当前会话橙灯。
+   此前被滥用（每滑就发 / 切服务端也发 / 橙灯灭了仍发），现收敛为：
+     ① 全局节流：任意来源合计，最多每 3 秒 1 条；
+     ② 只对当前选中会话：未选服务端、或当前没有选中会话 → 不发；
+     ③ 只有当前会话确实亮着橙灯才发；发完乐观地把该会话从本地未读集合
+       摘掉（橙灯立即灭），此后不再发。 */
+const ACT_MIN_MS = 3000;              /* ① 全局节流窗口：3 秒 */
+let lastActAt = 0;                    /* 上次成功上报时刻（全局） */
+function actCurConv(){                /* 当前选中会话 {title,sid}，无则 null */
+  const convs = ((S.snap || {}).convs) || [];
+  for (const r of convs) if (r && r[0] === 'c' && r[2])
+    return {title: (r[1] || '').trim(), sid: r[4] || ''};
+  return null;
+}
+function actCurUnread(cv){            /* ③ 当前会话是否亮着橙灯（ID 优先，回退标题） */
+  const s = S.snap || {};
+  if (Array.isArray(s.conv_unread_ids))
+    return cv.sid ? s.conv_unread_ids.indexOf(cv.sid) >= 0 : false;
+  return (Array.isArray(s.conv_unread) ? s.conv_unread : []).indexOf(cv.title) >= 0;
+}
+function actClearLocal(cv){           /* ③ 发后乐观清本地未读 → 灯灭即停 */
+  const s = S.snap || {};
+  if (Array.isArray(s.conv_unread_ids) && cv.sid)
+    s.conv_unread_ids = s.conv_unread_ids.filter(x => x !== cv.sid);
+  if (Array.isArray(s.conv_unread))
+    s.conv_unread = s.conv_unread.filter(x => x !== cv.title);
+  S.convs_key = null;                 /* 未读变化 → 指纹重算 → 橙灯立即灭 */
+  renderConvs(s.convs || [], s.conv_unread, s.conv_unread_ids);
+}
+function actSend(k){
+  if (!S.cur) return;                 /* ② 未选服务端不发 */
+  const cv = actCurConv();
+  if (!cv || !cv.title) return;       /* ② 当前没有选中会话不发 */
+  if (!actCurUnread(cv)) return;      /* ③ 橙灯没亮不发 */
+  const now = Date.now();
+  if (now - lastActAt < ACT_MIN_MS) return;   /* ① 全局 3 秒节流 */
+  lastActAt = now;
+  sendJson({t: 'act', k: k, title: cv.title, sid: cv.sid});
+  actClearLocal(cv);                  /* ③ 清完即停 */
+}
+
 /* ===== 2.18 锚定：网页版守住自己锚定的会话，不跟随别人在电脑版的切换 ===== */
 function selSidOf(v){
   const cs = (v && v.convs) || [];
