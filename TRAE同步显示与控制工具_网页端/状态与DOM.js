@@ -94,6 +94,7 @@ const el = {
   bench: $('btn_bench'), benchpage: $('page_bench'),
   benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
   benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
+  benchpull: $('bench_pull'),
   bench_ok: $('btn_bench_ok'), bfoot: $('bfoot'),
   taskpage: $('page_taskdlg'), td_none: $('td_none'),
   td_lock: $('td_lock'),

@@ -1,7 +1,9 @@
 'use strict';
 /* 2.30：📂 浏览页两件事——① 记忆上次查看目录（下次点 📂 直接落那里）；
    ② 顶部路径改可点击面包屑（点任一级回退到该上级）。记忆键沿用
-   trae_webm_* 命名，读写失败静默，绝不影响浏览主流程。 */
+   trae_webm_* 命名，读写失败静默，绝不影响浏览主流程。
+   2.37：下拉刷新——目录列表是「静态拉取」（服务端 bench_ls 只应答、不广播），
+   目录里新出现的文件必须主动重拉；故在列表顶部下拽 → 松手重取当前目录。 */
 const BENCH_LAST_KEY = 'trae_webm_bench_last';
 function benchLastRel(){
   try { return localStorage.getItem(BENCH_LAST_KEY) || ''; } catch(e){ return ''; }
@@ -66,6 +68,7 @@ function benchOpen(path){          /* 2.28：本地主动弹窗——直接打�
   if (window.FileRead) FileRead.close();   /* 关掉可能盖在上面的阅读器 */
   S.bench_mode = 'ins';
   el.benchpage.classList.add('on');
+  bpReset();                              /* 2.37：进页面先收起下拉区 */
   benchReq(path || '');
 }
 function benchModeUI(){                 // 1.06：按模式切换头钮/底栏提示
@@ -86,6 +89,7 @@ function benchPick(path){               // 1.08：选定目录 → 回填弹窗
   flash('已选工作目录', 'var(--green)');
 }
 function benchRender(v){
+  bpReset();                          /* 2.37：任何一次应答到达都收起下拉区 */
   if (!v || !v.ok){
     /* 2.30：记忆的上次目录已失效（被删/改名）→ 清记忆、回落根目录 */
     if (S.bench_retry_last){
@@ -154,6 +158,57 @@ function benchRender(v){
     box.appendChild(d);
   }
 }
+/* ---- 2.37：📂 浏览页「下拉刷新」——列表顶部继续下拽，松手重取当前目录 ----
+   服务端 bench_ls 是「点一次答一次」的静态拉取，不会自动广播；
+   目录里新出现的文件/子目录，靠这一下主动重拉刷过来。 */
+const BENCH_PULL_MAX = 84, BENCH_PULL_TRIG = 56;   /* 展露上限 / 触发阈值(px) */
+let bpStartY = 0, bpActive = false, bpDist = 0;
+function bpPageOn(){ return !!(el.benchpage && el.benchpage.classList.contains('on')); }
+function bpSet(h, txt, settle){     /* 展露区高度 + 文案（拖拽不加过渡，松手才平滑） */
+  const p = el.benchpull;
+  if (!p) return;
+  p.classList.toggle('settle', !!settle);
+  p.style.height = Math.max(0, h) + 'px';
+  if (txt != null) p.querySelector('.bp_txt').textContent = txt;
+}
+function bpReset(){                  /* 收起（应答到达 / 离开浏览页时） */
+  bpActive = false; bpDist = 0;
+  const p = el.benchpull;
+  if (!p) return;
+  p.classList.remove('load', 'ready');
+  bpSet(0, '下滑刷新', true);
+}
+function bpRefresh(){                /* 松手过阈：留住展露区 → 重拉当前目录 */
+  bpActive = false;
+  const p = el.benchpull;
+  if (p){ p.classList.add('load'); p.classList.remove('ready'); }
+  bpSet(BENCH_PULL_TRIG, '下滑刷新中…', true);
+  benchReq((S.bench && S.bench.path) || benchLastRel() || '');  /* 答回→benchRender→bpReset */
+}
+el.benchlist.addEventListener('touchstart', e => {
+  if (!bpPageOn()){ bpActive = false; return; }
+  if (el.benchlist.scrollTop <= 0){ bpStartY = e.touches[0].clientY; bpActive = true; bpDist = 0; }
+  else bpActive = false;
+}, {passive: true});
+el.benchlist.addEventListener('touchmove', e => {
+  if (!bpActive) return;
+  const p = el.benchpull;
+  const dy = e.touches[0].clientY - bpStartY;
+  if (dy <= 0 || el.benchlist.scrollTop > 0){     /* 上滑 / 列表已滚动 → 撤销下拉 */
+    if (bpDist){ bpDist = 0; if (p) p.classList.remove('ready'); bpSet(0, '下滑刷新', false); }
+    return;
+  }
+  bpDist = Math.min(BENCH_PULL_MAX, dy * 0.5);    /* 阻尼 0.5 */
+  if (p) p.classList.toggle('ready', bpDist >= BENCH_PULL_TRIG);
+  bpSet(bpDist, bpDist >= BENCH_PULL_TRIG ? '松手刷新' : '下滑刷新', false);
+  if (e.cancelable) e.preventDefault();           /* 挡住列表原生回弹 */
+}, {passive: false});
+el.benchlist.addEventListener('touchend', () => {
+  if (!bpActive) return;
+  bpActive = false;
+  if (bpDist >= BENCH_PULL_TRIG) bpRefresh(); else bpReset();
+});
+el.benchlist.addEventListener('touchcancel', () => { if (bpActive) bpReset(); });
 /* 2.10：放大态小工具（⇩ 取回 / 📋 复制）「点了没反应」根治。
    病根：这两个按钮只在 #input_row.grow 时显示，而 grow 由输入框
    焦点维持（blur 处理器会立刻摘掉）。真实点击的时序是
@@ -209,12 +264,14 @@ el.bench.onclick = () => {
   S.bench_mode = 'ins';
   benchModeUI();
   el.benchpage.classList.add('on');
+  bpReset();                         /* 2.37：进页面先收起下拉区 */
   const last = benchLastRel();       /* 2.30：回到上次查看的目录（无记忆=根） */
   S.bench_retry_last = !!last;
   benchReq(last);
 };
 el.benchback.onclick = () => {
   el.benchpage.classList.remove('on');
+  bpReset();                                /* 2.37：离开页面收起下拉区 */
   S.bench_mode = 'ins';                     // 返回即复位（防模式残留）
   benchModeUI();
 };
@@ -272,6 +329,7 @@ function taskPickDir(){            // 选择/重选 → 📂 浏览页选目录�
   S.bench_mode = 'newdir';
   benchModeUI();
   el.benchpage.classList.add('on');
+  bpReset();                       /* 2.37：进页面先收起下拉区 */
   benchReq('');
 }
 el.td_none.onclick = () => taskPickDir();

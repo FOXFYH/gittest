@@ -439,6 +439,17 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .crumb .cs:active{background:#e3eefb;}
 .crumb .cs.cur{color:#111; cursor:default;}
 .crumb .sep{color:#bbb; flex:none; padding:0 1px;}
+/* 2.37：📂 浏览页「下拉刷新」展露区——高度由 JS 逐帧控制（0=收起），
+   拖拽时不加过渡、松手时才加 .settle 平滑收放；.load 时 ↻ 转圈。 */
+#bench_pull{flex:none; height:0; overflow:hidden; display:flex;
+  align-items:center; justify-content:center; gap:6px;
+  color:var(--gray); font-size:13px; background:#fff;}
+#bench_pull.settle{transition:height .18s ease;}
+#bench_pull .bp_spin{display:inline-block; font-size:15px; color:var(--blue);
+  transition:transform .15s;}
+#bench_pull.ready .bp_spin{transform:rotate(180deg);}
+#bench_pull.load .bp_spin{animation:bpSpin .8s linear infinite;}
+@keyframes bpSpin{to{transform:rotate(360deg);}}
 #bench_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   background:#fff; overscroll-behavior:contain;}
 .brow{padding:9px 14px; cursor:pointer; white-space:nowrap;
