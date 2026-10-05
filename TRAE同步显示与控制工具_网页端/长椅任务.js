@@ -1,4 +1,40 @@
 'use strict';
+/* 2.30：📂 浏览页两件事——① 记忆上次查看目录（下次点 📂 直接落那里）；
+   ② 顶部路径改可点击面包屑（点任一级回退到该上级）。记忆键沿用
+   trae_webm_* 命名，读写失败静默，绝不影响浏览主流程。 */
+const BENCH_LAST_KEY = 'trae_webm_bench_last';
+function benchLastRel(){
+  try { return localStorage.getItem(BENCH_LAST_KEY) || ''; } catch(e){ return ''; }
+}
+function benchSaveLast(rel){
+  try { localStorage.setItem(BENCH_LAST_KEY, rel || ''); } catch(e){}
+}
+function benchCrumb(root, rel){        /* 顶部面包屑：📂 根 › 一级 › 二级 › … */
+  const box = el.lbl_bench;
+  if (!box) return;
+  box.innerHTML = '';
+  const parts = String(rel || '').split(/[\\\/]/).filter(Boolean);
+  const sep = () => {
+    const s = document.createElement('span');
+    s.className = 'sep'; s.textContent = '›';
+    return s;
+  };
+  const chip = (text, target, cur) => {
+    const s = document.createElement('span');
+    s.className = 'cs' + (cur ? ' cur' : '');
+    s.textContent = text;
+    if (!cur) s.onclick = () => benchReq(target);  /* 最后一级=当前，不可点 */
+    return s;
+  };
+  box.appendChild(chip('📂 ' + (root || '工作台'), '', parts.length === 0));
+  let acc = '';
+  parts.forEach((seg, i) => {
+    acc = acc ? (acc + '\\' + seg) : seg;
+    box.appendChild(sep());
+    box.appendChild(chip(seg, acc, i === parts.length - 1));
+  });
+  box.scrollLeft = box.scrollWidth;    /* 路径过长时右滚到当前目录 */
+}
 function benchReq(rel){
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   el.benchlist.innerHTML = '<div class="brow empty">读取中…</div>';
@@ -35,13 +71,22 @@ function benchPick(path){               // 1.08：选定目录 → 回填弹窗
   flash('已选工作目录', 'var(--green)');
 }
 function benchRender(v){
-  if (!v || !v.ok){ flash('📂 ' + ((v && v.err) || '读取失败')); return; }
+  if (!v || !v.ok){
+    /* 2.30：记忆的上次目录已失效（被删/改名）→ 清记忆、回落根目录 */
+    if (S.bench_retry_last){
+      S.bench_retry_last = false;
+      benchSaveLast('');
+      benchReq('');
+      return;
+    }
+    flash('📂 ' + ((v && v.err) || '读取失败')); return;
+  }
+  S.bench_retry_last = false;
   S.bench = v;
   const pick = S.bench_mode === 'newdir';
   const rel = v.rel || '';
-  el.lbl_bench.textContent = (pick ? '📂 选工作目录 ' : '📂 ')
-                             + (v.root || '工作台')
-                             + (rel ? '\\' + rel : '');
+  benchSaveLast(rel);                    /* 2.30：记住这次查看的目录 */
+  benchCrumb(v.root || '工作台', rel);   /* 2.30：顶部可点击面包屑 */
   const box = el.benchlist;
   box.innerHTML = '';
   if (rel){                                 // 根目录不显示上级行
@@ -148,7 +193,9 @@ el.bench.onclick = () => {
   S.bench_mode = 'ins';
   benchModeUI();
   el.benchpage.classList.add('on');
-  benchReq('');
+  const last = benchLastRel();       /* 2.30：回到上次查看的目录（无记忆=根） */
+  S.bench_retry_last = !!last;
+  benchReq(last);
 };
 el.benchback.onclick = () => {
   el.benchpage.classList.remove('on');
