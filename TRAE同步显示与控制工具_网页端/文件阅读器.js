@@ -7,6 +7,7 @@
    除发送钩子外不依赖宿主项目任何函数/变量。
    2.33：顶部 ✎ 就地编辑（不弹窗，直接出光标）→ 💾 保存写回电脑原文件；
    附右键/长按小菜单（剪切/复制/粘贴/全选）。
+   2.34：字号落盘 localStorage——调好一次长期生效，不必每回重调。
    ★ 发送钩子：_send(t, params) —— 移植时若你的发送函数不叫
      sendJson，只改 _send 里那一行即可。 */
 (function(){
@@ -28,9 +29,17 @@
 
   /* ---- 状态 ---- */
   var cur = null;         /* 当前阅读中的文件 {path, off, size} */
-  /* 正文字号：A- / A+ 手动调节，下限 6 号（用户 2026-10-05 要求） */
+  /* 正文字号：A- / A+ 手动调节，下限 6 号（用户 2026-10-05 要求）
+     2.34：字号落盘 localStorage——调好一次长期生效，不必每回重调。 */
   var MIN_FONT = 6, MAX_FONT = 24, FONT_STEP = 2;
+  var FONT_KEY = 'trae_freader_font';
   var fontSize = 16;
+  (function(){                 /* 读回落盘字号（缺失/非法/越界则回落 16） */
+    try{
+      var v = parseInt(localStorage.getItem(FONT_KEY), 10);
+      if (v >= MIN_FONT && v <= MAX_FONT) fontSize = v;
+    }catch(e){}
+  })();
 
   function fmtSize(n){
     if (n == null) return '';
@@ -52,6 +61,9 @@
   function applyFont(){            /* 应用当前字号到正文 + 刷新读数 */
     if (pre) pre.style.fontSize = fontSize + 'px';
     if (fsz) fsz.textContent = fontSize;
+  }
+  function saveFont(){             /* 字号落盘（本机记住，长期生效） */
+    try{ localStorage.setItem(FONT_KEY, String(fontSize)); }catch(e){}
   }
 
   function inject(){
@@ -152,10 +164,12 @@
     fm.onclick = function(){                   /* A-：缩小，下限 6 号 */
       fontSize = Math.max(MIN_FONT, fontSize - FONT_STEP);
       applyFont();
+      saveFont();
     };
     fp.onclick = function(){                   /* A+：放大，上限 24 号 */
       fontSize = Math.min(MAX_FONT, fontSize + FONT_STEP);
       applyFont();
+      saveFont();
     };
     more.onclick = function(){ pull(); };       /* 继续加载 */
     /* 编辑相关右键/长按菜单：桌面右键、手机长按都出小菜单 */
