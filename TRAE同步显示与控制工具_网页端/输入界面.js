@@ -99,6 +99,12 @@ function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
 }
 function refreshSendBtn(){               // 1.01：生成中打字 → 插话三态
   el.send.classList.remove('intermode');
+  if (S.inputBusy){                      // 2.46：后台借框占用中——禁用发送
+    el.send.textContent = '借用中';
+    el.send.classList.remove('stopmode');
+    el.send.disabled = true;
+    return;
+  }
   if (!S.ready){ setSendBtn(false, false); return; }
   if (S.gen && el.ent.value.trim()){     // 生成中打字：橙色插话
     el.send.textContent = '插话';
@@ -170,6 +176,12 @@ function renderState(snap){
   if (S.switch_pend){
     el.state.textContent = '正在切换「' + S.switch_pend.title + '」…';
     el.state.style.color = 'var(--blue)';
+  }
+  /* 2.46：后台借框占用——置顶提示并禁用发送，挡住人类操作 */
+  if (S.inputBusy){
+    el.state.textContent = '⏳ ' + S.inputBusy + ' 正在借用输入框，请稍后';
+    el.state.style.color = 'var(--orange)';
+    setSendBtn(false, false);
   }
   /* 1.77：未登录异常横幅——1.31 本有此设计，但 el 映射漏挂 loginbar 键，
      横幅从未亮过；现补键修活，并按用户要求加「持续门槛」：

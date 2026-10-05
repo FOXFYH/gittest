@@ -248,6 +248,24 @@ function onEv(kind, v){
     case 'notice':                         /* 1.41：服务端提示（如语音键拒点） */
       flash(String(v || ''), 'var(--blue)');
       break;
+    case 'input_busy': {                   /* 2.46：后台借框占用（定时自我激活/
+        收件箱提醒到点投递）——busy 期间禁用发送并提示，挡住人类操作；服务端
+        在借框前后各发一条（true/false），异常也在 finally 里补 false。 */
+      const d = v || {};
+      if (d.busy){
+        S.inputBusy = String(d.who || '程序');
+        clearTimeout(S.inputBusyT);
+        S.inputBusyT = setTimeout(() => {   /* 安全兜底：防服务端中途消失卡死 */
+          S.inputBusy = ''; renderState(S.snap);
+        }, 25000);
+        flash('⏳ ' + S.inputBusy + ' 正在借用输入框，请稍后', 'var(--orange)');
+      } else {
+        S.inputBusy = '';
+        clearTimeout(S.inputBusyT);
+      }
+      renderState(S.snap);
+      return;
+    }
     case 'models':
       S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
       rebuildModelOptions();

@@ -164,6 +164,10 @@ function cmd(c, a, convSid){
 }
 
 el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发送
+  if (S.inputBusy){              /* 2.46：后台借框占用中——挡住人类操作 */
+    flash('⏳ ' + S.inputBusy + ' 正在借用输入框，请稍后', 'var(--orange)');
+    return;
+  }
   const t = el.ent.value.trim();
   if (S.gen){
     if (t){                       /* 1.01：生成中打字=插话——服务端以
