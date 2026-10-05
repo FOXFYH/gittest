@@ -13,7 +13,7 @@ const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
  * 与服务端一致：副频道走独立模板，但频道名沿用主频道同名 */
 const WS_URL_TMPL2 = ('wss://s20307.nyc1.piesocket.com/v3/%s'
                       + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
-const KA_SEC = 25;      // WS 链路心跳间隔（秒，保活）
+const KA_SEC = 1800;    // WS 链路保活间隔（秒，30 分钟，免心跳）
 const RECONNECT = 3;    // 断线重连间隔（秒）
 /* 1.59：状态灯判活阈值 —— 原来硬编码 16s，手机端太敏感：
    切后台、中继抖一下、或服务端某轮广播没到，就立刻喊「服务器未启动」，
