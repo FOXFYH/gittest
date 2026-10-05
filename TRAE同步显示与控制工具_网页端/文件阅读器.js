@@ -384,7 +384,7 @@
     var chunk = v.text || '';
     if (chunk.indexOf('\r\n') >= 0) cur.eol = '\r\n';
     pre.textContent += chunk;
-    if (v.enc) cur.enc = v.enc;
+    if (v.off === 0 && v.enc) cur.enc = v.enc;   /* 编码只认首块（BOM 只在首块） */
     cur.size = v.size;
     ttl.textContent = baseName(cur.path) + '（' + fmtSize(v.size) + '）';
     if (v.next != null){
