@@ -5,9 +5,10 @@
    FileRead.onData(v)，收到 bench_write 应答时调 FileRead.onSaved(v)。
    本模块自带 DOM 与 CSS（全屏覆盖层，手机竖版 TXT 阅读风），
    除发送钩子外不依赖宿主项目任何函数/变量。
-   2.33：顶部 ✎ 就地编辑（不弹窗，直接出光标）→ 💾 保存写回电脑原文件；
-   附右键/长按小菜单（剪切/复制/粘贴/全选）。
+   2.33：顶部 ✎ 就地编辑（不弹窗，直接出光标）→ 💾 保存写回电脑原文件。
    2.34：字号落盘 localStorage——调好一次长期生效，不必每回重调。
+   2.36：去掉自带右键/长按小菜单——复制/粘贴等改用浏览器原生菜单
+         （自绘菜单与原生菜单会重叠，故取消）。
    ★ 发送钩子：_send(t, params) —— 移植时若你的发送函数不叫
      sendJson，只改 _send 里那一行即可。 */
 (function(){
@@ -55,7 +56,7 @@
   /* ---- DOM + CSS 注入（一次性） ---- */
   var box = null, ttl = null, pre = null, note = null, more = null,
       fm = null, fp = null, fsz = null,
-      ed = null, saveBtn = null, cancelBtn = null, cmenu = null;
+      ed = null, saveBtn = null, cancelBtn = null;
   var origText = '';          /* 进入编辑时的原文本（取消时还原） */
   var pendingEdit = false;    /* 未读完就点 ✎：先自动续读到底再进编辑 */
   function applyFont(){            /* 应用当前字号到正文 + 刷新读数 */
@@ -91,14 +92,6 @@
       '#freader.edit .fr_ed,#freader.edit .fr_fm,#freader.edit .fr_fsz,#freader.edit .fr_fp{display:none}' +
       '#freader.edit .fr_save,#freader.edit .fr_cancel{display:inline-block}' +
       '#freader pre[contenteditable="true"]{outline:none;background:#fbfbf7}' +
-      '#freader .fr_ctx{position:absolute;z-index:100001;min-width:132px;background:#fff;' +
-        'border:1px solid #e0e0e0;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.18);' +
-        'padding:6px;display:none}' +
-      '#freader .fr_ctx.on{display:block}' +
-      '#freader .fr_ctx button{display:block;width:100%;text-align:left;border:0;background:transparent;' +
-        'color:#222;font-size:15px;padding:9px 12px;border-radius:7px}' +
-      '#freader .fr_ctx button:active{background:#f0f0f0}' +
-      '#freader .fr_ctx button[disabled]{color:#bbb}' +
       '@media(prefers-color-scheme:dark){' +
         '#freader{background:#161616;color:#ddd}' +
         '#freader .fr_bar{background:#161616;border-color:#2c2c2c}' +
@@ -109,10 +102,6 @@
         '#freader .fr_fsz{color:#aaa}' +
         '#freader .fr_note{color:#888}' +
         '#freader .fr_more{background:#1e1e1e;color:#ddd;border-color:#2c2c2c}' +
-        '#freader .fr_ctx{background:#222;border-color:#333}' +
-        '#freader .fr_ctx button{color:#ddd}' +
-        '#freader .fr_ctx button:active{background:#333}' +
-        '#freader .fr_ctx button[disabled]{color:#666}' +
       '}';
     document.head.appendChild(st);
 
@@ -133,12 +122,6 @@
         '<pre></pre>' +
         '<button class="fr_more" style="display:none"></button>' +
         '<div class="fr_note"></div>' +
-      '</div>' +
-      '<div class="fr_ctx">' +
-        '<button data-act="cut">剪切</button>' +
-        '<button data-act="copy">复制</button>' +
-        '<button data-act="paste">粘贴</button>' +
-        '<button data-act="selectall">全选</button>' +
       '</div>';
     document.body.appendChild(box);
 
@@ -152,15 +135,11 @@
     ed = box.querySelector('.fr_ed');
     saveBtn = box.querySelector('.fr_save');
     cancelBtn = box.querySelector('.fr_cancel');
-    cmenu = box.querySelector('.fr_ctx');
 
     box.querySelector('.fr_back').onclick = close;
     ed.onclick = enterEdit;
     saveBtn.onclick = saveEdit;
     cancelBtn.onclick = cancelEdit;
-    cmenu.querySelectorAll('button').forEach(function(b){
-      b.onclick = function(){ ctxAction(b.getAttribute('data-act')); };
-    });
     fm.onclick = function(){                   /* A-：缩小，下限 6 号 */
       fontSize = Math.max(MIN_FONT, fontSize - FONT_STEP);
       applyFont();
@@ -172,29 +151,6 @@
       saveFont();
     };
     more.onclick = function(){ pull(); };       /* 继续加载 */
-    /* 编辑相关右键/长按菜单：桌面右键、手机长按都出小菜单 */
-    pre.addEventListener('contextmenu', function(e){
-      e.preventDefault();
-      showCtx(e.clientX, e.clientY);
-    });
-    var lpTimer = null, lpFired = false;
-    pre.addEventListener('touchstart', function(e){
-      lpFired = false;
-      var t = e.touches[0];
-      lpTimer = setTimeout(function(){
-        lpFired = true;
-        showCtx(t.clientX, t.clientY);
-      }, 550);
-    }, {passive: true});
-    pre.addEventListener('touchmove', function(){ clearTimeout(lpTimer); },
-                         {passive: true});
-    pre.addEventListener('touchend', function(e){
-      clearTimeout(lpTimer);
-      if (lpFired && e.cancelable) e.preventDefault();   /* 长按出菜单就不再触发点选 */
-    });
-    box.addEventListener('click', function(e){
-      if (cmenu.classList.contains('on') && !cmenu.contains(e.target)) hideCtx();
-    });
     document.addEventListener('keydown', function(e){
       if (e.key === 'Escape' && box.classList.contains('on')){
         if (box.classList.contains('edit')) cancelEdit(); else close();
@@ -207,7 +163,6 @@
       pre.contentEditable = 'false';
       box.classList.remove('edit');
       box.classList.remove('on');
-      hideCtx();
     }
     cur = null;
     pendingEdit = false;
@@ -256,7 +211,6 @@
     pre.textContent = origText;
     box.classList.remove('edit');
     note.textContent = '';
-    hideCtx();
   }
   function saveEdit(){            /* 💾：把全文写回电脑上的原文件 */
     if (!cur || !box.classList.contains('edit')) return;
@@ -283,87 +237,12 @@
     }
   }
 
-  /* ---- 右键 / 长按小菜单（读模式仅复制、全选；编辑模式全可用）---- */
-  function hideCtx(){ if (cmenu) cmenu.classList.remove('on'); }
-  function showCtx(x, y){
-    if (!cmenu) return;
-    var on = box.classList.contains('edit');
-    cmenu.querySelectorAll('button').forEach(function(b){
-      var a = b.getAttribute('data-act');
-      b.disabled = (!on && (a === 'cut' || a === 'paste'));
-    });
-    cmenu.classList.add('on');
-    var w = cmenu.offsetWidth, h = cmenu.offsetHeight;
-    cmenu.style.left = Math.max(8, Math.min(x, box.clientWidth - w - 8)) + 'px';
-    cmenu.style.top = Math.max(8, Math.min(y, box.clientHeight - h - 8)) + 'px';
-  }
-  function fallbackCopy(t){
-    try{
-      var ta = document.createElement('textarea');
-      ta.value = t;
-      ta.style.cssText = 'position:fixed;left:-9999px;top:0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }catch(e){}
-  }
-  function ctxAction(act){
-    hideCtx();
-    var on = box.classList.contains('edit');
-    if (act === 'selectall'){
-      try{
-        var r = document.createRange();
-        r.selectNodeContents(pre);
-        var sel = window.getSelection();
-        sel.removeAllRanges(); sel.addRange(r);
-      }catch(e){}
-      return;
-    }
-    if (act === 'copy'){
-      var sel0 = window.getSelection();
-      var txt = (sel0 && !sel0.isCollapsed && pre.contains(sel0.anchorNode))
-        ? sel0.toString() : (pre.innerText || '');
-      if (!txt) return;
-      if (navigator.clipboard && navigator.clipboard.writeText)
-        navigator.clipboard.writeText(txt).catch(function(){ fallbackCopy(txt); });
-      else fallbackCopy(txt);
-      if (!on){ note.textContent = '已复制'; }
-      return;
-    }
-    if (act === 'cut'){
-      if (!on) return;
-      var sel1 = window.getSelection();
-      if (!sel1 || sel1.isCollapsed) return;
-      var ct = sel1.toString();
-      if (navigator.clipboard && navigator.clipboard.writeText)
-        navigator.clipboard.writeText(ct).catch(function(){});
-      try{ document.execCommand('delete'); }catch(e){}
-      return;
-    }
-    if (act === 'paste'){
-      if (!on) return;
-      try{ pre.focus(); }catch(e){}
-      if (navigator.clipboard && navigator.clipboard.readText){
-        navigator.clipboard.readText().then(function(t){
-          if (t) document.execCommand('insertText', false, t);
-        }).catch(function(){
-          note.textContent = '粘贴失败：浏览器未授权读取剪贴板';
-        });
-      } else {
-        note.textContent = '该浏览器不支持读取剪贴板，请长按手动粘贴';
-      }
-      return;
-    }
-  }
-
   /* ---- 公开 API ---- */
   function open(path){
     inject();
     applyFont();                 /* 沿用上次调好的字号（含读数刷新） */
     pre.contentEditable = 'false';
     box.classList.remove('edit');
-    hideCtx();
     pendingEdit = false;
     origText = '';
     cur = {path: path, off: 0, size: 0, enc: '', eol: '\n'};
