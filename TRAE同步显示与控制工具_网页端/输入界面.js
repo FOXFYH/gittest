@@ -34,14 +34,9 @@ function exitFmsg(){
 el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
   if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
-  /* 1.89：上下滑动翻滚=真实人类操作 → 上报 act/scroll 清当前会话橙灯。
-     节流：同会话 800ms 最多一次；仅当 S.cur 存在时上报；title 为空不上报。 */
-  if (S.cur && Date.now() - lastActScroll > 800){
-    lastActScroll = Date.now();
-    const st = (curTitle() || '').trim();
-    /* v1.95：捎带稳定 ID（服务端按 sid 清橙灯，改名也清得掉；无则回退标题） */
-    if (st) sendJson({t: 'act', k: 'scroll', title: st, sid: curSid()});
-  }
+  /* 2.25：上下翻滚=真实人类操作 → actSend('scroll')。
+     是否真发由统一闸门决定（3 秒节流 / 仅当前选中会话 / 橙灯才发）。 */
+  actSend('scroll');
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
