@@ -275,9 +275,11 @@ function handleBody(body){
   try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
   /* 1.12 多服务端：报文按 'srv' 源头名归册；只渲染当前操控服务端
-     的内容（hello/srv 心跳同时维护名册）。旧版服务端无 'srv' 字段
-     → 归入「默认服务端」兼容单机场景。 */
-  const nm = d.srv || '默认服务端';
+     的内容（hello/srv 心跳同时维护名册）。
+     2.48：无 'srv' 字段一律丢弃——不再兜底成「默认服务端」假条目
+     （服务端 2.83 起在 send_json 唯一咽喉盖章，凡发出的报文都带源头名）。 */
+  const nm = d.srv || '';
+  if (!nm) return;
   regSrv(nm, d);
   if (d.t === 'srv'){
     if (nm === S.cur && d.alive){ S.alive = new Set(d.alive); renderPorts(); }

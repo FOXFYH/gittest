@@ -542,3 +542,11 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .tdhint{color:var(--gray); font-size:11px; margin-top:10px; line-height:1.6;}
 .tdstat{color:var(--blue); font-size:12px; margin-top:14px;
   min-height:16px;}
+/* 2.48：抽屉「服务端（点击切换操控）」标题行加「↻ 刷新」按钮——服务端
+   平时全程静默、互不报状态，只有点此点名（who）才让在线者应答、刷新名册。 */
+.srvhead{display:flex; align-items:center; justify-content:space-between;}
+#btn_srvrefresh{flex:none; margin-left:8px; font-size:12px; padding:2px 8px;
+  border:1px solid var(--bd); border-radius:12px; background:#fff;
+  color:var(--blue); cursor:pointer; white-space:nowrap; line-height:1.4;}
+#btn_srvrefresh:active{background:#eef4fb;}
+#btn_srvrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}

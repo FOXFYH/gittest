@@ -5,6 +5,9 @@ function loadSrvs(){
   try { raw = JSON.parse(localStorage.getItem(LS_SRVS)); } catch(e){}
   if (!raw || typeof raw !== 'object') return;
   const now = Date.now();
+  /* 2.48：清掉旧版遗留的「默认服务端」假条目（服务端 2.83 起凡发出的
+     报文都带源头名，已无此兜底名；纯属幻觉，读盘时直接抹掉）。 */
+  if (raw['默认服务端'] !== undefined) delete raw['默认服务端'];
   for (const nm of Object.keys(raw)){
     /* v2.15：必须用 Number()，不能写 `raw[nm] | 0`——毫秒时间戳(约1.8e12)
        超 32 位，`| 0` 会截断成负数，致 `now - seen > SRV_TTL` 恒真，
@@ -239,4 +242,14 @@ function delSrv(nm){
   renderSrvList(); renderTop();
 }
 el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
+/* 2.48：刷新服务端——服务端平时全程静默、互不报状态；只有本按钮主动
+   点名（who）时，在线的服务端才应答「我在线」。foxSend 直发纯频道广播
+   （不带 to），保证点名发给频道内所有服务端；中继偶发丢帧，1.5s 补点一次。 */
+function refreshSrvs(){
+  if (!S.onLine){ flash('未连接中继，稍后再刷', 'var(--orange)'); return; }
+  foxSend(JSON.stringify({t: 'who'}));
+  setTimeout(() => { if (S.onLine) foxSend(JSON.stringify({t: 'who'})); }, 1500);
+  flash('已点名，等待在线服务端应答…', 'var(--blue)');
+}
+el.srvrefresh.onclick = () => refreshSrvs();
 

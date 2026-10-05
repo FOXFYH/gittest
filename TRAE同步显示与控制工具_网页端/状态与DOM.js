@@ -73,6 +73,7 @@ const el = {
   lbl_title: $('lbl_title'), lbl_ver: $('lbl_ver'),
   menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
+  srvrefresh: $('btn_srvrefresh'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), loginbar: $('loginbar'),
   msgs: $('msgs'), attach_row: $('attach_row'),
