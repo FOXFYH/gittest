@@ -306,6 +306,12 @@ function onEv(kind, v){
     case 'bench_read':                     // 0.11：📄 文件阅读应答（分块）
       FileRead.onData(v);
       break;
+    case 'bench_open': {                   // 2.28：本地主动弹窗展示
+      const o = v || {};
+      if (o.mode === 'file') FileRead.open(o.path || '');
+      else benchOpen(o.path || '');
+      break;
+    }
     case 'msg_act':                        // 1.06：回退/删除完成 (kind, mi)
       flash(v[0] === 'revert'
         ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
