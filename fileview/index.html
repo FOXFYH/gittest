@@ -9,7 +9,7 @@
 @media(prefers-color-scheme:dark){:root{--bg:#161616;--fg:#ddd;--sub:#888;--line:#2c2c2c;--card:#1e1e1e;--acc:#ccc}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;height:100%}
-body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;line-height:1.5}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;line-height:1.5;touch-action:manipulation}
 #bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--line)}
 #bar button{flex:none;width:36px;height:36px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;font-size:16px;padding:0}
 #bar button:active{background:var(--line)}
@@ -47,8 +47,8 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 </div>
 <div id="crumbs"></div>
 <div id="list"></div>
-<div id="reader"><pre id="text"></pre><div id="note"></div></div>
-<div id="status"><span id="stLeft"><span class="dot" id="dot"></span><span id="stTxt">连接中…</span></span><span id="stVer">v1.00</span></div>
+<div id="reader"><pre id="text"></pre><button id="more" style="display:none"></button><div id="note"></div></div>
+<div id="status"><span id="stLeft"><span class="dot" id="dot"></span><span id="stTxt">连接中…</span></span><span id="stVer">v1.01</span></div>
 
 <script>
 // ============ 配置（由服务端注入） ============
@@ -162,7 +162,7 @@ function openDir(path){
       const full=curPath.replace(/[\\/]$/,"")+"\\"+e.n;
       box.appendChild(rowEl(e.n,e.d,full,e.s,e.m));
     });
-    if(!(r.entries||[]).length){box.innerHTML='<div id="note">空文件夹</div>';}
+    if(!(r.entries||[]).length){box.innerHTML='<div style="padding:20px;color:#888;text-align:center">空文件夹</div>';}
     window.scrollTo(0,0);
   });
 }
@@ -234,9 +234,6 @@ el("btnFont").onclick=()=>{
   el("btnFont").textContent="A"+fontSize;
 };
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
-// 阻止双击缩放
-let lastTouch=0;
-document.addEventListener("touchend",e=>{const n=Date.now();if(n-lastTouch<300)e.preventDefault();lastTouch=n;},{passive:false});
 
 connect();
 </script>
