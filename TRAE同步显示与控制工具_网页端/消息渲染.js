@@ -340,4 +340,3 @@ function renderMsgs(msgs, finish, opts, ask, pend){
    （450ms 内忽略 scroll 回调）；② enterFmsg 布局变化后按高度差补偿
    scrollTop，视野停留在同一段内容上（dist 不变，不会立即误退）。 */
 var fLockUntil = 0;                 // 程序滚动/进出全屏后的静默截止
-var lastActScroll = 0;              // 1.89：act/scroll 节流（同会话 800ms 最多一次）
