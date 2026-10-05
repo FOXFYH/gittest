@@ -16,7 +16,7 @@ function benchModeUI(){                 // 1.06：按模式切换头钮/底栏�
   el.bench_ok.style.display = pick ? '' : 'none';
   el.bfoot.textContent = pick
     ? '📁 单击进入子目录 · ✅ 选定该目录（新建任务用）'
-    : '📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入';
+    : '📁 目录单击进入 · 📄 文件单击查看 · ➕ 插入路径';
 }
 function benchPick(path){               // 1.08：选定目录 → 回填弹窗
   el.benchpage.classList.remove('on');
@@ -70,7 +70,13 @@ function benchRender(v){
       const d = document.createElement('div');
       d.className = 'brow file';
       d.textContent = '📄 ' + n;
-      d.onclick = () => benchIns(v.path + '\\' + n);
+      d.onclick = () => FileRead.open(v.path + '\\' + n);   // 点文件名→阅读器查看
+      const b = document.createElement('span');
+      b.textContent = '➕';
+      b.title = '插入此文件路径';
+      b.onclick = e => { e.stopPropagation(); benchIns(v.path + '\\' + n); };
+      b.className = 'plus';
+      d.appendChild(b);
       box.appendChild(d);
     }
   }
