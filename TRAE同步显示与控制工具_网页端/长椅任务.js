@@ -9,11 +9,12 @@ function benchLastRel(){
 function benchSaveLast(rel){
   try { localStorage.setItem(BENCH_LAST_KEY, rel || ''); } catch(e){}
 }
-function benchCrumb(root, rel){        /* 顶部面包屑：📂 根 › 一级 › 二级 › … */
+function benchCrumb(abs){        /* 2.68 顶部面包屑：按绝对路径逐级可点—— */
+  /* 💽 D: › 网络硬盘 › … › 工作台 › …   点任一级 → 跳到该上级（可跨出工作台、任意盘） */
   const box = el.lbl_bench;
   if (!box) return;
   box.innerHTML = '';
-  const parts = String(rel || '').split(/[\\\/]/).filter(Boolean);
+  const path = String(abs || '');
   const sep = () => {
     const s = document.createElement('span');
     s.className = 'sep'; s.textContent = '›';
@@ -26,19 +27,33 @@ function benchCrumb(root, rel){        /* 顶部面包屑：📂 根 › 一级 
     if (!cur) s.onclick = () => benchReq(target);  /* 最后一级=当前，不可点 */
     return s;
   };
-  box.appendChild(chip('📂 ' + (root || '工作台'), '', parts.length === 0));
-  let acc = '';
-  parts.forEach((seg, i) => {
-    acc = acc ? (acc + '\\' + seg) : seg;
+  const parts = path.split(/[\\\/]+/).filter(Boolean);
+  if (!parts.length){ box.appendChild(chip('📂 工作台', '', true)); return; }
+  const SP = path.indexOf('\\') >= 0 ? '\\' : '/';
+  let acc = '', start = 0;
+  if (/^[A-Za-z]:$/.test(parts[0])){            /* Windows 盘符：D: → 目标 D:\ */
+    acc = parts[0] + SP;
+    box.appendChild(chip('💽 ' + parts[0], acc, parts.length === 1));
+    start = 1;
+  } else if (path.indexOf(SP + SP) === 0){      /* UNC：\\server\share 整段作根 */
+    acc = SP + SP + parts[0] + SP + parts[1] + SP;
+    box.appendChild(chip('🖥 ' + parts[0], acc, parts.length <= 2));
+    start = 2;
+  } else {                                      /* 类 Unix 根 */
+    acc = SP;
+    box.appendChild(chip('/', acc, parts.length === 0));
+  }
+  for (let i = start; i < parts.length; i++){
+    acc = acc.replace(/[\\\/]+$/, '') + SP + parts[i];
     box.appendChild(sep());
-    box.appendChild(chip(seg, acc, i === parts.length - 1));
-  });
+    box.appendChild(chip(parts[i], acc, i === parts.length - 1));
+  }
   box.scrollLeft = box.scrollWidth;    /* 路径过长时右滚到当前目录 */
 }
-function benchReq(rel){
+function benchReq(p){       /* p：'' =工作台根；工作台内相对路径；或绝对路径（可跨出工作台） */
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   el.benchlist.innerHTML = '<div class="brow empty">读取中…</div>';
-  sendJson({t: 'bench_ls', p: rel || ''});
+  sendJson({t: 'bench_ls', p: p || ''});
 }
 function benchIns(path){
   const cur = el.ent.value.trim();
@@ -85,19 +100,20 @@ function benchRender(v){
   S.bench = v;
   const pick = S.bench_mode === 'newdir';
   const rel = v.rel || '';
-  benchSaveLast(rel);                    /* 2.30：记住这次查看的目录 */
-  benchCrumb(v.root || '工作台', rel);   /* 2.30：顶部可点击面包屑 */
+  /* 2.68：只在工作台内才记忆——跃迁到上级/别的盘是临时的，下次自动回工作台 */
+  benchSaveLast(v.in_root ? rel : '');
+  benchCrumb(v.path || '');              /* 2.68：顶部按绝对路径逐级可点 */
   const box = el.benchlist;
   box.innerHTML = '';
-  if (rel){                                 // 根目录不显示上级行
+  if (v.parent_abs){                        // 有上级就显示（含跨出工作台）
     const d = document.createElement('div');
     d.className = 'brow up';
     d.textContent = '⬙ ..';
-    d.onclick = () => benchReq(v.parent || '');
+    d.onclick = () => benchReq(v.parent_abs);
     box.appendChild(d);
   }
   for (const n of (v.dirs || [])){
-    const sub = rel ? rel + '\\' + n : n;
+    const sub = v.path + '\\' + n;          // 2.68：绝对路径进入（可跨出工作台）
     const d = document.createElement('div');
     d.className = 'brow dir';
     d.textContent = '📁 ' + n;
@@ -202,7 +218,7 @@ el.benchback.onclick = () => {
   S.bench_mode = 'ins';                     // 返回即复位（防模式残留）
   benchModeUI();
 };
-el.bench_up.onclick = () => benchReq((S.bench || {}).parent || '');
+el.bench_up.onclick = () => benchReq((S.bench || {}).parent_abs || '');
 el.bench_ok.onclick = () => {               // 1.06：选定当前浏览目录
   const b = S.bench;
   if (b && b.ok) benchPick(b.path);
