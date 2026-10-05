@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v3.27</title>
+<title>TRAE远程 v3.29</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1516,6 +1516,8 @@ const S = {
   histVer: 0, histHave: 0,   /* 游标：会话版本号 + 已存到的 seq */
   histLive: [],         /* 3.10：差额推送附带「活思维流」——快照无 msgs 时兜底追加 */
   lastLiveRow: null,    /* 3.61：最后一次已知的 AI 活条（末行兜底用，永不主动清空） */
+  尾巴记忆: null,       /* 3.29：本地「残留影像」读回——{q,row}，q=它回答的那一问的键；
+                          仅当与当前末行人问同键才贴（防旧答复粘到新问题底下）。 */
   回复缺料: false,      /* 3.25：末行是人类发言、且连「最后一次完整回复」都取不到 → 置真。
                           由 renderAll 的 补料自检() 据此主动向服务端索取（节流+退避）。 */
   /* 3.35：本地「近端落盘」——广播/hist-live/gap 收到的定稿行（7 位、带真实
@@ -2789,6 +2791,7 @@ function confirmFulls(msg, onOk){
    请求式历史：发 {t:'req',id,c:'hist'|'hist_prev',...} → {t:'res',id,k,v}。
    直播仍走快照（snap 每拍全文），缓存只在快照未到达前兜底秒显。 */
 const LS_SKEL = 'trae_webm_skel';        /* 骨架缓存（会话列表） */
+const LS_TAIL = 'trae_webm_tail';        /* 3.29：末行「残留影像」落盘（会话标题→{q,row}） */
 const LS_HIST = 'trae_webm_hist';        /* 3.75：历史仓库已迁 IndexedDB，此键废弃——仅剩启动清理 */
 let cacheKey = null, reqSeq = 0, skelLastSave = 0;
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
@@ -2885,6 +2888,37 @@ function sortRows(rows){
     if (ma !== mb) return ma < mb ? -1 : 1;
     return a[1] - b[1];
   }).map(x => x[0]);
+}
+/* ===== 3.29（用户 2026-10-05）：末行「残留影像」落盘 =====
+   病灶：刷新后内存清空（lastLiveRow/histLive 均空），而服务端快照那拍「活思维流」
+   空窗、账本里这条回复又未定稿 ⇒ curMsgs 末行兜底连「最后一次完整回复」都取不到
+   ⇒ 末行位置恒显示「（正在取回这条回复…）」占位，与用户「刷新也该看到之前残留的
+   影像」的要求相违。做法：把「末行兜底真正贴出的那条 AI 卡」连同它回答的那一问
+   的键(q) 一起按会话落 localStorage；刷新/切会话读回，同一问才贴（防上次的旧答复
+   粘到新问题底下——3.81 用户报过的坑）。 */
+let _尾巴上次键 = '';
+function 尾巴落盘(q, row){
+  try{
+    const t = curTitle(); if (!t || !row) return;
+    if (row[0] !== 'a' || !String(row[1] || '').trim()) return;   /* 只记「有正文的 AI 卡」 */
+    const k = t + '#' + (q || '') + '#' + String(row[1] || '').length;
+    if (k === _尾巴上次键) return;          /* 同一条（长度未变）不重复写 */
+    _尾巴上次键 = k;
+    const o = JSON.parse(localStorage.getItem(LS_TAIL) || '{}') || {};
+    delete o[t]; o[t] = {q: q || '', row: row};   /* 先删再加：把本会话挪到「最近写」位 */
+    const ks = Object.keys(o);
+    if (ks.length > 8) for (let i = 0; i < ks.length - 8; i++) delete o[ks[i]];
+    localStorage.setItem(LS_TAIL, JSON.stringify(o));
+  }catch(e){}
+}
+function 尾巴读回(conv){
+  try{
+    const o = JSON.parse(localStorage.getItem(LS_TAIL) || '{}') || {};
+    const v = o[conv];
+    if (v && Array.isArray(v.row) && v.row[0] === 'a'
+        && String(v.row[1] || '').trim()) return v;
+  }catch(e){}
+  return null;
 }
 /* —— 请求式历史 —— */
 function reqHist(conv, have_seq, ver){
@@ -3103,6 +3137,7 @@ function ensureHist(){
   S.histConv = title;
   S.histMsgs = null; S.histRaw = []; S.histVer = 0; S.histHave = 0;
   S.histNear = []; S.histLive = []; S.lastLiveRow = null;   /* 3.61：换锚会话才清活条记忆 */
+  S.尾巴记忆 = 尾巴读回(title);   /* 3.29：读回本地「残留影像」（末行兜底顶替占位用） */
   _补料次数 = 0; _补料时刻 = 0;   /* 3.25：换会话，缺料自检计数归零 */
   S.histShow = 4;              /* 3.36：切换即「本地秒显最新 4 条」提速 */
   S.histLoadingPrev = false;
@@ -3232,6 +3267,7 @@ function curMsgs(){
      无活条就退回最后一次完整回复；连它都没有才不补条（宁缺也不出「…」）。 */
   const lastRow = rows.length ? rows[rows.length - 1] : null;
   if (lastRow && lastRow[0] === 'u'){
+    const qk = rowKey(lastRow);   /* 3.29：本轮人问的键（残留影像只贴给同一问） */
     /* 3.79：人类最后一条发言之下必须仍是「那张活卡片」——记住它最后的内容，
        在被正式卡片取代之前原样保持，**永远不许变成「…」**（用户 2026-10-03：
        「这张卡片经常给我变成点点点」，并否决任何占位）。取料顺序：
@@ -3248,12 +3284,18 @@ function curMsgs(){
         }
       }
     }
+    /* 3.29（用户 2026-10-05）：「本地残留影像」兜底——二级取料仍取不到时，用上次
+       落盘的那张 AI 卡顶上（它就是「刷新前这个位置显示的影像」），**且只在本轮人问
+       与上次落盘时那一问同键(q)时**才贴（防 3.81 那个坑：上次的旧答复粘到新问题
+       底下）。贴出后连同人问键一起落盘，供下次刷新读回。 */
+    if (!fb && S.尾巴记忆 && S.尾巴记忆.q === qk) fb = S.尾巴记忆.row;
     if (fb){
       const k = rowKey(fb);
       const at = rows.findIndex(r => rowKey(r) === k);
       if (at >= 0) rows.splice(at, 1);
       seen[k] = 1;
       rows.push(fb);
+      尾巴落盘(qk, fb);         /* 3.29：把贴出的这条连同人问键落盘（供刷新读回） */
     } else {
       /* 3.25（用户 2026-10-05 铁律）：「人类最后一条发言底下不可能空着，永远要有
          文字」。二级取料（活条 / 最后一次完整回复）都取不到时——例如刚刷新
@@ -4469,7 +4511,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '3.28';   /* 3.28（2026-10-05）：缺料搭车活料（治用户 2026-10-05 报「（正在取回这条回复…）这张压轴占位卡永远挂着、思维流一直不出现」）。病根：末行是人类发言时 curMsgs 补灰字占位并置 S.回复缺料，靠 补料自检() 反复发 reqHist 索要最新一段；而**回复未定稿时账本没有可给的增量行**（服务端 get_after 恒空），只能回空 → 占位干挂，等 ver 变化触发 rebuild 才补上（实测约 3 分钟）。同一拍服务端手上其实有活思维流（snap 的 live/live_multi），只是没搭在这条 hist 通道。修法：服务端（网页服务 1.117）在 hist 结果为空（rebuild=false 且 msgs 空）时，把锚定会话正在生成的那条活条搭在 v['live'] 一起回；网页端 applyHistExtras 早已消费 v.live（setHistLive），本端仅补一次 renderAll 让搭车活条当场落屏（否则要等下一拍快照才重绘）。协议形状零改动，配套 网页服务 1.117、分页_设置 2.61。 原 3.27（2026-10-05）：智能省流·固定块复用（用户口述）：服务端把快照里「相对固定、非思维流」的部位（msgs/convs/sched）按内容指纹切成固定块，首发 ev k='blk' {id,ts,data} 下发整块内容，随后快照里该部位改写为引用 {_blk:id}；网页端把收到的块静存 IndexedDB（trae_webm_blk）并回 blk_ack{ids} 告知「已记录」，解析快照时遇 {_blk:id} 从本地取回拼好再渲染；缺块回 blk_need{ids} 索要、并用上一拍旧内容兜底免空白；块超 15 分钟未被再次引用即作废（双侧 TTL），服务端发 ev k='blk_del' {ids} 时本地同步清理。配套服务端 省流块.py 新建、网页服务 1.116、WS桥 1.29。 原 3.26（2026-10-05）：人类动作回执悬浮窗（用户 2026-10-05：「一切人类发给服务器的指令，都要给一个反馈，否则人会感到很无聊……搞一个半透明的悬浮窗，放在这个输出中、规划中，这个顶部横幅的底下……我做出动作以后，首先判断 WS 有没有在线，如果 WS 不在线的话，就要显示连接 WS 中；如果在线已经发出去了，那就显示等待服务器回应。凡是人发出去的动作，服务器必须给回应。我们收到回应以后，就可以显示服务器已收到。」）。实现：①新增半透明 #actbox 悬浮窗（rgba 深底 + 毛玻璃，pointer-events:none 不挡手），恒贴在「顶部横幅（#statebar，全屏时 #fbar）下沿」，随状态行变化/进出全屏自动重贴；②新增 actSend/actNew/actTimer/onAckR/actBox：凡网页端「人动作帧」经 actSend 出——登记一条回执（_rid）→ 不上线显示「📡 连接 WS 中…」、已交 WS 发显示「⏳ 等待服务器回应…」、收到服务端 ack_r 显示「✓ 服务器已收到」（约 2.6s 隐去）、8s 无回显示「⚠ 服务器未回应」；③sendCmd 增 opt={静默,rid,名}——人动作默认登记回执，自动动作（重放队列/补发投递/自动补切/check_fulls）传 静默:1 不弹窗（防上线刷屏）；④穷举接线（人动作）：发送/插话、停止生成、折叠展开分组、切换会话、置顶/删除/重命名会话、回退/删除消息、问询卡各键（选择/自定义/提交/取消/上一题/选题）、排队条三键（删除/取出编辑/立即发送）、移除附件、上传附件、取回输入框、刷新积分、每日签到、语音合成、定时自我激活（新建/修改/删除/列表/清空）——共 20+ 项，全部有人动作命名与回执；⑤离线发送沿用同一条回执：cmd() 未连时先登记「连接 WS 中…」并记 rid 入 offQueue，连上补发时原地翻成「等待服务器回应…」不另起一条。服务端 网页服务 1.115 配套：_入向 最前面「收到即回执」——凡带 _rid 的帧立刻回 ack_r{_rid}（WS桥 1.28 加「动作回执」中文用途）。 原 3.25（2026-10-05）：末行兜底补严——「人类最后一条发言底下永远要有文字」（用户 2026-10-05 铁律：「人类最后一条发言底下总是有东西的……它不可能是空的，但是我无数次观察到它是空的……这个地方永远要有文字啊，网页版要自己检查，如果这个地方没有内容可以显示，就应该主动向服务器去索取」）。病灶：curMsgs 末行兜底原只有「活条 / 最后一次完整回复」两级，两级都取不到时什么都不补 → 末行就是人问、底下留白（刷新后 lastLiveRow=null、histLive 空、池里只有人问，ensureHist 的 400ms 宽限见 histNear 有人问即跳过索取，服务端那拍 live 又空窗，正是高发场景）。整改：①三级兜底——两级都取不到就补一条 role='p' 灰字占位「（正在取回这条回复…）」（不是「…」），永不留白；②缺料自检——置 S.回复缺料，renderAll 里 补料自检() 据此主动 reqHist 向服务端要最新一段（节流+退避：前 3 次每 4 秒、之后每 15 秒、上限 12 次；缺料解除/换会话即归零）；③buildMsgNode 为 role='p' 单出「无 who 头、无操作按钮」的灰字节点，正牌 AI 行一到即顶替。纯网页端，服务端逻辑零改动。 原 3.24（2026-10-05）：刷新后「回到我选定的对话」（用户 2026-10-05 铁律：「我在左侧列表选中了一个对话，我拼命刷新就是为了进入它，别给我跳到别的地方去——我的选中就是我的旨意」）。新增 LS_ANCHOR 锚定会话落盘：localSwitchTo 时把锚定 sid+标题写盘；页面启动（骨架列表渲染前）读盘恢复锚点并把骨架高亮对齐到它，杜绝「先亮错会话再跳」；首拍带回会话列表后若桌面停在别处则主动 sendCmd('switch') 把桌面切过去（一次性，anchor_need_switch）。adoptSnap 的「锚定会话已消失」分支加 hasList 守卫——hello 框架版快照暂无 convs 时不误判、不丢刚恢复的锚点，并在真消失时把新锚随实落盘。纯网页端，服务端逻辑零改动。 原 3.23（2026-10-05）：状态归属绑定会话（治「切会话残留上一会话状态」）——新增 S.snapSid，记录快照里「随会话走」的字段（sendIdle/inputText/tail/finish/ask/opts/官方排队条 pend）到底属于哪个会话，由 adoptSnap 如实维护：切换在途且桌面还没切过去时（inSid!==anchorSid）连 inputText/tail/sendIdle/finish 一并清、并置 snapSid=''；stolen 冻结旧会话字段时归属保持旧值。配套新增 状态失配()；renderState 失配时不显示他会话的「输出中/输入中」改显「正在切换到…/⟳ 同步中…」，renderAll 失配时摘除他会话的 finish/opts/ask/官方排队条。switchSrv/applySwitch 换目标即清 snapSid。纯网页端，服务端逻辑零改动。 原 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
+const VER = '3.29';   /* 3.29（2026-10-05）：末行「残留影像」落盘（治用户 2026-10-05 报「只要一刷新，最后一条那个位置一定变成『正在取回这条回复…』占位；我之前要求这个位置自动落盘到本地，哪怕刷新也该看到之前残留的影像」）。病根：网页端显示基（histNear/histMsgs/histLive/lastLiveRow）全在内存、3.20 又把本地聊天记录缓存层整删，于是刷新后内存清空；而服务端那拍「活思维流」空窗、账本里这条回复又未定稿 ⇒ curMsgs 末行兜底的二级取料（活条/最后一次完整回复）全空 ⇒ 恒补 role='p' 占位。修法：把「末行兜底真正贴出的那张 AI 卡」连同它回答的那一问的键(q=rowKey(人问)) 按会话落 localStorage（trae_webm_tail，最多留 8 个会话）；ensureHist（刷新/切会话）读回 S.尾巴记忆，curMsgs 末行兜底在二级取料仍空时用本地残留影像顶上——**仅当 q 与当前末行人问同键**才贴（防 3.81 那个坑：上次的旧答复粘到新问题底下），贴出后再落盘。纯网页端，服务端逻辑零改动。 原 3.28（2026-10-05）：缺料搭车活料（治用户 2026-10-05 报「（正在取回这条回复…）这张压轴占位卡永远挂着、思维流一直不出现」）。病根：末行是人类发言时 curMsgs 补灰字占位并置 S.回复缺料，靠 补料自检() 反复发 reqHist 索要最新一段；而**回复未定稿时账本没有可给的增量行**（服务端 get_after 恒空），只能回空 → 占位干挂，等 ver 变化触发 rebuild 才补上（实测约 3 分钟）。同一拍服务端手上其实有活思维流（snap 的 live/live_multi），只是没搭在这条 hist 通道。修法：服务端（网页服务 1.117）在 hist 结果为空（rebuild=false 且 msgs 空）时，把锚定会话正在生成的那条活条搭在 v['live'] 一起回；网页端 applyHistExtras 早已消费 v.live（setHistLive），本端仅补一次 renderAll 让搭车活条当场落屏（否则要等下一拍快照才重绘）。协议形状零改动，配套 网页服务 1.117、分页_设置 2.61。 原 3.27（2026-10-05）：智能省流·固定块复用（用户口述）：服务端把快照里「相对固定、非思维流」的部位（msgs/convs/sched）按内容指纹切成固定块，首发 ev k='blk' {id,ts,data} 下发整块内容，随后快照里该部位改写为引用 {_blk:id}；网页端把收到的块静存 IndexedDB（trae_webm_blk）并回 blk_ack{ids} 告知「已记录」，解析快照时遇 {_blk:id} 从本地取回拼好再渲染；缺块回 blk_need{ids} 索要、并用上一拍旧内容兜底免空白；块超 15 分钟未被再次引用即作废（双侧 TTL），服务端发 ev k='blk_del' {ids} 时本地同步清理。配套服务端 省流块.py 新建、网页服务 1.116、WS桥 1.29。 原 3.26（2026-10-05）：人类动作回执悬浮窗（用户 2026-10-05：「一切人类发给服务器的指令，都要给一个反馈，否则人会感到很无聊……搞一个半透明的悬浮窗，放在这个输出中、规划中，这个顶部横幅的底下……我做出动作以后，首先判断 WS 有没有在线，如果 WS 不在线的话，就要显示连接 WS 中；如果在线已经发出去了，那就显示等待服务器回应。凡是人发出去的动作，服务器必须给回应。我们收到回应以后，就可以显示服务器已收到。」）。实现：①新增半透明 #actbox 悬浮窗（rgba 深底 + 毛玻璃，pointer-events:none 不挡手），恒贴在「顶部横幅（#statebar，全屏时 #fbar）下沿」，随状态行变化/进出全屏自动重贴；②新增 actSend/actNew/actTimer/onAckR/actBox：凡网页端「人动作帧」经 actSend 出——登记一条回执（_rid）→ 不上线显示「📡 连接 WS 中…」、已交 WS 发显示「⏳ 等待服务器回应…」、收到服务端 ack_r 显示「✓ 服务器已收到」（约 2.6s 隐去）、8s 无回显示「⚠ 服务器未回应」；③sendCmd 增 opt={静默,rid,名}——人动作默认登记回执，自动动作（重放队列/补发投递/自动补切/check_fulls）传 静默:1 不弹窗（防上线刷屏）；④穷举接线（人动作）：发送/插话、停止生成、折叠展开分组、切换会话、置顶/删除/重命名会话、回退/删除消息、问询卡各键（选择/自定义/提交/取消/上一题/选题）、排队条三键（删除/取出编辑/立即发送）、移除附件、上传附件、取回输入框、刷新积分、每日签到、语音合成、定时自我激活（新建/修改/删除/列表/清空）——共 20+ 项，全部有人动作命名与回执；⑤离线发送沿用同一条回执：cmd() 未连时先登记「连接 WS 中…」并记 rid 入 offQueue，连上补发时原地翻成「等待服务器回应…」不另起一条。服务端 网页服务 1.115 配套：_入向 最前面「收到即回执」——凡带 _rid 的帧立刻回 ack_r{_rid}（WS桥 1.28 加「动作回执」中文用途）。 原 3.25（2026-10-05）：末行兜底补严——「人类最后一条发言底下永远要有文字」（用户 2026-10-05 铁律：「人类最后一条发言底下总是有东西的……它不可能是空的，但是我无数次观察到它是空的……这个地方永远要有文字啊，网页版要自己检查，如果这个地方没有内容可以显示，就应该主动向服务器去索取」）。病灶：curMsgs 末行兜底原只有「活条 / 最后一次完整回复」两级，两级都取不到时什么都不补 → 末行就是人问、底下留白（刷新后 lastLiveRow=null、histLive 空、池里只有人问，ensureHist 的 400ms 宽限见 histNear 有人问即跳过索取，服务端那拍 live 又空窗，正是高发场景）。整改：①三级兜底——两级都取不到就补一条 role='p' 灰字占位「（正在取回这条回复…）」（不是「…」），永不留白；②缺料自检——置 S.回复缺料，renderAll 里 补料自检() 据此主动 reqHist 向服务端要最新一段（节流+退避：前 3 次每 4 秒、之后每 15 秒、上限 12 次；缺料解除/换会话即归零）；③buildMsgNode 为 role='p' 单出「无 who 头、无操作按钮」的灰字节点，正牌 AI 行一到即顶替。纯网页端，服务端逻辑零改动。 原 3.24（2026-10-05）：刷新后「回到我选定的对话」（用户 2026-10-05 铁律：「我在左侧列表选中了一个对话，我拼命刷新就是为了进入它，别给我跳到别的地方去——我的选中就是我的旨意」）。新增 LS_ANCHOR 锚定会话落盘：localSwitchTo 时把锚定 sid+标题写盘；页面启动（骨架列表渲染前）读盘恢复锚点并把骨架高亮对齐到它，杜绝「先亮错会话再跳」；首拍带回会话列表后若桌面停在别处则主动 sendCmd('switch') 把桌面切过去（一次性，anchor_need_switch）。adoptSnap 的「锚定会话已消失」分支加 hasList 守卫——hello 框架版快照暂无 convs 时不误判、不丢刚恢复的锚点，并在真消失时把新锚随实落盘。纯网页端，服务端逻辑零改动。 原 3.23（2026-10-05）：状态归属绑定会话（治「切会话残留上一会话状态」）——新增 S.snapSid，记录快照里「随会话走」的字段（sendIdle/inputText/tail/finish/ask/opts/官方排队条 pend）到底属于哪个会话，由 adoptSnap 如实维护：切换在途且桌面还没切过去时（inSid!==anchorSid）连 inputText/tail/sendIdle/finish 一并清、并置 snapSid=''；stolen 冻结旧会话字段时归属保持旧值。配套新增 状态失配()；renderState 失配时不显示他会话的「输出中/输入中」改显「正在切换到…/⟳ 同步中…」，renderAll 失配时摘除他会话的 finish/opts/ask/官方排队条。switchSrv/applySwitch 换目标即清 snapSid。纯网页端，服务端逻辑零改动。 原 3.22（2026-10-05）：补一次「遗留残渣一次性清理」——3.20 把聊天记录缓存层（IndexedDB 深库 / 内存镜像 S.histMeta / times）读写成对整删后，3.19 及更早版本在用户浏览器里写下的 trae_webm_times（times 首见时间表）与 IndexedDB 库 trae_webm_idb（旧「只写不读」的真实数据）仍留存；现于**页面启动处**（打开即清、不依赖连上服务端）与 网页模块\模块_设置页.js 的「清空缓存」各补一处**只删不建**的一次性清理（同 3.75 清理 LS_HIST 的遗留清键路数），此后全文件再无任何写入路径 → 不复建。（初版落在 checkVerBump，因它走 hello、服务端没起就不跑，故移到启动处。）纯网页端。 原 3.20（2026-10-05）网页版缓存整改落地（用户认可：走实时广播、不再靠缓存聊天记录）：自 3.14 纯现场直发后 isLiveMode() 恒 true，聊天记录缓存「只写不读」纯白占地方，故读写成对整删——①IndexedDB 历史深库（trae_webm_idb/hist：idbOpen/idbGet/idbPut/idbClear/deepKey/deepWrite/deepLoad/idbHydrateMeta/idbEnqueue 及 IS_MOBILE / IDB_NAME / IDB_VER / IDB_STORE / DEEP_MAX / _idbP）；②内存镜像 S.histMeta 与 histCacheRead/histCacheWrite/histPersist（含 applyHist/applyHistExtras seed 块/prependHist/mergeNear 三处写入点）；③reloadAnchorFromCache 整函数及其调用（applyBootcast/reuse 分支）、ensureHist 本地预填分支、localPoolRows 的 histDeep 合并、onHello 冷启动水合；④times 表（LS_TM）及 djb2/timesGet/fmtTime，resolveTimes 改为只认服务端第 6 位时间（无则沿用上一条）。保留会话列表骨架 LS_SKEL（启动真读、秒开会话列表+积分/模型）与 11 项设置键。配套 网页模块\模块_设置页.js 被删缓存显示 0/停用。纯网页端。 原 3.19（2026-10-05）修「刷新丢思维流」：case 'snap' 的 sameAsAnchor0 分支，本拍 v.live 为空时回退取 pickLiveMulti(锚定会话)——后台 Agent 实测复刻：刷新后服务端 live 字段空窗可达 ~90s（活流其实完整放在 live_multi 里、一直在发），而该分支只认 v.live ⇒ 页面空白到整轮结束才一股脑冒出；现 v.live 非空时行为不变、空时用 live_multi 兜住。网页端单改，服务端逻辑零改动。 原 3.18（2026-10-05）状态灯三补 + 占位卡可重试撤卡（用户 2026-10-05 批准「全上」）：①撤卡重试——新增 重跑撤卡()，对「已 didhit 但那一拍正文未进池而没撤掉」的卡每拍+每 5s 重跑「池有该文」，回 2.57「命中可重报」口径（治「占位小卡片得不到消除」）；池有该文 补一条子串判，与服务端 did命中（probe in b）对齐口径。②陈旧兜底——新增 S.snapTs + 快照陈旧()，超 40s 无快照则状态栏显「⟳ 同步中…」、左栏 run 灯置灰。③cliResume 回前台补发 hello 强制重取最新缓存快照。配套服务端 网页服务 1.105、抓取轮询 1.19（_指纹 并入 sendIdle/inputText）、分页_设置 2.54。 原 3.17（2026-10-05）：删状态栏「闪变」——原 case 'connected' 及其唯一触发源 onHello 里 `if (d.conn) onEv('connected', S.port)` 会把「✏️ 输出中/规划中」盖成「● 已连接（端口）」约 4 秒（hello 重放/登录重试每 3s 一次、反复触发，即用户 2026-10-04 报的「一闪一闪」）；现状态栏只示会话状态，连接状态由顶栏 renderLink 单独显示。 原 3.16（2026-10-04）：继续清 ID 拼装最后残留——删 k==='gap' 回包分支、'req:gap' 用途映射、histCacheConvs 及 sendBootcast/reqHist 的 have_convs 上报；删正文区「正在切换」虚线在途条（只保留状态栏那条，用户 2026-10-04 令）。服务端 网页服务 1.103 同步删 c=='gap' 分支与 _启动广播包 have_convs 补缺。原 3.15（2026-10-04）：清死代码残留——删 ID 拼装整改遗留、已无调用的 histCacheIds/histCacheMids（其调用方 have_ids/have_mids 上报已于 3.14 删），广播/历史链路零行为变化。原 3.14（2026-10-04）：彻底去 ID 拼装——删设置页「广播模式」下拉
                         （set_bcmode/LS_BCMODE/bcmodeGet/bcmodeReport/bcmodeApply 及 hello
                         回显）、删状态条「ID 档」徽章（stateTag/.modechip）与 isLiveMode
                         的模式判定（保留函数恒 true）、删 dead_ids 核缺回补（reconcileDeadIds
