@@ -6,6 +6,9 @@
    命令口径（冻结协议）：sched_add [sid,text,every_min,total] /
    sched_del [jid] / sched_ls [sid] / sched_clear [sid] /
    sched_set [jid,text,every_min,total]（可选，本端暂不发起）。
+   2.47：新增 闹钟后缀(sid)（会话名后显示「 ⏰」，多条带条数）+ 定时指纹()
+   （任务列表稳定指纹，参与 会话列表.js 的 convs_key 去重），供会话行一眼
+   看出哪些会话设了定时提醒。
    依赖：S、sendCmd、flash、$，以及 长椅任务.js 的 bsOpen/bsClose/bsBtn。 */
 
 const 自激活_默认文本 = '（定时自我激活：请继续。）';
@@ -22,6 +25,21 @@ function 定时入快照(snap){
 function 定时取(sid){
   if (!sid) return [];
   return (S.定时 || []).filter(t => t && t.sid === sid);
+}
+
+function 定时指纹(){
+  /* 2.47：定时任务列表的稳定指纹——参与 会话列表.js convs_key 去重，
+     任务增删与推进（done/total）都能触发重绘；顺序变化不误触发。 */
+  return (S.定时 || []).map(t => (t && t.sid || '') + ':' + (t && t.id || '')
+      + ':' + (t && t.done || 0) + '/' + (t && t.total || 0)).sort().join('|');
+}
+
+function 闹钟后缀(sid){
+  /* 2.47：该会话有定时自我激活任务时返回「 ⏰」（多条带条数）——供
+     会话列表.js renderConvs 在会话名后追加，一眼看出谁设了定时提醒。
+     数据源：快照 snap['定时']（全局全部会话的任务，见 定时入快照）。 */
+  const n = 定时取(sid).length;
+  return n ? (' ⏰' + (n > 1 ? String(n) : '')) : '';
 }
 
 function 自激活_时刻(n){

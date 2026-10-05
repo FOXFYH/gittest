@@ -17,7 +17,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
     + '#ur:' + Array.from(ur).sort().join('|')
     + '#uri:' + Array.from(uri).sort().join('|')
     /* 2.40：备注字典纳入指纹——备注变化也要触发重绘（钩子缺失回退空） */
-    + '#note:' + (window.备注指纹 ? 备注指纹() : '');
+    + '#note:' + (window.备注指纹 ? 备注指纹() : '')
+    /* 2.47：定时任务指纹纳入去重——设/撤/推进定时也会重绘（钩子缺失回退空） */
+    + '#sched:' + (window.定时指纹 ? 定时指纹() : '');
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
@@ -72,7 +74,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       }
       const tspan = document.createElement('span');
       /* 2.40：会话名后追加（备注）——钩子由 会话备注.js 提供，缺失回退空串 */
-      tspan.textContent = title + (window.备注后缀 ? 备注后缀(sid) : '');
+      /* 2.47：会话名后追加（备注）+ 定时闹钟（⏰）——两钩子各自缺失则回退空串 */
+      tspan.textContent = title + (window.备注后缀 ? 备注后缀(sid) : '')
+        + (window.闹钟后缀 ? 闹钟后缀(sid) : '');
       d.appendChild(tspan);
       const i = idx;
       /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
