@@ -110,7 +110,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.33';   /* 2.33：TXT 阅读器加「✎ 编辑 → 💾 保存」——顶部出编辑钮，
+const VER = '2.34';   /* 2.34：TXT 阅读器字号落盘 localStorage——A-/A+ 调好后
+                         长期记住，不必每回重调（键 trae_freader_font）。
+                         2.33：TXT 阅读器加「✎ 编辑 → 💾 保存」——顶部出编辑钮，
                          点后正文就地 contenteditable（不弹窗，直接出光标，落末尾），
                          改完保存写回电脑原文件（bench_write，沿用读到时的编码 + CRLF
                          行尾还原）；附右键/长按小菜单（剪切/复制/粘贴/全选，读模式
