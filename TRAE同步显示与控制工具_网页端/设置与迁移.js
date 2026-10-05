@@ -147,17 +147,28 @@ function switchMigratePrompt(){
   ov.style.cssText = 'position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.45);'
     + 'display:flex; align-items:center; justify-content:center;';
   ov.innerHTML =
-    '<div style="background:#fff; border-radius:10px; padding:16px; width:86%; max-width:380px;">'
+    '<div style="background:#fff; border-radius:10px; padding:16px; width:90%; max-width:400px;'
+    + ' max-height:88vh; overflow:auto;">'
     + '<div style="font-weight:bold; font-size:15px; margin-bottom:8px;">🔁 一键换号迁移</div>'
-    + '<div style="font-size:12px; color:#555; line-height:1.55; margin-bottom:10px;">'
-    + '把原版 TRAE 换成目标号码的账号，并把「最近最重度使用」账号的全部对话记录'
-    + '换新ID 一并带过来（可直接开始对话）。期间会短暂关闭原版 TRAE（写完自动拉起）；'
+    + '<div style="font-size:12px; color:#555; line-height:1.5; margin-bottom:10px;">'
+    + '把原版 TRAE 换成目标号码的账号，并按下面设置处理对话记录（与电脑上的'
+    + '「TRAE换号工具」同一款内核）。期间会短暂关闭原版 TRAE（写完自动拉起）；'
     + '分身若掉线会自动拉起分身助手补登录（弹滑块需人工滑）。</div>'
     + '<input id="swin" inputmode="numeric" autocomplete="off"'
-    + ' placeholder="输入目标号码，如 18" style="width:100%; box-sizing:border-box;'
+    + ' placeholder="目标号码，如 18" style="width:100%; box-sizing:border-box;'
     + ' padding:9px; border:1px solid #ccc; border-radius:6px; font-size:16px;">'
+    + '<div style="margin-top:10px; font-size:13px;">保留最近 '
+    + '<input id="swkeep" inputmode="numeric" value="100" style="width:64px; padding:5px;'
+    + ' border:1px solid #ccc; border-radius:6px; font-size:14px;"> 轮对话'
+    + '<span style="color:#888; font-size:12px;">（0=不裁，原样全留）</span></div>'
+    + '<label style="display:block; margin-top:8px; font-size:13px;">'
+    + '<input type="checkbox" id="swpurge" checked> 清理其它账号（只保留当前登录账号）</label>'
+    + '<label style="display:block; margin-top:6px; font-size:13px;">'
+    + '<input type="checkbox" id="swmig"> 智能迁移最重度账号（把最重账号对话并入当前号）</label>'
+    + '<label style="display:block; margin-top:6px; font-size:13px;">'
+    + '<input type="checkbox" id="swvac" checked> 自动压缩（回收已删空页，库变小更快）</label>'
     + '<div id="swerr" style="color:#c62828; font-size:12px; min-height:16px;'
-    + ' margin-top:4px;"></div>'
+    + ' margin-top:6px;"></div>'
     + '<div style="display:flex; gap:8px; margin-top:6px;">'
     + '<button id="swcancel" style="flex:1; padding:10px; border:1px solid #ccc;'
     + ' border-radius:6px; background:#f7f7f7;">取消</button>'
@@ -173,10 +184,13 @@ function switchMigratePrompt(){
   const go = () => {
     const n = (inp.value || '').replace(/\D/g, '');
     if (!n){ err.textContent = '请输入目标号码（纯数字）'; return; }
+    const keep = Math.max(0, parseInt(($('swkeep').value || '').replace(/\D/g, ''), 10) || 0);
+    const purge = $('swpurge').checked, mig = $('swmig').checked, vac = $('swvac').checked;
+    if (purge && !confirm('将【清除其它所有账号的对话记录】（只保留当前登录账号），确定？')) return;
     close();
     const slog = $('prof_swlog');
     if (slog){ slog.style.display = 'block'; slog.textContent = '（已提交，等待服务端…）'; }
-    sendCmd('switch_migrate', n);
+    sendCmd('switch_migrate', { '目标': n, '轮次': keep, '清理': purge, '压缩': vac, '迁移': mig });
     S.switch_mig = { on: true, ok: null, log: [] };
     flash('🚀 一键换号迁移已启动（目标 ' + n + ' 号）…', 'var(--blue)', 6000);
   };

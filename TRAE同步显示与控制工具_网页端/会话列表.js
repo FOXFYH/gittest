@@ -15,7 +15,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
   const uri = new Set(useId ? conv_unread_ids : []);
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
-    + '#uri:' + Array.from(uri).sort().join('|');
+    + '#uri:' + Array.from(uri).sort().join('|')
+    /* 2.40：备注字典纳入指纹——备注变化也要触发重绘（钩子缺失回退空） */
+    + '#note:' + (window.备注指纹 ? 备注指纹() : '');
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
@@ -69,7 +71,8 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
         d.appendChild(dot);
       }
       const tspan = document.createElement('span');
-      tspan.textContent = title;
+      /* 2.40：会话名后追加（备注）——钩子由 会话备注.js 提供，缺失回退空串 */
+      tspan.textContent = title + (window.备注后缀 ? 备注后缀(sid) : '');
       d.appendChild(tspan);
       const i = idx;
       /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
@@ -152,6 +155,10 @@ function convMenuOpen(title, sid){
     };
   });
   document.body.appendChild(ov);
+  /* 2.40：追加两项网页端专享菜单——实现各在新 js 的钩子里，缺失则跳过，
+     保证两个功能可整块摘除、本文件不膨胀。 */
+  if (window.备注菜单项) 备注菜单项(sid, title, ov);
+  if (window.自我激活菜单项) 自我激活菜单项(sid, title, ov);
 }
 
 /* ============ 1.09：待确认项（空窗期反馈） ============
