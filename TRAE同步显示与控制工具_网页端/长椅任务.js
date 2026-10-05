@@ -11,6 +11,11 @@ function benchIns(path){
   S.bench = null;
   flash('已插入路径', 'var(--green)');
 }
+function benchOpen(path){          /* 2.28：本地主动弹窗——直接打开浏览页到指定路径 */
+  S.bench_mode = 'ins';
+  el.benchpage.classList.add('on');
+  benchReq(path || '');
+}
 function benchModeUI(){                 // 1.06：按模式切换头钮/底栏提示
   const pick = S.bench_mode === 'newdir';
   el.bench_ok.style.display = pick ? '' : 'none';
