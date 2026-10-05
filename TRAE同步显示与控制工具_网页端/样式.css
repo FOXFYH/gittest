@@ -1,0 +1,516 @@
+
+:root{
+  --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
+  --gray:#8a8a8a; --ubg:#e8f1fb; --abg:#ecf5ec; --bd:#d8dde3;
+}
+*{box-sizing:border-box; margin:0; padding:0;
+  -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{font:14px/1.55 "Microsoft YaHei","PingFang SC",sans-serif;
+  background:#f2f4f7; color:#222; display:flex; flex-direction:column;
+  overflow:hidden; overscroll-behavior:none; touch-action:manipulation;}
+button{font:inherit; cursor:pointer; border:1px solid var(--bd);
+  background:#fff; border-radius:6px; padding:4px 12px; min-height:36px;}
+button:disabled{color:#aaa; cursor:default; background:#f5f5f5;}
+input,select{font:inherit; border:1px solid var(--bd); border-radius:6px;
+  padding:4px 6px; background:#fff; min-height:36px;}
+select{font-size:12px;}
+/* ── 顶栏（两行 + 状态条） ── */
+/* 1.78：清掉 #hdr 的 padding-top:env(safe-area-inset-top)——主界面顶部
+   凭空多出的约两行空白元凶（手机/模拟器 env≈44px，PC=0 测不出）。
+   1.75 只清了全屏横幅那处，主界面这处漏网，现一并根治。 */
+#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);}
+.h1row{display:flex; align-items:center; gap:6px; padding:4px 8px;}
+#btn_menu{min-width:42px; font-size:17px; padding:4px 10px;}
+.h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+#lbl_rlink{margin-left:auto; font-weight:bold; font-size:12px;
+  white-space:nowrap; cursor:pointer;}
+/* 1.12：当前操控的服务端（点击进抽屉切换） */
+#lbl_srv{font-weight:bold; font-size:12px; color:var(--blue);
+  white-space:nowrap; max-width:34%; overflow:hidden;
+  text-overflow:ellipsis; cursor:pointer;}
+.h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
+  flex-wrap:wrap;}
+#cmb_box{flex:1; max-width:42%; min-width:0;}
+#cmb_model{flex:2; min-width:0;}
+#lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
+#statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
+  background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* 1.31b：未登录横幅——默认必须隐藏（此前漏了这段 CSS，横幅
+   常驻飘着=误报）。仅快照 login===false 时 JS 加 .on 才显示 */
+#loginbar{display:none; flex:none; padding:6px 12px; font-size:12px;
+  background:#fdecea; color:#c62828; border-bottom:1px solid #f0b9b3;
+  line-height:1.5; white-space:normal;}
+#loginbar.on{display:block;}
+/* ── 消息区 ── */
+#msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:8px 8px 4px; background:#fff;}
+/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
+   消息区独占整屏，能看更多历史；body.fmsg 生效 */
+body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
+body.fmsg #input_row{ display:none; }
+#fexit{display:none; position:fixed; right:12px; bottom:16px;
+  z-index:30; border:1px solid var(--blue); background:#fff;
+  color:var(--blue); font-weight:bold; border-radius:20px;
+  padding:2px 14px; min-height:34px;
+  box-shadow:0 2px 8px rgba(21,101,192,.25);}
+body.fmsg #fexit{display:block;}
+/* 1.62：历史全屏的「状态提醒」——全屏把顶栏与状态条都藏了
+   （body.fmsg #hdr,#statebar{display:none}），在历史里撤回/回退时
+   操作结果（正在回退…/已回退…/已取回…）与连接状态全都看不见，
+   手机上无从观察同步是否成功。补两件：
+   ① #fbar：常驻顶部细条，镜像 #statebar 的文案与颜色；
+   ② #ftoast：浮动吐司（JS 动态创建），全屏下把 flash 的每条提示
+      放大居中显示，确保撤回结果一眼可见。 */
+/* 1.75：彻底去掉 env(safe-area-inset-top)——实测它在手机/模拟器下
+   返回约两行高非零值，无论放上还是放下 padding 都会凭空撑出两行空白
+   （1.72 文字在第1行、底下两行空；1.73 文字掉第3行、上面两行空）。
+   历史全屏时顶栏/状态条已隐藏，无需避让刘海，故直接不用安全区，
+   横幅固定 2px 上下 padding，压成真正一行，不挡消息区。
+   1.78：同一病根扩大治理——上次只清了这一处，主界面 #hdr 顶栏与
+   #input_row 输入行两处漏网（用户看到的顶部/底部各约两行空白）。
+   本次把全站 8 处 env 安全区留白一次清干净：#hdr / #input_row /
+   #ftoast / .cmsheet / .nhdr / .nbody / #bfoot / .tdbody，
+   页面统一满屏到边，不再凭空撑白。 */
+#fbar{display:none; position:fixed; left:0; right:0; top:0; z-index:35;
+  padding:2px 8px; text-align:center;
+  font-size:11px; line-height:1.2; background:rgba(255,255,255,.96);
+  border-bottom:1px solid var(--bd); box-shadow:0 1px 4px rgba(0,0,0,.06);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+body.fmsg #fbar{display:block;}
+body.fmsg #msgs{padding-top:22px;}
+#ftoast{position:fixed; left:50%; top:34px;
+  transform:translateX(-50%); max-width:90%; z-index:41; padding:8px 16px;
+  border-radius:16px; background:rgba(24,24,24,.9); color:#fff;
+  font-size:13.5px; line-height:1.5; text-align:center;
+  white-space:pre-wrap; word-break:break-word; opacity:0;
+  pointer-events:none; border:2px solid transparent;
+  transition:opacity .18s; box-shadow:0 4px 14px rgba(0,0,0,.3);}
+#ftoast.on{opacity:1;}
+.msg{border-radius:8px; padding:5px 10px; margin:0 0 8px;}
+.msg.user{background:var(--ubg);}
+.msg.agent{background:var(--abg);}
+.msg .who{font-weight:bold; font-size:12px;}
+.msg.user .who{color:var(--blue);}
+.msg.agent .who{color:var(--green);}
+/* 2.09：时间戳改成「可被压缩、挤不下就省略号」——这样当 .who 一行放不下
+   时，先牺牲时间显示，保证右侧那排操作按钮（📋复制/✎重编/↩回退/🗑删除）
+   始终完整、恒在一行不被挤断。 */
+.msg .tm{color:var(--gray); font-size:11px; margin-left:4px;
+  min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.msg .body{margin-top:2px; white-space:pre-wrap; word-break:break-word;}
+.msg .body code{background:rgba(0,0,0,.06); padding:0 4px;
+  border-radius:3px; font-family:Consolas,monospace; font-size:12px;}
+.msg .body pre{background:rgba(0,0,0,.05); padding:6px 8px;
+  border-radius:4px; overflow-x:auto; margin:4px 0;}
+.msg .body pre code{background:none; padding:0;}
+.msg .body h1,.msg .body h2,.msg .body h3{margin:4px 0 2px; font-size:14px;}
+.msg .body a{color:var(--blue);}
+.empty{color:#999; text-align:center; padding:30px 0;}
+/* ── 1.25：会话操作菜单（长按会话行） ── */
+#convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
+  display:flex; align-items:flex-end; justify-content:center;}
+.cmsheet{background:#fff; border-radius:14px 14px 0 0; width:100%;
+  max-width:420px; padding:10px 14px 14px;}
+.cmsheet .cmtitle{font-size:13px; color:var(--gray); margin:2px 2px 8px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.cmsheet button{display:block; width:100%; text-align:left; padding:12px 10px;
+  border:none; background:none; font-size:16px; border-radius:8px;
+  color:#222;}
+.cmsheet button:active{background:#f0f2f5;}
+.cmsheet button.cmcancel{color:var(--gray); text-align:center;}
+/* ── 1.06：消息操作（回退/删除）+ AI 选项卡 ── */
+.msg .who{display:flex; align-items:center; gap:4px;}
+.who .mract{margin-left:auto; display:flex; gap:3px; flex-shrink:0;}
+/* 2.09：历史里「我的发言」卡片的操作按钮（📋复制/✎重编/↩回退/🗑删除）
+   原会被挤到按钮内部折行、一个按钮占两行，很丑（用户 2026-10-01 提出）。
+   根因：.mract 在 .who 里空间不够时，按钮作为 flex 子项被压缩，
+   文字被挤断换行。现在：① 按钮文字恒不折行（white-space:nowrap）
+   且不被压缩（flex-shrink:0）＝整排永远只有一行；② 字号 11→10px、
+   内边距 8→5px、间距 4→3px 各收一点，腾出足够空间；③ 真挤不下时
+   先牺牲时间戳（.tm 可省略号截断），操作按钮始终完整可点。 */
+.mact{font-size:10px; min-height:20px; padding:0 5px; border-radius:4px;
+  white-space:nowrap; flex-shrink:0;}
+.mact.rev{color:var(--blue);}
+.mact.del{color:var(--red);}
+#opts{margin:0 0 8px; display:flex; flex-direction:column; gap:5px;}
+#opts .othint{font-size:11px; color:var(--gray); padding:0 2px;}
+.optbtn{text-align:left; min-height:34px;}
+/* ── 1.40：AI 提问卡（结构化 ask 快照）── */
+.otherrow{display:flex; gap:6px; align-items:stretch;}
+.otherrow input{flex:1; min-width:0; font-size:14px; padding:7px 10px;
+  border:1px solid #c5cbd3; border-radius:8px; background:#fff;
+  color:#1c2733;}
+.otherrow input:disabled{opacity:.55;}
+.otherrow button{font-size:13px; padding:0 14px; border-radius:8px;
+  border:1px solid var(--blue); background:var(--blue); color:#fff;}
+.otherrow button:disabled{opacity:.5;}
+.askfoot{display:flex; gap:8px; justify-content:flex-end; margin-top:2px;}
+.askfoot button{font-size:13px; min-height:32px; padding:0 16px;
+  border-radius:8px; border:1px solid #c5cbd3; background:#fff;
+  color:#37474f;}
+.askfoot button:disabled{opacity:.5;}
+.askfoot #askgo{border-color:var(--blue); background:var(--blue);
+  color:#fff;}
+/* ── 1.29：插话排队条管理（快照 pend，对齐 TRAE pendingMessageList）── */
+.qpanel{margin:0 0 8px; border:1px dashed #b0bec5; border-radius:10px;
+  background:#fafbfc; padding:6px 8px; display:flex; flex-direction:column;
+  gap:5px;}
+.qhead{font-size:11px; color:var(--gray); padding:0 2px;}
+/* 2.08：每条排队消息＝「左侧两行文字 + 右侧一个按钮块」——
+   按钮块上行是 ⚡发送（独占一行），下行是 ✎ / 🗑 两个小按钮并排，
+   两块宽度＋中间 4px 间隔刚好等于发送按钮宽度（都靠 .qbtns 定宽
+   68px 撑住），三个按钮拼成一个对齐的方块，整齐好看；
+   左侧文字默认只显示两行（超出折叠），点一下文字即展开全文。 */
+.qitem{display:flex; align-items:flex-start; gap:6px;}
+.qbtns{flex-shrink:0; display:flex; flex-direction:column; gap:4px;
+  width:68px;}
+.qsub{display:flex; gap:4px;}
+.qbtns button{font-size:11px; min-height:24px; padding:0 4px;
+  border-radius:5px; border:1px solid #c5cbd3; background:#fff;
+  color:#37474f; white-space:nowrap;}
+.qbtns .qsend{width:100%;}
+.qsub button{flex:1 1 0; min-width:0; padding:0;}
+.qbtns button.go{border-color:var(--blue); color:var(--blue);}
+.qbtns button.del{border-color:#e0b4b4; color:var(--red);}
+.qbtns button:disabled{opacity:.45;}
+.qitem .qtxt{flex:1; min-width:0; font-size:13px; color:#263238;
+  line-height:1.45; word-break:break-word; cursor:pointer;
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
+  overflow:hidden;}
+.qitem .qtxt.open{-webkit-line-clamp:unset; display:block;
+  overflow:visible;}
+/* ── 1.09：待确认占位气泡（空窗期反馈）── */
+.msg.pend{background:var(--ubg); border:1px dashed rgba(21,101,192,.55);}
+.msg.pend .body{color:#5a6b7d;}
+.msg.pend .pstat{font-size:11px; margin-left:6px; padding:1px 7px;
+  border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);}
+.msg.pend.ok .pstat{background:rgba(10,125,50,.14); color:var(--green);}
+.msg.pend.bad{border-color:rgba(198,40,40,.65);}
+.msg.pend.bad .pstat{background:rgba(198,40,40,.14); color:var(--red);}
+.msg.pend .pacts{margin-left:auto; display:flex; gap:4px;}
+/* 1.83：占位卡按钮变多（复制/改写/重发/丢弃）+ 状态胶囊文案变长，
+   窄屏放不下时允许折行——按钮整体右对齐落到下一行，不再横向挤爆 */
+.msg.pend .who{flex-wrap:wrap; row-gap:4px;}
+.pendbtn{font-size:11px; min-height:22px; padding:0 8px; border-radius:4px;}
+.pendbtn.go{color:var(--blue);}
+.pendbtn.drop{color:var(--gray);}
+.switching{background:rgba(21,101,192,.07); border:1px dashed
+  rgba(21,101,192,.35); color:var(--blue); font-size:12px;
+  border-radius:8px; padding:6px 10px; margin:0 0 8px; text-align:center;}
+.switching::after{content:''; display:inline-block; width:6px; height:6px;
+  margin-left:6px; border-radius:50%; background:var(--blue);
+  animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+/* ── 1.90：文本转语音小卡片（(@fox-play1)...(@fox-play2) 包夹段）── */
+.foxplay{display:flex;flex-direction:column;gap:4px;margin:6px 0;
+  padding:6px 10px;border:1px solid rgba(21,101,192,.35);
+  border-radius:8px;background:linear-gradient(135deg,#eef6ff,#f7f0ff);
+  font-size:13px;}
+.foxplay .fprow{display:flex;align-items:flex-start;gap:8px;}
+/* 1.98：阶段通知行（用户2026-09-30规定）——点 ▶ 后逐阶段如实显示：
+   正在连接 WS → 任务已提交 → 服务器引擎正在转换 → 语音已生成，请点击播放；
+   已生成过则直接重播、不再走服务端（见 _tts_state 缓存） */
+/* 1.99：阶段行改为**卡片顶部一条窄横幅**（用户2026-09-30指令）——原先
+   放在正文下方，长文本（100 字以上）把卡片撑高后，横幅被挤到视线之外，
+   用户反馈「提示都看不到」。现上移到卡片顶端，用负外边距撑满卡片内容宽、
+   贴齐左右与顶边（圆角随卡片），做成一条窄窄的横幅。
+   注意顺序：foxCardHtml 里 .fpst 必须排在最前；空文本时整条隐藏
+   （:empty → display:none），不占高度、不留空条。 */
+.foxplay .fpst{font-size:11px;line-height:1.32;color:var(--gray);
+  margin:-6px -10px 0;padding:2px 10px;
+  background:rgba(21,101,192,.07);border-radius:7px 7px 0 0;
+  overflow-wrap:break-word;}
+.foxplay .fpst:empty{display:none;}
+/* 1.96：卡片文字**全量显示**（用户规定）——音频播不了时也能读全，
+   故不再单行省略：允许换行、长串/长英文强制断行 */
+.foxplay .fptxt{flex:1;min-width:0;color:#333;white-space:pre-wrap;
+  overflow-wrap:break-word;line-height:1.45;}
+.foxplay .fpbtn{flex:none;width:30px;height:30px;border:1px solid var(--bd);
+  border-radius:50%;background:#fff;color:var(--blue);font-size:14px;
+  cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
+.foxplay .fpbtn:active{transform:scale(.92);}
+/* ── 2.21：AI 提问卡（(@fox-ask1)...(@fox-ask2) 包夹段）──
+   与语音卡**同一套机制**（同 .foxplay 类、同 ▶ 播放、同 TTS 通道），
+   仅叠一个 .ask 修饰类做「醒目」：琥珀描边 + 暖底 + 加粗琥珀文字 +
+   左侧粗强调条，让提问在长正文里一眼可见（用户要求：AI 的提问要醒目、
+   方便及时作答）。 */
+.foxplay.ask{border:2px solid rgba(230,81,0,.45);
+  border-left:5px solid rgba(230,81,0,.7);
+  background:linear-gradient(135deg,#fff8e1,#fff3e0);
+  box-shadow:0 1px 6px rgba(230,81,0,.15);}
+.foxplay.ask .fpst{background:rgba(230,81,0,.10);}
+.foxplay.ask .fptxt{color:#8a4b00;font-weight:bold;}
+.foxplay.ask .fpbtn{border-color:rgba(230,81,0,.45);color:#e65100;}
+.optbtn.picked{opacity:.55;}
+/* ── 1.06：抽屉 文件夹➕ / 防升级开关 ── */
+.convo.folder{display:flex; align-items:center;}
+.convo.folder .fname{flex:1; min-width:0; overflow:hidden;
+  text-overflow:ellipsis;}
+.fplus{color:var(--blue); font-weight:bold; padding:0 4px 0 12px;}
+#finish{background:var(--abg); border-radius:8px; padding:5px 10px;
+  margin-bottom:8px;}
+#finish .ft{font-weight:bold; color:var(--green);}
+#finish .ff{color:var(--green); font-size:12px;}
+/* ── 1.27：积分预警 toast ── */
+#warnbox{position:fixed; left:50%; top:38%; transform:translateX(-50%)
+  translateY(-50%) scale(.9); z-index:60; background:#fff3e0;
+  border:2px solid #ef6c00; color:#e65100; font-weight:bold;
+  font-size:16px; padding:14px 22px; border-radius:12px;
+  box-shadow:0 4px 18px rgba(230,81,0,.35); opacity:0;
+  pointer-events:none; transition:opacity .18s, transform .18s;
+  max-width:82vw; text-align:center;}
+#warnbox.on{opacity:1; transform:translateX(-50%) translateY(-50%)
+  scale(1);}
+/* 1.86：切换会话失败弹窗——不干扰（可继续打字），仅「会话切换
+  失败」+一个「确认」键（立刻消除），3 秒自动消失，不啰嗦 */
+#swfbox{position:fixed; left:50%; top:38%; transform:translateX(-50%)
+  translateY(-50%) scale(.9); z-index:61; background:#ffebee;
+  border:2px solid #c62828; border-radius:12px; padding:14px 22px;
+  text-align:center; box-shadow:0 4px 18px rgba(198,40,40,.35);
+  opacity:0; pointer-events:none; transition:opacity .18s, transform .18s;}
+#swfbox.on{opacity:1; transform:translateX(-50%) translateY(-50%)
+  scale(1); pointer-events:auto;}
+#swfbox .t{font-size:16px; font-weight:bold; color:#c62828;}
+#swfbox button{margin-top:12px; min-width:88px; padding:6px 14px;
+  font-size:14px; color:#fff; background:#c62828; border:0;
+  border-radius:8px; cursor:pointer;}
+#swfbox button:active{background:#a01515;}/* ── 1.27：频道名输入弹窗 ── */
+#chanmask{position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.55);
+  display:flex; align-items:center; justify-content:center;}
+#chanbox{background:#fff; border-radius:14px; padding:20px 18px;
+  width:84vw; max-width:360px; box-shadow:0 6px 30px rgba(0,0,0,.3);}
+#chanbox .ctitle{font-weight:bold; font-size:16px; color:var(--blue);
+  margin-bottom:8px;}
+#chanbox .chint{font-size:12px; color:var(--gray); line-height:1.6;
+  margin-bottom:10px;}
+#chanin{width:100%; box-sizing:border-box; font-size:16px;
+  padding:10px 12px; border:1px solid var(--bd); border-radius:8px;
+  outline:none;}
+#chanin:focus{border-color:var(--blue);}
+#chanbox .cerr{color:var(--red); font-size:12px; min-height:16px;
+  margin:4px 0;}
+#chanok{width:100%; padding:11px 0; font-weight:bold; font-size:15px;
+  color:#fff; background:var(--blue); border:none; border-radius:8px;}
+/* 1.xx：最大化/全屏预警条（紧贴顶栏下方，置顶警示） */
+#fullswarn{position:fixed; top:0; left:0; right:0; z-index:1200;
+  background:#fff8e1; border-bottom:1px solid #f0c674; color:#7a5b00;
+  font-size:13px; padding:6px 10px 8px; box-shadow:0 2px 6px rgba(0,0,0,.12);}
+#fullswarn .fsw_row{display:flex; align-items:flex-start; gap:6px; line-height:1.4;}
+#fullswarn b{white-space:nowrap; color:#b26a00;}
+#fullswarn .fsw_btns{display:flex; gap:8px; margin-top:6px;}
+#fullswarn .fsw_btns button{flex:1; padding:7px 0; border:none; border-radius:6px;
+  font-size:13px; font-weight:bold; cursor:pointer;}
+#fullswarn .fsw_btns button:first-child{background:#fff3d6; color:#8a5a00;
+  border:1px solid #e6b04a;}
+#fullswarn .fsw_btns button:last-child{background:#b26a00; color:#fff;}
+/* ── 附件行 / 输入行 ── */
+#attach_row{display:none; gap:4px; padding:2px 8px; flex-wrap:wrap;
+  flex:none; background:#fff;}
+#attach_row.on{display:flex;}
+.chip{border-radius:5px; padding:2px 8px; font-size:12px;
+  display:inline-flex; gap:4px; align-items:center; min-height:26px;}
+.chip.pend{background:#eee; color:#666;}
+.chip.ok{background:#e3f0fb; color:var(--blue);}
+.chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
+  padding:0 2px;}
+/* 1.78：输入行底部同样去掉 env(safe-area-inset-bottom)——主界面底部
+   约两行空白元凶；固定 6px 上下留白，输入行顶到屏幕下缘。 */
+#input_row{display:flex; gap:6px; align-items:center;
+  padding:6px 8px;
+  background:#fff; border-top:1px solid var(--bd); flex:none;}
+/* 1.76：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
+#btn_attach,#btn_bench,#btn_take,#btn_copy{width:36px; min-width:36px;
+  height:36px; min-height:36px; padding:0; flex:none; font-size:15px;
+  display:inline-flex; align-items:center; justify-content:center;}
+/* 1.76：⇩ 取回 / 📋 复制 只在输入框放大态出现，小态隐藏（省地方） */
+#btn_take,#btn_copy{display:none;}
+#input_row.grow #btn_take,#input_row.grow #btn_copy{display:inline-flex;
+  order:1;}
+#ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
+  line-height:22px; border:none; outline:none; resize:none;
+  overflow-y:auto; box-sizing:border-box; font-family:inherit;}
+/* 1.27：聚焦增高 255px（原 170 再 +50%）；增高时 📎/📂/发送 跳到
+   顶行，输入框独占整行矩形（原来左右被按钮夹住，宽度受限） */
+#ent.grow{height:255px;}
+#input_row.grow{flex-wrap:wrap;}
+#input_row.grow #btn_attach,
+#input_row.grow #btn_bench,
+#input_row.grow #btn_send{order:1;}
+#input_row.grow #btn_send{margin-left:auto;}
+#input_row.grow #ent{order:2; flex-basis:100%; margin-top:6px;}
+#btn_send{min-width:66px; font-weight:bold; color:var(--blue);}
+#btn_send.stopmode{color:var(--red); border-color:var(--red);}
+#btn_send.intermode{color:var(--orange); border-color:var(--orange);}
+/* ── 抽屉（会话 + 菜单） ── */
+#mask{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:29;
+  display:none;}
+#mask.on{display:block;}
+#drawer{position:fixed; left:0; top:0; bottom:0; width:76%; max-width:300px;
+  background:#fff; z-index:30; transform:translateX(-102%);
+  transition:transform .18s ease; display:flex; flex-direction:column;
+  box-shadow:2px 0 10px rgba(0,0,0,.25); overscroll-behavior:contain;}
+#drawer.on{transform:none;}
+.dhdr{flex:none; display:flex; align-items:center;
+  justify-content:space-between; padding:8px 12px;
+  border-bottom:1px solid var(--bd);}
+.dhdr b{color:var(--blue);}
+#btn_dclose{min-width:38px; min-height:32px; padding:2px 10px;}
+#convs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:4px 0;}
+.convo{padding:8px 14px; cursor:pointer; white-space:nowrap;
+/* 1.31：会话行改 flex 以容纳行首状态灯 */
+  display:flex; align-items:center; gap:6px;}
+/* 1.31：会话状态灯（行首）——对齐 TRAE 原生四态 */
+.stdot{flex:none; width:8px; height:8px; border-radius:50%;
+  display:inline-block; vertical-align:middle;}
+.stdot-run{background:#1a73e8; animation:stdotp 1.1s ease-in-out infinite;}
+/* v1.49：完成已读=无灯（移除原 done 绿）；完成未读=橙灯 */
+.stdot-uread{background:#f57c00;}
+.stdot-fail{background:#d93025;}
+.stdot-stop{background:#9e9e9e;}
+@keyframes stdotp{0%,100%{opacity:1; transform:scale(1);}
+  50%{opacity:.35; transform:scale(.72);}}
+.convo > span:last-child{flex:1; min-width:0; overflow:hidden;
+  text-overflow:ellipsis; color:#333;}
+.convo.folder{color:#0d47a1; font-weight:bold; font-size:13px;}
+.convo.item.act{background:#e3effb; color:var(--blue); font-weight:bold;}
+.dsec{flex:none; padding:6px 12px 2px; color:var(--gray); font-size:12px;
+  border-top:1px solid var(--bd); background:#fafbfc;}
+.dmi{flex:none; padding:10px 14px; cursor:pointer;}
+.dmi:active{background:#eef4fb;}
+/* 1.27：底部功能左右并列（省纵向空间 → 会话列表看得更多条） */
+#dmis{flex:none; display:grid; grid-template-columns:1fr 1fr;
+  gap:1px 8px; padding:2px 8px;}
+#dmis .dmi{border:1px solid var(--bd); border-radius:7px;
+  padding:9px 10px; font-size:13px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* 版本说明：从抽屉底部移到设置页最底部（留出空间显示对话列表） */
+#lbl_ver{color:var(--gray); font-size:11px; line-height:1.5;
+  margin-top:8px; padding-top:8px; border-top:1px dashed var(--bd);}
+/* ── 网络页（全屏覆盖） ── */
+#page_net{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_net.on{display:flex;}
+.nhdr{flex:none; display:flex; align-items:center; gap:8px;
+  padding:6px 10px;
+  background:#fff; border-bottom:1px solid var(--bd);}
+.nhdr b{color:var(--blue); font-size:15px;}
+.nbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:10px;}
+fieldset{border:1px solid var(--bd); border-radius:8px;
+  padding:8px 10px; margin-bottom:12px; background:#fff;}
+legend{color:var(--blue); font-weight:bold; padding:0 6px;}
+.row{display:flex; align-items:center; gap:6px; margin:4px 0;
+  flex-wrap:wrap;}
+.row .hint{color:var(--gray); font-size:11px;}
+#in_wsurl{flex:1; min-width:0; font-size:13px;}
+#lbl_today{font-size:16px; font-weight:bold; color:var(--blue);}
+table{border-collapse:collapse; width:100%; margin-top:6px; font-size:12px;}
+th,td{border:1px solid var(--bd); padding:3px 6px; text-align:left;}
+th{background:#eef2f6;}
+td.num,th.num{text-align:right; font-family:Consolas,monospace;}
+#btn_netsave{color:var(--blue); font-weight:bold;}
+/* 1.xx：连接诊断——值着色 + 日志 */
+.diagv{color:var(--blue); font-family:Consolas,monospace; font-weight:bold;}
+.wanchor{flex:1; min-width:0; word-break:break-all; color:#555; font-family:Consolas,monospace; font-size:11px; line-height:1.35;}
+.diaglog{max-height:150px; overflow-y:auto; background:#fbfcfe;
+  border:1px solid var(--bd); border-radius:6px; padding:4px 6px;
+  font-size:11px; font-family:Consolas,monospace; line-height:1.6;}
+.diaglog .ok{color:#1a7f37;}
+.diaglog .bad{color:#c62828;}
+.diaglog .warn{color:#b26a00;}
+.diaglog .dim{color:#888;}
+/* ── 工作台浏览页（全屏覆盖，1.01）── */
+#page_bench{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_bench.on{display:flex;}
+#bench_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:#fff; overscroll-behavior:contain;}
+.brow{padding:9px 14px; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; border-bottom:1px solid #eef1f4;}
+.brow:active{background:#eef4fb;}
+.brow.dir{color:#0d47a1;}
+.brow.file{color:#333;}
+.brow.up{color:var(--gray);}
+.brow.empty{color:#999; cursor:default;}
+.brow .plus{float:right; color:var(--blue); font-weight:bold;}
+#bfoot{flex:none; padding:6px 12px;
+  color:var(--gray); font-size:11px; background:#fff;
+  border-top:1px solid var(--bd);}
+/* ── 1.45：谷歌分身状态页（全屏覆盖）——服务端外挂
+   「谷歌分身助手转接器」推送：历史积分+登录状态，立刻实测=真实访问 ── */
+#page_prof{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_prof.on{display:flex;}
+.profhint{flex:none; padding:6px 12px; font-size:12px; color:var(--blue);
+  background:#eef4fb; border-bottom:1px solid var(--bd);}
+#prof_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:8px; overscroll-behavior:contain;}
+.prof_card{border:1px solid var(--bd); border-radius:8px; background:#fff;
+  margin-bottom:8px; padding:8px 10px;}
+.prof_row1{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+.prof_name{font-weight:bold; color:var(--blue);}
+.prof_st{font-size:12px; padding:0 6px; border-radius:10px;
+  background:#ecf5ec; color:var(--green);}
+.prof_st.down{background:#fdecea; color:var(--red);}
+.prof_st.unk{background:#f1f1f1; color:var(--gray);}
+.prof_acc{font-size:12px; color:#555;}
+.prof_test{margin-left:auto; font-size:12px; padding:2px 8px;
+  min-height:24px; color:var(--blue); border-color:var(--bd);}
+.prof_test:disabled{color:#bbb; background:#f5f5f5;}
+.prof_login{margin-left:6px; font-size:12px; padding:2px 8px;
+  min-height:24px; color:var(--green); border-color:var(--bd);}
+.prof_login:disabled{color:#bbb; background:#f5f5f5;}
+.prof_row2{display:flex; flex-wrap:wrap; margin-top:4px; font-size:12px;
+  color:#333; gap:2px 10px;}
+.prof_pts{color:#7c4dff; font-weight:bold;}
+/* ── 1.15：模型收藏管理页（全屏覆盖）── */
+#page_fav{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_fav.on{display:flex;}
+#fav_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:#fff; overscroll-behavior:contain;}
+.frow{display:flex; align-items:center; gap:8px; padding:10px 14px;
+  cursor:pointer; border-bottom:1px solid #eef1f4; font-size:14px;}
+.frow:active{background:#eef4fb;}
+.frow .fname{flex:1; min-width:0; overflow:hidden; white-space:nowrap;
+  text-overflow:ellipsis;}
+.frow .fstar{flex:none; font-size:17px; width:30px; text-align:center;}
+.frow.isfav .fstar{color:#e6a700;}
+.frow.isfav .fname{color:var(--blue); font-weight:bold;}
+.frow.dead .fname{color:#c62828;}
+.frow.dead .fmark{flex:none; color:#c62828; font-size:11px;}
+.fhint{padding:10px 14px; color:var(--gray); font-size:12px;
+  line-height:1.6;}
+#btn_fav{flex:none; min-width:34px;}
+/* 1.74：收藏页「刷新模型」按钮——右侧圆角小按钮，配合 nhdr 标题 */
+#page_fav .nhdr b{flex:1; min-width:0;}
+#btn_favrefresh{flex:none; margin-left:auto; font-size:12px;
+  padding:4px 10px; border:1px solid var(--bd); border-radius:14px;
+  background:#fff; color:var(--blue); cursor:pointer; white-space:nowrap;}
+#btn_favrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
+/* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
+   bench 覆盖本页，选定后回来）── */
+#page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_taskdlg.on{display:flex;}
+.tdbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:14px;}
+.tdsec{font-size:12px; color:var(--gray); margin:4px 0 8px;}
+.tdpick{background:#fff; border:1px solid var(--bd); border-radius:8px;
+  padding:13px 14px; cursor:pointer; color:var(--blue); font-weight:bold;}
+.tdpick:active{background:#eef4fb;}
+#td_sel{background:#fff; border:1px solid var(--bd); border-radius:8px;
+  padding:10px 14px;}
+.tdrow1{display:flex; align-items:center;}
+.tdname{flex:1; font-weight:bold; font-size:15px; overflow:hidden;
+  white-space:nowrap; text-overflow:ellipsis;}
+#btn_tdre{flex:none; margin-left:8px; color:var(--orange); font-size:12px;}
+.tdfull{color:var(--gray); font-size:11px; margin-top:4px;
+  word-break:break-all;}
+.tdhint{color:var(--gray); font-size:11px; margin-top:10px; line-height:1.6;}
+.tdstat{color:var(--blue); font-size:12px; margin-top:14px;
+  min-height:16px;}
