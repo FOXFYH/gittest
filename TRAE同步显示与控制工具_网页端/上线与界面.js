@@ -155,12 +155,8 @@ function cmd(c, a, convSid){
                             'var(--blue)');
   }
   sendCmd(c, a, did, convSid);
-  /* 1.89：发消息/插话=真实人类操作 → 上报 act/send（带当前选中会话
-     标题）清掉该会话橙灯。一次即可，did 消卡走 did_ack 不重复上报。 */
-  if (c === 'send' || c === 'interject'){
-    const at = (curTitle() || '').trim();
-    if (at) sendJson({t: 'act', k: 'send', title: at, sid: curSid()});
-  }
+  /* 2.25：发消息/插话=真实人类操作 → actSend('send')（闸门见 通用工具.js） */
+  if (c === 'send' || c === 'interject') actSend('send');
   if (c === 'send' || c === 'interject'){
     el.ent.value = '';
     renderAll();
