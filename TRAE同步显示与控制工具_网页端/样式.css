@@ -463,6 +463,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .brow .ops{float:right; color:var(--gray); font-size:15px; font-weight:bold;
   padding:0 10px;}                 /* 2.38：行尾 ⋯（在 ➕ 左边）更多操作 */
 .brow .ops:active{color:var(--blue);}
+.brow .bsz{float:right; color:var(--gray); font-size:12px;
+  padding:1px 8px;}                 /* 2.39：行尾文件大小（在 ⋯ 左边） */
 #bfoot{flex:none; padding:6px 12px;
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}

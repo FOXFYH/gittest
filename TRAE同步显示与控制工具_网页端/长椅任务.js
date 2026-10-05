@@ -5,7 +5,9 @@
    2.37：下拉刷新——目录列表是「静态拉取」（服务端 bench_ls 只应答、不广播），
    目录里新出现的文件必须主动重拉；故在列表顶部下拽 → 松手重取当前目录。
    2.38：行尾 ➕ 左边加 ⋯ 操作面板——对单个文件/目录重命名、移动（剪切）、
-   删除（二次确认弹框）、复制路径；另加「移动模式」选目标目录。 */
+   删除（二次确认弹框）、复制路径；另加「移动模式」选目标目录。
+   2.39：① 文件行右尾显示文件大小（服务端 bench_ls 回包 fsizes）；
+   ② ⋯ 面板加「详细信息」——服务端 bench_stat 回大小/类型/三时间/只读等。 */
 const BENCH_LAST_KEY = 'trae_webm_bench_last';
 function benchLastRel(){
   try { return localStorage.getItem(BENCH_LAST_KEY) || ''; } catch(e){ return ''; }
@@ -101,6 +103,14 @@ function benchPick(path){               // 1.08：选定目录 → 回填弹窗
   el.td_stat.textContent = '已选目录，点「创建」开始任务';
   flash('已选工作目录', 'var(--green)');
 }
+function benchFmtSize(n){       /* 2.39：字节 → 人类可读（B/KB/MB/GB/TB）；-1/无效 → '' */
+  if (typeof n !== 'number' || n < 0) return '';
+  if (n < 1024) return n + ' B';
+  const u = ['KB', 'MB', 'GB', 'TB'];
+  let v = n, i = -1;
+  while (v >= 1024 && i < u.length - 1){ v /= 1024; i++; }
+  return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + ' ' + u[i];
+}
 function benchRender(v){
   bpReset();                          /* 2.37：任何一次应答到达都收起下拉区 */
   if (!v || !v.ok){
@@ -165,6 +175,12 @@ function benchRender(v){
       b.className = 'plus';
       d.appendChild(b);
       d.appendChild(benchOpsBtn(v.path + '\\' + n, false));   /* 2.38：⋯ */
+      if (v.fsizes && (n in v.fsizes)){                       /* 2.39：文件大小 */
+        const s = document.createElement('span');
+        s.className = 'bsz';
+        s.textContent = benchFmtSize(v.fsizes[n]);
+        d.appendChild(s);
+      }
       box.appendChild(d);
     }
   }
@@ -428,7 +444,9 @@ el.refresh_pts.onclick = () => {         /* 刷新积分：委托服务端立刻
    操作经 bench_rename/bench_move/bench_del 交给服务端执行，结果以同名
    事件回投（benchOnRename/benchOnMove/benchOnDel），成功后重拉当前目录。
    移动采用「先入移动模式 → 再选目标目录」：进模式后行尾 ✅ 变「移到此」，
-   可逐级进入目标目录后点 ✅，或直接点头部「📦 移到此」移到当前目录。 */
+   可逐级进入目标目录后点 ✅，或直接点头部「📦 移到此」移到当前目录。
+   2.39：面板再加「详细信息」（bench_stat → 大小/类型/三时间/只读，可复制）；
+   文件行右尾另显文件大小（bench_ls 回包 fsizes）。 */
 
 let bsEl = null;
 function bsInject(){                 /* 底部操作面板（一次性注入） */
@@ -452,6 +470,10 @@ function bsInject(){                 /* 底部操作面板（一次性注入） 
       'white-space:pre-line}' +
     '#bs_sheet .bs_in{display:block;width:calc(100% - 36px);margin:8px 18px 4px;padding:11px 12px;' +
       'font-size:16px;border:1px solid #d5dbe1;border-radius:8px;box-sizing:border-box}' +
+    '#bs_sheet .bs_kv{display:flex;gap:12px;padding:9px 18px;font-size:14px;' +
+      'border-bottom:1px solid #f3f5f7;align-items:flex-start}' +
+    '#bs_sheet .bs_kv .k{flex:none;width:64px;color:#888}' +
+    '#bs_sheet .bs_kv .v{flex:1;color:#222;word-break:break-all}' +
     '#bs_sheet .bs_btns{display:flex;gap:10px;padding:12px 18px 6px}' +
     '#bs_sheet .bs_btn{flex:1;height:44px;border:none;border-radius:10px;font-size:16px;' +
       'background:#f0f2f5;color:#333}' +
@@ -464,6 +486,9 @@ function bsInject(){                 /* 底部操作面板（一次性注入） 
       '#bs_sheet .bs_it:active{background:#2a2a2a}' +
       '#bs_sheet .bs_msg{color:#ddd}' +
       '#bs_sheet .bs_in{background:#111;color:#eee;border-color:#333}' +
+      '#bs_sheet .bs_kv{border-color:#262626}' +
+      '#bs_sheet .bs_kv .k{color:#999}' +
+      '#bs_sheet .bs_kv .v{color:#ddd}' +
       '#bs_sheet .bs_btn{background:#2a2a2a;color:#ddd}' +
     '}';
   document.head.appendChild(st);
@@ -526,6 +551,7 @@ function benchOpsOpen(path, isDir){
   item('📦', '移动 / 剪切', false, () => benchMoveStart(path));
   item('🗑️', '删除', true, () => benchDelConfirm(path, name, isDir));
   item('📋', '复制路径', false, () => copyText(path));
+  item('ℹ️', '详细信息', false, () => benchInfoDlg(path));   /* 2.39 */
 }
 function benchRenameDlg(path, name){
   const box = bsOpen('重命名');
@@ -612,4 +638,47 @@ function benchOnMove(v){             /* 服务端 bench_move 应答 */
       benchModeUI();
     }
   }
+}
+function benchInfoDlg(path){         /* 2.39：详细信息——向服务端要 stat */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  const box = bsOpen('详细信息');
+  const w = document.createElement('div');
+  w.className = 'bs_msg';
+  w.textContent = '读取中…';
+  box.appendChild(w);
+  sendJson({t: 'bench_stat', p: path});
+}
+function benchOnStat(v){             /* 服务端 bench_stat 应答 */
+  if (!v || !v.ok){
+    flash('详细信息读取失败：' + ((v && v.err) || '未知错误')); return;
+  }
+  const box = bsOpen('详细信息');
+  const fmtT = t => t ? new Date(t * 1000).toLocaleString() : '—';
+  const rows = [
+    ['名称', v.name],
+    ['类型', v.is_dir ? '文件夹' : ('文件' + (v.ext ? '（.' + v.ext + '）' : ''))],
+    ['位置', v.path],
+    ['大小', v.is_dir ? (v.count >= 0 ? (v.count + ' 项') : '—')
+                      : (benchFmtSize(v.size) || '—')],
+    ['修改时间', fmtT(v.mtime)],
+    ['创建时间', fmtT(v.ctime)],
+    ['访问时间', fmtT(v.atime)],
+    ['只读', v.readonly ? '是' : '否'],
+  ];
+  for (const kv of rows){
+    const r = document.createElement('div');
+    r.className = 'bs_kv';
+    const a = document.createElement('span'); a.className = 'k'; a.textContent = kv[0];
+    const b = document.createElement('span'); b.className = 'v'; b.textContent = kv[1];
+    r.appendChild(a); r.appendChild(b);
+    box.appendChild(r);
+  }
+  const btns = document.createElement('div');
+  btns.className = 'bs_btns';
+  btns.appendChild(bsBtn('复制信息', '', () => {
+    copyText(rows.map(kv => kv[0] + '：' + kv[1]).join('\n'));
+    flash('已复制详细信息', 'var(--green)');
+  }));
+  btns.appendChild(bsBtn('关闭', 'primary', bsClose));
+  box.appendChild(btns);
 }

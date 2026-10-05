@@ -317,6 +317,9 @@ function onEv(kind, v){
     case 'bench_rename':                   // 2.38：⋯ 重命名应答
       benchOnRename(v);
       break;
+    case 'bench_stat':                     // 2.39：⋯ 详细信息应答
+      benchOnStat(v);
+      break;
     case 'bench_read':                     // 0.11：📄 文件阅读应答（分块）
       FileRead.onData(v);
       break;
