@@ -110,7 +110,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.29';   /* 2.29：benchOpen 先关闭可能盖在上面的文件阅读器，
+const VER = '2.30';   /* 2.30：📂 浏览页——① 记忆上次查看目录（localStorage
+                         trae_webm_bench_last），点 📂 直落上次目录，目录失效
+                         自动回落根；② 顶部路径改「可点击面包屑」（📂 根 › 一级
+                         › …，点任一级回退该上级）。
+                         2.29：benchOpen 先关闭可能盖在上面的文件阅读器，
                          修「先开文件再弹文件夹→文件夹被阅读器遮住」。
                          2.28：本地主动弹窗展示——事件总线消费 bench_open
                          （mode=file 走阅读器、mode=dir 走浏览页 benchOpen）。
