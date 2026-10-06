@@ -958,6 +958,9 @@ async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中
   return true;
 }
 function sendJson(d){
+  /* 13.1【有则必报】：凡外发 JSON 帧一律附本机昵称——昵称只进载荷可选字段
+     （FOX 帧头 【FOXID:…=cut(…)】 一字不动）；服务端无则回落电脑名。 */
+  if (d && d.nick === undefined) d.nick = MY_NICK;
   /* 1.60 纯 ID 双寻址·设备层：报文按目标服务端的**稳定 sid**（名册里的
      s.sid = 服务端 srv_id，改名不影响）定向；名册里没 sid（老服务端）
      才回落电脑名。此前只发电脑名、且服务端根本不读 to → 同频道内两台
@@ -3238,7 +3241,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.76';   /* 1.76：设置页新增「本机身份」卡——只读软件号 + 昵称输入
+const VER = '1.77';   /* 1.77：昵称「能报就报·能显示就显示」——所有外发 JSON 帧附 nick、操控对象名显示昵称；
+                         1.76：设置页新增「本机身份」卡——只读软件号 + 昵称输入
                          （昵称存 wb_cli_nick，随 login/hb 上报为可选字段 nick）；
                          1.75：翻页撞顶离线也亮横幅，30s 未回包改口报「掉线，请刷新网络」。
                          1.74：输入框「公私隔离」——修「别人来输入把我清空」。
@@ -3550,6 +3554,7 @@ function regSrv(nm, d){
   touchSrvSeen(s);                            /* 1.43：记最后出现时间（落盘） */
   if (d.sid) s.sid = d.sid;
   if (d.v) s.v = d.v;
+  if (d.nick !== undefined) s.nick = d.nick;   /* 13.1：记住对方昵称（能显示就显示） */
   if (d.t === 'hello' || d.t === 'srv'){
     if (d.boxes) s.boxes = d.boxes;
     if (d.alive) s.alive = d.alive;
@@ -3683,7 +3688,8 @@ setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
 function renderTop(){
   const s = S.servers[S.cur];
   const on = s && s.conn;
-  el.srv.textContent = '操控:' + (S.cur || '—') + (on ? ' ●' : ' ○');
+  const _nk = (s && s.nick && s.nick !== S.cur) ? '（' + s.nick + '）' : '';
+  el.srv.textContent = '操控:' + (S.cur || '—') + _nk + (on ? ' ●' : ' ○');
   el.srv.style.color = on ? 'var(--green)' : 'var(--gray)';
 }
 function renderSrvList(){
@@ -3726,6 +3732,7 @@ function renderSrvList(){
           nb = (s.boxes || []).length;
     const tx = document.createElement('span');
     tx.textContent = (s.conn ? '● ' : '○ ') + nm
+                  + (s.nick && s.nick !== nm ? '（' + s.nick + '）' : '')
                   + (nb ? '（在线 ' + na + '/' + nb + '）' : '')
                   + (isRem ? '（上次）' : '')
                   + (s.lock && s.lock.mine === false
