@@ -608,6 +608,13 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <b data-page-node-id="sqtAJ2SqjLlJyH6aFUI87l">设置</b>
   </div>
   <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
+    <fieldset data-page-node-id="selfid_fs">
+      <legend>本机身份</legend>
+      <div class="row"><span>本机软件号</span><b id="lbl_my_id" class="diagv">—</b></div>
+      <div class="row"><label>昵称</label>
+        <input id="in_nick" maxlength="24" placeholder="留空=用电脑名称"></div>
+      <div class="row"><span class="hint">软件号随本机固定、不可更改；昵称仅作显示，随登录/心跳上报给电脑端。</span></div>
+    </fieldset>
     <fieldset data-page-node-id="diag_fs">
       <legend>连接诊断</legend>
       <div class="row"><span>频道（前缀+密钥）</span><b id="diag_chan" class="diagv">—</b></div>
@@ -795,6 +802,9 @@ if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
   MY_ID = '4' + String(Math.floor(100000000 + Math.random() * 900000000));
   try { localStorage.setItem('wb_cli_uid', MY_ID); } catch(e){}
 }
+/* 13.1：本机昵称（非必填·只给人看）——localStorage 持久，随 login/hb 上报 */
+let MY_NICK = '';
+try { MY_NICK = localStorage.getItem('wb_cli_nick') || ''; } catch(e){}
 const SERVER_ID= '1000000001';
 /* 1.63：主/副双账号（对齐 TRAE 主副双通道）——
    主 A（free.blr2）默认使用：让 ALL 项目流量归拢到 A，便于看每日总开销；
@@ -1072,6 +1082,7 @@ const el = {
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'), sel_chan: $('sel_chan'),
+  my_id: $('lbl_my_id'), in_nick: $('in_nick'),
   sel_tts_voice: $('sel_tts_voice'), sel_tts_rate: $('sel_tts_rate'),
   btn_tts_preview: $('btn_tts_preview'), lbl_tts_flash: $('lbl_tts_flash'),
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
@@ -3227,7 +3238,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.75';   /* 1.75：翻页撞顶离线也亮横幅，30s 未回包改口报「掉线，请刷新网络」。
+const VER = '1.76';   /* 1.76：设置页新增「本机身份」卡——只读软件号 + 昵称输入
+                         （昵称存 wb_cli_nick，随 login/hb 上报为可选字段 nick）；
+                         1.75：翻页撞顶离线也亮横幅，30s 未回包改口报「掉线，请刷新网络」。
                          1.74：输入框「公私隔离」——修「别人来输入把我清空」。
                          case 'sent'(3774) 无条件清 #ent 改为「仅本机自己发的这条
                          (p.rid===rid) 才清」；别端/AI 的 sent 广播不再清掉本机草稿
@@ -3349,7 +3362,7 @@ function doLogin(){
   cliIdleAt = Date.now();
   if (!cliLoggedIn){
     cliLoggedIn = true;
-    try { sendJson({t: 'login', fg: !document.hidden}); } catch(e){}
+    try { sendJson({t: 'login', fg: !document.hidden, nick: MY_NICK}); } catch(e){}
   }
   cliLastBeat = Date.now();
 }
@@ -3364,7 +3377,7 @@ function startCliHb(){
   cliHbTimer = setInterval(() => {
     if (!S.onLine || !cliLoggedIn) return;
     /* 1.25：后台也照发（保活）——发得出去就发，被系统冻结也无害 */
-    try { sendJson({t: 'hb', fg: !document.hidden}); cliLastBeat = Date.now(); } catch(e){}
+    try { sendJson({t: 'hb', fg: !document.hidden, nick: MY_NICK}); cliLastBeat = Date.now(); } catch(e){}
   }, HB_SEC * 1000);
 }
 function cliTouch(){                       // 任意操作 = 在线（续登录）
@@ -3402,7 +3415,7 @@ function cliResume(){
   const stale = !cliLastBeat || (Date.now() - cliLastBeat > 120000);
   if (cliLoggedIn && !stale){
     /* 没断线、心跳也新鲜 → 只补一个心跳，秒续，免重放 */
-    try { sendJson({t: 'hb', fg: true}); cliLastBeat = Date.now(); } catch(e){}
+    try { sendJson({t: 'hb', fg: true, nick: MY_NICK}); cliLastBeat = Date.now(); } catch(e){}
   } else {
     /* 服务端可能已按「150 秒无心跳」把我们判下线 → 重新登录（整包重放） */
     cliLoggedIn = false;
@@ -4725,6 +4738,8 @@ el.file.onchange = async () => {
 function openDiagPage(){
   drawerClose();
   renderToday(); renderNetHist();
+  if (el.my_id) el.my_id.textContent = MY_ID;
+  if (el.in_nick) el.in_nick.value = MY_NICK;
   el.netpage.classList.add('on');
 }
 el.net.onclick = openDiagPage;
@@ -4825,6 +4840,19 @@ if (el.sel_tts_rate) el.sel_tts_rate.onchange = () => {
   ttsFlash('已保存：语速 ' + CFG.tts_rate);
 };
 if (el.btn_tts_preview) el.btn_tts_preview.onclick = ttsPreview;
+
+/* 13.1：本机身份——软件号只读展示、昵称改动立即落盘并即时上报 */
+if (el.my_id) el.my_id.textContent = MY_ID;
+if (el.in_nick){
+  el.in_nick.value = MY_NICK;
+  el.in_nick.oninput = () => {
+    MY_NICK = (el.in_nick.value || '').trim();
+    try { localStorage.setItem('wb_cli_nick', MY_NICK); } catch(e){}
+    if (S.onLine && cliLoggedIn){
+      try { sendJson({t: 'hb', fg: !document.hidden, nick: MY_NICK}); } catch(e){}
+    }
+  };
+}
 
 function renderToday(){
   const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
