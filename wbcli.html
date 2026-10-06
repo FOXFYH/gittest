@@ -2588,14 +2588,28 @@ function renderMsgs(msgs, finish, opts, ask){
           return;
         }
         if (k === 'rewind'){
+          /* 1.79：回退＝撤回「我」的这一问——截断后续之外，把该条原文取回输入框
+             （用户 2026-10-06 定：「回退应该把文本取回，输入框重新编辑」）。 */
+          const it = msgs[parseInt(b.dataset.i)];
+          const back = it ? (it[1] || '') : '';
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
-            + '其后全部对话（含 AI 回复）将一并移除。')) return;
-          flash('正在回退…', 'var(--blue)');
-        } else {
-          if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
-            + '其对应的 AI 回复会一并删除。')) return;
-          flash('正在删除…', 'var(--blue)');
+            + '其后全部对话（含 AI 回复）将一并移除。\n'
+            + '（这条原文会取回输入框，可改完再发）')) return;
+          if (back && el.ent.value.trim()
+              && !confirm('输入框里还有没发的内容，回退后会用它覆盖，继续？')) return;
+          if (back){
+            el.ent.value = back; entFit(); refreshSendBtn();
+            try { el.ent.focus(); } catch(e2){}
+            flash('↩ 已回退：原文已取回输入框，可改完重发', 'var(--blue)');
+          } else {
+            flash('正在回退…', 'var(--blue)');
+          }
+          sendCmd(k, mi);
+          return;
         }
+        if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
+          + '其对应的 AI 回复会一并删除。')) return;
+        flash('正在删除…', 'var(--blue)');
         sendCmd(k, mi);
       };
     });
@@ -3253,7 +3267,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.78';   /* 1.78：占位卡只在「消息真显示进对话」后才撤（用户 2026-10-06 定）——
+const VER = '1.79';   /* 1.79：↩回退「把文本取回输入框」（用户 2026-10-06 定）——
+                         回退（撤回「我」的这一问）除截断后续外，把该条原文回填输入框，
+                         可改完重发；输入框已有草稿时先确认再覆盖。
+                         1.78：占位卡只在「消息真显示进对话」后才撤（用户 2026-10-06 定）——
                          ① pendReconcile 撤卡只认「带正文快照 + rid 命中 acks」，
                          骨架快照（无 msgs，用旧正文兜底）一律不撤，杜绝「卡先没了、
                          消息还没画出来」的空档；② 进托管队列（rid 命中 snap.queue）
@@ -4089,7 +4106,7 @@ function onEv(kind, v){
       break;
     case 'msg_act':                        // 1.06：回退/删除完成 (kind, mi)
       flash(v[0] === 'revert'
-        ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
+        ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前（原文已取回输入框）'
         : '已删除第 ' + (v[1] + 1) + ' 条「我」的消息', 'var(--green)');
       break;
     case 'task_dlg':                        // 1.08：记忆目录抓取结果（预填）
