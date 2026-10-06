@@ -16,6 +16,7 @@ el.netreconn.onclick = () => {
      已在线、且 SRV_IDLE_MS 内还听得到服务端动静，就别重连。 */
   const fresh = S.onLine && S.lastSrv && (Date.now() - S.lastSrv < SRV_IDLE_MS);
   if (fresh){ diagLog('连接正常，已跳过重连（免得自断）', 'ok'); return; }
+  S.failStreak = 0;                 /* 13.3：手动重连＝用户显式动作，重连计数归零 */
   diagLog('手动重连', 'warn');
   connect();
 };
@@ -325,6 +326,36 @@ if (el.btn_chan_main) el.btn_chan_main.onclick = () => switchChan('main');
 if (el.btn_chan_back) el.btn_chan_back.onclick = () => switchChan('backup');
 chanRender();
 
+/* 13.1：本机身份卡（软件号【只读】显示 + 昵称输入口）——动态注入设置页顶部，
+   不改 HTML。软件号随机生成并随本机持久保存，无任何重置入口。 */
+function buildIdCard(){
+  if (!el.netpage || document.getElementById('idcard_fs')) return;
+  const body = el.netpage.querySelector('.nbody') || el.netpage;
+  const fs = document.createElement('fieldset');
+  fs.id = 'idcard_fs';
+  fs.innerHTML =
+    '<legend>本机身份</legend>'
+    + '<div class="row"><span>软件号（只读）</span><b id="lbl_myid" class="diagv"></b></div>'
+    + '<div class="row"><span class="hint">随机生成、随本机持久保存，不可修改（改号会破坏识别与去重）</span></div>'
+    + '<div class="row"><label>昵称</label><input id="in_nick" maxlength="40" placeholder="选填，只给人看，如：手机"></div>'
+    + '<div class="row" style="gap:8px; margin-top:6px;">'
+    + '<button id="btn_nicksave" style="flex:1;">保存昵称</button>'
+    + '<span id="nick_flash" class="hint"></span></div>';
+  body.insertBefore(fs, body.firstChild);
+  const lbl = document.getElementById('lbl_myid');
+  if (lbl) lbl.textContent = MY_ID || '—';
+  const inp = document.getElementById('in_nick');
+  if (inp) inp.value = nickGet();
+  const btn = document.getElementById('btn_nicksave');
+  if (btn) btn.onclick = () => {
+    nickSet(inp.value);
+    const f = document.getElementById('nick_flash');
+    if (f){ f.textContent = '已保存'; f.style.color = 'var(--green)';
+      setTimeout(() => { if (f.textContent === '已保存') f.textContent = ''; }, 2500); }
+    try { if (S.onLine && typeof cliLogin === 'function') cliLogin('改昵称'); } catch(e){}
+  };
+}
+buildIdCard();
 function renderToday(){
   const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
   el.today.textContent = '今日  收 ' + fmtBytes(b.rx) + '·' + (b.rxn||0)

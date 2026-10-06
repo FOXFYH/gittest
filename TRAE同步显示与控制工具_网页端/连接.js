@@ -78,13 +78,13 @@ function connect(){
       }
     }
     diagLog((S.dropByHide ? '后台断线（回来自动补）'
-                          : '断线（' + RECONNECT + 's 后重连 #' + DIAG.reconn + '）'),
+                          : '断线（第 ' + DIAG.reconn + ' 次）'),
             'bad');
     setOnLine(false);
     clearTimeout(helloTimer);
     loggedIn = false; clearInterval(hbTimer);   // 断线＝退出登录
     lastBeatOk = 0;                             // 1.57：心跳计时重置
-    reconnectTimer = setTimeout(connect, RECONNECT * 1000);
+    scheduleReconnect();
   };
   ws.onerror = () => {
     DIAG.err++;
@@ -94,8 +94,24 @@ function connect(){
 
 /* 1.57：立即重连（回前台专用）——不再干等 RECONNECT 那 3 秒定时器；
    正在连接 / 已连上则什么也不做。 */
+/* 13.3【限次限频·宣告失败·杜绝死循环】：断线重连不再无限 3s 空转——间隔
+   逐次退避（3→6→12→24→48→封顶 60s），连续连不上达 RECONNECT_MAX 次即
+   停止自动重连并明确宣告失败（可点「连接诊断」手动重连、或刷新页面恢复）。 */
+function scheduleReconnect(){
+  if (S.failStreak >= RECONNECT_MAX){
+    diagLog('已连续 ' + S.failStreak + ' 次连不上中继服务器，停止自动重连（失败）；'
+            + '请检查网络，或点「连接诊断」手动重连', 'bad');
+    flash('连不上中继，已停止自动重连', 'var(--red)', 6000);
+    return;
+  }
+  const n = Math.min(Math.max(S.failStreak, 1) - 1, 5);
+  const delay = Math.min(RECONNECT * Math.pow(2, n), 60);
+  diagLog(delay + 's 后重连（第 ' + (S.failStreak + 1) + ' 次尝试）', 'dim');
+  reconnectTimer = setTimeout(connect, delay * 1000);
+}
 function ensureConnect(){
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+  if (S.failStreak >= RECONNECT_MAX) return;   /* 13.3：已达重连上限，改为手动重连 */
   clearTimeout(reconnectTimer);
   connect();
 }
@@ -134,7 +150,7 @@ function cliLogin(reason){
   if (!ws || ws.readyState !== 1){ loggedIn = false; return; }
   lastAct = Date.now();
   loggedIn = true;
-  sendJson({t: 'login', fg: !document.hidden});
+  sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
   cliFlushTts();          /* 1.98：把「未连上时排队」的语音请求补发 */
   lastBeatOk = Date.now();
   clearInterval(hbTimer);
@@ -149,7 +165,7 @@ function cliBeat(){
   if (!document.hidden && Date.now() - lastAct > IDLE_MS){
     cliLogout('闲置5分钟'); return;
   }
-  sendJson({t: 'hb', fg: !document.hidden});
+  sendJson({t: 'hb', fg: !document.hidden, nick: nickGet()});
   lastBeatOk = Date.now();
 }
 function cliLogout(reason){
@@ -166,7 +182,7 @@ function cliResume(reason){
   if (ws && ws.readyState === 1){
     const stale = !lastBeatOk || (Date.now() - lastBeatOk > 120000);
     if (!loggedIn || stale) cliLogin(reason || '回前台');
-    else { sendJson({t: 'hb', fg: true}); lastBeatOk = Date.now(); }
+    else { sendJson({t: 'hb', fg: true, nick: nickGet()}); lastBeatOk = Date.now(); }
   } else {
     ensureConnect();
   }
@@ -209,7 +225,7 @@ function loginWatch(){
     if (!S.onLine) return;
     if (S.snap && Object.keys(S.snap).length) return;
     if (++n > 4) return;
-    sendJson({t: 'login', fg: !document.hidden});
+    sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
     sendJson({t: 'hello'});
     _lg_tm = setTimeout(tick, 3000);
   };

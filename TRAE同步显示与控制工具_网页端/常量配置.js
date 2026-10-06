@@ -14,6 +14,7 @@ const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
 const WS_URL_TMPL2 = ('wss://s20307.nyc1.piesocket.com/v3/%s'
                       + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
 const RECONNECT = 3;    // 断线重连间隔（秒）
+const RECONNECT_MAX = 8; // 13.3：连续连不上中继的自动重连次数上限（用尽即停并明告失败）
 /* 1.59：状态灯判活阈值 —— 原来硬编码 16s，手机端太敏感：
    切后台、中继抖一下、或服务端某轮广播没到，就立刻喊「服务器未启动」，
    而电脑上其实一切正常。改成两级：
@@ -57,6 +58,7 @@ const LS_CFG = 'trae_webm_cfg', LS_NET = 'trae_webm_net',
       LS_CH = 'trae_webm_channel',
       /* v1.50：副频道名 + 当前选中频道（main/backup，本地落盘、不固化） */
       LS_CH2 = 'trae_webm_channel2', LS_SEL = 'trae_webm_selct';
+const LS_NICK = 'trae_webm_nick';   /* 13.1：本机昵称（非必填，只给人看，与软件号解耦） */
 
 function cfgGet(){
   try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
@@ -69,6 +71,19 @@ if (!CFG.stats_keep) CFG.stats_keep = 10;
    用户 2026-09-30 明确不喜欢原先写死的男声云希（zh-CN-YunxiNeural）。 */
 if (!CFG.tts_voice) CFG.tts_voice = 'zh-CN-XiaoxiaoNeural';
 if (!CFG.tts_rate)  CFG.tts_rate  = '+0%';
+/* 13.1：本机昵称——非必填、只给人看；留空不影响任何功能（识别/去重/工作
+   全靠固定下来的软件号 MY_ID）。浏览器取不到「电脑名称」，故默认留空，由
+   设置页给出占位提示（取不到就给空/占位）。 */
+function nickGet(){
+  try { return (localStorage.getItem(LS_NICK) || '').trim(); } catch(e){ return ''; }
+}
+function nickSet(v){
+  try {
+    v = (v || '').trim();
+    if (v) localStorage.setItem(LS_NICK, v);
+    else localStorage.removeItem(LS_NICK);
+  } catch(e){}
+}
 function ttsVoice(){ return CFG.tts_voice || 'zh-CN-XiaoxiaoNeural'; }
 function ttsRate(){ return CFG.tts_rate || '+0%'; }
 function ttsClearCache(){
