@@ -14,6 +14,13 @@ function fTyping(){
   const ae = document.activeElement;
   return !!ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT');
 }
+/* 2.49：上滑到顶且已无更早记录时的提示（3 秒节流，避免滚动事件刷屏） */
+function histEndFlash(){
+  const now = Date.now();
+  if (now - (S.histEndFlashT || 0) < 3000) return;
+  S.histEndFlashT = now;
+  flash('已经是最早记录了', 'var(--gray)', 2500);
+}
 function enterFmsg(){
   if (document.body.classList.contains('fmsg')) return;
   const m = el.msgs;
@@ -40,13 +47,23 @@ el.msgs.addEventListener('scroll', () => {
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
-  /* 2.20 新架构：接近顶部且本地缓存还有更老 → 从账本向前补拉 */
-  if (m.scrollTop < 60 && !S.histLoadingPrev
+  /* 2.49（本专项·本地会话账本移植·阶段五）：接近顶部 → 从账本向前补拉更早历史，
+     每次 4 条；服务端回 end / 游标不再前进 → 判到底，不再空转（防死循环）。 */
+  if (m.scrollTop < 60 && !S.histLoadingPrev && S.histConv
       && S.histRaw && S.histRaw.length){
     const first = S.histRaw[0];
-    if (first && first.seq > 1){
+    if (!first || !(first.seq > 1)){
+      histEndFlash();
+    } else if (S.histEnd){
+      histEndFlash();
+    } else if (S.histPullFrom === first.seq){
+      S.histEnd = true;
+      histEndFlash();
+    } else {
+      S.histPullFrom = first.seq;
       S.histLoadingPrev = true;
-      reqHistPrev(S.histConv, first.seq, 30);
+      flash('\u23f3 正在取回历史记录\u2026', 'var(--blue)', 4000);
+      reqHistPrev(S.histConv, first.seq, 4);
     }
   }
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到

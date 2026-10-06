@@ -70,14 +70,20 @@ function reqHistPrev(conv, from_seq, count){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
   sendJson({t: 'req', id: id, c: 'hist_prev', conv: conv || '',
-            from_seq: from_seq | 0, count: count | 30});
+            from_seq: from_seq | 0, count: count | 4});   /* 2.49：每次补 4 条 */
+  /* 2.49：兜底——服务端 8 秒没回也别把「正在取回历史记录…」挂死、别锁死防重入 */
+  setTimeout(function(){
+    if (S.histLoadingPrev && S.histPullFrom === (from_seq | 0)){
+      S.histLoadingPrev = false;
+    }
+  }, 8000);
 }
 function onRes(id, k, v){
   const rq = S_reqs[id];
   if (rq) delete S_reqs[id];
   if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
   if (k === 'hist') applyHist(rq ? rq.conv : '', v);
-  else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || []);
+  else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || [], v.end);
 }
 function applyHist(conv, v){
   if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
@@ -101,8 +107,9 @@ function applyHist(conv, v){
   histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
   renderAll();
 }
-function prependHist(conv, older){
+function prependHist(conv, older, end){
   S.histLoadingPrev = false;
+  if (end) S.histEnd = true;          /* 2.49：服务端判到底 → 不再请求 */
   if (conv !== S.histConv) return;
   if (!Array.isArray(older) || !older.length) return;
   const h = el.msgs.scrollHeight;              /* 保阅读位置 */
@@ -120,6 +127,7 @@ function ensureHist(){
   S.histConv = title;
   S.histMsgs = null; S.histRaw = []; S.histVer = 0; S.histHave = 0;
   S.histLoadingPrev = false;
+  S.histEnd = false; S.histPullFrom = 0;   /* 2.49：换会话重置到底标记/游标 */
   const c = histCacheRead(title);
   if (c){                                       /* 本地秒显历史 */
     S.histRaw = c.msgs.slice();
@@ -131,8 +139,22 @@ function ensureHist(){
 }
 function curMsgs(){
   /* 直播权威=快照（每拍全文）；缓存只在快照尚无 msgs 时兜底秒显 */
-  if (S.snap && Array.isArray(S.snap.msgs)) return S.snap.msgs;
-  return (S.histMsgs && S.histMsgs.length) ? S.histMsgs : [];
+  const snapMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
+  const led = (S.histMsgs && S.histMsgs.length) ? S.histMsgs : null;
+  if (!led) return snapMsgs || [];
+  if (!snapMsgs || !snapMsgs.length) return led;
+  /* 2.49：账本「翻出来的更早历史」要能上屏——账本比快照长（含上滑取回的老段）时
+     以账本为骨架，快照只补账本还没有的行（按 角色+文本 去重，避免重复显示）；
+     账本不长于快照时沿用快照（原行为不变）。 */
+  if (led.length <= snapMsgs.length) return snapMsgs;
+  const seen = new Set();
+  led.forEach(m => seen.add(m[0] + '\u0001' + (m[1] || '')));
+  const out = led.slice();
+  snapMsgs.forEach(m => {
+    const k = m[0] + '\u0001' + (m[1] || '');
+    if (!seen.has(k)){ seen.add(k); out.push(m); }
+  });
+  return out;
 }
 
 /* ========== 1.90：文本转语音小卡片 ========== */
