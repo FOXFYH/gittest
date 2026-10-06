@@ -2327,13 +2327,17 @@ function renderPending(){
    比对」 + 「包含匹配」兜底，以及配套的认领表状态）——用户 09-29 定：文本格式 /
    掐头去尾常导致误判，改为**只认随机 ID**。撤卡逻辑见下方 pendReconcile。 */
 
-/* 1.63：撤占位卡——**只认随机 ID（rid）**，不再比对文本。两个落地信号任一
-   命中即撤（都表示"服务端已接收"）：
-     ① 该 rid 出现在托管队列里（快照 snap.queue 的条目 id）→ 已挂队待发；
-     ② 该 rid 出现在快照 acks 里（服务端确认这条已在对话记录里落地）。
+/* 1.78：撤占位卡——**只在「消息真的显示进网页对话」时才撤**（用户 2026-10-06 定：
+   占位卡必须先确认网页端已把这条画出来才消失；否则卡先没了、消息还没出现，
+   中间留一段空档，卡片就失去意义）。撤卡信号只剩一个：
+     ① 该 rid 出现在快照 acks 里（服务端确认这条已落进对话记录/台账）——且必须是
+        **本拍真带正文 msgs 的快照**（骨架快照不带 msgs，web 侧用上一拍旧正文兜底，
+        此时撤卡就会造成「卡没了、消息还没画出来」的空档）。
+   进托管队列（rid 出现在 snap.queue）**不再撤卡**——那只是"服务端收到了、还没发
+   出去"，改标「已排队」把卡留着，顶到消息真显示为止（用户定的完成点＝已显示）。
    仍保留 30 秒兜底：始终无任何回执（且非 queued/wsretry）才标「未确认」。
    返回 true 表示待确认集有变化需重画。 */
-function pendReconcile(msgs){
+function pendReconcile(msgs, hasMsgs){
   if (!S.pending.length) return false;
   const acks = (S.snap && Array.isArray(S.snap.acks)) ? S.snap.acks : [];
   const ackSet = new Set(acks.map(String));
@@ -2348,7 +2352,15 @@ function pendReconcile(msgs){
       return;
     }
     const r = p.rid ? String(p.rid) : '';
-    if (r && (ackSet.has(r) || qids.has(r))){ changed = true; return; }
+    /* 1.78：只认「已落地 + 本拍带正文」——撤卡与画消息同一帧完成，绝不留空档 */
+    if (hasMsgs && r && ackSet.has(r)){ changed = true; return; }
+    /* 1.78：进了托管队列 ≠ 已显示（服务端只是收到、还没发出去）。改标「已排队」，
+       卡片留着（AI 忙多久都正常，不判超时），直到消息真显示才撤。 */
+    if (r && qids.has(r)){
+      if (p.state !== 'queued'){ p.state = 'queued'; changed = true; }
+      keep.push(p);
+      return;
+    }
     /* 1.32：发送确认超时——占位挂够 S.pend_send（默认 30 秒）仍无任何回执
        才判「未确认」，给出改写/丢弃/重发。
        1.62：`queued`=已挂入托管队列（服务端已确认收到），AI 忙多久都正常，
@@ -3241,7 +3253,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.77';   /* 1.77：昵称「能报就报·能显示就显示」——所有外发 JSON 帧附 nick、操控对象名显示昵称；
+const VER = '1.78';   /* 1.78：占位卡只在「消息真显示进对话」后才撤（用户 2026-10-06 定）——
+                         ① pendReconcile 撤卡只认「带正文快照 + rid 命中 acks」，
+                         骨架快照（无 msgs，用旧正文兜底）一律不撤，杜绝「卡先没了、
+                         消息还没画出来」的空档；② 进托管队列（rid 命中 snap.queue）
+                         **不再撤卡**，改标「已排队」留着顶到真显示；③ 队列条目被
+                         ✎取回（queue_recall_ok）或 🗑删除（queue_del_done，新增处理）
+                         时按 rid 撤对应占位卡，避免卡白留。
+                         1.77：昵称「能报就报·能显示就显示」——所有外发 JSON 帧附 nick、操控对象名显示昵称；
                          1.76：设置页新增「本机身份」卡——只读软件号 + 昵称输入
                          （昵称存 wb_cli_nick，随 login/hb 上报为可选字段 nick）；
                          1.75：翻页撞顶离线也亮横幅，30s 未回包改口报「掉线，请刷新网络」。
@@ -3766,9 +3785,12 @@ function onEv(kind, v){
       return;
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
+      /* 1.78：本拍是否真带正文——撤占位卡只认「带正文且已落地」的快照
+         （见 pendReconcile；骨架快照无 msgs，不可据此撤卡）。 */
+      const hasMsgs = ('msgs' in v);
       /* 1.xx：骨架快照（登录连上先发框架、无 msgs）→ 用旧正文兜底，
          不闪空；带 msgs 的下一拍正常快照到达后自然补齐。 */
-      if (!('msgs' in v) && S.snap && Array.isArray(S.snap.msgs))
+      if (!hasMsgs && S.snap && Array.isArray(S.snap.msgs))
         v.msgs = S.snap.msgs;
       S.snap = v;
       /* 分页窗口元数据随快照更新：游标（翻页基准）、窗口前的「我」条数
@@ -3778,7 +3800,7 @@ function onEv(kind, v){
       S.winUserOff = v.msgs_useroff | 0;
       if (S.pageGroups <= 0) S.more = !!v.msgs_more;
       verifyRun(v);                          // 1.50：核对本轮实际跑的模型
-      pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
+      pendReconcile(v.msgs || [], hasMsgs);  // 1.78：只在带正文落地时撤占位
       if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
         const cv = v.convs || [];
         const act = cv.find(r => r[0] === 'c' && r[2]);
@@ -3874,6 +3896,8 @@ function onEv(kind, v){
     case 'queue_recall_ok':                  /* 取回成功：该条已从队列撤下（真撤下），
                                                 原文交回前端进输入框改 */
       S.recall = {id: (v && v.id) || '', pred: (v && v.pred) || ''};
+      /* 1.78：这条已真取回（离开队列、不会再落地）→ 撤下对应占位卡（按 rid） */
+      if (v && v.id) S.pending = S.pending.filter(x => String(x.rid || '') !== String(v.id));
       el.ent.value = (v && v.text) || '';
       entFit();
       renderEditRow(); refreshSendBtn(); renderAll();
@@ -3883,6 +3907,11 @@ function onEv(kind, v){
       S.recall = null;
       renderEditRow(); refreshSendBtn();
       flash('⚠ 这一条已经发出去了，来不及取回', 'var(--orange)');
+      break;
+    case 'queue_del_done':                   /* 1.78：队列里这条已被删除（不会发出去）
+                                                → 撤下对应占位卡（按 rid），免得卡白留 */
+      if (v) S.pending = S.pending.filter(x => String(x.rid || '') !== String(v));
+      renderAll();
       break;
     case 'queue_restore_done':               /* 放回成功 */
       S.recall = null;
