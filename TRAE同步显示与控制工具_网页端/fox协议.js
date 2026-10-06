@@ -300,6 +300,10 @@ function sendJson(d){
     const s = S.servers[S.cur];
     d.to = (s && s.sid) ? s.sid : S.cur;
   }
+  /* 13.1 昵称条：所有 JSON 外发帧统一附昵称（能报就报；不改 FOX 协议头）。
+     login/hb 已显式带 nick，此处仅兜底其余帧（ctl/req/tts/chk/act/cmd/
+     bench 系列/switch_box 等均经本函数）。 */
+  if (d && typeof d === 'object' && d.nick === undefined) d.nick = nickGet();
   foxSend(JSON.stringify(d));
 }
 /* 1.88：10 位随机数字对话 ID——客户端发出的发送/插话自带一个
