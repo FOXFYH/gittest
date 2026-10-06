@@ -123,34 +123,13 @@ function copyFallback(t, done){
   }catch(e){ flash('复制失败，请长按文本手动复制', 'var(--red)'); }
 }
 
-/* ================= Markdown 轻量渲染（AI 消息） ================= */
+/* ================= Markdown 渲染（AI 消息） ================= */
+/* 2.51：渲染实现搬到独立模块「MD渲染器.js」（全项目唯一真源），此处只转调
+   chat 模式——输出与原实现逐字一致，气泡观感零变化。 */
 
 function mdHtml(text){
-  const out = [];
-  const parts = String(text).split(/```/);       // 奇数下标=代码块
-  for (let i = 0; i < parts.length; i++){
-    if (i % 2 === 1){                            // 代码块
-      let c = parts[i];
-      if (c.startsWith('\n')) c = c.slice(1);
-      out.push('<pre><code>' + esc(c) + '</code></pre>');
-      continue;
-    }
-    let s = esc(parts[i]);
-    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
-    s = s.replace(/(^|\s)\*([^*\n]+)\*/g, '$1<i>$2</i>');
-    s = s.replace(/^###### (.*)$/gm, '<h3>$1</h3>');
-    s = s.replace(/^##### (.*)$/gm, '<h3>$1</h3>');
-    s = s.replace(/^#### (.*)$/gm, '<h3>$1</h3>');
-    s = s.replace(/^### (.*)$/gm, '<h3>$1</h3>');
-    s = s.replace(/^## (.*)$/gm, '<h2>$1</h2>');
-    s = s.replace(/^# (.*)$/gm, '<h1>$1</h1>');
-    s = s.replace(/^\s*[-*] (.*)$/gm, '• $1');
-    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener">$1</a>');
-    out.push(s);
-  }
-  return out.join('');
+  if (window.MD渲染器 && MD渲染器.html) return MD渲染器.html(text, {chat: true});
+  return esc(text);          /* 兜底：模块缺失时只转义，绝不吐裸 HTML */
 }
 
 /* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
