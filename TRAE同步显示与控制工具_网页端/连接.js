@@ -254,6 +254,12 @@ function channelPrompt(){
 
 function onMsg(msg){
   statsAdd(msg.length, 0, 1, 0);
+  /* FOX v2.1：控制帧（ACK/QRY/RSN/FAIL）先分流，绝不进正文流 */
+  if (msg.startsWith('【FOXACK:') || msg.startsWith('【FOXQRY:')
+      || msg.startsWith('【FOXRSN:') || msg.startsWith('【FOXFAIL:')){
+    deliverFox(FoxIn.feedCtrl(msg));  /* 2.50：补发片补齐也可能即刻交付正文 */
+    return;
+  }
   const r = FoxIn.feed(msg);
   if (r === null){
     /* 无 FOX 头：本端只发 FOX 帧，不可能撞自己回声——兜底收对端
@@ -263,8 +269,15 @@ function onMsg(msg){
     }
     return;                                   // 其余=心跳/中继系统消息
   }
-  const [sender, body] = r;
-  if (sender[0] !== '1') return;              // 1.12：只认服务端（'1'
+  deliverFox(r);
+}
+
+/* 2.50：FOX 正文交付统一出口（数据帧直收 / RSN 补发片补齐，两条路都经此，
+   避免补发补齐的那份正文被 feedCtrl 的布尔返回值吃掉）。 */
+function deliverFox(r){
+  if (!r) return;
+  const sender = r[0], body = r[1];
+  if (!sender || sender[0] !== '1') return;   // 1.12：只认服务端（'1'
                                               // 开头），拒客户端回声
   srvSeen();                                  // 1.07：服务端判活
   handleBody(body);

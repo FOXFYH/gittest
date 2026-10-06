@@ -29,10 +29,25 @@ const IDLE_MS = 5 * 60 * 1000;  // 超过 5 分钟无任何操作 → 视为退�
 const FAIL_ALERT = 3;
 const SRV_TTL = 7 * 24 * 60 * 60 * 1000;   // v1.84：多电脑名册保留期（超 7 天未出现即清）
 const FOX_HDR = 57;     // 协议头固定字节数
-/* 2.26：中继硬限 16384B（超限断连）。原每段只发 10KB（约 37% 容量闲置）
-   → 顶到 15KB，留 64B 安全边；长文本/附件少发约 33% 的帧。 */
-const FOX_MAX = 15 * 1024 - FOX_HDR - 64;   // 单段正文上限（UTF-8 字节）
+/* 2.50：FOX v2.1——单段总帧上限 64KB（含头），正文上限 65479B。
+   规范 v1.1 实测结论：PieSocket 单条 64KB 稳定、16KB 非真上限、超限为
+   静默丢弃而非断连。（原 15KB 属 v1.1 之前的保守值。） */
+const FOX_MAX_SEGMENT = 64 * 1024;
+const FOX_MAX = FOX_MAX_SEGMENT - FOX_HDR;   // 单段正文上限（UTF-8 字节）
 const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
+/* FOX v2.1 控制帧（原始文本，不套 FOXID）与分批参数——与服务端
+   痕迹与配置.py 同名同值，两端必须同版上线。 */
+const FOX_RSN_HDR = 80;                 // RSN 定长头（数字全零填充，恒 80 字节）
+const FOX_BATCH_SIZE = 20;              // 每 20 段一批，发满停下等批次报告
+const FOX_BATCH_TIMEOUT_MS = 5000;      // 等批次报告超时（毫秒）
+const FOX_BATCH_QRY_MAX = 1;            // 超时后最多催问 1 次，仍无报告 → FAIL
+const FOX_FAIL_DEADLINE = 60;           // 接收方缓冲空闲硬超时（秒）
+const FOX_DOWNGRADE = {1: 64*1024, 2: 32*1024, 3: 16*1024};  // 补发轮次→重发尺寸
+const FOX_SENT_KEEP = 10;               // 发送方留底条数上限（LRU）
+const FOX_ACK_RE = /^【FOXACK:([0-9a-z]{22})=batch\((\d{3})\):range\((\d{3})-(\d{3})\):miss\(([0-9,]*)\)】$/;
+const FOX_QRY_RE = /^【FOXQRY:([0-9a-z]{22})=batch\((\d{3})\):range\((\d{3})-(\d{3})\)】$/;
+const FOX_RSN_RE = /^【FOXRSN:([0-9a-z]{22})=r(\d{2}):seg\((\d{3})\):len\((\d{6})\):cut\((\d{3})\/(\d{3})\)@(\d{6})】/;
+const FOX_FAIL_RE = /^【FOXFAIL:([0-9a-z]{22})=gave_up:miss\(([0-9,]*)\)】$/;
 
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
