@@ -18,9 +18,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   key += '#ask:' + askFp(ask);
   /* 1.29：插话排队条参与指纹（队列增删/立即发送都要及时重画） */
   key += '#qp:' + (pend || []).map(p => (p.t || '').slice(0, 40)).join('|');
-  /* 1.09：待确认占位 + 切换在途条参与指纹（状态推进/撤下要重画） */
-  key += '#pend:' + pendSig()
-       + (S.switch_pend ? '#sw:' + S.switch_pend.title : '');
+  /* 1.09：待确认占位参与指纹（状态推进/撤下要重画）；
+     2.60：切换在途条已删，指纹不再纳入 switch_pend。 */
+  key += '#pend:' + pendSig();
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -38,12 +38,6 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     el.msgs.innerHTML =
       '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
-  }
-  if (S.switch_pend){                    // 1.09：切换在途提示条
-    const sw = document.createElement('div');
-    sw.className = 'switching';
-    sw.textContent = switchTip(S.switch_pend.title);
-    el.msgs.appendChild(sw);
   }
   if (empty){ renderPending(); return; }
   const times = resolveTimes(msgs);

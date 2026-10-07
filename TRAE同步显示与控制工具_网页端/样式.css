@@ -207,13 +207,6 @@ body.fmsg #msgs{padding-top:22px;}
 .pendbtn{font-size:11px; min-height:22px; padding:0 8px; border-radius:4px;}
 .pendbtn.go{color:var(--blue);}
 .pendbtn.drop{color:var(--gray);}
-.switching{background:rgba(21,101,192,.07); border:1px dashed
-  rgba(21,101,192,.35); color:var(--blue); font-size:12px;
-  border-radius:8px; padding:6px 10px; margin:0 0 8px; text-align:center;}
-.switching::after{content:''; display:inline-block; width:6px; height:6px;
-  margin-left:6px; border-radius:50%; background:var(--blue);
-  animation:pulse 1s infinite;}
-@keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
 /* ── 1.90：文本转语音小卡片（(@fox-play1)...(@fox-play2) 包夹段）── */
 .foxplay{display:flex;flex-direction:column;gap:4px;margin:6px 0;
   padding:6px 10px;border:1px solid rgba(21,101,192,.35);

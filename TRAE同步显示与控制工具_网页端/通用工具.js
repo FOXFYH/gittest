@@ -11,9 +11,10 @@ function flash(msg, color, ms){
   clearTimeout(flashTimer);
   if (msg) flashTimer = setTimeout(() => renderState(S.snap), ms || 4000);
 }
-/* 本专项 A2/A3：切换文案唯一出口——状态栏（输入界面.js）、消息区切换条
-   （消息渲染.js）、会话点击提示（会话列表.js）三处共用此函数，杜绝
-   「正在切换」/「正在切换到」两套文案漂移。 */
+/* 本专项 A2/A3：切换文案唯一出口——状态栏（输入界面.js）、
+   会话点击提示（会话列表.js）两处共用此函数，杜绝
+   「正在切换」/「正在切换到」两套文案漂移。
+   2.60：消息区切换条已删，此处由三处收敛为两处。 */
 function switchTip(title){
   return '正在切换到「' + (title || '') + '」…';
 }
