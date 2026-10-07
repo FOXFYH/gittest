@@ -49,6 +49,27 @@ function skelCacheLoad(){
     return o;
   } catch(e){ return null; }
 }
+/* 2.59：本地缓存限「最近 3 轮」（用户 2026-10-07）——「AI 一问我一答」为一轮：
+   从末尾往前数到第 4 个问句为止，只保留其后的部分。更早的历史不再落盘，需要时
+   由「历史取回」（上滑向本地账本按需索要）拉取——不落盘、只在当次可见。
+   两种格式通吃：快照/展示行是数组 [role,text,...]；账本原始记录是对象 {role,...}。 */
+function _msgRole(m){
+  if (!m) return '';
+  if (Array.isArray(m)) return m[0] || '';
+  return m.role === 'u' ? 'u' : 'a';
+}
+function keepLastRounds(a, n){
+  if (!Array.isArray(a) || !a.length) return [];
+  n = n || WEB_ROUNDS_KEEP;
+  let cnt = 0;
+  for (let i = a.length - 1; i >= 0; i--){
+    if (_msgRole(a[i]) === 'u'){
+      cnt++;
+      if (cnt > n) return a.slice(i + 1);
+    }
+  }
+  return a.slice();
+}
 /* —— 历史缓存：按 (端口|会话标题) 存账本记录 + 游标 —— */
 function histCacheRead(conv){
   try {
@@ -56,6 +77,7 @@ function histCacheRead(conv){
     if (!o || o.key !== cacheKeyNow()) return null;
     const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
     if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
+    e.msgs = keepLastRounds(e.msgs);   /* 2.59：历史遗留的过长缓存「读入即裁」到最近 3 轮 */
     return e;
   } catch(e){ return null; }
 }
@@ -66,7 +88,8 @@ function histCacheWrite(conv, ver, have_seq, msgs){
     if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow(), convs: {}};
     if (!o.convs) o.convs = {};
     o.convs['p' + S.port + '|' + (conv || '')] =
-      {ver: ver | 0, have_seq: have_seq | 0, msgs: msgs};
+      {ver: ver | 0, have_seq: have_seq | 0,
+       msgs: keepLastRounds(msgs)};   /* 2.59：本地历史也只落最近 3 轮 */
     localStorage.setItem(LS_HIST, JSON.stringify(o));
   } catch(e){}
 }
@@ -104,8 +127,8 @@ function applyHist(conv, v){
   if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
   const inc = v.msgs || [];
   if (v.rebuild){                              /* 版本不符：整体重建 */
-    S.histRaw = inc.slice();
-    S.histMsgs = inc.map(ledToArr);
+    S.histRaw = keepLastRounds(inc);           /* 2.59：重建也只留最近 3 轮（防首屏超长） */
+    S.histMsgs = S.histRaw.map(ledToArr);
     S.histVer = v.ver | 0;
   } else {                                     /* 游标增量：只补新段 */
     if (!Array.isArray(S.histRaw)) S.histRaw = [];
@@ -119,6 +142,9 @@ function applyHist(conv, v){
   }
   S.histHave = S.histRaw.length
     ? S.histRaw[S.histRaw.length - 1].seq : 0;
+  /* 2.59：不论重建还是增量补新，本地账本恒裁到最近 3 轮（防本地缓存随会话膨胀）。 */
+  S.histRaw = keepLastRounds(S.histRaw);
+  S.histMsgs = S.histRaw.map(ledToArr);
   histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
   renderAll();
 }
@@ -194,7 +220,7 @@ function curMsgs(){
    直到当前锚定会话的真直播帧到达才撤。IDB 打不开则静默降级，绝不阻断主流程。 */
 const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
 const IDB_KEEP_MS = 7 * 24 * 3600 * 1000;   /* 超一周剪枝（与 SRV_TTL 同一把尺） */
-const IDB_MSGS_KEEP = 40;                   /* 单帧只留尾部 40 条正文（防库膨胀） */
+const WEB_ROUNDS_KEEP = 3;               /* 2.59：单帧/本地历史只留最近 3 轮（用户 2026-10-07）；原为尾部 40 条 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
 let _idbP = null, _idbLastAt = 0, _idbLastFp = '', _idbLastSid = '';
 function idbOpen(){
@@ -237,7 +263,7 @@ function _idbFp(){
 function _idbFrame(){
   const s = S.snap || {};
   return {online: !!s.online, login: s.login,
-          msgs: (Array.isArray(s.msgs) ? s.msgs.slice(-IDB_MSGS_KEEP) : []),
+          msgs: (Array.isArray(s.msgs) ? keepLastRounds(s.msgs) : []),
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
           ask: s.ask || null, pend: s.pend || [], attach: s.attach || [],
