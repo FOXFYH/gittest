@@ -359,17 +359,21 @@ function liveHide(){
 function snapIdbShow(sid, title){
   if (!sid) return;
   S.liveGot = false; S.livePend = sid;
-  S.liveFrame = null;            /* 2.57B：先清空——旧会话 A 的正文即刻退场 */
-  renderAll();                   /* 2.57B：立刻重画（无存帧即诚实留白 + 切换提示条） */
+  S.liveFrame = null;            /* 2.57B：旧会话 A 的正文退场（防张冠李戴） */
   liveShow();
+  /* 2.64：先读到目标会话的存帧、再渲染「一次」——不再先画一版空帧。
+     原实现先 renderAll() 空帧、再异步补缓存，中间那版空版面会把消息区
+     scrollTop 夹回 0 并抛 scroll 事件，成为「自动跳顶 + 拉历史」的源头。
+     现在：有存帧 → 一次性铺上（全程不经过空帧）；无存帧 → 只留白一次等直播帧。 */
   snapIdbGet(sid).then(rec => {
-    if (S.liveGot) return;                     /* 直播帧已到，别用旧帧盖真画面 */
+    if (S.liveGot) return;                      /* 直播帧已到，别用旧帧盖真画面 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
-    const f = rec && rec.frame;
-    if (!f) return;                            /* 2.57B：无存帧 → 保持留白，等直播帧 */
-    S.liveFrame = f;                           /* 2.57B：有存帧 → 上屏供复习上下文 */
+    S.liveFrame = (rec && rec.frame) || null;   /* 有存帧 → 一次性上屏 */
     renderAll();
-  }).catch(() => {});
+  }).catch(() => {
+    /* 读取失败也要铺一次，免卡在上一会话画面 */
+    if (!S.liveGot && (S.anchorSid || '') === sid) renderAll();
+  });
 }
 /* 直播帧到达（专属于当前锚定会话）→ 撤条并停用本地帧 */
 function liveClear(){
