@@ -171,16 +171,40 @@ function revertRefill(snap){
   flash('↩ 已撤回并取回：' + pv, 'var(--blue)', 6000);
 }
 
+/* 2.66：未就绪态分级——用户 2026-10-07：「对面服务器不在线的时候，横幅只会
+   显示『TRAE 界面未就绪』，不够准确」。原实现只要 snap.online 为假就一律写
+   这一句，把「服务端（电脑上的程序）没在跑」也归成了「界面未就绪」。现按
+   真实原因分三档：
+     · 本端连不上中转频道 → 说频道问题（与本机网络/中继有关，与服务端无关）；
+     · 选中的服务端最近无任何来向消息（> SRV_DEAD_MS，或名册里从没听过它）
+       → 判定「服务端不在线」；
+     · 服务端消息新鲜（在跑）但 TRAE 没连上 → 才是「TRAE 界面未就绪」。
+   判据 S.servers[cur].ts＝该服务端最后一次来向消息时刻（regSrv 每收必刷）。 */
+function notReadyState(){
+  if (!S.onLine)
+    return {txt: '未连上中转频道，正在重连…', col: 'var(--orange)'};
+  if (!S.cur)
+    return {txt: '未选择服务端（请打开左侧抽屉选一台）', col: 'var(--gray)'};
+  const s = S.servers[S.cur];
+  const ts = (s && s.ts) || 0;
+  if (!ts || Date.now() - ts > SRV_DEAD_MS)
+    return {txt: '服务端「' + S.cur + '」不在线（无响应）', col: 'var(--red)'};
+  return {txt: 'TRAE 界面未就绪', col: 'var(--red)'};
+}
+let _nrTxt = '';            /* 2.66：最近一次写入的「未就绪」文案（防抢一次性提示） */
 function renderState(snap){
   S.gen = false;
   S.ready = !!(snap && snap.online);
   if (!S.ready){
-    el.state.textContent = 'TRAE 界面未就绪';
-    el.state.style.color = 'var(--red)';
+    const nr = notReadyState();
+    _nrTxt = nr.txt;
+    el.state.textContent = nr.txt;
+    el.state.style.color = nr.col;
     setSendBtn(false, false);
     fbarSync();                            // 1.62：全屏状态条跟随
     return;
   }
+  _nrTxt = '';
   const idle = snap.sendIdle, inp = snap.inputText || '',
         tail = snap.tail;
   if (!idle && !inp){                        // 生成中
@@ -243,6 +267,15 @@ function renderLoginBar(snap){
   el.loginbar.classList.add('on');
 }
 setInterval(() => renderLoginBar(S.snap), 5000);   /* 持续复核：满 1 分钟自动亮 */
+/* 2.66：未就绪文案定期复核——服务端静默/离线时没有快照驱动 renderState，
+   横幅会一直停在旧文字（如刚切到离线服务端时的「界面未就绪」，或反之服务端
+   已掉线却仍写着「未就绪」）。每 5 秒重算一次：仅当「仍未就绪」且「当前横幅
+   正是我们刚写的未就绪文案」（＝没有别的一次性提示/错误在显示）时才刷新。 */
+setInterval(() => {
+  if (S.ready) return;
+  if (!_nrTxt || el.state.textContent !== _nrTxt) return;
+  renderState(S.snap);
+}, 5000);
 
 function renderAttach(items){
   const row = el.attach_row;
