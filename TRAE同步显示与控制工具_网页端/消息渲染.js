@@ -314,17 +314,19 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     el.msgs.appendChild(qp);
   }
   renderPending();                  // 1.09：占位气泡永远排在末尾
-  if (inF){
+  if (inF && !S.pinBottom){
     el.msgs.scrollTop = savedTop;   /* 1.20：全屏内只保位置，
                                        绝不自动退出（鬼打墙根因） */
   } else if (S.pinBottom){
-    /* 2.61：切会话后钉底（优先级次于全屏 inF）——目标会话正文（本地存帧
+    /* 2.61/2.62：切会话后钉底——2.62 起优先级提到「全屏 inF」之前（原让位给
+       inF，而切换会话并不退出全屏历史态 → 上翻过历史再切会话会停在顶部，
+       并因 scrollTop<60 误触发上翻补拉）；目标会话正文（本地存帧
        或直播帧）真正上屏的那一次，前面中间态空渲染已把 scrollTop 归 0，
        若不干预会被当成「用户在翻历史」原样还原到顶部，并因 scrollTop<60
        误触发上翻补拉。这里用 fprog 程序化滚到最底并清标志；fprog 的 450ms
        静默期同时压掉这次滚动产生的 scroll 回调，不再误拉历史。 */
     fprog(el.msgs.scrollHeight);
-    S.pinBottom = false;
+    if (!S.switch_pend && !S.livePend) S.pinBottom = false;
   } else if (nearBottom){
     fprog(el.msgs.scrollHeight);    /* 近底吸附：新消息照常跟底 */
   } else {

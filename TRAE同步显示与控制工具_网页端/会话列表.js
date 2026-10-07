@@ -101,6 +101,12 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       d.onclick = () => {
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
         if (!flag){
+          /* 2.62：换会话先退出「历史全屏」。输入界面.js 1.20 注释早就写明
+             「退出全屏只有两个途径：点『↓ 回到最新』、切换会话」，但此处
+             从来没调 exitFmsg()。后果：用户上翻过历史（body.fmsg）再切会话
+             时，消息渲染.js 的 inF 分支压过 pinBottom，把 scrollTop 原样还原
+             成顶部的 0，并因 scrollTop<60 误触发「正在取回历史记录」。 */
+          exitFmsg();
           /* v1.95：优先按稳定 ID 切换（改名/重排不切错），无 ID 回退序号 */
           /* 2.18 锚定：用户主动点会话行 = 自己换锚点；此后网页版守着这个
              会话，别人在电脑版操作别的会话也不会把网页版带走。 */
