@@ -2903,15 +2903,39 @@ function refreshSendBtn(){               // 1.30/1.52/1.53：发送 ⇄ 停止 �
   setSendBtn(mode, enabled);
 }
 
+/* 1.xx：未就绪态分级——用户 2026-10-07：「对面服务器不在线的时候，横幅只会
+   显示『WorkBuddy 界面未就绪』，不够准确」（TRAE 远程控制 2.0 同款修正）。
+   原实现只要 snap.online 为假就一律写这一句，把「服务端（电脑上的程序）没在
+   跑」也归成了「界面未就绪」。现按真实原因分三档：
+     · 本端连不上中转频道 → 说频道问题（与本机网络/中继有关，与服务端无关）；
+     · 选中的服务端最近无任何来向消息（> SRV_DEAD_MS，或名册里从没听过它）
+       → 判定「服务端不在线」；
+     · 服务端消息新鲜（在跑）但 WorkBuddy 没连上 → 才是「界面未就绪」。
+   判据 S.servers[cur].ts＝该服务端最后一次来向消息时刻（regSrv 每收必刷）。 */
+function notReadyState(){
+  if (!S.onLine)
+    return {txt: '未连上中转频道，正在重连…', col: 'var(--orange)'};
+  if (!S.cur)
+    return {txt: '未选择服务端（请打开左侧抽屉选一台）', col: 'var(--gray)'};
+  const s = S.servers[S.cur];
+  const ts = (s && s.ts) || 0;
+  if (!ts || Date.now() - ts > SRV_DEAD_MS)
+    return {txt: '服务端「' + S.cur + '」不在线（无响应）', col: 'var(--red)'};
+  return {txt: 'WorkBuddy 界面未就绪', col: 'var(--red)'};
+}
+let _nrTxt = '';            /* 最近一次写入的「未就绪」文案（防抢一次性提示） */
 function renderState(snap){
   S.gen = false;
   S.ready = !!(snap && snap.online);
   if (!S.ready){
-    el.state.textContent = 'WorkBuddy 界面未就绪';
-    el.state.style.color = 'var(--red)';
+    const nr = notReadyState();
+    _nrTxt = nr.txt;
+    el.state.textContent = nr.txt;
+    el.state.style.color = nr.col;
     refreshSendBtn();                        // 1.35：未就绪也可发，按钮只看本地文字
     return;
   }
+  _nrTxt = '';
   const idle = snap.sendIdle, inp = snap.inputText || '',
         tail = snap.tail;
   if (!idle){                                // 生成中（含远端残留）→ 停止/插话
@@ -2949,6 +2973,15 @@ function renderState(snap){
     el.state.style.color = 'var(--blue)';
   }
 }
+/* 1.xx：未就绪文案定期复核——服务端静默/离线时没有快照驱动 renderState，
+   横幅会一直停在旧文字（如刚切到离线服务端时的「界面未就绪」，或反之服务端
+   已掉线却仍写着「未就绪」）。每 5 秒重算一次：仅当「仍未就绪」且「当前横幅
+   正是我们刚写的未就绪文案」（＝没有别的一次性提示/错误在显示）时才刷新。 */
+setInterval(() => {
+  if (S.ready) return;
+  if (!_nrTxt || el.state.textContent !== _nrTxt) return;
+  renderState(S.snap);
+}, 5000);
 
 function renderAttach(items){
   const row = el.attach_row;
@@ -3261,7 +3294,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.80';   /* 1.80：占位卡「看得见就撤」——补回「已进 ⏳ 托管排队条 ⇒ 撤卡」
+const VER = '1.81';   /* 1.81：未就绪态分级——横幅不再一律写「WorkBuddy 界面未就绪」
+                         （用户 2026-10-07 反馈：对面服务器不在线时也写这句，不准确；
+                         与 TRAE 远程控制 2.0 同款修正）。renderState 的未就绪分支改调
+                         notReadyState() 按真实原因分档：连不上中转→说频道；没选服务端→
+                         说未选择；选中服务端近期无来向消息（> SRV_DEAD_MS）→「服务端「X」
+                         不在线（无响应）」；服务端在跑但 WorkBuddy 未连上→才是「界面未就绪」。
+                         另加 5 秒定期复核（仅在仍写未就绪文案、且没有别的一次性提示在显示时）。
+                         1.80：占位卡「看得见就撤」——补回「已进 ⏳ 托管排队条 ⇒ 撤卡」
                          （用户 2026-10-06 定：消息已经进排队条了，卡还没撤）。1.78 只留
                          「带正文快照 + rid 命中 acks」一个撤卡点，把「进队列」也冻住了，
                          但那过头了——排队条本身就是「这条已显示」；骨架快照仍一律不撤。
