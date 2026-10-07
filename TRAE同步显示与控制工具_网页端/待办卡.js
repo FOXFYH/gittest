@@ -219,25 +219,85 @@ function msgsFp(msgs){
   return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
     + (m[3] || 0) + (m[4] || 0)).join('#');
 }
-const SWITCH_HANG_MS = 24000;   /* v2.13：切换等待上限——原 12s 偏短易误判「切换未完成」，
-                                   翻倍为 24s（墙钟兜底撤条 + 快照判定超时共用此值） */
-function switchHangClear(title){
-  /* v1.51：撤条判定块只在 snap 到达时执行；但服务端对 snap 去重，
-     目标内容静止时不再转发 → 判定块不再跑 → 「切换中」永挂。
-     这里用真定时器到点强制撤条，兑现 L2746「超时兜底，别一直挂着」
-     注释本意。正常切换在 24s 内走 snap 直接撤，不受影响。 */
-  if (S._swHangTimer) clearTimeout(S._swHangTimer);
-  S._swHangTimer = setTimeout(() => {
-    if (S.switch_pend && S.switch_pend.title === title){
-      /* 1.87：墙钟超时到点尚未确认到达 → 不再静默撤条，弹失败提醒
-         （snap 可能因指纹去重不再转发、判定块不再跑，这里兜底提醒） */
-      switchFail(title);
-      S.switch_pend = null;
-      renderAll();
-    }
-  }, SWITCH_HANG_MS);
+/* ── 2.67 切换过程状态机（2026-10-07 用户定）──
+   原实现只有一个 S.switch_pend，从「一点」糊到「切完」，看不出究竟是在连
+   WS、在等服务器回话、还是在真的切。现拆成可分辨的分档，反映真实过程：
+     connecting → waiting → switching → ok / fail
+   · connecting：本端 WS 没连上中转 → 「正在连接 WS…」（连上后自动补发）
+   · waiting   ：命令已发出，未收到服务器 switch_ack → 「等待服务器回应…」
+   · switching ：已收 switch_ack → 「正在切换中…」
+   · ok        ：已收 switch_ok（或兜底判到达）→ 「切换成功」，2s 后交回状态灯
+   · fail      ：switch_fail 或满 60s 无 ok → 「切换失败」
+   期间每 10s 补发一次同一 switch 命令（服务端同目标幂等），满 60s 判失败。 */
+const SWITCH_RESEND_MS  = 10000;   /* 每 10s 补发一次切换命令（幂等） */
+const SWITCH_TIMEOUT_MS = 60000;   /* 满 60s 未成功 → 判失败 */
+const SWITCH_OK_SHOW_MS = 2000;    /* 「切换成功」闪现时长，随后交回状态灯 */
+const SWITCH_HANG_MS = SWITCH_TIMEOUT_MS;   /* 兼容旧引用（原 24s 墙钟兜底） */
+
+/* 在途切换的目标 ref（稳定 ID 优先，其次序号）——补发用 */
+function switchRef(){
+  const sp = S.switch_pend;
+  if (!sp) return 0;
+  return (sp.ref !== undefined && sp.ref !== null && sp.ref !== '')
+    ? sp.ref : (sp.sid || 0);
 }
-function pendSwitchSet(title, sid){
+/* 目标匹配：双方都有 sid 按 sid，否则按 title（服务端回执可能只带其一） */
+function _swMatch(sp, v){
+  if (!sp || !v) return false;
+  if (sp.sid && v.sid) return sp.sid === v.sid;
+  if (sp.title && v.title) return sp.title === v.title;
+  return true;
+}
+/* 重置「补发 + 60s 超时」两只定时器（进入 waiting/switching 或收到回执时调） */
+function switchReArm(){
+  const sp = S.switch_pend; if (!sp) return;
+  clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
+  sp._tmoT = setTimeout(switchTimeout, SWITCH_TIMEOUT_MS);
+  if (sp.phase === 'waiting' || sp.phase === 'switching')
+    sp._resendT = setTimeout(switchResend, SWITCH_RESEND_MS);
+}
+function switchResend(){
+  const sp = S.switch_pend; if (!sp) return;
+  if (sp.phase !== 'waiting' && sp.phase !== 'switching') return;
+  sendCmd('switch', switchRef());       /* 补发（服务端同目标幂等，不会重复点） */
+  sp.ts = Date.now();
+  switchReArm();
+}
+function switchTimeout(){
+  const sp = S.switch_pend; if (!sp || sp.phase === 'ok') return;
+  switchFail(sp.title);                 /* 满 60s 未成功 → 宣布失败 */
+  switchClear();
+}
+/* 成功收口：显示「切换成功」2 秒，然后交回当前状态灯（用户：成功不常驻） */
+function switchOk(){
+  const sp = S.switch_pend; if (!sp) return;
+  clearTimeout(sp._okT);
+  clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
+  if (sp.phase !== 'ok'){
+    sp.phase = 'ok';
+    flash('切换成功', 'var(--green)');
+  }
+  renderAll();
+  sp._okT = setTimeout(function(){
+    if (S.switch_pend === sp) switchClear();
+  }, SWITCH_OK_SHOW_MS);
+}
+/* 清在途（成功闪现结束 / 失败 / 换目标时调） */
+function switchClear(){
+  const sp = S.switch_pend; if (!sp) return false;
+  clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
+  S.switch_pend = null;
+  renderAll();
+  return true;
+}
+/* 只清不渲染（换服务端/命令报错等自己会重画的地方用） */
+function switchAbort(){
+  const sp = S.switch_pend; if (!sp) return false;
+  clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
+  S.switch_pend = null;
+  return true;
+}
+function pendSwitchSet(title, sid, ref){
   title = title || ''; sid = sid || '';
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
      不重复渲染）；v1.95：有稳定 ID 时按 ID 判同目标（改名也算同一目标） */
@@ -247,14 +307,17 @@ function pendSwitchSet(title, sid){
   if (same){
     S.switch_pend.ts = Date.now();
     S.switch_pend.sid = sid || S.switch_pend.sid;
+    if (ref !== undefined) S.switch_pend.ref = ref;
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
-    switchHangClear(title);             /* v1.51：重新 arm 24s 兜底 */
+    switchReArm();                      /* v2.67：重置补发/超时 */
     return;
   }
-  S.switch_pend = {title: title, sid: sid, ts: Date.now(),
-                   fp0: msgsFp(S.snap.msgs)};
+  S.switch_pend = {title: title, sid: sid,
+                   ref: (ref !== undefined ? ref : (sid || 0)),
+                   ts: Date.now(), fp0: msgsFp(S.snap.msgs),
+                   phase: S.onLine ? 'waiting' : 'connecting'};
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
-  switchHangClear(title);               /* v1.51：24s 墙钟兜底拉条 */
+  switchReArm();                        /* v2.67：起补发/超时 */
   renderAll();
 }
 /* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中且消息区空、
@@ -276,11 +339,8 @@ function fullsCheckFire(title){
     '切换对话超过 15 秒仍未载入内容，是否查询是否有窗口最大化/全屏压制原版渲染？',
     () => sendCmd('check_fulls'));
 }
-function pendSwitchClear(){
-  if (!S.switch_pend) return false;
-  S.switch_pend = null;
-  return true;
-}
+/* 2.67：旧名保留为别名（切在途清理由 switchClear 统一收口，含定时器） */
+function pendSwitchClear(){ return switchClear(); }
 
 /* ========== 1.xx：最大化/全屏预警条 ========== */
 const FULLS_LATER = 15 * 60 * 1000;    // 稍后提醒：15 分钟后再提醒
