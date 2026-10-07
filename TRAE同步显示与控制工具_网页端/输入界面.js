@@ -1,6 +1,15 @@
 'use strict';
+/* 2.64：手势窗口——只有真实人类输入（触屏滑动 / 滚轮 / 按键）之后的短时间内，
+   滚动才被当作「人滚的」。程序化滚动（innerHTML='' 把 scrollTop 夹回 0、
+   scrollTop=savedTop、fprog）**不产生手势事件**，因而不可能被误判成
+   「用户上翻找历史」——根治「切会话自动跳顶 + 进全屏 + 拉历史」。 */
+var lastGestureAt = 0;
+function markGesture(){ lastGestureAt = Date.now(); }
+function clearGesture(){ lastGestureAt = 0; }
+const GESTURE_WINDOW_MS = 1200;     // 一次手势后允许继续判定滚动的时长（覆盖惯性滑动）
 function fprog(to){                 // 程序化滚动：静默期内不参与判定
   fLockUntil = Date.now() + 450;
+  clearGesture();                   // 2.64：程序滚动 → 立刻作废手势窗口
   el.msgs.scrollTop = to;
 }
 /* 1.21：点输入框 → 手机键盘弹出 → 窗口 resize，#msgs 可视高度骤缩
@@ -41,6 +50,11 @@ function exitFmsg(){
 el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
   if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
+  /* 2.64：切会话在途——一律不判定（等切换定论，免得把中间态重排当成上翻）。 */
+  if (S.switch_pend || S.livePend) return;
+  /* 2.64：只认「人手滚动」。程序化重排（空渲染把 scrollTop 夹回 0 等）没有
+     手势窗口，直接忽略——这是「切会话自动跳顶 + 进全屏 + 拉历史」的根治点。 */
+  if (Date.now() - lastGestureAt > GESTURE_WINDOW_MS) return;
   /* 2.25：上下翻滚=真实人类操作 → actSend('scroll')。
      是否真发由统一闸门决定（3 秒节流 / 仅当前选中会话 / 橙灯才发）。 */
   actSend('scroll');
@@ -76,6 +90,12 @@ el.msgs.addEventListener('scroll', () => {
     enterFmsg();
   }
 });
+/* 2.64：手势来源监听——只有这几种【真实人类输入】才开手势窗口，程序滚动不会。
+   touchmove 覆盖触屏拖动（含持续拖动不断续期）；wheel 覆盖桌面/触控板滚轮；
+   keydown 覆盖键盘翻页（空格/方向键等）。 */
+el.msgs.addEventListener('touchmove', markGesture, {passive: true});
+el.msgs.addEventListener('wheel', markGesture, {passive: true});
+document.addEventListener('keydown', markGesture);
 /* 1.24：Q 弹退出全屏——用户最常用的回底方式是「滑回最新」，到底
    后浏览器出现 Q 弹（overscroll 回弹）说明人已经到底还想继续。
    实现：全屏下在距底 ≤4px 处继续向上快拽（触屏 dy<-24px / 滚轮
