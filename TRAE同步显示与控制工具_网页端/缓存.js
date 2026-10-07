@@ -137,24 +137,27 @@ function ensureHist(){
   renderAll();                                  /* 秒显（快照未到达前） */
   reqHist(title, S.histHave, S.histVer);        /* 游标增量补新/重建 */
 }
+function _msgKey(m){
+  /* 2.54：消息身份指纹——角色 + 正文去空白后前 24 字。 */
+  const t = String((m && m[1]) || '').replace(/\s+/g, '').slice(0, 24);
+  return ((m && m[0]) || '') + '\u0001' + t;
+}
 function curMsgs(){
-  /* 直播权威=快照（每拍全文）；缓存只在快照尚无 msgs 时兜底秒显 */
+  /* 2.54：快照为权威尾部，账本只补更早。原实现（2.49）在账本比快照长时以账本为骨架，
+     账本里的重复/乱序行会让「连续多条 AI 回答而无对应问句」上屏（无头回复）。
+     改为：在账本里从后往前找与快照首行同键的位置 cut，账本 [0,cut) 视为更早历史拼在
+     快照之前；找不到或就在开头则只用快照（宁缺不乱）。 */
   const snapMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
   const led = (S.histMsgs && S.histMsgs.length) ? S.histMsgs : null;
   if (!led) return snapMsgs || [];
   if (!snapMsgs || !snapMsgs.length) return led;
-  /* 2.49：账本「翻出来的更早历史」要能上屏——账本比快照长（含上滑取回的老段）时
-     以账本为骨架，快照只补账本还没有的行（按 角色+文本 去重，避免重复显示）；
-     账本不长于快照时沿用快照（原行为不变）。 */
-  if (led.length <= snapMsgs.length) return snapMsgs;
-  const seen = new Set();
-  led.forEach(m => seen.add(m[0] + '\u0001' + (m[1] || '')));
-  const out = led.slice();
-  snapMsgs.forEach(m => {
-    const k = m[0] + '\u0001' + (m[1] || '');
-    if (!seen.has(k)){ seen.add(k); out.push(m); }
-  });
-  return out;
+  const k0 = _msgKey(snapMsgs[0]);
+  let cut = -1;
+  for (let i = led.length - 1; i >= 0; i--){
+    if (_msgKey(led[i]) === k0){ cut = i; break; }
+  }
+  if (cut <= 0) return snapMsgs;
+  return led.slice(0, cut).concat(snapMsgs);
 }
 
 /* ========== 1.90：文本转语音小卡片 ========== */
