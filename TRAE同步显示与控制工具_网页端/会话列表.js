@@ -112,6 +112,10 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
                       S.snap.conv_unread_ids);
           pendSwitchSet(title, sid);   /* 1.09：切换在途提示（0.8~6s）*/
           snapIdbShow(sid, title);     /* 本专项 B2/B3：先铺本地存帧秒显 */
+          /* 2.61：切会话后消息区钉底——正文（存帧/直播帧）真正上屏那次不再
+             把中间态残留的 scrollTop=0 当「用户在翻历史」原样还原到顶部。
+             标志在消息渲染.js 消费并清除。 */
+          S.pinBottom = true;
           foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
           flash(switchTip(title), 'var(--blue)');
           sendCmd('switch', sid || i);
