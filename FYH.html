@@ -120,7 +120,7 @@
   }
   .full-dev.active { background: #f0f0f0; border-color: #333; }
   .full-dev .st { font-size: 12px; color: #999; }
-  /* ===== 频道设置弹窗（v1.13：频道名由使用者手输） ===== */
+  /* ===== 密码设置弹窗（v1.14：只填密钥，前缀自动拼接） ===== */
   .cfg-row { margin-bottom: 10px; }
   .cfg-row label { display: block; font-size: 12px; color: #666; margin-bottom: 6px; }
   .cfg-row input {
@@ -159,8 +159,8 @@
   <div class="overlay-sheet">
     <div class="overlay-title">频道设置 <button id="cfgClose" class="mini">✕</button></div>
     <div class="cfg-row">
-      <label for="cfgChannel">频道名（必填，即密码）</label>
-      <input id="cfgChannel" type="text" autocomplete="off" placeholder="请填写频道名">
+      <label for="cfgPw">密码（密钥，必填，前缀自动拼接）</label>
+      <input id="cfgPw" type="text" autocomplete="off" placeholder="例如 31415926fF@">
     </div>
     <div class="cfg-row">
       <label for="cfgKey">api_key</label>
@@ -173,8 +173,12 @@
 <script>
 "use strict";
 // ============================================================
-// FYH 远程控制面板  v1.12
+// FYH 远程控制面板  v1.14
 // ------------------------------------------------------------
+// 1.14   频道改「前缀 + 密钥」：设置弹窗只填密码（密钥），前缀 fyhbus 由代码自动拼接，
+//        真频道名 fyhbus+密钥 不落地于前端；密钥存 localStorage 键 fyh_pw（旧键
+//        fyh_ch 的完整频道名自动迁移，剥离前缀）。统一全库习惯（用户 2026-10-08 定）。
+// 1.13   安全规则：频道名（旧公共频道）不硬编码，改由使用者手输，存 localStorage 键 fyh_ch。
 // 1.12   「☁」云同步开关从顶部挪进设备列表，做成与其他设备按钮同规格的普通方块
 //        （.dev-btn.wpsbtn，绿=在线/红=离线/灰=未知）；WS 指令/二次确认/设备侧一律不变。
 // 1.11   新增顶部「☁」WPS网盘同步开关（针对当前选中设备）：绿=在线/红=离线，
@@ -204,11 +208,22 @@
 // 1.01   应用清单调整：移除记事本；新增 WorkBuddy同步服务端开关
 // ============================================================
 // ================= 配置（与 FYH统一WS模块 一致） =================
-// v1.13 安全规则：频道名（=密码）不硬编码，由使用者手输，存 localStorage 键 fyh_ch（同源共用）
+// v1.14 安全规则：真频道名 = 固定前缀 + 密钥（统一全库习惯）。
+//   密钥不硬编码，由使用者手输，只存密钥本体于 localStorage 键 fyh_pw；
+//   前缀 CHANNEL_PREFIX 由本页代码自动拼接；真频道名（fyhbus+密钥）不落地于前端。
+const CHANNEL_PREFIX = "fyhbus";
 const DEFAULT_API_KEY = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug"; // api_key 默认值（保持现状，可被设置覆盖）
 let API_KEY = localStorage.getItem("fyh_key") || DEFAULT_API_KEY;
-let CHANNEL = localStorage.getItem("fyh_ch") || "";
-function wsUrl() { return "wss://free.blr2.piesocket.com/v3/" + CHANNEL + "?api_key=" + API_KEY; }
+let PW = (function () {                                // 只存「密钥」部分
+  var p = localStorage.getItem("fyh_pw");
+  if (p === null) {                                    // 首次：尝试从 v1.13 旧键 fyh_ch 迁移
+    var old = localStorage.getItem("fyh_ch") || "";
+    if (old) p = (old.indexOf(CHANNEL_PREFIX) === 0) ? old.slice(CHANNEL_PREFIX.length) : old;
+  }
+  return p || "";
+})();
+function channelName() { return PW ? (CHANNEL_PREFIX + PW) : ""; }
+function wsUrl() { return "wss://free.blr2.piesocket.com/v3/" + channelName() + "?api_key=" + API_KEY; }
 const PREFIX_RC = "【FYHRC】", SUFFIX_RC = "【/FYHRC】";
 const PREFIX_DEV = "【FYHDEV】", SUFFIX_DEV = "【/FYHDEV】";
 const PREFIX_HB = "【FYHHB】", SUFFIX_HB = "【/FYHHB】";
@@ -467,9 +482,9 @@ document.getElementById("logToggle").onclick = toggleLog;
 document.getElementById("logClose").onclick = toggleLog;
 document.getElementById("overlayClose").onclick = closeDevOverlay;
 
-// ================= 频道设置（v1.13：频道名/密钥由使用者手输，存 localStorage） =================
+// ================= 密码设置（v1.14：只填密钥，前缀 fyhbus 自动拼接，存 localStorage） =================
 function openCfg() {
-  document.getElementById("cfgChannel").value = CHANNEL || "";
+  document.getElementById("cfgPw").value = PW || "";
   document.getElementById("cfgKey").value = localStorage.getItem("fyh_key") || "";
   document.getElementById("cfgOverlay").hidden = false;
 }
@@ -477,17 +492,19 @@ function closeCfg() {
   document.getElementById("cfgOverlay").hidden = true;
 }
 function saveCfg() {
-  const ch = (document.getElementById("cfgChannel").value || "").trim();
-  if (!ch) { log("频道名不能为空"); return; }
+  let v = (document.getElementById("cfgPw").value || "").trim();
+  if (v.indexOf(CHANNEL_PREFIX) === 0) v = v.slice(CHANNEL_PREFIX.length);  // 容忍粘贴完整频道名
+  if (!v) { log("密码不能为空"); return; }
   const key = (document.getElementById("cfgKey").value || "").trim() || DEFAULT_API_KEY;
-  CHANNEL = ch;
+  PW = v;
   API_KEY = key;
-  localStorage.setItem("fyh_ch", ch);   // 键名 fyh_ch：同源页面填一份、多处共用
+  localStorage.setItem("fyh_pw", PW);   // 只存密钥本体：同源页面填一份、多处共用
+  localStorage.removeItem("fyh_ch");    // 清 v1.13 旧键
   localStorage.setItem("fyh_key", key);
   closeCfg();
   if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} ws = null; }
   connected = false;
-  log("配置已保存，正在连接（频道 " + ch + "）");
+  log("配置已保存，正在连接（频道 " + channelName() + "）");
   connect();
 }
 document.getElementById("cfgBtn").onclick = openCfg;
@@ -498,9 +515,9 @@ document.getElementById("cfgSave").onclick = saveCfg;
 function connect() {
   const dot = document.getElementById("wsDot");
   const st = document.getElementById("statusText");
-  if (!CHANNEL) {                     // v1.13 未配置频道：不连接、不重试刷屏，提示并引导打开设置
+  if (!channelName()) {               // v1.14 未配置密码：不连接、不重试刷屏，提示并引导打开设置
     dot.className = "dot off";
-    st.textContent = "请先填写频道名";
+    st.textContent = "请先填写密码";
     openCfg();
     return;
   }
@@ -517,8 +534,8 @@ function connect() {
   ws.onopen = () => {
     connected = true;
     dot.className = "dot on";
-    st.textContent = "已连接 · " + CHANNEL;
-    log("WS 已连接（频道 " + CHANNEL + "）");
+    st.textContent = "已连接 · " + channelName();
+    log("WS 已连接（频道 " + channelName() + "）");
     askDevices(); // 上线立即问"谁在？"，设备秒回，避免干等 30 秒周期广播
   };
   ws.onclose = () => {
