@@ -368,6 +368,7 @@ function snapIdbShow(sid, title){
   snapIdbGet(sid).then(rec => {
     if (S.liveGot) return;                      /* 直播帧已到，别用旧帧盖真画面 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
+    if (S.livePrefetch) return;                 /* 2.67：服务端已预取该会话正文帧，别用本地存帧覆盖 */
     S.liveFrame = (rec && rec.frame) || null;   /* 有存帧 → 一次性上屏 */
     renderAll();
   }).catch(() => {
@@ -378,6 +379,7 @@ function snapIdbShow(sid, title){
 /* 直播帧到达（专属于当前锚定会话）→ 撤条并停用本地帧 */
 function liveClear(){
   S.livePend = ''; S.liveGot = true; S.liveFrame = null;   /* 2.57B：真帧到手撤存帧 */
+  S.livePrefetch = false;                                  /* 2.67：预取标记一并清 */
   liveHide();
   snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
 }
