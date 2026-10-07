@@ -9,6 +9,7 @@
   body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f5f6f8;color:#222;min-height:100vh;display:flex;flex-direction:column;max-width:520px;margin:0 auto}
   header{background:#fff;padding:14px 16px;font-size:18px;font-weight:600;border-bottom:1px solid #eee;display:flex;align-items:center;gap:8px}
   #state{font-size:11px;color:#2d7ff9;background:#e8f1ff;border-radius:6px;padding:2px 8px}
+  #cfgBtn{margin-left:auto;font-size:12px;font-weight:500;color:#555;background:#f0f1f3;border:none;border-radius:8px;padding:6px 12px}
   main{flex:1;padding:16px;display:flex;flex-direction:column;gap:12px}
   textarea{width:100%;min-height:150px;border:1px solid #ddd;border-radius:12px;padding:14px;font-size:16px;line-height:1.6;resize:vertical;background:#fff;outline:none}
   textarea:focus{border-color:#2d7ff9}
@@ -20,12 +21,26 @@
   .clear{background:#fff;color:#333;border:1px solid #ddd}
   select{width:100%;padding:11px;border:1px solid #ddd;border-radius:10px;font-size:14px;background:#fff}
   #log{font-size:12px;color:#888;min-height:18px;word-break:break-all}
+  #cfg{background:#fff;border:1px solid #e5e6e8;border-radius:12px;padding:12px;display:none;flex-direction:column;gap:8px}
+  #cfg.show{display:flex}
+  #cfg label{font-size:12px;color:#666}
+  #cfg input{width:100%;padding:10px;border:1px solid #ddd;border-radius:9px;font-size:14px;outline:none}
+  #cfg input:focus{border-color:#2d7ff9}
+  #cfg .hint{font-size:11px;color:#999;line-height:1.5}
   footer{text-align:center;padding:12px;font-size:11px;color:#aaa}
 </style>
 </head>
 <body>
-  <header>本地语音 <span id="state">未连接</span></header>
+  <header>本地语音 <span id="state">未连接</span><button id="cfgBtn">设置</button></header>
   <main>
+    <div id="cfg">
+      <label>频道密钥（只填这一段，前面由程序自动补 TTS）</label>
+      <input id="chKey" type="text" placeholder="例如 31415926fF@" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label>账号 Key（PieSocket api_key）</label>
+      <input id="apiKey" type="text" placeholder="api_key" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="hint">两项只保存在本机浏览器（localStorage），网页源码里不含任何密码；填一次长期有效。</div>
+      <button class="btn play" id="saveCfg">保存并连接</button>
+    </div>
     <textarea id="txt" placeholder="输入文字，发送到电脑转成语音…"></textarea>
     <select id="voice">
       <option value="zh-CN-YunxiNeural">中文·云希(男)</option>
@@ -43,33 +58,55 @@
   <footer>手机 → PieSocket WS → 电脑 edge-tts → 分片回传 → 手机播放</footer>
 
 <script>
-  const WS = "wss://free.blr2.piesocket.com/v3/TRAETTS31415926fF@?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
-  const txt=document.getElementById('txt'), play=document.getElementById('play'),
-        clear=document.getElementById('clear'), log=document.getElementById('log'),
-        state=document.getElementById('state'), voiceSel=document.getElementById('voice');
+  /* ===== 频道装配规则（本文件不含任何密钥，一律手填）===== */
+  var CH_PFX  = 'TTS';                       /* 频道名前缀：程序自动添加，使用者只填密钥 */
+  var CH_HOST = 'free.blr2.piesocket.com';   /* PieSocket 集群 */
+  var LS_CH   = 'fyh_tts_ch';                /* 本机保存：频道密钥 */
+  var LS_K    = 'fyh_tts_k';                 /* 本机保存：账号 api_key */
 
-  let ws=null, audio=null, pieces={}, pendingTotal=0;
-  let genState=false;   // 生成中
-  let playing=false;    // 播放中
-  let going=false;      // 已有可播音频
+  var txt=document.getElementById('txt'), play=document.getElementById('play'),
+        clear=document.getElementById('clear'), log=document.getElementById('log'),
+        state=document.getElementById('state'), voiceSel=document.getElementById('voice'),
+        cfg=document.getElementById('cfg'), cfgBtn=document.getElementById('cfgBtn'),
+        chKey=document.getElementById('chKey'), apiKey=document.getElementById('apiKey'),
+        saveCfg=document.getElementById('saveCfg');
+
+  var ws=null, audio=null, pieces={}, pendingTotal=0;
+  var genState=false;   /* 生成中 */
+  var playing=false;    /* 播放中 */
+  var going=false;      /* 已有可播音频 */
 
   function logm(m){ log.textContent=m; }
   function setState(s, cls){ state.textContent=s; state.style.color=cls||'#2d7ff9'; }
   function resetBtn(){ play.textContent='▶ 播放'; play.classList.remove('stop'); }
+  function showCfg(show){ if(show){cfg.classList.add('show');}else{cfg.classList.remove('show');} }
+  function wsUrl(ch,k){ return 'wss://'+CH_HOST+'/v3/'+CH_PFX+ch+'?api_key='+encodeURIComponent(k); }
 
-  // ---- 连接 WS ----
-  function connect(){
-    try { ws=new WebSocket(WS); } catch(e){ setState('连接失败','#e5484d'); return; }
-    ws.onopen=()=>{ setState('已连接·可发送','#16a34a'); };
-    ws.onclose=()=>{ setState('已断开','#888'); };
-    ws.onerror=()=>{ setState('连接错误','#e5484d'); };
-    ws.onmessage=ev=>{
-      let d; try{d=JSON.parse(ev.data);}catch(e){return;}
+  function buildCfg(){
+    var ch=(chKey.value||'').trim(), k=(apiKey.value||'').trim();
+    if(!ch || !k){ setState('未配置','#f59e0b'); logm('请填写「频道密钥」和「账号 Key」后保存'); showCfg(true); return null; }
+    localStorage.setItem(LS_CH,ch); localStorage.setItem(LS_K,k);
+    return {ch:ch,k:k};
+  }
+
+  /* ---- 连接 WS ---- */
+  function connect(c){
+    showCfg(false);
+    var ch=c?c.ch:(localStorage.getItem(LS_CH)||''),
+        k =c?c.k :(localStorage.getItem(LS_K)||'');
+    if(!ch || !k){ setState('未配置','#f59e0b'); logm('未配置频道，请点右上「设置」填写'); showCfg(true); return; }
+    if(ws){ try{ws.close();}catch(e){} ws=null; }
+    try { ws=new WebSocket(wsUrl(ch,k)); } catch(e){ setState('连接失败','#e5484d'); return; }
+    ws.onopen=function(){ setState('已连接·可发送','#16a34a'); };
+    ws.onclose=function(){ setState('已断开','#888'); };
+    ws.onerror=function(){ setState('连接错误','#e5484d'); };
+    ws.onmessage=function(ev){
+      var d; try{d=JSON.parse(ev.data);}catch(e){return;}
       if(d.t==='tts_error'){ genState=false; resetBtn(); logm('电脑端错误:'+(d.error||'')); return; }
       if(d.t==='tts_audio'){
-        pieces[d.idx]=Uint8Array.from(atob(d.b64),c=>c.charCodeAt(0));
+        pieces[d.idx]=Uint8Array.from(atob(d.b64),function(c){return c.charCodeAt(0);});
         pendingTotal=d.total;
-        let got=Object.keys(pieces).length;
+        var got=Object.keys(pieces).length;
         logm('接收音频分片 '+got+'/'+d.total+'…');
         if(got>=d.total){ assembleAndPlay(); }
       }
@@ -77,10 +114,10 @@
   }
 
   function assembleAndPlay(){
-    let blob=new Uint8Array(0);
-    for(let i=1;i<=pendingTotal;i++){
+    var blob=new Uint8Array(0);
+    for(var i=1;i<=pendingTotal;i++){
       if(!pieces[i]) return;
-      let merged=new Uint8Array(blob.length+pieces[i].length);
+      var merged=new Uint8Array(blob.length+pieces[i].length);
       merged.set(blob,0); merged.set(pieces[i],blob.length);
       blob=merged;
     }
@@ -89,28 +126,36 @@
     audio=new Audio(URL.createObjectURL(new Blob([blob],{type:'audio/mpeg'})));
     genState=false; going=true; playing=true;
     play.textContent='⏸ 暂停'; play.classList.add('stop');
-    audio.onended=()=>{ going=false; playing=false; resetBtn(); logm('播放完毕'); };
-    audio.onerror=()=>{ going=true; playing=false; play.textContent='▶ 播放'; play.classList.remove('stop'); logm('播放失败'); };
-    audio.play().catch(()=>{ playing=true; });
+    audio.onended=function(){ going=false; playing=false; resetBtn(); logm('播放完毕'); };
+    audio.onerror=function(){ going=true; playing=false; play.textContent='▶ 播放'; play.classList.remove('stop'); logm('播放失败'); };
+    audio.play().catch(function(){ playing=true; });
   }
 
-  // 播放/暂停切换（仅当已拿到可播音频）
+  /* 播放/暂停切换（仅当已拿到可播音频） */
   function togglePlay(){
     if(playing){ audio.pause(); playing=false; play.textContent='▶ 播放'; play.classList.remove('stop'); logm('已暂停'); return; }
     if(audio){ playing=true; play.textContent='⏸ 暂停'; play.classList.add('stop'); audio.play(); logm('继续播放'); }
   }
 
-  play.onclick=()=>{
-    if(genState){ logm('正在生成中，请稍候…'); return; }      // 生成中不可点
-    if(going){ togglePlay(); return; }                          // 已有音频 → 播放/暂停
-    const text=txt.value.trim(); if(!text){logm('请先输入文字');return;}
+  play.onclick=function(){
+    if(genState){ logm('正在生成中，请稍候…'); return; }      /* 生成中不可点 */
+    if(going){ togglePlay(); return; }                          /* 已有音频 → 播放/暂停 */
+    var text=(txt.value||'').trim(); if(!text){logm('请先输入文字');return;}
     if(!ws||ws.readyState!==1){ logm('WS 未连接，重连中…'); setState('重连…','#f59e0b'); connect(); return; }
     pieces={}; genState=true; play.classList.add('stop'); play.textContent='⏳ 生成中…'; logm('已发送到电脑，等待转语音…');
     ws.send(JSON.stringify({t:'tts',text:text,voice:voiceSel.value}));
   };
-  clear.onclick=()=>{txt.value='';logm('已清空');};
+  clear.onclick=function(){txt.value='';logm('已清空');};
+  cfgBtn.onclick=function(){ showCfg(!cfg.classList.contains('show')); };
+  saveCfg.onclick=function(){ var c=buildCfg(); if(c){ logm('已保存，正在连接…'); connect(c); } };
 
-  connect();
+  /* ---- 启动：有配置就自动连；没有则展开设置 ---- */
+  (function(){
+    var ch=localStorage.getItem(LS_CH)||'', k=localStorage.getItem(LS_K)||'';
+    chKey.value=ch; apiKey.value=k;
+    if(ch && k){ connect({ch:ch,k:k}); }
+    else { setState('未配置','#f59e0b'); logm('首次使用：请填写「频道密钥」与「账号 Key」'); showCfg(true); }
+  })();
 </script>
 </body>
 </html>
