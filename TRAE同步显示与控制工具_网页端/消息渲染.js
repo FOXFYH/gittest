@@ -31,6 +31,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   const savedTop = el.msgs.scrollTop;
   const nearBottom = el.msgs.scrollHeight - savedTop
       - el.msgs.clientHeight < 200;
+  /* 2.64：清空正文前作废手势窗口——innerHTML='' 会把 scrollTop 夹回 0 并抛一个
+     scroll 事件；那是程序造成的，绝不能让它被当成「用户上翻找历史」。 */
+  clearGesture();
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
   if (empty && !S.pending.length && !S.switch_pend
@@ -315,8 +318,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   }
   renderPending();                  // 1.09：占位气泡永远排在末尾
   if (inF && !S.pinBottom){
-    el.msgs.scrollTop = savedTop;   /* 1.20：全屏内只保位置，
-                                       绝不自动退出（鬼打墙根因） */
+    fprog(savedTop);                /* 2.64：改走 fprog（程序滚动）——设静默期 + 作废手势窗口，
+                                       位置不被快照拽回，也不会误触发上翻判定；
+                                       1.20：全屏内只保位置，绝不自动退出（鬼打墙根因） */
   } else if (S.pinBottom){
     /* 2.61/2.62：切会话后钉底——2.62 起优先级提到「全屏 inF」之前（原让位给
        inF，而切换会话并不退出全屏历史态 → 上翻过历史再切会话会停在顶部，
@@ -330,7 +334,8 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   } else if (nearBottom){
     fprog(el.msgs.scrollHeight);    /* 近底吸附：新消息照常跟底 */
   } else {
-    el.msgs.scrollTop = savedTop;   /* 翻历史中：位置不被快照拽回 */
+    fprog(savedTop);                /* 2.64：改走 fprog（程序滚动）——翻历史中位置不被快照拽回，
+                                       且不产生「用户上翻」的误判 */
   }
 }
 
