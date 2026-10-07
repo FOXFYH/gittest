@@ -232,11 +232,26 @@ function renderState(snap){
     el.state.style.color = 'var(--blue)';
     setSendBtn(false, true);
   }
-  /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
-     不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容） */
+  /* 2.67 切换过程状态机：状态栏按在途阶段分档显示真实过程（用户 2026-10-07）。
+     connecting/waiting/switching/ok/fail；成功后 2s 由 switchOk 交回状态灯。 */
   if (S.switch_pend){
-    el.state.textContent = switchTip(S.switch_pend.title);
-    el.state.style.color = 'var(--blue)';
+    const ph = S.switch_pend.phase || 'switching';
+    if (ph === 'connecting'){
+      el.state.textContent = '正在连接 WS…';
+      el.state.style.color = 'var(--orange)';
+    } else if (ph === 'waiting'){
+      el.state.textContent = '等待服务器回应…';
+      el.state.style.color = 'var(--blue)';
+    } else if (ph === 'ok'){
+      el.state.textContent = '切换成功';
+      el.state.style.color = 'var(--green)';
+    } else if (ph === 'fail'){
+      el.state.textContent = '切换失败';
+      el.state.style.color = 'var(--red)';
+    } else {
+      el.state.textContent = '正在切换中…';
+      el.state.style.color = 'var(--blue)';
+    }
   }
   /* 2.46：后台借框占用——置顶提示并禁用发送，挡住人类操作 */
   if (S.inputBusy){
