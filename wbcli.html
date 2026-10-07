@@ -838,8 +838,12 @@ const FAIL_ALERT = 3;           // 连续 N 次「压根没连上」→ 判为�
 const FOX_HDR = 57;     // 协议头固定字节数
 const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
 const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
-const SWITCH_TO_MS = 24000;   /* 1.62：切换会话超时（毫秒）——原 12s 偏短易误判，
-                                 翻倍为 24s；超时才撤在途条并轻提示「切换未完成」 */
+/* 1.82：切换「过程分档」定时器（用户 2026-10-07）——取代 1.62 的 24s 单点超时
+   （旧的单点超时常量已撤，超时统一改由「满 60s 判失败」收口，否则 24s 就先撤条、
+   60s 的「切换失败」永远轮不到）。在途期间每 SWITCH_RESEND_MS 补发一次同一条
+   switch（防丢包/防对面刚上线漏收）；满 SWITCH_FAIL_MS 仍无 switched → 判失败。 */
+const SWITCH_RESEND_MS = 10000;
+const SWITCH_FAIL_MS   = 60000;
 
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
@@ -1027,6 +1031,9 @@ const S = {
   pend_send: 30000,                  /* 1.32：发送确认超时毫秒（默认 30 秒，
                                         pendcfg 同步；超时才显示改写/丢弃/重发） */
   switch_pend: null,
+  /* 1.82：切换成功闪现——switched 到达即写 {disp}，状态栏显示「切换成功」
+     2 秒后自动交回普通状态灯（空闲/生成中）；不常驻（用户 2026-10-07）。 */
+  switch_ok: null,
   /* 1.28：切换目标备忘——点击/pend 时记录 {title, ts}。服务端
      set_current 内先 refresh_snap 推快照、后广播 switched（同通道保序），
      快照常先于 switched 到达并把 switch_pend 撤掉；switched 到达时
@@ -1960,11 +1967,9 @@ function renderConvs(rows, conv_unread){
       d.onclick = () => {
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
         if (!flag){
-          pendSwitchSet(title, disp); /* 1.09：切换在途提示（0.8~6s）
-                                         1.32：传展示名，提示不再显示原始 sid */
-          flash('正在切换到「'
-            + (disp && disp !== title ? disp : '新会话') + '」…',
-            'var(--blue)');
+          pendSwitchSet(title, disp, true); /* 1.82：本地发起（分档 + 10s补发/60s超时）
+                                               1.32：传展示名，提示不再显示原始 sid */
+          flash(switchTipTxt(S.switch_pend), switchTipCol(S.switch_pend));
           sendCmd('switch', title);    /* 1.29：传 sid(即 title) 根治索引错位，
                                          不再传索引 i（会话增删会整体偏移） */
           drawerClose();
@@ -2379,7 +2384,62 @@ function msgsFp(msgs){
   return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
     + (m[3] || 0) + (m[4] || 0)).join('#');
 }
-function pendSwitchSet(title, disp){
+/* 1.82：切换「过程分档」文案/颜色（用户 2026-10-07）——
+   connecting=WS 没连上；waiting=已发出、等服务器回应；
+   switching=服务端已回执、正在切换；fail=满 60s 未成功。 */
+function switchTipTxt(p){
+  const d = (p && p.disp) || '新会话';
+  switch (p && p.phase){
+    case 'connecting': return '正在连接 WS…';
+    case 'waiting':    return '等待服务器回应…';
+    case 'switching':  return '正在切换中「' + d + '」…';
+    case 'fail':       return '⚠ 切换失败';
+    default:           return '正在切换到「' + d + '」…';
+  }
+}
+function switchTipCol(p){
+  const ph = p && p.phase;
+  if (ph === 'connecting') return 'var(--orange)';
+  if (ph === 'fail') return 'var(--red)';
+  return 'var(--blue)';
+}
+/* 1.82：在途定时器（仅本地发起启用）——每 10s 补发一次同一条 switch；
+   满 60s 仍无 switched → 判「切换失败」。 */
+let _swResendT = 0, _swTmoT = 0, _swFailT = 0, _swOkT = 0;
+function switchDisarm(){
+  if (_swResendT){ clearInterval(_swResendT); _swResendT = 0; }
+  if (_swTmoT){ clearTimeout(_swTmoT); _swTmoT = 0; }
+}
+function switchArm(p){
+  switchDisarm();
+  _swResendT = setInterval(() => {
+    if (S.switch_pend !== p){ switchDisarm(); return; }
+    if (p.phase === 'fail'){ switchDisarm(); return; }
+    if (!S.onLine || !foxReady()){        /* 断线：退回「连接 WS」档，连上再补发 */
+      if (p.phase !== 'connecting'){ p.phase = 'connecting'; renderAll(); }
+      return;
+    }
+    sendCmd('switch', p.title);           /* 补发同一条切换命令 */
+  }, SWITCH_RESEND_MS);
+  _swTmoT = setTimeout(() => {
+    if (S.switch_pend !== p) return;
+    p.phase = 'fail';
+    switchDisarm();
+    renderAll();
+    _swFailT = setTimeout(() => { if (S.switch_pend === p) switchEnd(); }, 4000);
+  }, SWITCH_FAIL_MS);
+}
+function switchEnd(){          /* 结束一次切换（成功/失败/换目标）：连带清定时器 */
+  switchDisarm();
+  if (_swFailT){ clearTimeout(_swFailT); _swFailT = 0; }
+  S.switch_pend = null;
+}
+function switchOk(disp){       /* 1.82：闪现「切换成功」2 秒后交回状态灯 */
+  S.switch_ok = {disp: disp || '新会话'};
+  if (_swOkT) clearTimeout(_swOkT);
+  _swOkT = setTimeout(() => { S.switch_ok = null; renderAll(); }, 2000);
+}
+function pendSwitchSet(title, disp, local){
   title = title || '';
   disp = disp || '';
   /* 1.32：展示名口径——优先调用方给的 disp（renderConvs 的真名）；
@@ -2392,30 +2452,43 @@ function pendSwitchSet(title, disp){
     if (row) disp = row[3] || '';
   }
   const view = (disp && disp !== title) ? disp : '新会话';
+  /* 1.82：本地发起 → 按「连上没」定首档（connecting/waiting）；
+     他端（PC 面板）广播来的 → 服务端已在切，直接 switching，不补发 */
+  const phase0 = local ? ((S.onLine && foxReady()) ? 'waiting' : 'connecting')
+                       : 'switching';
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
      不重复渲染） */
   if (S.switch_pend && S.switch_pend.title === title){
     S.switch_pend.ts = Date.now();
     S.switch_pend.disp = view;
+    /* 1.82：被动→主动升级（他端广播先到、本端随后又点了同一目标）→ 补挂定时器 */
+    if (local && !S.switch_pend.local){
+      S.switch_pend.local = true;
+      S.switch_pend.phase = phase0;
+      switchArm(S.switch_pend);
+    }
     S.switch_target = {title: title, ts: Date.now(), disp: view};   /* 1.28 备忘刷新 */
     /* 1.28：幂等点击只在占位仍在时刷新计时，内容已到（占位已清）不
        重复置位，避免真内容渲染后再闪「加载」占位 */
     if (S.loadingConv) S.loadingConv = {title: title, ts: Date.now(), disp: view};
     return;
   }
+  switchEnd();                        /* 1.82：换目标先清旧在途（含定时器） */
   S.switch_pend = {title: title, ts: Date.now(),
-                   fp0: msgsFp(S.snap.msgs), disp: view};
+                   fp0: msgsFp(S.snap.msgs), disp: view,
+                   phase: phase0, local: !!local};
   S.switch_target = {title: title, ts: Date.now(), disp: view};     /* 1.28 目标备忘 */
   /* 1.28：点击即置位加载占位——指标「点击→UI 响应」≈0ms 稳定过；
      渲染层 else-if 与 switch_pend 互斥：在途条优先，占位在 switched
      到达、switch_pend 清掉后自然接上，视觉无双条 */
   S.loadingConv = {title: title, ts: Date.now(), disp: view};
   S._swFail = null;                    /* F7：新切换开始，撤销旧失败观察 */
+  if (local) switchArm(S.switch_pend); /* 1.82：本地发起才补发/超时 */
   renderAll();
 }
 function pendSwitchClear(){
   if (!S.switch_pend) return false;
-  S.switch_pend = null;
+  switchEnd();
   return true;
 }
 
@@ -2474,7 +2547,7 @@ function renderMsgs(msgs, finish, opts, ask){
   if (S.switch_pend){                    // 1.09：切换在途提示条
     const sw = document.createElement('div');
     sw.className = 'switching';
-    sw.textContent = '正在切换到「' + (S.switch_pend.disp || '新会话') + '」…';
+    sw.textContent = switchTipTxt(S.switch_pend);   /* 1.82：分档文案 */
     el.msgs.appendChild(sw);
   } else if (S.loadingConv){             // 1.28：switched 已确认、snap 未到
     const ld = document.createElement('div');
@@ -2962,11 +3035,16 @@ function renderState(snap){
     el.state.style.color = 'var(--green)';
     refreshSendBtn();                  // 1.46：空闲灰=本地无文字；填完激活
   }
-  /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
-     不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容） */
+  /* 1.16：切换在途期间状态栏一律显示在途分档文案——正文没到达前
+     不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容）。
+     1.82：分档（连接WS/等待回应/正在切换/失败）取代原一句「正在切换」。 */
   if (S.switch_pend){
-    el.state.textContent = '正在切换「' + (S.switch_pend.disp || '新会话') + '」…';
-    el.state.style.color = 'var(--blue)';
+    el.state.textContent = switchTipTxt(S.switch_pend);
+    el.state.style.color = switchTipCol(S.switch_pend);
+  }
+  else if (S.switch_ok){                 // 1.82：切换成功闪现 2 秒后交回状态灯
+    el.state.textContent = '切换成功';
+    el.state.style.color = 'var(--green)';
   }
   else if (S.loadingConv){               // 1.28：snap 未到 → 加载占位
     el.state.textContent = '正在加载「' + (S.loadingConv.disp || '新会话') + '」…';
@@ -3294,7 +3372,15 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.81';   /* 1.81：未就绪态分级——横幅不再一律写「WorkBuddy 界面未就绪」
+const VER = '1.82';   /* 1.82：切换过程分档状态机（用户 2026-10-07，与 TRAE 2.0 同款）——
+                         原「正在切换到「X」…」一句话从头挂到尾，看不出是没连上、没回音
+                         还是真在切。现拆五档：connecting「正在连接 WS…」→ waiting「等待
+                         服务器回应…」→（服务端回 switch_ack）switching「正在切换中「X」…」
+                         →（switched）ok「切换成功」闪现 2 秒后交回状态灯 → 满 60s 判 fail
+                         「⚠ 切换失败」。在途每 10s 补发一次同一条 switch；WS 掉线退回
+                         connecting、连上即补发。服务端配合新增 switch_ack 回执 + 目标已
+                         是当前会话则智能跳过（直接宣布成功）。
+                         1.81：未就绪态分级——横幅不再一律写「WorkBuddy 界面未就绪」
                          （用户 2026-10-07 反馈：对面服务器不在线时也写这句，不准确；
                          与 TRAE 远程控制 2.0 同款修正）。renderState 的未就绪分支改调
                          notReadyState() 按真实原因分档：连不上中转→说频道；没选服务端→
@@ -3704,7 +3790,7 @@ function switchSrv(nm){
   setCur(nm);
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
-  S.pending = []; S.switch_pend = null; S._swFail = null;
+  S.pending = []; switchEnd(); S._swFail = null;   /* 1.82：连带清在途定时器 */
   S.recall = null; renderEditRow();   /* 1.53：换服务端，取回修改态作废 */
   S.loadingConv = null;               /* 1.28：换服务端，加载占位作废 */
   S.switch_target = null;             /* 1.28：目标备忘作废 */
@@ -3863,18 +3949,19 @@ function onEv(kind, v){
         /* 1.16：到达确认——标题激活还不够（WorkBuddy 先亮标题后加载
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
         const arrived = msgsFp(v.msgs) !== S.switch_pend.fp0;
-        const timedout = Date.now() - S.switch_pend.ts > SWITCH_TO_MS;
-        if ((act && act[1] === S.switch_pend.title && arrived) || !has
-            || timedout){
-          /* 1.xx：超时/迟到（目标快照没按时到）→ 主动拉即时全量，
-             避免界面停留在旧内容/「未就绪」观感等 24s 才缓过来 */
-          if (timedout && !arrived){
-            /* F7：记录待观察目标——下一拍渲染后若仍未激活该会话
-               （switch_pend 已清、act 未到目标），轻提示「切换未完成」 */
+        const arrivedOk = !!act && act[1] === S.switch_pend.title && arrived;
+        /* 1.82：超时不再由这里判——改由 switchArm 的 60s 定时器统一收口
+           （否则 24s 就想撤条，「切换失败」永远轮不到）。这里只管两种
+           确定结论：正文真到了、或带正文快照里目标已不在列表；
+           骨架快照（hasMsgs=false）不作数，免得误撤在途条。 */
+        if (arrivedOk || (hasMsgs && !has)){
+          if (!arrivedOk){
+            /* F7：目标已不在列表——下一拍渲染后轻提示「切换未完成」，
+               并主动拉即时全量对齐 */
             S._swFail = {title: S.switch_pend.title};
             try { sendJson({t: 'hello'}); } catch(e){}
           }
-          S.switch_pend = null;              // 超时兜底，别一直挂着
+          switchEnd();                       /* 结束在途（连带清 10s/60s 定时器） */
         }
       }
       S.loadingConv = null;                   // 1.28：snap 到达，撤加载占位
@@ -4064,12 +4151,27 @@ function onEv(kind, v){
         + '「↻ 刷新模型」，或换一个模型再选。');
       syncModel(v[1]);
       break;
+    case 'switch_ack':                   /* 1.82：服务端已收到切换命令（命令入
+        受理即回执）→ 由「等待服务器回应」转「正在切换中」 */
+      if (S.switch_pend && (S.switch_pend.phase === 'connecting'
+          || S.switch_pend.phase === 'waiting')){
+        S.switch_pend.phase = 'switching';
+        renderAll();
+      }
+      break;
     case 'switched': {
       /* 1.28：切换即时反馈——服务端 set_current 完成即确认切换：
          立即撤在途条（applySwitch 清 switch_pend），目标内容未到则
          上「正在加载」占位，不等 snap（1.2s±抖）才动 */
       const swT = (S.switch_pend && S.switch_pend.title)
                || (S.switch_target && S.switch_target.title) || '';
+      /* 1.82：展示名（原代码引用了从未定义的 swD —— 会 ReferenceError；
+         现按 switch_pend/switch_target 的 disp 兜底，并供「切换成功」档用） */
+      const swD = (S.switch_pend && S.switch_pend.disp)
+               || (S.switch_target && S.switch_target.disp) || '';
+      /* 1.82：本次是否真有一次在途切换——boot/跨机/新建也会发 switched，
+         那种情况不该闪「切换成功」 */
+      const hadPend = !!(S.switch_pend || S.switch_target);
       /* snap 先于 switched 到达（快照已是新目标）→ 保留快照直接渲染，
          不重复占位。判定用 snap.title===目标标题 为主信号（快照顶层
          title=当前会话 sid，比 convs 的 act 标记更快就位、更可靠）；
@@ -4090,6 +4192,7 @@ function onEv(kind, v){
       applySwitch(v[0], v[1], hasTarget || freshNew);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now(), disp: swD} : null;
+      if (hadPend) switchOk(swD || swT);   /* 1.82：闪现「切换成功」2s 后交回状态灯 */
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
       scheduleRenderAll();
       break;
@@ -4131,7 +4234,7 @@ function onEv(kind, v){
         renderAll();
       }
       if (S.switch_pend || S.loadingConv){
-        S.switch_pend = null; S.loadingConv = null;
+        switchEnd(); S.loadingConv = null;      /* 1.82：连同在途定时器一起清 */
         S.switch_target = null; renderAll();
       }
       document.querySelectorAll('.optbtn.picked').forEach(b => {
@@ -4227,8 +4330,8 @@ function applySwitch(box, port, keepSnap){
   S.convs_key = null; S.msgs_key = null;
   S.attach_pending = null; S.model_busy = false; S.verify = null;
   S.histConv = ''; resetPaging();           /* 换目标：分页窗口作废重来 */
-  /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
-  S.pending = []; S.switch_pend = null;
+  /* 1.09：换目标——待确认项/切换在途条随旧目标作废（1.82：连同定时器一起清） */
+  S.pending = []; switchEnd();
   S.recall = null; renderEditRow();         /* 1.53：换会话，取回修改态作废 */
   S.loadingConv = null;                     /* 1.28：换目标，旧占位作废 */
   S.switch_target = null;                   /* 1.28：目标备忘随切换消费/作废 */
@@ -4244,7 +4347,16 @@ function applySwitch(box, port, keepSnap){
 
 function setOnLine(b){
   S.onLine = b;
-  if (b){ S.wsOpenAt = Date.now(); S.dropByHide = false; }  // 1.25：连上即清断线标记
+  if (b){
+    S.wsOpenAt = Date.now(); S.dropByHide = false;   // 1.25：连上即清断线标记
+    /* 1.82：切换中掉线（卡在「正在连接 WS」档）→ 连上即转「等待服务器回应」
+       并立刻补发一次 switch（不必干等下一个 10s 周期） */
+    if (S.switch_pend && S.switch_pend.phase === 'connecting'){
+      S.switch_pend.phase = 'waiting';
+      sendCmd('switch', S.switch_pend.title);
+      renderAll();
+    }
+  }
   /* 1.69：网络恢复 → 自动把「掉线时撞顶没拉成」的历史补回来，
      省得用户先看到「请刷新网络」还得自己再滑一次。 */
   if (b && S.loadingMore && S.loadMoreFail && S.more
