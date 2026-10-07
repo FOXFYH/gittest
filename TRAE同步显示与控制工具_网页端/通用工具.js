@@ -323,7 +323,9 @@ function adoptSnap(v){
 /* ================= 渲染 ================= */
 
 function renderAll(){
-  const snap = S.snap;
+  /* 2.57B：切换在途 → 用「目标会话本地存帧（或空）」覆盖正文类字段，绝不再
+     显示旧会话 A 的内容（用户 2026-10-07；见 缓存.js liveOverlay）。 */
+  const snap = liveOverlay(S.snap);
   skelCacheSave(snap);                 /* 2.20：骨架缓存写回（秒开列表） */
   ensureHist();                        /* 2.20：本地历史秒开+请求式增量 */
   renderConvs(snap.convs || [], snap.conv_unread, snap.conv_unread_ids);
@@ -339,8 +341,9 @@ function renderAll(){
       if (/^(全部)?(撤销|保留)$/.test(t)) return false;
       return true;
     });
-  renderMsgs(curMsgs(), snap.finish, opts0, snap.ask || null,
-             snap.pend || []);
+  /* 2.57B：切换在途不并入账本（账本可能仍是旧会话的），只认存帧/空 */
+  renderMsgs(S.livePend ? (snap.msgs || []) : curMsgs(), snap.finish,
+             opts0, snap.ask || null, snap.pend || []);
   renderState(snap);
   revertRefill(snap);              // 1.62：撤回后把被撤回的话补回输入框
   renderAttach(snap.attach || []);

@@ -245,6 +245,9 @@ function _idbFrame(){
 }
 /* 每 5 秒（+关键动作强制）把当前锚定会话的快照落地 */
 function snapIdbTick(force){
+  /* 2.57B：切换在途——此刻 S.snap 正文仍属旧会话 A，绝不能在锚定已指向 B 时
+     把它当 B 的存帧落地（否则会把 A 的内容毒化成 B 的缓存）。 */
+  if (S.livePend) return;
   const s = S.snap || {};
   if (!Array.isArray(s.convs) || !s.convs.length) return;   /* 还没快照 */
   const sid = (S.anchorSid || curSid() || '');
@@ -294,6 +297,20 @@ function snapIdbClearAll(){
     _idbReq('snap_list', 'readwrite', st => st.clear())
   ]).catch(() => {});
 }
+/* 2.57B：切换在途的展示视图（用户 2026-10-07）——已点目标 B、真直播帧尚未
+   到达：正文/选项/占位/输入框/附件/模型一律取「B 的本地存帧」，没有存帧
+   就留空；绝不回落到服务器快照（那是旧会话 A 的内容，会造成张冠李戴）。
+   非切换期原样返回快照。 */
+function liveOverlay(snap){
+  if (!S.livePend) return snap;
+  const f = S.liveFrame || {};
+  return Object.assign({}, snap, {
+    msgs: (f.msgs || []), finish: f.finish || null, tail: f.tail || '',
+    sendIdle: !!f.sendIdle, inputText: f.inputText || '',
+    opts: f.opts || [], ask: f.ask || null, pend: f.pend || [],
+    attach: f.attach || [], model: f.model || ''
+  });
+}
 /* —— B3：直播帧提示条（横幅正下方小条，真直播帧到达即撤） —— */
 function liveShow(){
   let t = $('livebar');
@@ -316,25 +333,21 @@ function liveHide(){
 function snapIdbShow(sid, title){
   if (!sid) return;
   S.liveGot = false; S.livePend = sid;
+  S.liveFrame = null;            /* 2.57B：先清空——旧会话 A 的正文即刻退场 */
+  renderAll();                   /* 2.57B：立刻重画（无存帧即诚实留白 + 切换提示条） */
   liveShow();
   snapIdbGet(sid).then(rec => {
     if (S.liveGot) return;                     /* 直播帧已到，别用旧帧盖真画面 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
     const f = rec && rec.frame;
-    if (!f) return;
-    const s = S.snap || {};
-    s.msgs = f.msgs || [];
-    s.finish = f.finish; s.tail = f.tail || '';
-    s.sendIdle = f.sendIdle; s.inputText = f.inputText || '';
-    s.opts = f.opts || []; s.ask = f.ask || null;
-    s.pend = f.pend || []; s.attach = f.attach || [];
-    if (f.model) s.model = f.model;
+    if (!f) return;                            /* 2.57B：无存帧 → 保持留白，等直播帧 */
+    S.liveFrame = f;                           /* 2.57B：有存帧 → 上屏供复习上下文 */
     renderAll();
   }).catch(() => {});
 }
 /* 直播帧到达（专属于当前锚定会话）→ 撤条并停用本地帧 */
 function liveClear(){
-  S.livePend = ''; S.liveGot = true;
+  S.livePend = ''; S.liveGot = true; S.liveFrame = null;   /* 2.57B：真帧到手撤存帧 */
   liveHide();
   snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
 }
