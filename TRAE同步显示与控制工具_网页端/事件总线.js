@@ -80,7 +80,7 @@ function onEv(kind, v){
       }
       /* 本专项 F1：到达判定只用于状态灯与「失败回报」，不再阻塞任何操作——
          锚定在用户点击那一刻就已生效（指令先行），正文晚到只影响观感。 */
-      if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
+      if (S.switch_pend){                    /* 2.67 切换过程状态机：兜底到达判定 */
         const cv = v.convs || [];
         const sp = S.switch_pend;
         const spSid = sp.sid || '';
@@ -93,21 +93,16 @@ function onEv(kind, v){
         /* 1.16：到达确认——标题激活还不够（TRAE 先亮标题后加载
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
         const arrived = msgsFp(v.msgs) !== sp.fp0;
-        const timedout = Date.now() - sp.ts > SWITCH_HANG_MS;
         const arrivedOk = act && (spSid ? (act[4] || '') === spSid
                                         : act[1] === sp.title) && arrived;
-        if (arrivedOk || !has || timedout){
-          /* 1.xx：切换结束判定——成功到达(内容有变)归零失败计数；失败/
-             超时不静默：1.87 起在「列表找不着」或「24s超时仍未到达」这
-             两种真正的失败场景弹出「⚠ 会话切换失败」显眼提醒（同一目标
-             只弹一次：撤条后 switch_pend 已清，后续 snap 不再进本分支）。 */
-          if (arrivedOk){
-            S.falls_fail = 0;
-          } else {
-            switchFail(sp.title);
-          }
-          S.switch_pend = null;              // 超时兜底，别一直挂着
+        if (arrivedOk){
+          S.falls_fail = 0;
+          switchOk();                        /* 正文真到达 → 成功收口（2s 闪现） */
+        } else if (!has){
+          switchFail(sp.title);              /* 目标已不在列表 → 失败 */
+          switchClear();
         }
+        /* 2.67：超时不再在此按指钟判——由 switchReArm 的 60s 定时器负责 */
       }
       renderAll();
       break;
@@ -292,8 +287,33 @@ function onEv(kind, v){
     case 'switched':
       applySwitch(v[0], v[1]);
       break;
+    case 'switch_ack':           /* 2.67 切换过程状态机：服务端已收到命令回执
+                                    → 从「等待服务器回应」转「正在切换中」 */
+      if (S.switch_pend && _swMatch(S.switch_pend, v)){
+        if (S.switch_pend.phase !== 'ok'){
+          S.switch_pend.phase = 'switching';
+          S.switch_pend.ts = Date.now();
+          switchReArm();
+          renderAll();
+        }
+      }
+      break;
+    case 'switch_ok':            /* 2.67 切换过程状态机：切换成功信号 */
+      if (S.switch_pend && _swMatch(S.switch_pend, v)) switchOk();
+      break;
+    case 'switch_pre':           /* 2.67 切换过程状态机：目标已在服务端最近抓取的
+                                    pane 里 → 点击前先推来的正文帧，先显示（预取） */
+      if (S.switch_pend && v && v.sid && S.switch_pend.sid === v.sid){
+        S.livePrefetch = true;                 /* 标记：别被本地存帧覆盖 */
+        S.liveFrame = {msgs: v.msgs || [], finish: v.finish || null,
+                       tail: '', sendIdle: true, inputText: '',
+                       opts: [], ask: null, pend: [], attach: [], model: ''};
+        renderAll();
+      }
+      break;
     case 'switch_fail':          /* 1.86：切换失败浮窗提醒 */
       switchFail(v);
+      if (S.switch_pend && S.switch_pend.phase !== 'ok') switchClear();
       break;
     case 'booterr':
     case 'boot_noop':
@@ -331,7 +351,7 @@ function onEv(kind, v){
         });
         renderAll();
       }
-      if (S.switch_pend){ S.switch_pend = null; renderAll(); }
+      if (S.switch_pend){ switchClear(); }
       S.ask_lock = null;               /* 1.27：命令失败解锁提问卡 */
       document.querySelectorAll('.optbtn.picked').forEach(b => {
         b.disabled = false;
