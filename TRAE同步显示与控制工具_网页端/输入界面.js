@@ -191,7 +191,7 @@ function renderState(snap){
   /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
      不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容） */
   if (S.switch_pend){
-    el.state.textContent = '正在切换「' + S.switch_pend.title + '」…';
+    el.state.textContent = switchTip(S.switch_pend.title);
     el.state.style.color = 'var(--blue)';
   }
   /* 2.46：后台借框占用——置顶提示并禁用发送，挡住人类操作 */

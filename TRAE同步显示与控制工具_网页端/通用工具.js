@@ -11,6 +11,12 @@ function flash(msg, color, ms){
   clearTimeout(flashTimer);
   if (msg) flashTimer = setTimeout(() => renderState(S.snap), ms || 4000);
 }
+/* 本专项 A2/A3：切换文案唯一出口——状态栏（输入界面.js）、消息区切换条
+   （消息渲染.js）、会话点击提示（会话列表.js）三处共用此函数，杜绝
+   「正在切换」/「正在切换到」两套文案漂移。 */
+function switchTip(title){
+  return '正在切换到「' + (title || '') + '」…';
+}
 /* 1.62：#fbar 镜像 #statebar；#ftoast 为全屏浮动吐司 */
 function fbarSync(){
   const fb = $('fbar');
@@ -195,13 +201,21 @@ function resolveTimes(msgs){
   return out;
 }
 function curTitle(){
+  /* 本专项 A5：以本地锚定为准（用户点选的会话），快照选中行仅作兜底——
+     状态栏会话名与正文会话由同一锚定源产出，杜绝「横幅写 A、正文走 B」。 */
   const convs = (S.snap.convs || []);
+  if (S.anchorSid){
+    for (const r of convs)
+      if (r[0] === 'c' && (r[4] || '') === S.anchorSid) return r[1];
+    if (S.anchorTitle) return S.anchorTitle;  /* 锚点不在列表：先用锚定标题兜底（A4 已弹提醒） */
+  }
   for (const r of convs) if (r[0] === 'c' && r[2]) return r[1];
   return '当前会话';
 }
-/* v1.95：当前选中会话的稳定 ID（convs 'c' 行第 5 位，TRAE 后端主键）。
-   拿不到返回 ''，调用方回退按标题。 */
+/* v1.95：当前会话的稳定 ID（convs 'c' 行第 5 位，TRAE 后端主键）。
+   本专项 A5：锚定 sid 优先；未锚定才回退快照选中行。拿不到返回 ''。 */
 function curSid(){
+  if (S.anchorSid) return S.anchorSid;
   const convs = (S.snap.convs || []);
   for (const r of convs) if (r[0] === 'c' && r[2]) return r[4] || '';
   return '';
@@ -274,15 +288,19 @@ function adoptSnap(v){
   const inSid = selSidOf(v), inTitle = selTitleOf(v);
   /* 未锚定（首拍）：吸附到当前选中会话 */
   if (!S.anchorSid && inSid){ S.anchorSid = inSid; S.anchorTitle = inTitle; }
-  /* 锚定会话已消失（被删/改名到认不出）：改锚到当前选中，放行原快照 */
-  if (S.anchorSid && !hasSidIn(v, S.anchorSid)){
-    S.anchorSid = inSid; S.anchorTitle = inTitle;
-    return v;
-  }
+  /* 本专项 A4/A6：锚定 sid 已不在快照会话列表（被删/认不出）→ 只提醒、
+     绝不静默改锚（旧实现会把锚点悄悄挪到桌面当前选中，用户毫无察觉）。 */
+  const anchorGone = !!(S.anchorSid && !hasSidIn(v, S.anchorSid));
+  if (anchorGone){
+    if (S.anchor_gone !== S.anchorSid){
+      S.anchor_gone = S.anchorSid;
+      flash('⚠ 当前锚定会话可能已不存在，请在会话列表重新选择', 'var(--red)', 6000);
+    }
+  } else if (S.anchor_gone) S.anchor_gone = '';
   /* 用户自己的切换在途：放行原快照，等切换定论（不与锚定抢） */
   if (S.switch_pend) return v;
   const stolen = !!(S.anchorSid && inSid && inSid !== S.anchorSid);
-  if (!stolen) return v;
+  if (!stolen && !anchorGone) return v;
   const old = S.snap || {};
   v.convs = (v.convs || []).map(r => (r && r[0] === 'c')
       ? [r[0], r[1], (r[4] || '') === S.anchorSid, r[3], r[4]] : r);
@@ -295,7 +313,10 @@ function adoptSnap(v){
   v.sendIdle = old.sendIdle;
   v.pend = Array.isArray(old.pend) ? old.pend : (v.pend || []);
   v.opts = old.opts || [];
-  S.anchorTitle = selTitleOf(v) || S.anchorTitle;
+  /* 锚定标题跟随锚点（列表里查到就用最新标题，改名自动同步） */
+  const arow = (v.convs || []).find(r => r && r[0] === 'c'
+      && (r[4] || '') === S.anchorSid);
+  if (arow) S.anchorTitle = arow[1] || S.anchorTitle;
   return v;
 }
 

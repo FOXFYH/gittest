@@ -5,14 +5,29 @@ let cacheKey = null, reqSeq = 0, skelLastSave = 0;
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
 function checkVerBump(){
-  /* 首次定键 / 版本变化 → 清空本地骨架与历史缓存（改版重下） */
+  /* 首次定键 / 版本变化 → 清空本地骨架与历史缓存（改版重下）。
+     本专项 B1：换代同时清 IndexedDB 快照表，并清掉 LS 里明确属快照类的键
+     （快照绝不进 localStorage；LS_HIST 属账本历史，上面已按需清）。 */
   const k = cacheKeyNow();
   if (cacheKey !== null && cacheKey !== k){
     try { localStorage.removeItem(LS_SKEL);
           localStorage.removeItem(LS_HIST); } catch(e){}
+    try { snapIdbClearAll(); } catch(e){}
+    _lsPurgeSnapKeys();
     S.histConv = ''; S.histMsgs = null; S.histRaw = [];
   }
   cacheKey = k;
+}
+/* 本专项 B1：黑名单式清「疑似快照类」LS 键（绝不误删配置/名册/昵称/收藏） */
+function _lsPurgeSnapKeys(){
+  try {
+    const del = [];
+    for (let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i) || '';
+      if (/^trae_webm_(skel|snap|idb_snap)/.test(k)) del.push(k);
+    }
+    del.forEach(k => localStorage.removeItem(k));
+  } catch(e){}
 }
 /* —— 骨架缓存：打开页面即秒显会话列表（不用等连上） —— */
 function skelCacheSave(snap){
@@ -170,3 +185,158 @@ function curMsgs(){
    于是整段认不出、标记碎片原样露在气泡里（用户反馈「后缀破碎」）。
    改为「有头就认」：结尾要么是完整的 (@fox-play2)，要么就到消息末尾；
    同时把末尾那截残缺标记（如 (@ / (@fox）剪掉，不混进卡片正文。 */
+
+/* ==================== 本专项 B 组：快照落地 IndexedDB ====================
+   用户口径（R6/D4/D8/D9/P10/P11）：网页端「快照」（锚定会话正文帧）一律落
+   IndexedDB；每 5 秒节流落地、超一周剪枝、换版本清空；localStorage 只留
+   长期固定项与账本历史 LS_HIST（快照绝不进 localStorage）。
+   秒显：点会话先读本地存帧立刻铺上，并出「正在获取直播帧」小条，
+   直到当前锚定会话的真直播帧到达才撤。IDB 打不开则静默降级，绝不阻断主流程。 */
+const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
+const IDB_KEEP_MS = 7 * 24 * 3600 * 1000;   /* 超一周剪枝（与 SRV_TTL 同一把尺） */
+const IDB_MSGS_KEEP = 40;                   /* 单帧只留尾部 40 条正文（防库膨胀） */
+const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
+let _idbP = null, _idbLastAt = 0, _idbLastFp = '', _idbLastSid = '';
+function idbOpen(){
+  if (_idbP) return _idbP;
+  _idbP = new Promise((res, rej) => {
+    if (!window.indexedDB) return rej(new Error('无 IndexedDB'));
+    const rq = indexedDB.open(IDB_NAME, IDB_VER);
+    rq.onupgradeneeded = () => {
+      const db = rq.result;
+      if (!db.objectStoreNames.contains('snap_conv')){
+        const st = db.createObjectStore('snap_conv', {keyPath: 'sk'});
+        st.createIndex('by_ts', 'ts');                      /* 剪枝游标用 */
+      }
+      if (!db.objectStoreNames.contains('snap_list'))
+        db.createObjectStore('snap_list', {keyPath: 'sk'});
+      if (!db.objectStoreNames.contains('snap_pend'))
+        db.createObjectStore('snap_pend', {keyPath: 'did'});  /* 占位卡持久化（C1） */
+    };
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error || new Error('IndexedDB 打开失败'));
+  });
+  _idbP.catch(() => { _idbP = null; });     /* 失败可重试，不长期锁死 */
+  return _idbP;
+}
+function _idbReq(store, mode, fn){
+  return idbOpen().then(db => new Promise((res, rej) => {
+    const tx = db.transaction(store, mode);
+    const r = fn(tx.objectStore(store));
+    tx.oncomplete = () => res(r && r.result);
+    tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error);
+  })).catch(e => { throw e; });
+}
+function _idbFp(){
+  const s = S.snap || {};
+  return msgsFp(s.msgs) + '|' + (s.finish || '') + '|' + (s.tail || '')
+    + '|' + (s.sendIdle ? 1 : 0) + '|' + (s.inputText || '')
+    + '|' + (s.model || '') + '|' + ((s.convs || []).length);
+}
+function _idbFrame(){
+  const s = S.snap || {};
+  return {online: !!s.online, login: s.login,
+          msgs: (Array.isArray(s.msgs) ? s.msgs.slice(-IDB_MSGS_KEEP) : []),
+          finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
+          inputText: s.inputText || '', opts: s.opts || [],
+          ask: s.ask || null, pend: s.pend || [], attach: s.attach || [],
+          model: s.model || ''};
+}
+/* 每 5 秒（+关键动作强制）把当前锚定会话的快照落地 */
+function snapIdbTick(force){
+  const s = S.snap || {};
+  if (!Array.isArray(s.convs) || !s.convs.length) return;   /* 还没快照 */
+  const sid = (S.anchorSid || curSid() || '');
+  if (!sid) return;
+  const now = Date.now(), fp = _idbFp();
+  if (force !== true){
+    if (now - _idbLastAt < 5000) return;                     /* 5 秒时间闸 */
+    if (fp === _idbLastFp && sid === _idbLastSid) return;     /* 指纹去重 */
+  }
+  _idbLastAt = now; _idbLastFp = fp; _idbLastSid = sid;
+  const key = cacheKeyNow();
+  _idbReq('snap_conv', 'readwrite', st => st.put(
+    {sk: key + '|' + sid, key: key, port: S.port, sid: sid,
+     title: curTitle(), ts: now, lastAccess: now, frame: _idbFrame()}
+  )).catch(() => {});
+  _idbReq('snap_list', 'readwrite', st => st.put(
+    {sk: key, key: key, ts: now, convs: s.convs,
+     conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
+  )).catch(() => {});
+}
+function snapIdbGet(sid){
+  if (!sid) return Promise.reject(new Error('无 sid'));
+  return _idbReq('snap_conv', 'readonly', st => st.get(cacheKeyNow() + '|' + sid));
+}
+function snapIdbListGet(){
+  return _idbReq('snap_list', 'readonly', st => st.get(cacheKeyNow()));
+}
+/* 剪枝：超一周的记录按主键逐个删（绝不整库清空），单轮上限 IDB_PRUNE_MAX */
+function snapIdbPrune(){
+  const cut = Date.now() - IDB_KEEP_MS;
+  let n = 0;
+  return _idbReq('snap_conv', 'readwrite', st => {
+    const rq = st.index('by_ts').openCursor();
+    rq.onsuccess = () => {
+      const c = rq.result;
+      if (!c || n >= IDB_PRUNE_MAX) return;
+      if ((c.value.ts || 0) < cut){ c.delete(); n++; }
+      c.continue();
+    };
+    return rq;
+  }).catch(() => {});
+}
+/* 版本换代 / 清缓存：清空快照类（快照表 + 列表骨架），不动占位卡 */
+function snapIdbClearAll(){
+  return Promise.all([
+    _idbReq('snap_conv', 'readwrite', st => st.clear()),
+    _idbReq('snap_list', 'readwrite', st => st.clear())
+  ]).catch(() => {});
+}
+/* —— B3：直播帧提示条（横幅正下方小条，真直播帧到达即撤） —— */
+function liveShow(){
+  let t = $('livebar');
+  if (!t){
+    t = document.createElement('div');
+    t.id = 'livebar';
+    document.body.appendChild(t);
+  }
+  t.textContent = '⏳ 正在获取直播帧…（当前显示的是本地存帧）';
+  const host = document.body.classList.contains('fmsg') ? $('fbar') : el.state;
+  const r = (host && host.getBoundingClientRect) ? host.getBoundingClientRect() : null;
+  t.style.top = ((r && r.bottom ? r.bottom : 34) + 2) + 'px';
+  t.classList.add('on');
+}
+function liveHide(){
+  const t = $('livebar');
+  if (t) t.classList.remove('on');
+}
+/* 秒显：点会话后先读本地存帧立刻铺上，并挂「正在获取直播帧」条 */
+function snapIdbShow(sid, title){
+  if (!sid) return;
+  S.liveGot = false; S.livePend = sid;
+  liveShow();
+  snapIdbGet(sid).then(rec => {
+    if (S.liveGot) return;                     /* 直播帧已到，别用旧帧盖真画面 */
+    if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
+    const f = rec && rec.frame;
+    if (!f) return;
+    const s = S.snap || {};
+    s.msgs = f.msgs || [];
+    s.finish = f.finish; s.tail = f.tail || '';
+    s.sendIdle = f.sendIdle; s.inputText = f.inputText || '';
+    s.opts = f.opts || []; s.ask = f.ask || null;
+    s.pend = f.pend || []; s.attach = f.attach || [];
+    if (f.model) s.model = f.model;
+    renderAll();
+  }).catch(() => {});
+}
+/* 直播帧到达（专属于当前锚定会话）→ 撤条并停用本地帧 */
+function liveClear(){
+  S.livePend = ''; S.liveGot = true;
+  liveHide();
+  snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
+}
+setInterval(() => snapIdbTick(), 5000);
+setInterval(() => snapIdbPrune(), 10 * 60 * 1000);

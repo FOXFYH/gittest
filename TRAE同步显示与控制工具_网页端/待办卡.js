@@ -21,7 +21,9 @@ function pendAdd(kind, text){
      切到别的对话期间不再显示（切回来仍可见，落地后照常撤下） */
   const p = {id: S.pend_seq, kind: kind, text: text,
              state: 'sending', ts: Date.now(), conv: curTitle(),
-             convSid: curSid()};   /* 2.16：同时记稳定 sid（改名/重排不变） */
+             /* 2.16：记稳定 sid（改名/重排不变）。本专项 C1：以【锚定 sid】
+                为准——发起时网页版锚定哪个会话，卡就挂哪个会话（绝不按标题猜）。 */
+             convSid: S.anchorSid || curSid()};
   S.pending.push(p);
   return p;
 }
@@ -49,7 +51,7 @@ function renderPending(){
   const cv = curTitle();
   /* 2.16：能拿到 sid 就按稳定 ID 比（改名/重排不丢卡）；拿不到 sid 的
      旧卡片回退原「标题 / 当前会话 / 无 conv」逻辑，不判死旧数据 */
-  const sidNow = curSid();
+  const sidNow = S.anchorSid || curSid();   /* 本专项 C2：锚定 sid 为准 */
   const shown = S.pending.filter(p => {
     if (p.convSid && sidNow) return p.convSid === sidNow;
     return !p.conv || p.conv === cv || p.conv === '当前会话';
@@ -133,19 +135,25 @@ function renderPending(){
    兼容：旧版服务端不广播 did 回执 → 本端卡片到 PEND_DID_TMO 后转
    「⚠ 可能未送达」兜底（见 pendReconcile），不永久悬挂。 */
 
-/* 1.88：兜底超时——旧服务端不广播 did_ack 时，卡片 60 秒后转
-   「⚠ 可能未送达」（用户规定的兜底口径：不能永远挂着）。 */
-const PEND_DID_TMO = 60000;
+/* 1.88：兜底超时——旧服务端不广播 did_ack 时，卡片转「⚠ 可能未送达」。
+   本专项 C3/R8：兜底时长由 60 秒延长到 12 小时——用户口径「卡片绝不早撤」，
+   宁可久挂也不让「我发的话」凭空消失（服务端 did 池同步扩到 12 小时）。 */
+const PEND_DID_TMO = 12 * 3600 * 1000;
 
 /* 1.88：按 did 精确撤卡——广播里出现本卡 did（服务端 did_ack 回执）
    即认为「服务端已接收」，立即撤下。返回 true 表示有变化需重画。
    兼容：d && d.did 式判断，旧数据/旧广播没有 did 也不会崩。 */
-function pendClearByDid(did){
+function pendClearByDid(did, sid){
   if (!did) return false;
   let changed = false;
   const keep = [];
   S.pending.forEach(p => {
-    if (p.did && p.did === did){ changed = true; return; }   /* 命中即撤 */
+    if (p.did && p.did === did){
+      /* 本专项 C3/B6：回执带 sid 时只销「同一会话」的卡——别会话的 did
+         绝不误销本会话的卡（旧实现只比 did，存在跨会话误销风险）。 */
+      if (sid && p.convSid && p.convSid !== sid){ keep.push(p); return; }
+      changed = true; return;                                 /* 命中即撤 */
+    }
     keep.push(p);
   });
   if (changed) S.pending = keep;
@@ -186,6 +194,9 @@ function pendReconcile(_msgs){
       p.state = 'timeout';
       changed = true;
     }
+    /* 本专项 C3/R7：卡所属对话已不存在 → 卡片不消失，只弹一次提醒
+       （复用 📋 复制善后），文本仍可留存。 */
+    if (pendOrphanWarn(p)) changed = true;
     keep.push(p);
   });
   if (changed) S.pending = keep;
@@ -195,6 +206,7 @@ function pendReconcile(_msgs){
 /* 1.88：兜底超时巡检——不依赖快照到达也会到点转「可能未送达」 */
 function pendTick(){
   if (S.pending.length && pendReconcile(null)) renderAll();
+  pendIdbSync();                        /* 本专项 C1：占位卡镜像落 IDB（5s 一次） */
 }
 setInterval(pendTick, 5000);
 
@@ -292,7 +304,7 @@ function fullsQuiet(){                     // 近期不再提醒：静默 6 小�
   fullsHide();
 }
 /* 1.xx：通用确认弹窗（轻量覆盖层）——onOk 为空安全。 */
-function confirmFulls(msg, onOk){
+function confirmFulls(msg, onOk, okLabel){   /* 本专项 C3：主按钮文案可定制 */
   const old = $('fconfirm');
   if (old) old.remove();
   const ov = document.createElement('div');
@@ -317,7 +329,7 @@ function confirmFulls(msg, onOk){
     return b;
   };
   row.appendChild(mk('取消', '', null));
-  row.appendChild(mk('查询', 'primary', onOk));
+  row.appendChild(mk(okLabel || '查询', 'primary', onOk));
   box.appendChild(txt); box.appendChild(row); ov.appendChild(box);
   document.body.appendChild(ov);
 }
@@ -327,3 +339,46 @@ function confirmFulls(msg, onOk){
    双版本号键 = '网页VER|服务端VER'（hello.d.ver），任一变化即清空重下。
    请求式历史：发 {t:'req',id,c:'hist'|'hist_prev',...} → {t:'res',id,k,v}。
    直播仍走快照（snap 每拍全文），缓存只在快照未到达前兜底秒显。 */
+
+/* ============ 本专项 C1/C3：占位卡 IndexedDB 持久化与善后 ============
+   与快照同库 trae_webm_idb 的 snap_pend 表（keyPath='did'）——跨刷新/跨切号
+   不丢卡。镜像策略：每 5 秒把「带 did 的卡」整表重写（单写者，不互抢）。 */
+function pendIdbSync(){
+  const rows = (S.pending || []).filter(p => p.did).map(p => ({
+    did: String(p.did), convSid: p.convSid || '', conv: p.conv || '',
+    text: p.text || '', state: p.state || 'sending', ts: p.ts || Date.now()
+  }));
+  _idbReq('snap_pend', 'readwrite', st => {
+    st.clear();
+    rows.forEach(r => st.put(r));
+    return null;
+  }).catch(() => {});
+}
+function pendIdbLoad(){
+  return _idbReq('snap_pend', 'readonly', st => st.getAll()).then(rows => {
+    (rows || []).forEach(r => {
+      if (!r || !r.did) return;
+      if (S.pending.some(x => x.did === r.did)) return;
+      S.pend_seq++;
+      S.pending.push({id: S.pend_seq, kind: 'send', text: r.text || '',
+                      state: r.state || 'sending', ts: r.ts || Date.now(),
+                      conv: r.conv || '', convSid: r.convSid || '',
+                      did: r.did});
+    });
+    if (S.pending.length) renderAll();
+  }).catch(() => {});
+}
+/* 本专项 C3/R7：卡所属对话已不存在 → 卡片不消失，只弹一次提醒 */
+function pendOrphanWarn(p){
+  if (p.orphan_warned) return false;
+  const cv = (S.snap && S.snap.convs) || [];
+  if (!p.convSid || !cv.length) return false;          /* 列表未知：不判，免误报 */
+  if (cv.some(r => r && r[0] === 'c' && (r[4] || '') === p.convSid)) return false;
+  p.orphan_warned = true;
+  confirmFulls('占位卡所属对话「' + (p.conv || '（未知）')
+    + '」已不存在。卡片文本仍然保留，可复制留存。',
+    () => copyText(p.text), '复制文本');
+  return false;                                        /* 卡片不消失 */
+}
+/* 本文件早于 缓存.js 加载，_idbReq 尚未就绪 → 延后一拍再恢复存卡 */
+setTimeout(pendIdbLoad, 1500);

@@ -42,7 +42,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   if (S.switch_pend){                    // 1.09：切换在途提示条
     const sw = document.createElement('div');
     sw.className = 'switching';
-    sw.textContent = '正在切换到「' + S.switch_pend.title + '」…';
+    sw.textContent = switchTip(S.switch_pend.title);
     el.msgs.appendChild(sw);
   }
   if (empty){ renderPending(); return; }

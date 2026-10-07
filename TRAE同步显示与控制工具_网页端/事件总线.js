@@ -43,7 +43,11 @@ function onEv(kind, v){
       if (v.msgs === undefined && S.snap && Array.isArray(S.snap.msgs)){
         v.msgs = S.snap.msgs;
       }
+      /* 本专项 B3：先记下这拍快照「桌面当前选中行」——它就是直播帧的归属
+         会话；当前锚定会话的真直播帧一到，立即撤「正在获取直播帧」小条。 */
+      const liveSid = selSidOf(v);
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
+      if (S.livePend && liveSid && liveSid === S.anchorSid) liveClear();
       /* 2.40：网页端专享字段落全局——备注字典 + 定时自我激活任务列表，
          供 会话列表.js 渲染后缀/指纹与右键菜单读取（钩子缺失则跳过）。 */
       if (window.备注入快照) 备注入快照(v);
@@ -52,7 +56,12 @@ function onEv(kind, v){
          搭快照一起发来）→ 直接按 did 消卡。这是可靠通道（能看到 AI 回复
          即证明它必达），不依赖 did_ack 广播；根治「按 ID 判断后 100% 卡住」。 */
       if (Array.isArray(v.did_hits) && v.did_hits.length){
-        v.did_hits.forEach(d => { pendClearByDid(d); });
+        /* 本专项 C3/D3：did 回执可带会话 sid（对象形态）——只销同一会话的卡；
+           旧服务端纯字符串回执照旧（向后兼容）。 */
+        v.did_hits.forEach(d => {
+          if (d && typeof d === 'object') pendClearByDid(d.did, d.sid);
+          else pendClearByDid(d);
+        });
       }
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
       if (S.qedit !== null && S.qedit !== undefined){
@@ -69,6 +78,8 @@ function onEv(kind, v){
           flash('取出失败（条目已变化）', 'var(--red)');
         }
       }
+      /* 本专项 F1：到达判定只用于状态灯与「失败回报」，不再阻塞任何操作——
+         锚定在用户点击那一刻就已生效（指令先行），正文晚到只影响观感。 */
       if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
         const cv = v.convs || [];
         const sp = S.switch_pend;

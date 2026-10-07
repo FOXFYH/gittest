@@ -19,7 +19,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
     /* 2.40：备注字典纳入指纹——备注变化也要触发重绘（钩子缺失回退空） */
     + '#note:' + (window.备注指纹 ? 备注指纹() : '')
     /* 2.47：定时任务指纹纳入去重——设/撤/推进定时也会重绘（钩子缺失回退空） */
-    + '#sched:' + (window.定时指纹 ? 定时指纹() : '');
+    + '#sched:' + (window.定时指纹 ? 定时指纹() : '')
+    /* 本专项 A7：锚点纳入指纹——锚点变化也要重画，选中态即时跟随锚定 */
+    + '#a:' + (S.anchorSid || '');
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
@@ -59,7 +61,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       inFolder = true;
     } else {
       const d = document.createElement('div');
-      d.className = 'convo item' + (flag ? ' act' : '');
+      /* 本专项 A7：列表选中态与锚定态同源——锚定 sid 优先，未锚定才用快照标志 */
+      const isAct = S.anchorSid ? (sid === S.anchorSid) : !!flag;
+      d.className = 'convo item' + (isAct ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       /* v1.49：对齐原版状态灯口径——只在这几种显示灯：
          run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且「完成未查看」
@@ -101,9 +105,15 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
           /* 2.18 锚定：用户主动点会话行 = 自己换锚点；此后网页版守着这个
              会话，别人在电脑版操作别的会话也不会把网页版带走。 */
           S.anchorSid = sid || ''; S.anchorTitle = title || '';
+          S.anchor_gone = '';          /* 本专项 A4：换锚点即清「已消失」提醒态 */
+          /* 本专项 A7：锚点变化 → 列表选中态立即跟随（不等下一拍快照） */
+          S.convs_key = null;
+          renderConvs(S.snap.convs || [], S.snap.conv_unread,
+                      S.snap.conv_unread_ids);
           pendSwitchSet(title, sid);   /* 1.09：切换在途提示（0.8~6s）*/
+          snapIdbShow(sid, title);     /* 本专项 B2/B3：先铺本地存帧秒显 */
           foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
-          flash('正在切换到「' + title + '」…', 'var(--blue)');
+          flash(switchTip(title), 'var(--blue)');
           sendCmd('switch', sid || i);
           drawerClose();
         }
