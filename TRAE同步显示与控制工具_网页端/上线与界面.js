@@ -46,7 +46,7 @@ function applySwitch(box, port){
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.attach_pending = null; S.model_busy = false;
   /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
-  S.pending = []; S.switch_pend = null;
+  S.pending = []; switchAbort();
   S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
                        // 原不重置，boot 一次 S.busy 永卡 true 锁死目标切换
   el.box.value = box;
@@ -60,7 +60,17 @@ function applySwitch(box, port){
 
 function setOnLine(b){
   S.onLine = b;
-  if (b){ S.wsOpenAt = Date.now(); S.dropByHide = false; }  // 1.57：连上即清断线标记
+  if (b){
+    S.wsOpenAt = Date.now(); S.dropByHide = false;  // 1.57：连上即清断线标记
+    /* 2.67 切换过程状态机：切在途却卡在「正在连接 WS」→ 连上即自动补发 */
+    if (S.switch_pend && S.switch_pend.phase === 'connecting'){
+      sendCmd('switch', switchRef());
+      S.switch_pend.phase = 'waiting';
+      S.switch_pend.ts = Date.now();
+      switchReArm();
+      renderAll();
+    }
+  }
   renderLink();
 }
 
