@@ -1205,9 +1205,10 @@ function mdHtml(text){
 
 /* ================= 1.69：文本转语音小卡片 =================
    AI 消息末尾的大白话总结用 (@fox-play1)…(@fox-play2) 包夹，本端识别该段 →
-   渲染成可点 ▶ 的语音卡片。1.83 起改为**直连 TTS 频道**（见下方「TTS 直连
-   通道」）：本端自己连上『TTS+密钥』频道，用 FOX 2.0 帧提需求，TTS 服务切片
-   回音频，本端拼回后缓存播放（同段只合成一次）。不再经本地服务端中转。 */
+   渲染成可点 ▶ 的语音卡片。1.84 起走**通道分层**（见下方「TTS 直连通道」）：
+   默认直连 TTS 频道（本端自己连上『TTS+密钥』频道，用 FOX 2.0 帧提需求，TTS
+   服务切片回音频，本端拼回后缓存播放，同段只合成一次）；直连走不通才回落
+   服务端本机中转（备用兜底）。★ 同一 id 只发一次请求，杜绝两份相同语音。 */
 
 /* 识别标志正则（用户规定）：(@fox-play1) 开头、(@fox-play2) 结尾包夹。
    容错识别——采集到的正文尾巴偶尔会缺（如截成「…(@fox」），原正则要求两端
@@ -1286,8 +1287,7 @@ const FOX_SILENT = 'data:audio/wav;base64,UklGRqQMAABXQVZFZm10IBAAAAABAAEAQB8AAI
 let foxA = null;                 // 当前播放中的 Audio（新播放前停旧的）
 let foxSeg = null;               // 当前正在播（或已暂停）的那段语音文本；null＝没在播
 let foxPrimed = false;           // 音频通道是否已借用户手势解锁过（只解锁一次）
-const _tts_pend = {};            // 在途请求：id → {ts, seg}
-const _tts_wait = {};            // 未连上时点 ▶ 的排队：id → seg（连上补发）
+const _tts_pend = {};            // 在途请求：id → {ts, seg, text}
 function foxUnlock(){
   /* 解锁音频通道，必须在**用户手势那一拍**里调用（foxPlay 开头）。
      复用同一个 audio 元素：手势里把 foxA 建出来、循环播 FOX_SILENT，元素就
@@ -1380,38 +1380,27 @@ function foxPlay(seg){
   const id = rid10();
   _tts_pend[id] = {ts: Date.now(), seg: seg};
   ttsStage(seg, '正在连接 TTS…', 'var(--gray)');
-  if (!ttsEnsure()){                     // 1.83：直连 TTS 频道（未连上先排队）
-    _tts_wait[id] = seg;
-    flash('🔈 正在连接 TTS 通道…', 'var(--orange)');
-    return;
-  }
-  /* 先让「正在连接 TTS」这一帧落地可见再发出（rAF 双帧保证已绘制；
-     页面切后台时 rAF 不跑，用 setTimeout 兜底） */
-  let _sent = false;
-  const doSend = () => {
-    if (_sent || !_tts_pend[id]) return;
-    _sent = true;
-    if (!ttsFoxSend({t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()})){
-      delete _tts_pend[id];
-      ttsStage(seg, '🔇 TTS 通道发送失败，请重试', 'var(--red)');
-      return;
-    }
+  /* 1.84：统一走 ttsRoute——直连为默认；直连未就绪则由路由起连接 + TTS_GRACE
+     宽限，宽限内直连就绪即改走直连，否则回落服务端中转（备用兜底）。 */
+  const payload = {t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()};
+  if (ttsRoute(id, seg, payload)){
     ttsStage(seg, '任务已提交', 'var(--blue)');
     flash('🔈 任务已提交，等 TTS 接收…', 'var(--blue)');
-  };
-  requestAnimationFrame(() => requestAnimationFrame(doSend));
-  setTimeout(doSend, 120);
+  } else {
+    flash('🔈 直连未就绪，' + (TTS_GRACE/1000) + ' 秒内未连通将自动回落服务端…',
+          'var(--orange)');
+  }
 }
 function ttsFlushWait(){
-  /* TTS 频道连上时，把「未连上时排队」的语音请求补发出去 */
-  Object.keys(_tts_wait).forEach(id => {
-    const seg = _tts_wait[id];
-    delete _tts_wait[id];
-    if (!_tts_pend[id]) return;
-    if (ttsFoxSend({t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()})){
-      ttsStage(seg, '任务已提交', 'var(--blue)');
-    } else {
-      _tts_wait[id] = seg;               // 仍发不出：留在队列，下次连上再补
+  /* TTS 直连一通：把仍在等待窗口、还没真正发出的请求立即改走直连
+     （★ 铁律：同一 id 只发一次——改走直连即清掉兜底定时器，不再回落服务端） */
+  Object.keys(_tts_fb).forEach(id => {
+    const f = _tts_fb[id];
+    if (!f || f.used || !f.tm) return;      // 已用兜底 / 已发出 → 不动
+    if (!_tts_pend[id]){ clearTimeout(f.tm); delete _tts_fb[id]; return; }
+    if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
+      clearTimeout(f.tm); f.tm = null;
+      ttsStage(_tts_pend[id].seg, '任务已提交', 'var(--blue)');
     }
   });
 }
@@ -1425,20 +1414,27 @@ function onTtsAck(d){
   flash('🔈 ' + txt, 'var(--blue)');
 }
 function onTtsErr(id, msg){
-  /* TTS 合成失败（直连通道 tts_error） */
+  /* TTS 合成失败（直连 tts_error / 服务端中转 tts_resp 带 err） */
   const j = _tts_pend[id];
   if (!j) return;
-  delete _tts_pend[id];
-  delete _tts_parts[id];
+  ttsClear(id);
   const t = msg || 'TTS 合成失败';
   ttsStage(j.seg, '🔇 ' + t, 'var(--red)');
   flash('🔇 ' + t, 'var(--red)');
+}
+function onTtsResp(d){
+  /* 1.84：备用通道（服务端本机中转）回包——整段 b64 或 err。
+     仅在 _tts_pend[id] 还在时交付：先到先得，天然去重（与直连交付同一落点）。 */
+  const j = _tts_pend[d.id];
+  if (!j) return;
+  if (d.err){ onTtsErr(d.id, d.err); return; }
+  ttsDeliver(d.id, atob(d.b64 || ''));
 }
 function ttsDeliver(id, binStr){
   /* 音频分片全部收齐 → 拼成 mp3 Blob → 缓存 + 播放（同段只合成一次） */
   const j = _tts_pend[id];
   if (!j) return;
-  delete _tts_pend[id];
+  ttsClear(id);
   const seg = j.seg;
   if (!binStr){ ttsStage(seg, '🔇 空音频', 'var(--red)'); return; }
   try {
@@ -1458,8 +1454,8 @@ function ttsDeliver(id, binStr){
   }
 }
 /* 设置页「语音播报（TTS）」的小提示条 + 试听（对齐 TRAE 2.02）。
-   1.83：试听也走**直连 TTS 通道**（与语音卡片同一条链路），用一个没有对应
-   卡片的假 seg（ttsStage 对它自然 no-op），音频回来经 ttsDeliver → fpPlay 播放。 */
+   1.84：试听与语音卡片**同一条路由**（直连默认 + 服务端兜底），用一个没有
+   对应卡片的假 seg（ttsStage 对它自然 no-op），音频回来经 ttsDeliver → fpPlay 播放。 */
 function ttsFlash(t, c){
   if (!el.lbl_tts_flash) return;
   el.lbl_tts_flash.textContent = t;
@@ -1473,17 +1469,13 @@ function ttsPreview(){
   foxUnlock();                       // 借「试听」这次点击的手势解锁音频通道
   const id = rid10(), seg = '__tts_preview__';
   _tts_pend[id] = {ts: Date.now(), seg: seg};
-  if (!ttsEnsure()){
-    _tts_wait[id] = seg;
-    ttsFlash('正在连接 TTS 通道…', 'var(--orange)');
-    return;
-  }
   ttsFlash('正在合成试听…', 'var(--blue)');
-  if (!ttsFoxSend({t:'tts', id:id, text:TTS_PREVIEW_TXT,
-                   voice:ttsVoice(), rate:ttsRate()})){
-    delete _tts_pend[id];
-    ttsFlash('TTS 通道发送失败，请重试', 'var(--red)');
-  }
+  /* 1.84：与语音卡片同一条路由（直连默认 + 服务端兜底） */
+  const payload = {t:'tts', id:id, text:TTS_PREVIEW_TXT,
+                   voice:ttsVoice(), rate:ttsRate()};
+  if (!ttsRoute(id, seg, payload))
+    ttsFlash('直连未就绪，' + (TTS_GRACE/1000) + ' 秒内未连通将自动回落服务端…',
+             'var(--orange)');
 }
 /* 在途 tts 请求超时兜底：60 秒没回就清掉（防 _tts_pend 泄漏） */
 setInterval(() => {
@@ -1491,17 +1483,16 @@ setInterval(() => {
   Object.keys(_tts_pend).forEach(id => {
     if (now - _tts_pend[id].ts > 60000){
       const seg = _tts_pend[id].seg;
-      delete _tts_pend[id];
-      delete _tts_parts[id];
+      ttsClear(id);
       const o = _tts_state[seg];
       if (o && !o.url) ttsStage(seg, '⚠ TTS 60 秒未回，可重试', 'var(--orange)');
     }
   });
 }, 20000);
 
-/* ================= 1.83：TTS 直连通道（FOX 2.0 · 全程静默） =================
+/* ================= 1.84：TTS 直连通道（FOX 2.0 · 全程静默） =================
    网页有播报需求时，自己连上 TTS 专属频道（'TTS'+密钥，与主频道共用同一把
-   密钥、自动拼接，用户只输一次）提需求、自己取回音频；不再经本地服务端中转，
+   密钥、自动拼接，用户只输一次）提需求、自己取回音频；**直连为默认通道**，
    故项目复制到任何电脑都能连上「任何一台开着 TTS 的电脑」。遵守
    《13_软件外连联网如WebSocket等规范》：
    · 免心跳：连上后不发 ping / 不 hello / 不 login，全程静默（省流省电）；
@@ -1509,12 +1500,67 @@ setInterval(() => {
    · 限次限频：断线按 2/4/8 秒退避重连，≤3 次且累计 60 秒硬时限，用尽即
      宣告失败、绝不死磕（13.3）；
    · FOX 2.0：请求与回执一律带 57 字节 FOX 头；本链路消息恒为单段
-     （音频按 ≤10KB 应用层切片、每片仍单段），不触发分批/补发路径。 */
+     （音频按 ≤10KB 应用层切片、每片仍单段），不触发分批/补发路径。
+
+   ★ 服务端「本机 TTS 中转」保留为**备用兜底通道**（用户 2026-10-07）：仅在
+   直连走不通时才回落（经主频道发 t=='tts'，由服务端 tts_api 调本机 edge-tts）。
+   ★ 铁律：同一个 id 只允许真正发出一次请求（直连 或 服务端 二选一），绝不两边
+   同发 → 不会出现两份相同语音。默认直连；TTS_GRACE 毫秒内直连未连通才回落；
+   直连一回 tts_error 允许一次服务端兜底；直连一连通即把仍在等待的请求改走直连、
+   不再回落。 */
+const TTS_GRACE = 2500;                      // 直连等待窗口（毫秒），超时回落服务端
 let ttsWs = null, ttsOnLine = false, ttsReconnectTimer = null;
 let ttsFailStreak = 0, ttsDeadline = 0;
 const TTS_BACKOFF = [2000, 4000, 8000];      // 逐次退避（13.3）
 const TTS_DEADLINE = 60000;                  // 单链路总时限（13.3）
 const _tts_parts = {};                       // id → 音频分片累加器 {n,total,bin}
+const _tts_fb = {};                          // id → 兜底状态 {tm:定时器|null, used:bool}
+
+function ttsPayload(id){
+  /* 由在途请求那段的文本重建一条 tts 请求（回落服务端时用同一条 payload） */
+  const j = _tts_pend[id];
+  return {t: 'tts', id: id, text: (j && (j.text || j.seg)) || '',
+          voice: ttsVoice(), rate: ttsRate()};
+}
+function ttsClear(id){
+  /* 任一路交付/失败/超时的统一落点：三处状态一并清干净（防泄漏/防重交付） */
+  delete _tts_pend[id];
+  delete _tts_parts[id];
+  const f = _tts_fb[id];
+  if (f && f.tm) clearTimeout(f.tm);
+  delete _tts_fb[id];
+}
+function ttsRoute(id, seg, payload){
+  /* 统一发送路由（外部唯一入口）：直连为默认，直连不通才在 TTS_GRACE 后回落
+     服务端本机中转（备用兜底）。返回 true = 已由直连真正发出。 */
+  const j0 = _tts_pend[id];
+  if (j0) j0.text = payload.text;  // 试听 seg 是占位串，兜底重建 payload 要用真文本
+  if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(payload)){
+    return true;                            // 只走直连，绝不再碰服务端
+  }
+  ttsEnsure();                              // 直连没就绪：立刻起一次连接
+  _tts_fb[id] = {tm: setTimeout(() => ttsFallback(id), TTS_GRACE), used: false};
+  return false;
+}
+function ttsFallback(id){
+  /* TTS_GRACE 到点：直连仍不通才走服务端；若已被某路交付则什么都不做。 */
+  const f = _tts_fb[id];
+  if (!_tts_pend[id]){ if (f) delete _tts_fb[id]; return; }
+  if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
+    if (f) f.tm = null;                     // 直连赶上了：改走直连
+    return;
+  }
+  if (f) f.used = true;                     // 标记本 id 兜底已用（同 id 最多一次）
+  try { sendJson(ttsPayload(id)); } catch(e){}   // 备用：经主频道发服务端中转
+}
+function ttsErrorFallback(id){
+  /* 直连回 tts_error：允许一次服务端兜底。返回 true = 已发起兜底。 */
+  const f = _tts_fb[id];
+  if (f && f.tm){ clearTimeout(f.tm); f.tm = null; }
+  if (f && f.used) return false;            // 已用过兜底 → 不再重试
+  if (f) f.used = true; else _tts_fb[id] = {tm: null, used: true};
+  try { sendJson(ttsPayload(id)); return true; } catch(e){ return false; }
+}
 
 function ttsFoxSend(obj){
   /* 把一条 JSON 按 FOX 帧发到 TTS 频道（本链路恒单段，超 64KB 才分段） */
@@ -1540,7 +1586,7 @@ function ttsConnect(){
   w.onopen = () => {
     ttsOnLine = true; ttsFailStreak = 0; ttsDeadline = 0;
     diagLog('TTS 直连频道已就绪（静默待命）', 'ok');
-    ttsFlushWait();                    // 连上即补发「未连上时排队」的播报
+    ttsFlushWait();                    // 连上即把仍在等待的请求改走直连（不再回落）
   };
   w.onmessage = ev => ttsOnMsg(ev.data);
   w.onerror = () => { /* 统一交给 onclose 走退避重连 */ };
@@ -1594,7 +1640,10 @@ function ttsOnMsg(msg){
   let d; try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
   if (d.t === 'tts_ack'){ onTtsAck(d); return; }
-  if (d.t === 'tts_error'){ onTtsErr(d.id, d.error); return; }
+  if (d.t === 'tts_error'){              // 1.84：直连失败 → 允许一次服务端兜底
+    if (!ttsErrorFallback(d.id)) onTtsErr(d.id, d.error);
+    return;
+  }
   if (d.t !== 'tts_audio') return;
   const j = _tts_pend[d.id];
   if (!j) return;                        // 过期/不匹配（多端）忽略
@@ -3512,7 +3561,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.83';   /* 1.83：TTS 直连（用户 2026-10-07）——网页端播报不再经本地服务端
+const VER = '1.84';   /* 1.84：TTS 通道分层（用户 2026-10-07）——WS 直连为**默认**，
+                         服务端「本机 TTS 中转」保留为**备用兜底**，仅在直连走不通时回落。
+                         ★ 铁律：同一 id 只真正发出一次请求（直连 or 服务端二选一），
+                         杜绝「两边同时提需求→回两份相同语音」；直连未就绪起连接并给
+                         2.5s 宽限，宽限内直连就绪即改走直连，否则回落；直连回 tts_error
+                         允许一次服务端兜底；直连一连通即把仍等待的改走直连。直连全程静默
+                         （无 ping/hello），断线 ≤3 次退避 + 60s 硬时限。
+                         1.83：TTS 直连（用户 2026-10-07）——网页端播报不再经本地服务端
                          中转，改为自己连上「TTS+密钥」专属频道（与主频道共用同一把密钥、
                          自动拼接，用户只输一次），用 FOX 2.0 数据帧提需求、取回音频分片后
                          本地拼回播放；全程静默（无 ping/hello），只在点 ▶/试听时才说话；
@@ -3810,8 +3866,10 @@ function handleBody(body){
   /* 1.33 全新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
   if (d.t === 'hello') onHello(d);
-  /* 1.83：语音播报已改走「直连 TTS 频道」（见 TTS 直连通道），
-     主频道不再承载 tts_resp / tts_ack。 */
+  /* 1.84：主频道承载**备用兜底**的 TTS 回包——直连走不通时经服务端本机中转，
+     回 tts_ack（阶段回执）+ tts_resp（整段 b64 / err）。 */
+  if (d.t === 'tts_ack') { onTtsAck(d); return; }
+  if (d.t === 'tts_resp'){ onTtsResp(d); return; }
 }
 
 /* ============ 1.12 多服务端名册（1.43：落盘 + 只认名称） ============ */
