@@ -116,7 +116,8 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
           S.convs_key = null;
           renderConvs(S.snap.convs || [], S.snap.conv_unread,
                       S.snap.conv_unread_ids);
-          pendSwitchSet(title, sid);   /* 1.09：切换在途提示（0.8~6s）*/
+          pendSwitchSet(title, sid, sid || i);   /* 2.67：切换在途提示（分档状态机）*/
+          S.livePrefetch = false;      /* 2.67：新切换开始，撤销上一轮预取标记 */
           snapIdbShow(sid, title);     /* 本专项 B2/B3：先铺本地存帧秒显 */
           /* 2.61：切会话后消息区钉底——正文（存帧/直播帧）真正上屏那次不再
              把中间态残留的 scrollTop=0 当「用户在翻历史」原样还原到顶部。
