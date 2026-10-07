@@ -114,6 +114,18 @@ function switchSrv(nm){
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.pending = []; S.switch_pend = null;
+  /* 2.65：换服务端＝换一整套「会话世界」——把【锚定 + 本地历史 + 切换在途帧】
+     一并清空。原实现只清了 S.snap，anchorSid 仍指着旧服务器的会话：新服务端
+     快照到达时 adoptSnap 见 anchorSid 非空 → 不吸附，且判「锚定会话已消失」
+     把正文冻成旧（空）值 → 一直白屏、列表也没选中，用户每次过去都得手点会话
+     （用户 2026-10-07 反馈）。清锚后，新服务端广播来的「当前选中会话」
+     （convs 行第 3 位选中标志）即被 adoptSnap 自动吸附并打开＝一过去就有对话。 */
+  S.anchorSid = ''; S.anchorTitle = ''; S.anchor_gone = '';
+  S.histConv = ''; S.histMsgs = null; S.histRaw = [];
+  S.histVer = 0; S.histHave = 0; S.histLoadingPrev = false;
+  S.histEnd = false; S.histPullFrom = 0;
+  S.livePend = ''; S.liveGot = false; S.liveFrame = null;
+  S.pinBottom = true;              /* 新会话自动上屏那次钉底（看最新） */
   S.busy = false; S.model_busy = false;
   S.points = '—'; el.points.textContent = '积分 —';
   S.alive = new Set(); S.boxes = [];
