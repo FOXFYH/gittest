@@ -110,7 +110,17 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.66';   /* 2.66：状态栏未就绪态分级——不再一律写「TRAE 界面未就绪」
+const VER = '2.67';   /* 2.67：切换过程状态机——把「一点到切完」拆成可分辨的分档，
+                            反映真实过程（用户 2026-10-07 定）。switch_pend 改带 phase：
+                            connecting(WS 没连上→「正在连接 WS…」)/waiting(已发出未收服务端回应
+                            →「等待服务器回应…」)/switching(收到 switch_ack→「正在切换中…」)/
+                            ok(收到 switch_ok→「切换成功」2 秒后交回状态灯)/fail(「切换失败」)。
+                            每 10s 补发同一条 switch；满 60s 判失败。服务端新增 switch_ack/
+                            switch_ok 回执；目标在服务端最近抓取的 pane 里则点击前预取推帧
+                            (switch_pre) 先显示。服务端 _cmd_switch 加「已同会话直接跳过」。
+                            （待办卡.js/事件总线.js/输入界面.js/会话列表.js/缓存.js/上线与界面.js；
+                             服务端 命令路由.py/抓取轮询.py，v3.01）
+                         2.66：状态栏未就绪态分级——不再一律写「TRAE 界面未就绪」
                             （用户 2026-10-07 反馈：对面服务器不在线时也写这句，不准确）。
                             renderState 的未就绪分支改调 notReadyState() 按真实原因分档：
                             连不上中转→说频道；没选服务端→说未选择；选中服务端近期无来向
