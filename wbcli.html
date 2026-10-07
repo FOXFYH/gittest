@@ -828,6 +828,16 @@ function channelUrl(){
   const key = (CFG.channel || '').trim();   // 首用须先经 channelPrompt 输密钥
   return chanUrlTmpl().replace('%s', CH_PFX + key);
 }
+/* 1.83：TTS 直连频道（用户 2026-10-07）——网页端直连 TTS 专属频道，不经本地
+   服务端中转；频道名 = 固定前缀 'TTS' + 同一把密钥（与主频道共用，用户只输
+   一次、自动拼接），故项目复制到任何电脑都能连上「任何一台开着 TTS 的电脑」。 */
+const TTS_PFX = 'TTS';
+function ttsChannelUrl(){
+  const u = new URLSearchParams(location.search).get('tts');
+  if (u) return u;                          // ?tts= 高级覆盖（不改持久化）
+  const key = (CFG.channel || '').trim();
+  return WS_URL_TMPL.replace('%s', TTS_PFX + key);   // TTS 恒挂账号A(free.blr2)
+}
 const KA_SEC = 25;      // 链路保活间隔（秒，防止中继判空闲掐线）
 const RECONNECT = 3;    // 断线重连间隔（秒）
 const SRV_IDLE_MS = 20000;      // ≤20s 有消息 = 正常
@@ -1194,10 +1204,10 @@ function mdHtml(text){
 }
 
 /* ================= 1.69：文本转语音小卡片 =================
-   1:1 移植自 TRAE同步显示与控制工具（1.90~2.06）。AI 消息末尾的大白话总结用
-   (@fox-play1)…(@fox-play2) 包夹，本端识别该段 → 渲染成可点 ▶ 的语音卡片；
-   点播放即发 {'t':'tts','id','text'} 给服务端，服务端调本机 edge-tts 转 mp3
-   base64 回 {'t':'tts_resp','id','b64'}，本端缓存后播放（同段只合成一次）。 */
+   AI 消息末尾的大白话总结用 (@fox-play1)…(@fox-play2) 包夹，本端识别该段 →
+   渲染成可点 ▶ 的语音卡片。1.83 起改为**直连 TTS 频道**（见下方「TTS 直连
+   通道」）：本端自己连上『TTS+密钥』频道，用 FOX 2.0 帧提需求，TTS 服务切片
+   回音频，本端拼回后缓存播放（同段只合成一次）。不再经本地服务端中转。 */
 
 /* 识别标志正则（用户规定）：(@fox-play1) 开头、(@fox-play2) 结尾包夹。
    容错识别——采集到的正文尾巴偶尔会缺（如截成「…(@fox」），原正则要求两端
@@ -1369,59 +1379,71 @@ function foxPlay(seg){
   if (o.url){ ttsStage(seg, '正在播放…', 'var(--blue)'); fpPlay(seg, o.url); return; }
   const id = rid10();
   _tts_pend[id] = {ts: Date.now(), seg: seg};
-  ttsStage(seg, '正在连接 WS…', 'var(--gray)');
-  if (!S.onLine){
+  ttsStage(seg, '正在连接 TTS…', 'var(--gray)');
+  if (!ttsEnsure()){                     // 1.83：直连 TTS 频道（未连上先排队）
     _tts_wait[id] = seg;
-    flash('🔈 正在连接 WS…', 'var(--orange)');
+    flash('🔈 正在连接 TTS 通道…', 'var(--orange)');
     return;
   }
-  /* 先让「正在连接 WS」这一帧落地可见再发出（rAF 双帧保证已绘制；
+  /* 先让「正在连接 TTS」这一帧落地可见再发出（rAF 双帧保证已绘制；
      页面切后台时 rAF 不跑，用 setTimeout 兜底） */
   let _sent = false;
   const doSend = () => {
     if (_sent || !_tts_pend[id]) return;
     _sent = true;
-    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
+    if (!ttsFoxSend({t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()})){
+      delete _tts_pend[id];
+      ttsStage(seg, '🔇 TTS 通道发送失败，请重试', 'var(--red)');
+      return;
+    }
     ttsStage(seg, '任务已提交', 'var(--blue)');
-    flash('🔈 任务已提交，等服务器接收…', 'var(--blue)');
+    flash('🔈 任务已提交，等 TTS 接收…', 'var(--blue)');
   };
   requestAnimationFrame(() => requestAnimationFrame(doSend));
   setTimeout(doSend, 120);
 }
-function cliFlushTts(){
-  /* 连上（hello 到达）时，把「未连上时排队」的语音请求补发出去 */
+function ttsFlushWait(){
+  /* TTS 频道连上时，把「未连上时排队」的语音请求补发出去 */
   Object.keys(_tts_wait).forEach(id => {
     const seg = _tts_wait[id];
     delete _tts_wait[id];
     if (!_tts_pend[id]) return;
-    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
-    ttsStage(seg, '任务已提交', 'var(--blue)');
+    if (ttsFoxSend({t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()})){
+      ttsStage(seg, '任务已提交', 'var(--blue)');
+    } else {
+      _tts_wait[id] = seg;               // 仍发不出：留在队列，下次连上再补
+    }
   });
 }
 function onTtsAck(d){
-  /* 服务端阶段回执——recv=已收到并受理、conv=引擎已开始合成 */
+  /* TTS 阶段回执——recv=已收到并受理、conv=引擎已开始合成 */
   const j = _tts_pend[d.id];
   if (!j) return;
   const conv = (d.st === 'conv');
-  const txt = conv ? '服务器引擎正在转换…' : '服务器已收到，引擎正在转换…';
+  const txt = conv ? 'TTS 引擎正在转换…' : 'TTS 已收到，引擎正在转换…';
   ttsStage(j.seg, txt, 'var(--blue)');
   flash('🔈 ' + txt, 'var(--blue)');
 }
-function onTtsResp(d){
-  const j = _tts_pend[d.id];
-  if (!j) return;                // id 不匹配（多端/过期）忽略
-  delete _tts_pend[d.id];
+function onTtsErr(id, msg){
+  /* TTS 合成失败（直连通道 tts_error） */
+  const j = _tts_pend[id];
+  if (!j) return;
+  delete _tts_pend[id];
+  delete _tts_parts[id];
+  const t = msg || 'TTS 合成失败';
+  ttsStage(j.seg, '🔇 ' + t, 'var(--red)');
+  flash('🔇 ' + t, 'var(--red)');
+}
+function ttsDeliver(id, binStr){
+  /* 音频分片全部收齐 → 拼成 mp3 Blob → 缓存 + 播放（同段只合成一次） */
+  const j = _tts_pend[id];
+  if (!j) return;
+  delete _tts_pend[id];
   const seg = j.seg;
-  if (d.err){
-    ttsStage(seg, '🔇 ' + (d.err || 'TTS 合成失败'), 'var(--red)');
-    flash('🔇 ' + (d.err || 'TTS 合成失败'), 'var(--red)');
-    return;
-  }
-  if (!d.b64){ ttsStage(seg, '🔇 空音频', 'var(--red)'); return; }
+  if (!binStr){ ttsStage(seg, '🔇 空音频', 'var(--red)'); return; }
   try {
-    const bin = atob(d.b64);
-    const ab = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) ab[i] = bin.charCodeAt(i);
+    const ab = new Uint8Array(binStr.length);
+    for (let i = 0; i < binStr.length; i++) ab[i] = binStr.charCodeAt(i);
     const url = URL.createObjectURL(new Blob([ab], {type: 'audio/mpeg'}));
     const o = ttsGet(seg);
     if (o.url){ try { URL.revokeObjectURL(o.url); } catch(e){} }
@@ -1436,9 +1458,8 @@ function onTtsResp(d){
   }
 }
 /* 设置页「语音播报（TTS）」的小提示条 + 试听（对齐 TRAE 2.02）。
-   试听必须经服务端转发（手机连不上 127.0.0.1），走与语音卡片同一条链路，
-   用一个没有对应卡片的假 seg（ttsStage 对它自然 no-op），音频回来由
-   onTtsResp → fpPlay 播放。 */
+   1.83：试听也走**直连 TTS 通道**（与语音卡片同一条链路），用一个没有对应
+   卡片的假 seg（ttsStage 对它自然 no-op），音频回来经 ttsDeliver → fpPlay 播放。 */
 function ttsFlash(t, c){
   if (!el.lbl_tts_flash) return;
   el.lbl_tts_flash.textContent = t;
@@ -1450,12 +1471,19 @@ function ttsFlash(t, c){
 const TTS_PREVIEW_TXT = '你好，这是当前音色的试听。如果音色和语速听着合适，就这样用。';
 function ttsPreview(){
   foxUnlock();                       // 借「试听」这次点击的手势解锁音频通道
-  if (!S.onLine){ ttsFlash('未连接电脑端，无法试听', 'var(--red)'); return; }
   const id = rid10(), seg = '__tts_preview__';
   _tts_pend[id] = {ts: Date.now(), seg: seg};
+  if (!ttsEnsure()){
+    _tts_wait[id] = seg;
+    ttsFlash('正在连接 TTS 通道…', 'var(--orange)');
+    return;
+  }
   ttsFlash('正在合成试听…', 'var(--blue)');
-  sendJson({t: 'tts', id: id, text: TTS_PREVIEW_TXT,
-            voice: ttsVoice(), rate: ttsRate()});
+  if (!ttsFoxSend({t:'tts', id:id, text:TTS_PREVIEW_TXT,
+                   voice:ttsVoice(), rate:ttsRate()})){
+    delete _tts_pend[id];
+    ttsFlash('TTS 通道发送失败，请重试', 'var(--red)');
+  }
 }
 /* 在途 tts 请求超时兜底：60 秒没回就清掉（防 _tts_pend 泄漏） */
 setInterval(() => {
@@ -1464,11 +1492,123 @@ setInterval(() => {
     if (now - _tts_pend[id].ts > 60000){
       const seg = _tts_pend[id].seg;
       delete _tts_pend[id];
+      delete _tts_parts[id];
       const o = _tts_state[seg];
-      if (o && !o.url) ttsStage(seg, '⚠ 服务端 60 秒未回，可重试', 'var(--orange)');
+      if (o && !o.url) ttsStage(seg, '⚠ TTS 60 秒未回，可重试', 'var(--orange)');
     }
   });
 }, 20000);
+
+/* ================= 1.83：TTS 直连通道（FOX 2.0 · 全程静默） =================
+   网页有播报需求时，自己连上 TTS 专属频道（'TTS'+密钥，与主频道共用同一把
+   密钥、自动拼接，用户只输一次）提需求、自己取回音频；不再经本地服务端中转，
+   故项目复制到任何电脑都能连上「任何一台开着 TTS 的电脑」。遵守
+   《13_软件外连联网如WebSocket等规范》：
+   · 免心跳：连上后不发 ping / 不 hello / 不 login，全程静默（省流省电）；
+   · 有工作在喊：只在点 ▶ / 试听时才发 FOX 帧，音频回完即归静默；
+   · 限次限频：断线按 2/4/8 秒退避重连，≤3 次且累计 60 秒硬时限，用尽即
+     宣告失败、绝不死磕（13.3）；
+   · FOX 2.0：请求与回执一律带 57 字节 FOX 头；本链路消息恒为单段
+     （音频按 ≤10KB 应用层切片、每片仍单段），不触发分批/补发路径。 */
+let ttsWs = null, ttsOnLine = false, ttsReconnectTimer = null;
+let ttsFailStreak = 0, ttsDeadline = 0;
+const TTS_BACKOFF = [2000, 4000, 8000];      // 逐次退避（13.3）
+const TTS_DEADLINE = 60000;                  // 单链路总时限（13.3）
+const _tts_parts = {};                       // id → 音频分片累加器 {n,total,bin}
+
+function ttsFoxSend(obj){
+  /* 把一条 JSON 按 FOX 帧发到 TTS 频道（本链路恒单段，超 64KB 才分段） */
+  if (!ttsOnLine || !ttsWs || ttsWs.readyState !== 1) return false;
+  const parts = foxSplit(JSON.stringify(obj));
+  const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  const mid = ts + rnd8();
+  try {
+    for (let i = 1; i <= parts.length; i++){
+      ttsWs.send('【FOXID:' + mid + MY_ID + '=cut(' + pad3(i) + '/'
+                 + pad3(parts.length) + ')】' + parts[i-1]);
+    }
+  } catch(e){ return false; }
+  return true;
+}
+function ttsConnect(){
+  /* 建 TTS 直连（静默：无 ping/无 hello/无 login）。 */
+  if (ttsWs){ try { ttsWs.onopen = ttsWs.onmessage = ttsWs.onclose = ttsWs.onerror = null; ttsWs.close(); } catch(e){} }
+  clearTimeout(ttsReconnectTimer); ttsReconnectTimer = null;
+  if (!(CFG.channel || '').trim()){ ttsWs = null; return; }   // 无密钥：等填完再连
+  try { ttsWs = new WebSocket(ttsChannelUrl()); } catch(e){ ttsWs = null; return; }
+  const w = ttsWs;
+  w.onopen = () => {
+    ttsOnLine = true; ttsFailStreak = 0; ttsDeadline = 0;
+    diagLog('TTS 直连频道已就绪（静默待命）', 'ok');
+    ttsFlushWait();                    // 连上即补发「未连上时排队」的播报
+  };
+  w.onmessage = ev => ttsOnMsg(ev.data);
+  w.onerror = () => { /* 统一交给 onclose 走退避重连 */ };
+  w.onclose = () => {
+    ttsOnLine = false;
+    if (!ttsDeadline) ttsDeadline = Date.now() + TTS_DEADLINE;
+    if (ttsFailStreak >= TTS_BACKOFF.length || Date.now() > ttsDeadline){
+      diagLog('TTS 直连不可达（重连 ' + ttsFailStreak + ' 次用尽），已停手', 'bad');
+      ttsFailStreak = 0; ttsDeadline = 0;
+      return;
+    }
+    ttsReconnectTimer = setTimeout(ttsConnect, TTS_BACKOFF[ttsFailStreak++]);
+  };
+}
+function ttsEnsure(){
+  /* 需要播报时确保链路就绪：已就绪→true；否则立刻起一次连接并返回 false */
+  if (ttsOnLine && ttsWs && ttsWs.readyState === 1) return true;
+  ttsFailStreak = 0; ttsDeadline = 0;   // 用户主动要播报 → 重开一次重连窗口
+  ttsConnect();
+  return false;
+}
+const FoxInTts = {                       // TTS 通道 FOX 拼装器（60s 残包超时）
+  buf: {},
+  feed(msg){
+    const m = FOX_RE.exec(msg);
+    if (!m) return null;
+    const [, ts, rnd, sender, idx, total] = m;
+    const body = msg.slice(msg.indexOf('】') + 1);
+    if (parseInt(total) <= 1) return [sender, body];
+    const mid = ts + rnd, t = Date.now();
+    const d = this.buf[mid] || (this.buf[mid] = {n: parseInt(total), p: {}, at: t});
+    d.p[parseInt(idx)] = body; d.at = t;
+    if (Object.keys(d.p).length < d.n){
+      for (const k in this.buf)
+        if (t - this.buf[k].at > 60000) delete this.buf[k];
+      return null;
+    }
+    let full = '';
+    for (let i = 1; i <= d.n; i++) full += (d.p[i] || '');
+    delete this.buf[mid];
+    return [sender, full];
+  }
+};
+function ttsOnMsg(msg){
+  /* TTS 通道收帧：FOX 拼装 → JSON → 分流（tts_ack / tts_audio / tts_error） */
+  statsAdd(msg.length, 0, 1, 0);
+  const r = FoxInTts.feed(msg);
+  if (!r) return;                        // 残余段 / 中继系统消息
+  const [sender, body] = r;
+  if (sender[0] !== '1') return;         // 只认 TTS 服务端（'1' 开头）
+  let d; try { d = JSON.parse(body); } catch(e){ return; }
+  if (!d || typeof d !== 'object') return;
+  if (d.t === 'tts_ack'){ onTtsAck(d); return; }
+  if (d.t === 'tts_error'){ onTtsErr(d.id, d.error); return; }
+  if (d.t !== 'tts_audio') return;
+  const j = _tts_pend[d.id];
+  if (!j) return;                        // 过期/不匹配（多端）忽略
+  const a = _tts_parts[d.id] || (_tts_parts[d.id] = {n: 0, total: 0, bin: ''});
+  a.total = parseInt(d.total) || 1;
+  if (d.b64){ a.n++; a.bin += atob(d.b64); }   // 分片按**字节**拼，不能拼 base64
+  if (a.n >= a.total){
+    const bin = a.bin;
+    delete _tts_parts[d.id];
+    ttsDeliver(d.id, bin);
+  } else {
+    ttsStage(j.seg, '正在接收音频 ' + a.n + '/' + a.total + '…', 'var(--blue)');
+  }
+}
 
 /* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
 
@@ -3372,7 +3512,13 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.82';   /* 1.82：切换过程分档状态机（用户 2026-10-07，与 TRAE 2.0 同款）——
+const VER = '1.83';   /* 1.83：TTS 直连（用户 2026-10-07）——网页端播报不再经本地服务端
+                         中转，改为自己连上「TTS+密钥」专属频道（与主频道共用同一把密钥、
+                         自动拼接，用户只输一次），用 FOX 2.0 数据帧提需求、取回音频分片后
+                         本地拼回播放；全程静默（无 ping/hello），只在点 ▶/试听时才说话；
+                         断线按「≤3 次退避 + 60s 硬时限」重连、用尽宣告失败，绝不死磕；
+                         项目复制到任何电脑都能连上任何一台开着 TTS 的电脑。
+                         1.82：切换过程分档状态机（用户 2026-10-07，与 TRAE 2.0 同款）——
                          原「正在切换到「X」…」一句话从头挂到尾，看不出是没连上、没回音
                          还是真在切。现拆五档：connecting「正在连接 WS…」→ waiting「等待
                          服务器回应…」→（服务端回 switch_ack）switching「正在切换中「X」…」
@@ -3664,9 +3810,8 @@ function handleBody(body){
   /* 1.33 全新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
   if (d.t === 'hello') onHello(d);
-  /* 1.69：语音播报回执（服务端 → 本端，按 id 配对） */
-  if (d.t === 'tts_resp') { onTtsResp(d); return; }
-  if (d.t === 'tts_ack') { onTtsAck(d); return; }
+  /* 1.83：语音播报已改走「直连 TTS 频道」（见 TTS 直连通道），
+     主频道不再承载 tts_resp / tts_ack。 */
 }
 
 /* ============ 1.12 多服务端名册（1.43：落盘 + 只认名称） ============ */
@@ -4270,7 +4415,6 @@ function onEv(kind, v){
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
   diagLog('收到服务器 hello 回应 ✓', 'ok');
-  cliFlushTts();                       // 1.69：连上后补发「未连上时排队」的语音请求
   /* 1.63：账号通道——本地没选过（新装/清缓存）时采纳电脑端下发的默认通道，
      与电脑端保持一致（电脑端默认主A，各项目流量归拢到同一账号看日开销）。
      采纳副B需重连一次才真正切过去；采纳主A则当前就是，无需重连。 */
@@ -5006,6 +5150,7 @@ el.sel_chan.onchange = () => {
                                                   : '主A free.blr2'), 'ok');
   if (!CFG.channel){ flash('请先填频道密钥'); channelPrompt(); return; }
   connect();                                  // 立即重连生效
+  ttsConnect();                               // 1.83：TTS 直连同步重连
   flash('已切到 ' + (CFG.chan === 'backup' ? '副B（备用）' : '主A（开销看这里）'),
         'var(--green)');
 };
@@ -5026,6 +5171,7 @@ el.nsave.onclick = () => {
   el.nflash.style.color = 'var(--green)';
   setTimeout(() => el.nflash.textContent = '', 3000);
   connect();                                  // 重连生效
+  ttsConnect();                               // 1.83：TTS 直连同步重连
 };
 
 /* 1.69：语音播报音色/语速（改动立即生效、独立落盘，不脏化上面「保存」大按钮） */
@@ -5112,6 +5258,7 @@ function channelPrompt(){
     ov.remove();
     flash('频道密钥已保存，正在连接…', 'var(--blue)');
     connect();
+    ttsConnect();                             // 1.83：TTS 直连同步启动
   };
   $('chanok').onclick = go;
   inp.onkeydown = e => {
@@ -5139,7 +5286,7 @@ const wsOV = new URLSearchParams(location.search).get('ws');
 renderAcct();                                    /* 1.33：账号行首显 — */
 loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
 pickCur(); renderSrvList(); renderTop();         /* 1.48：打开即渲染名册 + 直接选中上次那台 */
-if (wsOV || CFG.channel) connect(); else channelPrompt();
+if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
 </script>
 </body>
 </html>
