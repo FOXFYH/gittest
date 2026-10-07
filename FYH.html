@@ -120,6 +120,14 @@
   }
   .full-dev.active { background: #f0f0f0; border-color: #333; }
   .full-dev .st { font-size: 12px; color: #999; }
+  /* ===== 频道设置弹窗（v1.13：频道名由使用者手输） ===== */
+  .cfg-row { margin-bottom: 10px; }
+  .cfg-row label { display: block; font-size: 12px; color: #666; margin-bottom: 6px; }
+  .cfg-row input {
+    width: 100%; height: 38px; border: 1px solid #ddd; border-radius: 8px;
+    padding: 0 10px; font-size: 14px; background: #fafafa; color: #333;
+  }
+  .cfg-save { width: 100%; height: 40px; margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -128,6 +136,7 @@
   <span id="wsDot" class="dot off"></span>
   <span id="statusText">未连接</span>
   <button id="logToggle" class="mini">日志</button>
+  <button id="cfgBtn" class="mini">设置</button>
 </header>
 <div id="devBar"><div class="dev-title">等待设备上线…</div></div>
 <main id="appArea">
@@ -142,6 +151,22 @@
   <div class="overlay-sheet">
     <div class="overlay-title">选择设备 <button id="overlayClose" class="mini">✕</button></div>
     <div id="devFullList"></div>
+  </div>
+</div>
+
+<div id="cfgOverlay" hidden>
+  <div class="overlay-mask" onclick="closeCfg()"></div>
+  <div class="overlay-sheet">
+    <div class="overlay-title">频道设置 <button id="cfgClose" class="mini">✕</button></div>
+    <div class="cfg-row">
+      <label for="cfgChannel">频道名（必填，即密码）</label>
+      <input id="cfgChannel" type="text" autocomplete="off" placeholder="请填写频道名">
+    </div>
+    <div class="cfg-row">
+      <label for="cfgKey">api_key</label>
+      <input id="cfgKey" type="text" autocomplete="off" placeholder="留空则用默认">
+    </div>
+    <button id="cfgSave" class="btn primary cfg-save">保存并连接</button>
   </div>
 </div>
 
@@ -169,7 +194,7 @@
 //        右侧空位并入「保活：」开关（含原独立一行），卡片由三排压成两排
 // 1.05   多电脑管理：设备按 ID 识别（昵称仅显示，可重名），指令带 target_id；
 //        每个应用新增「自动保活」开关（keep_alive_set，写回设备端 apps.json）
-// 1.04   频道独立：由 jtb 迁到独立公共频道 fyhbus（多应用共用，各走各的协议头；
+// 1.04   频道独立：由 jtb 迁到独立公共频道（名字不写死）（多应用共用，各走各的协议头；
 //        协议见 开发资源包\WebSocket测试器\公共WS频道协议_v1.md）
 // 1.03   唯一客户端化：所有请求带 src:"web"（设备只应答不请求，杜绝互问死循环）；
 //        面板每 30s 发 WHO 保活设备列表；刷新按钮（加号右侧正方形）：
@@ -179,9 +204,11 @@
 // 1.01   应用清单调整：移除记事本；新增 WorkBuddy同步服务端开关
 // ============================================================
 // ================= 配置（与 FYH统一WS模块 一致） =================
-const CHANNEL = "fyhbus";
-const API_KEY = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
-const WS_URL = "wss://free.blr2.piesocket.com/v3/" + CHANNEL + "?api_key=" + API_KEY;
+// v1.13 安全规则：频道名（=密码）不硬编码，由使用者手输，存 localStorage 键 fyh_ch（同源共用）
+const DEFAULT_API_KEY = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug"; // api_key 默认值（保持现状，可被设置覆盖）
+let API_KEY = localStorage.getItem("fyh_key") || DEFAULT_API_KEY;
+let CHANNEL = localStorage.getItem("fyh_ch") || "";
+function wsUrl() { return "wss://free.blr2.piesocket.com/v3/" + CHANNEL + "?api_key=" + API_KEY; }
 const PREFIX_RC = "【FYHRC】", SUFFIX_RC = "【/FYHRC】";
 const PREFIX_DEV = "【FYHDEV】", SUFFIX_DEV = "【/FYHDEV】";
 const PREFIX_HB = "【FYHHB】", SUFFIX_HB = "【/FYHHB】";
@@ -440,14 +467,47 @@ document.getElementById("logToggle").onclick = toggleLog;
 document.getElementById("logClose").onclick = toggleLog;
 document.getElementById("overlayClose").onclick = closeDevOverlay;
 
+// ================= 频道设置（v1.13：频道名/密钥由使用者手输，存 localStorage） =================
+function openCfg() {
+  document.getElementById("cfgChannel").value = CHANNEL || "";
+  document.getElementById("cfgKey").value = localStorage.getItem("fyh_key") || "";
+  document.getElementById("cfgOverlay").hidden = false;
+}
+function closeCfg() {
+  document.getElementById("cfgOverlay").hidden = true;
+}
+function saveCfg() {
+  const ch = (document.getElementById("cfgChannel").value || "").trim();
+  if (!ch) { log("频道名不能为空"); return; }
+  const key = (document.getElementById("cfgKey").value || "").trim() || DEFAULT_API_KEY;
+  CHANNEL = ch;
+  API_KEY = key;
+  localStorage.setItem("fyh_ch", ch);   // 键名 fyh_ch：同源页面填一份、多处共用
+  localStorage.setItem("fyh_key", key);
+  closeCfg();
+  if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} ws = null; }
+  connected = false;
+  log("配置已保存，正在连接（频道 " + ch + "）");
+  connect();
+}
+document.getElementById("cfgBtn").onclick = openCfg;
+document.getElementById("cfgClose").onclick = closeCfg;
+document.getElementById("cfgSave").onclick = saveCfg;
+
 // ================= WS =================
 function connect() {
   const dot = document.getElementById("wsDot");
   const st = document.getElementById("statusText");
+  if (!CHANNEL) {                     // v1.13 未配置频道：不连接、不重试刷屏，提示并引导打开设置
+    dot.className = "dot off";
+    st.textContent = "请先填写频道名";
+    openCfg();
+    return;
+  }
   dot.className = "dot off";
   st.textContent = "连接中…";
   try {
-    ws = new WebSocket(WS_URL);
+    ws = new WebSocket(wsUrl());
   } catch (e) {
     log("连接失败：" + e.message);
     st.textContent = "连接失败";
