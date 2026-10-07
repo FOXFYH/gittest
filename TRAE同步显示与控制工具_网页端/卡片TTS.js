@@ -69,7 +69,6 @@ let foxA = null;                 // 当前播放中的 Audio（新播放前停�
 let foxSeg = null;               // 2.04：当前正在播（或已暂停）的那段语音文本；null＝没在播
 let foxPrimed = false;           // 2.00：音频通道是否已借用户手势解锁过（只解锁一次）
 const _tts_pend = {};            // 在途请求：id → {ts, seg}
-const _tts_wait = {};            // 未连上时点 ▶ 的排队：id → seg（连上补发）
 function foxUnlock(){
   /* 2.00：解锁音频通道，必须在**用户手势那一拍**里调用（foxPlay 开头）。
      2.01：改成「占位元素一直假装在播、真音频来了只换源接着播」（用户思路）——
@@ -176,74 +175,26 @@ function foxPlay(seg){
   if (o.url){ ttsStage(seg, '正在播放…', 'var(--blue)'); fpPlay(seg, o.url); return; }
   const id = newDid();
   _tts_pend[id] = {ts: Date.now(), seg: seg};
-  /* 阶段①：点下去先如实说「正在连接 WS」（未连上就在这里等，连上自动补发） */
-  ttsStage(seg, '正在连接 WS…', 'var(--gray)');
-  if (!S.onLine){
-    _tts_wait[id] = seg;
-    flash('🔈 正在连接 WS…', 'var(--orange)');
-    return;
-  }
-  /* 先让「正在连接 WS」这一帧落地可见再发出（rAF 双帧保证已绘制；
+  ttsStage(seg, '正在连接 TTS…', 'var(--gray)');
+  /* 2.69：直连为默认通道；直连不通则 TTS_GRACE 后回落服务端本机中转（备用兜底）。
+     同一 id 只真正发出一次（直连或服务端二选一），不会出现两份相同语音。 */
+  const payload = {t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()};
+  /* 先让「正在连接 TTS」这一帧落地可见再发出（rAF 双帧保证已绘制；
      页面切后台时 rAF 不跑，用 setTimeout 兜底） */
   let _sent = false;
   const doSend = () => {
     if (_sent || !_tts_pend[id]) return;
     _sent = true;
-    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
-    ttsStage(seg, '任务已提交', 'var(--blue)');      // 阶段②：帧已交给 WS
-    flash('🔈 任务已提交，等服务器接收…', 'var(--blue)');
+    if (ttsRoute(id, seg, payload)){
+      ttsStage(seg, '任务已提交', 'var(--blue)');
+      flash('🔈 任务已提交，等 TTS 接收…', 'var(--blue)');
+    } else {
+      ttsStage(seg, '直连未就绪，2.5 秒内未连通将自动回落服务端…', 'var(--orange)');
+      flash('🔈 直连未就绪，稍后自动回落服务端…', 'var(--orange)');
+    }
   };
   requestAnimationFrame(() => requestAnimationFrame(doSend));
   setTimeout(doSend, 120);
-}
-function cliFlushTts(){
-  /* 1.98：连上（登录成功）时，把「未连上时排队」的语音请求补发出去 */
-  Object.keys(_tts_wait).forEach(id => {
-    const seg = _tts_wait[id];
-    delete _tts_wait[id];
-    if (!_tts_pend[id]) return;
-    sendJson({t: 'tts', id: id, text: seg, voice: ttsVoice(), rate: ttsRate()});
-    ttsStage(seg, '任务已提交', 'var(--blue)');
-  });
-}
-function onTtsAck(d){
-  /* 1.98：服务端阶段回执——recv=已收到并受理、conv=引擎已开始合成 */
-  const j = _tts_pend[d.id];
-  if (!j) return;
-  const conv = (d.st === 'conv');
-  const txt = conv ? '服务器引擎正在转换…' : '服务器已收到，引擎正在转换…';
-  ttsStage(j.seg, txt, 'var(--blue)');
-  flash('🔈 ' + txt, 'var(--blue)');
-}
-function onTtsResp(d){
-  const j = _tts_pend[d.id];
-  if (!j) return;                // id 不匹配（多端/过期）忽略
-  delete _tts_pend[d.id];
-  const seg = j.seg;
-  if (d.err){
-    ttsStage(seg, '🔇 ' + (d.err || 'TTS 合成失败'), 'var(--red)');
-    flash('🔇 ' + (d.err || 'TTS 合成失败'), 'var(--red)');
-    return;
-  }
-  if (!d.b64){ ttsStage(seg, '🔇 空音频', 'var(--red)'); return; }
-  try {
-    const bin = atob(d.b64);
-    const ab = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) ab[i] = bin.charCodeAt(i);
-    const url = URL.createObjectURL(new Blob([ab], {type: 'audio/mpeg'}));
-    const o = ttsGet(seg);
-    if (o.url){ try { URL.revokeObjectURL(o.url); } catch(e){} }
-    o.url = url;                 // 存起来：下次点 ▶ 直接重播，不重复生成
-    /* 2.00：阶段④ 改为**自动播放**（用户 2026-09-30 要求：「取回来以后没有自动播放，
-       是不是要求自动播放？」→ 已确认要自动播）。点 ▶ 那一拍 foxUnlock() 已借用户
-       手势解锁音频通道，这里直接播。万一仍被系统拦，fpPlay 的 catch 会把横幅改成
-       「浏览器拦截播放，请再点 ▶」——音频已缓存，再点一次必定出声，退回 1.98 的
-       手动行为，不会比原来更差。 */
-    ttsStage(seg, '正在播放…', 'var(--blue)');
-    fpPlay(seg, url);
-  } catch(e){
-    ttsStage(seg, '🔇 音频解码失败', 'var(--red)');
-  }
 }
 /* 在途 tts 请求超时兜底：60 秒没回就清掉（防 _tts_pend 泄漏） */
 setInterval(() => {
@@ -251,9 +202,9 @@ setInterval(() => {
   Object.keys(_tts_pend).forEach(id => {
     if (now - _tts_pend[id].ts > 60000){
       const seg = _tts_pend[id].seg;
-      delete _tts_pend[id];
+      ttsClear(id);
       const o = _tts_state[seg];
-      if (o && !o.url) ttsStage(seg, '⚠ 服务端 60 秒未回，可重试', 'var(--orange)');
+      if (o && !o.url) ttsStage(seg, '⚠ TTS 60 秒未回，可重试', 'var(--orange)');
     }
   });
 }, 20000);

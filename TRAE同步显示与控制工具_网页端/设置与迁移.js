@@ -248,16 +248,19 @@ if (el.sel_tts_rate) el.sel_tts_rate.onchange = () => {
 };
 const TTS_PREVIEW_TXT = '你好，这是当前音色的试听。如果音色和语速听着合适，就这样用。';
 function ttsPreview(){
-  /* 试听：手机连不上 127.0.0.1，必须经服务端转发——走与语音卡片同一条
-     链路（t:'tts' → 服务端 → 本机 TTS）。用一个固定的假 seg（没有对应
-     卡片，ttsStage 自然 no-op），音频回来由 onTtsResp → fpPlay 播放。 */
+  /* 2.69：试听同走「直连为默认 + 服务端兜底」路由（与语音卡片同一链路），
+     用一个无对应卡片的假 seg（ttsStage 对它自然 no-op），音频回来经
+     ttsDeliver → fpPlay 播放。 */
   foxUnlock();                       // 借「试听」这次点击的手势解锁音频通道
-  if (!S.onLine){ ttsFlash('未连接电脑端，无法试听', 'var(--red)'); return; }
   const id = newDid(), seg = '__tts_preview__';
   _tts_pend[id] = {ts: Date.now(), seg: seg};
-  ttsFlash('正在合成试听…', 'var(--blue)');
-  sendJson({t: 'tts', id: id, text: TTS_PREVIEW_TXT,
-            voice: ttsVoice(), rate: ttsRate()});
+  const payload = {t:'tts', id:id, text:TTS_PREVIEW_TXT,
+                   voice:ttsVoice(), rate:ttsRate()};
+  if (ttsRoute(id, seg, payload)){
+    ttsFlash('正在合成试听…', 'var(--blue)');
+  } else {
+    ttsFlash('直连未就绪，2.5 秒内未连通将自动回落服务端…', 'var(--orange)');
+  }
 }
 if (el.btn_tts_preview) el.btn_tts_preview.onclick = ttsPreview;
 

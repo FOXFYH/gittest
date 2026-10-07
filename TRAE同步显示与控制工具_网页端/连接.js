@@ -90,6 +90,8 @@ function connect(){
     DIAG.err++;
     diagLog('连接出错 #' + DIAG.err + '（网络或中转问题）', 'bad');
   };
+  /* 2.68：主频道每次（重）连接时同步（重）连 TTS 直连频道（密钥随主频道走） */
+  ttsConnect();
 }
 
 /* 1.57：立即重连（回前台专用）——不再干等 RECONNECT 那 3 秒定时器；
@@ -151,7 +153,6 @@ function cliLogin(reason){
   lastAct = Date.now();
   loggedIn = true;
   sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
-  cliFlushTts();          /* 1.98：把「未连上时排队」的语音请求补发 */
   lastBeatOk = Date.now();
   clearInterval(hbTimer);
   hbTimer = setInterval(cliBeat, HB_SEC * 1000);
@@ -327,10 +328,14 @@ function handleBody(body){
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
   /* 2.20 新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
-  /* 1.90：TTS 语音合成回执配对（id → b64/err） */
-  if (d.t === 'tts_resp') { onTtsResp(d); return; }
-  /* 1.98：TTS 阶段回执（服务端受理/开始合成）→ 卡片阶段行 */
+  /* 2.69：服务端备用通道回执（TTS 直连走不通时回落本机中转）——复用直连那套
+     交付/回执处理：任一通道先到先交付，后到因 _tts_pend[id] 已清被忽略（天然去重）。 */
   if (d.t === 'tts_ack') { onTtsAck(d); return; }
+  if (d.t === 'tts_resp') {
+    if (d.err) onTtsErr(d.id, d.err);
+    else if (d.b64) ttsDeliver(d.id, atob(d.b64));
+    return;
+  }
   if (d.t === 'hello') onHello(d);
   if (d.t === 'poll_set') return;                     // 1.35：档位已移除，忽略回执
 }
