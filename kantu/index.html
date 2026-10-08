@@ -178,6 +178,7 @@ function enter(){
 
 /* ---------------- 连接 ---------------- */
 let ws = null, connected = false, kaT = null, rcT = null;
+let helloAcked = false, ackT = null;
 let lastDir = '', lastRxAt = 0, reqThumbs = new Set();
 
 function connect(){
@@ -190,11 +191,16 @@ function connect(){
   try { sock = new WebSocket(WS_URL_TMPL.replace('%s', 'kantu' + pw)); }
   catch(e){ setDot('', '连接失败：' + e.message); return; }
   sock.onopen = function(){
-    ws = sock; connected = true;
-    setDot('on', '已连上电脑端');
+    ws = sock; connected = true; helloAcked = false;
+    setDot('mid', '已进频道，等电脑端应答…');
     send({t:'hello'});
     startKA();
     send({t:'dir', p: lastDir || lsGet(LS_PATH, '')});
+    clearTimeout(ackT);
+    ackT = setTimeout(function(){
+      if (!helloAcked) setDot('',
+        '电脑端没应答：请打开电脑上的看图器，并在设置页开启网页版（频道密码要一致）');
+    }, 8000);
   };
   sock.onmessage = function(ev){
     lastRxAt = Date.now();
@@ -243,6 +249,8 @@ function handleRaw(raw){
 /* ---------------- 消息处理 ---------------- */
 function handleMsg(m){
   if (m.t === 'st'){
+    helloAcked = true;
+    clearTimeout(ackT);
     if (m.v === 'err'){ setDot('on', m.msg || '电脑端提示'); }
     else { setDot('on', m.msg || '已连上电脑端'); }
     return;
