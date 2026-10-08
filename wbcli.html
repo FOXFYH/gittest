@@ -3562,7 +3562,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.85';   /* 1.85：抽屉「操作」增「↻ 刷新服务端」——广播点名 who（不带 to、全员应答）
+const VER = '1.86';   /* 1.86：服务端改名跟随（按稳定 sid 认人）——同一 srv_id 换了显示名，
+   自动把「当前操控/记忆」迁到新名，修「改了设备名→网页端失联（收得到却不渲染）」
+   1.85：抽屉「操作」增「↻ 刷新服务端」——广播点名 who（不带 to、全员应答）
    刷新在线名册（配合服务端 2.01 全程静默）
    1.84：TTS 通道分层（用户 2026-10-07）——WS 直连为**默认**，
                          服务端「本机 TTS 中转」保留为**备用兜底**，仅在直连走不通时回落。
@@ -3919,6 +3921,7 @@ function regSrv(nm, d){
   s.ts = Date.now();
   touchSrvSeen(s);                            /* 1.43：记最后出现时间（落盘） */
   if (d.sid) s.sid = d.sid;
+  if (d.sid) followRename(nm, d.sid);         /* 1.86：改名跟随（按稳定 sid 认人） */
   if (d.v) s.v = d.v;
   if (d.nick !== undefined) s.nick = d.nick;   /* 13.1：记住对方昵称（能显示就显示） */
   if (d.t === 'hello' || d.t === 'srv'){
@@ -3933,6 +3936,30 @@ function regSrv(nm, d){
   }
   pickCur();
   renderTop();
+}
+/* 1.86：服务端改名跟随（按稳定 sid 认人，不认显示名）——同一台服务端改了
+   显示名后，旧名仍留在本地名册/记忆里，网页端会一直盯着旧名（S.cur），把新名
+   广播全当「非当前操控对象」拦掉，表现为失联（收得到消息、界面却全空）。
+   这里以 srv_id 为锚：发现名册里另有同 sid 的旧名条目，即把「当前选中/记忆」与
+   在线时间迁到新名，并清掉旧名条目。 */
+function followRename(nm, sid){
+  if (!sid) return;
+  const olds = Object.keys(S.servers).filter(
+    k => k !== nm && S.servers[k] && S.servers[k].sid === sid);
+  if (!olds.length) return;
+  const ns = S.servers[nm];
+  let want = null; try { want = localStorage.getItem(LS_SRV); } catch(e){}
+  for (const k of olds){
+    const o = S.servers[k];
+    if (!ns.ts && o.ts) ns.ts = o.ts;         /* 保留「曾上线」新鲜度，免被当没上线 */
+    if (!ns.seen && o.seen) ns.seen = o.seen;
+    delete S.servers[k];
+    if (S.cur === k) S.cur = nm;
+    if (want === k) want = nm;
+  }
+  if (S.cur === nm) want = nm;
+  try { if (want) localStorage.setItem(LS_SRV, want); } catch(e){}
+  saveSrvs();
 }
 function pickCur(){
   if (S.cur && S.servers[S.cur]) return;      /* 已选定且仍在名册：不动（离线也保持） */
