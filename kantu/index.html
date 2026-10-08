@@ -35,7 +35,8 @@ button:active{background:#2a2f3c}
 button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
 /* ---------- 缩略图墙 ---------- */
 #grid{flex:1 1 auto;overflow-y:auto;padding:0 8px 16px;
-  display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-content:start}
+  display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:8px;
+  align-content:start}
 .cell{background:var(--panel);border:1px solid var(--line);border-radius:10px;
   overflow:hidden;position:relative;cursor:pointer;aspect-ratio:1/1}
 /* 格子撑成正方形：现代浏览器靠 aspect-ratio；老手机浏览器不认它，
@@ -76,6 +77,58 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
   font-family:inherit;margin-bottom:10px}
 #gate .err{color:var(--red);font-size:12px;min-height:16px;margin-bottom:6px}
 #gate .row{display:flex;gap:8px}
+
+/* ---------- 列表视图（缩略图/列表 两视图，与 PC 版图库面板对应） ---------- */
+#grid.list{grid-template-columns:1fr;gap:6px}
+#grid.list .cell{aspect-ratio:auto;height:58px;display:flex;align-items:center;
+  gap:10px;padding:0 10px;border-radius:11px}
+#grid.list .cell>*{position:static}
+#grid.list .cell .ph{width:44px;height:44px;flex:0 0 auto;font-size:18px}
+#grid.list .cell img{width:44px;height:44px;flex:0 0 auto;border-radius:7px}
+#grid.list .cell .tag{position:static;background:none;color:var(--tx);font-size:13px;
+  flex:1 1 auto;text-align:left;padding:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+#grid.list .cell.folder .ic{position:static;left:auto;top:auto;right:auto;
+  transform:none;width:44px;text-align:center;font-size:24px}
+#grid.list .cell.folder .nm{position:static;left:auto;right:auto;bottom:auto;
+  text-align:left;font-size:13px;flex:1 1 auto;max-width:none;color:var(--tx)}
+.cell.sel{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue) inset}
+
+/* ---------- 原图详情：悬浮翻页 + 操作条 ---------- */
+#vpos{color:var(--dim);font-size:12px;flex:0 0 auto}
+#vimg{position:relative}
+#vpic{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+#vpic img{max-width:100%;max-height:100%;object-fit:contain}
+.vnav{position:absolute;top:50%;transform:translateY(-50%);font-size:38px;
+  line-height:1;color:#fff;background:rgba(0,0,0,.34);width:50px;height:84px;
+  display:flex;align-items:center;justify-content:center;border-radius:14px;
+  cursor:pointer;user-select:none;z-index:3}
+.vnav:active{background:rgba(0,0,0,.62)}
+#vnavl{left:6px} #vnavr{right:6px}
+#vact{display:flex;gap:8px;padding:10px;flex:0 0 auto;justify-content:center;
+  flex-wrap:wrap;background:rgba(0,0,0,.35)}
+#vact button{flex:1 1 auto;min-width:62px;padding:11px 6px}
+
+/* ---------- 更多菜单（底部弹出面板） ---------- */
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:80;background:var(--panel);
+  border-top:1px solid var(--line);border-radius:16px 16px 0 0;padding:14px 14px 22px;
+  display:none;max-height:80vh;overflow-y:auto}
+#sheet.on{display:block}
+#sheet h4{margin:10px 2px 8px;font-size:13px;color:var(--dim);font-weight:600}
+#sheet .opts{display:flex;flex-wrap:wrap;gap:8px}
+#sheet .opt{background:#22273300;border:1px solid var(--line);border-radius:9px;
+  padding:8px 12px;font-size:13px;cursor:pointer}
+#sheet .opt.on{background:var(--blue);border-color:var(--blue);color:#fff}
+#sheet .cls{position:absolute;right:14px;top:12px;color:var(--dim);cursor:pointer;
+  font-size:14px}
+#sheet .meta{color:var(--dim);font-size:12px;margin:4px 2px;word-break:break-all}
+
+/* ---------- 轻提示 ---------- */
+#toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:95;
+  background:rgba(20,22,28,.95);border:1px solid var(--line);color:var(--tx);
+  padding:10px 16px;border-radius:10px;font-size:13px;max-width:86%;
+  opacity:0;transition:opacity .2s;pointer-events:none;text-align:center}
+#toast.on{opacity:1}
 </style>
 </head>
 <body>
@@ -90,7 +143,7 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
   <button id="b_up">上一级</button>
   <div id="path"></div>
   <button id="b_rf">刷新</button>
-  <button id="b_pw">密码</button>
+  <button id="b_more">☰</button>
 </div>
 
 <div id="grid">
@@ -100,11 +153,38 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
 <div id="view">
   <div id="vbar">
     <div id="vnm"></div>
+    <div id="vpos"></div>
     <button id="b_close">关闭</button>
   </div>
-  <div id="vimg"><div id="vinfo"></div></div>
-  <div id="vinfo2" style="display:none"></div>
+  <div id="vimg">
+    <div id="vpic"><div id="vinfo">正在提取原图…</div></div>
+    <div id="vnavl" class="vnav">‹</div>
+    <div id="vnavr" class="vnav">›</div>
+  </div>
+  <div id="vact">
+    <button id="a_fav">收藏</button>
+    <button id="a_del">删除</button>
+    <button id="a_ren">重命名</button>
+    <button id="a_rotl">↺ 逆旋</button>
+    <button id="a_rotr">↻ 顺旋</button>
+  </div>
 </div>
+
+<div id="sheet">
+  <span class="cls" id="sheet_cls">✕ 关闭</span>
+  <h4>排序方式（看图顺序 / 上一张下一张也按它走）</h4>
+  <div class="opts" id="opt_sort"></div>
+  <h4>缩略图大小</h4>
+  <div class="opts" id="opt_size"></div>
+  <h4>视图</h4>
+  <div class="opts" id="opt_view"></div>
+  <h4>其它</h4>
+  <div class="opts"><span class="opt" id="opt_pw">重设频道密码</span></div>
+  <div class="meta" id="meta_my"></div>
+  <div class="meta" id="meta_peer"></div>
+</div>
+
+<div id="toast"></div>
 
 <div id="gate">
   <div class="card">
@@ -123,7 +203,7 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
 
 <script>
 /* ==========================================================================
-   看图器网页版 · 手机客户端 v1.01（竖版）
+   看图器网页版 · 手机客户端 v1.04（竖版 · 遥控面板）
    --------------------------------------------------------------------------
    本地看图器 = 服务器（走 PieSocket 免费中继）；本页 = 远程界面。
    身份（通用提示词 13.1）：本页有自己的【软件号】——随机 10 位（手机端 4xxxxxxxxx），
@@ -137,16 +217,29 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
      · 原图 ≤100KB（超过的由电脑端先压缩），点开才提取；
      · 正文 >64KB 按 UTF-8 边界切多段（段间隔 0.2s），接收端拼装、60 秒空闲硬超时。
 
-   协议（正文 JSON）：本页→电脑 hello/hb/dir/thumb/orig；电脑→本页 st/dir/thb/th/og
+   协议（正文 JSON）：
+     本页→电脑 hello/hb/dir(sort,dir)/thumb/orig/fav/del/ren/rot；
+     电脑→本页 st/dir/thb/th/og
    ========================================================================== */
 
-const VER = '1.03';
+const VER = '1.04';
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
   + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
 const LS_PW = 'kantu_web_pw';      // 记住的频道密码
 const LS_PATH = 'kantu_web_path';  // 记住的目录
+const LS_SORT = 'kantu_web_sort';  // 记住的排序 [键, 向]
+const LS_SIZE = 'kantu_web_size';  // 记住的缩略图档位 1~6
+const LS_VIEW = 'kantu_web_view';  // 记住的视图 grid/list
 const KA_SEC = 120;                // 本页心跳（业务消息极少，靠电脑端协议 ping 保活）
 const RECONNECT = 3;
+
+/* 远程遥控面板：与 PC 版对齐的排序/大小/视图三件套 */
+const SORTS = [['修改时间','desc','修改时间 新→旧'], ['修改时间','asc','修改时间 旧→新'],
+               ['创建时间','desc','创建时间 新→旧'], ['创建时间','asc','创建时间 旧→新'],
+               ['文件名','asc','文件名 正序'], ['文件名','desc','文件名 倒序'],
+               ['大小','desc','大小 大→小'], ['大小','asc','大小 小→大'],
+               ['类型','asc','类型']];
+const SIZE_COLS = [2, 3, 4, 5, 6, 8];   // 6 档：列数越大格子越小
 
 document.getElementById('ver').textContent = 'v' + VER;
 document.title = '看图器网页版 v' + VER;
@@ -155,10 +248,11 @@ const el = {
   dot: document.getElementById('dot'),  stt: document.getElementById('stt'),
   path: document.getElementById('path'), grid: document.getElementById('grid'),
   hint: document.getElementById('hint'),
-  view: document.getElementById('view'), vimg: document.getElementById('vimg'),
-  vnm: document.getElementById('vnm'),
+  view: document.getElementById('view'), vpic: document.getElementById('vpic'),
+  vnm: document.getElementById('vnm'), vpos: document.getElementById('vpos'),
   gate: document.getElementById('gate'), pwi: document.getElementById('pwi'),
   pwe: document.getElementById('pwe'),
+  sheet: document.getElementById('sheet'), toast: document.getElementById('toast'),
   nki: document.getElementById('nki'), myid: document.getElementById('myid')
 };
 
@@ -201,7 +295,8 @@ function enter(){
   MYNICK = (el.nki.value || '').trim().slice(0, 40);
   lsSet(LS_MYNICK, MYNICK);
   el.gate.style.display = 'none';
-  lastDir = '';
+  lastDir = lsGet(LS_PATH, '');        // 回到上次看的目录（跨会话也记得）
+  应用视图样式();
   connect(true);        // 用户点「进入」＝强制按最新密码重连
 }
 
@@ -241,6 +336,45 @@ function helloDone(msg){
   setDot('on', (msg || '已连上电脑端') + (w ? ' · ' + w : ''));
 }
 let lastDir = '', lastRxAt = 0;
+let curList = [];                       // 当前文件夹图片名（按当前排序），供上/下张导航
+let curIndex = -1;                      // 当前在原图详情里看的是第几张
+let detailFile = null;                  // 原图详情正打开的文件名
+let curSort = 加载排序();                // [键, 向]
+let sizeLv = 加载档位();                 // 1~6
+let viewMode = 加载视图();               // 'grid' | 'list'
+
+function 加载排序(){
+  try { const v = JSON.parse(localStorage.getItem(LS_SORT) || 'null');
+        if (v && v.length === 2) return v; } catch(e){}
+  return ['修改时间', 'desc'];
+}
+function 加载档位(){
+  try { const v = parseInt(localStorage.getItem(LS_SIZE) || '3', 10);
+        if (v >= 1 && v <= 6) return v; } catch(e){}
+  return 3;
+}
+function 加载视图(){
+  try { const v = localStorage.getItem(LS_VIEW);
+        if (v === 'list' || v === 'grid') return v; } catch(e){}
+  return 'grid';
+}
+function 存排序(){ lsSet(LS_SORT, JSON.stringify(curSort)); }
+function 存档位(){ lsSet(LS_SIZE, String(sizeLv)); }
+function 存视图(){ lsSet(LS_VIEW, viewMode); }
+function 应用视图样式(){
+  const 列表 = (viewMode === 'list');
+  el.grid.classList.toggle('list', 列表);
+  el.grid.style.setProperty('--cols', SIZE_COLS[sizeLv - 1]);
+  if (列表){
+    el.grid.querySelectorAll('.cell').forEach(function(c){ c.style.height = ''; });
+  } else {
+    sizeCells();
+  }
+}
+function 请求目录(p){
+  send({t:'dir', p: (p == null ? lastDir : p),
+        sort: curSort[0], dir: curSort[1]});
+}
 
 function connect(强制){
   // 同一时刻只允许一条连接：已在连/已连就别再开第二条（否则请求翻倍、目录乱跳）
@@ -264,7 +398,7 @@ function connect(强制){
     setDot('mid', '已进频道，等电脑端应答…');
     helloStart();
     startKA();
-    send({t:'dir', p: lastDir || lsGet(LS_PATH, '')});
+    请求目录(lastDir || lsGet(LS_PATH, ''));
   };
   sock.onmessage = function(ev){
     if (my !== 连接段) return;
@@ -374,10 +508,16 @@ function handleRaw(raw){
 /* ---------------- 消息处理 ---------------- */
 function handleMsg(m){
   if (m.t === 'st'){
-    // 严格：带口令的应答必须是本次握手那一发，别人的应答一律不算
-    if (m.n != null && m.n !== helloNonce) return;
-    if (m.v === 'err'){ helloDone(m.msg || '电脑端提示'); }
-    else { helloDone(m.msg); }
+    if (m.n != null){
+      // 严格：带口令的应答必须是本次握手那一发，别人的应答一律不算
+      if (m.n !== helloNonce) return;
+      if (m.v === 'err'){ helloDone(m.msg || '电脑端提示'); }
+      else { helloDone(m.msg); }
+      return;
+    }
+    // 不带口令的 st：文件操作回执（收藏/删除/重命名/旋转）→ 轻提示
+    if (m.v === 'err') 提示('⚠ ' + (m.msg || '操作失败'));
+    else if (m.msg) 提示(m.msg);
     return;
   }
   if (m.t === 'dir'){
@@ -400,6 +540,10 @@ function handleMsg(m){
     if (!m.img) return;
     const rec = cellMap.get(cellKey(m.p, m.f));
     if (rec && rec.img) rec.img.src = 'data:image/jpeg;base64,' + m.img;
+    // 正在看这张 → 原图也重取一次（旋转后立刻见效）
+    if (el.view.classList.contains('on') && detailFile === m.f){
+      vBusy = false; askOrig(m.p, m.f);
+    }
     return;
   }
   if (m.t === 'og'){
@@ -409,11 +553,22 @@ function handleMsg(m){
   }
 }
 
+/* ---------- 轻提示 ---------- */
+let toastT = null;
+function 提示(t){
+  if (!t) return;
+  el.toast.textContent = t;
+  el.toast.classList.add('on');
+  clearTimeout(toastT);
+  toastT = setTimeout(function(){ el.toast.classList.remove('on'); }, 2600);
+}
+
 /* ---------------- 目录渲染 ---------------- */
 const cellMap = new Map();     // key -> {img, path, file}
 function cellKey(p, f){ return (p || '') + '|' + f; }
 
 function renderDir(m){
+  const 旧文件 = detailFile, 旧序 = curIndex;
   lastDir = m.p || '';
   lsSet(LS_PATH, lastDir);
   el.path.textContent = (m.root || '电脑端') + (lastDir ? ' / ' + lastDir : ' /（根目录）');
@@ -424,7 +579,7 @@ function renderDir(m){
     const up = document.createElement('div');
     up.className = 'cell folder';
     up.innerHTML = '<div class="ic">↩️</div><div class="nm">上一级</div>';
-    up.onclick = function(){ goUp(); };
+    up.onclick = function(){ 关原图(); goUp(); };
     el.grid.appendChild(up);
   }
   (m.folders || []).forEach(function(name){
@@ -432,27 +587,29 @@ function renderDir(m){
     c.className = 'cell folder';
     c.innerHTML = '<div class="ic">📁</div><div class="nm"></div>';
     c.querySelector('.nm').textContent = name;
-    c.onclick = function(){ send({t:'dir', p: joinPath(lastDir, name)}); };
+    c.onclick = function(){ 关原图(); 请求目录(joinPath(lastDir, name)); };
     el.grid.appendChild(c);
   });
 
   const imgs = m.imgs || [];
+  curList = imgs.map(function(it){ return it.f; });   // 上/下张导航的顺序来源
   if (!imgs.length && !(m.folders || []).length && !lastDir){
-    el.hint = mkHint('这个文件夹里没有图片，也没有子文件夹');
+    el.grid.appendChild(mkHint('这个文件夹里没有图片，也没有子文件夹'));
     return;
   }
-  imgs.forEach(function(it){
+  imgs.forEach(function(it, idx){
     const c = document.createElement('div');
     c.className = 'cell';
     c.dataset.th = cellKey(lastDir, it.f);
     c.innerHTML = '<div class="ph">🖼️</div><img alt="" style="display:none">' +
                   '<div class="tag"></div>';
     c.querySelector('.tag').textContent = it.f;
-    const rec = {p: lastDir, f: it.f,
+    const rec = {p: lastDir, f: it.f, i: idx,
                  img: c.querySelector('img'), cell: c};
     cellMap.set(c.dataset.th, rec);
     rec.img.onload = function(){ rec.img.style.display = ''; };
-    c.onclick = function(){ askOrig(rec.p, rec.f); };
+    c.onclick = function(){ curIndex = idx; vBusy = false;
+                            askOrig(rec.p, rec.f); 高亮格子(rec.f); };
     el.grid.appendChild(c);
   });
   if (m.trunc){
@@ -462,12 +619,37 @@ function renderDir(m){
     el.grid.appendChild(mkHint('（空文件夹）'));
   }
   // 缩略图不用一张张要了：电脑端一进文件夹就会攒批复推（thb）
-  sizeCells();
+  应用视图样式();
+
+  // 原图详情若开着：文件还在就同步序号，被删/改名了就跟着挪，空了就关
+  if (el.view.classList.contains('on')){
+    if (旧文件 && curList.indexOf(旧文件) >= 0){
+      curIndex = curList.indexOf(旧文件);
+      el.vpos.textContent = (curIndex + 1) + '/' + curList.length;
+      高亮格子(旧文件);
+    } else if (curList.length){
+      curIndex = Math.max(0, Math.min(旧序 < 0 ? 0 : 旧序, curList.length - 1));
+      vBusy = false; askOrig(lastDir, curList[curIndex]); 高亮格子(curList[curIndex]);
+    } else {
+      关原图();
+    }
+  }
+}
+
+function 高亮格子(f){
+  el.grid.querySelectorAll('.cell').forEach(function(c){ c.classList.remove('sel'); });
+  if (f == null) return;
+  const key = cellKey(lastDir, f);
+  el.grid.querySelectorAll('.cell').forEach(function(c){
+    if (c.dataset.th === key) c.classList.add('sel');
+  });
 }
 /* 让每个缩略图格子是正方形：现代浏览器靠 CSS aspect-ratio；
    老手机浏览器不认 aspect-ratio（格子会塌成一条条）——这里按实际列宽再设一次 height 兜底 */
 function sizeCells(){
+  if (viewMode === 'list') return;      // 列表视图是横向行，不锁正方形
   requestAnimationFrame(function(){
+    if (viewMode === 'list') return;
     const first = el.grid.querySelector('.cell');
     if (!first) return;
     const h = Math.round(first.getBoundingClientRect().width);
@@ -491,48 +673,135 @@ function joinPath(dir, name){
 function goUp(){
   if (!lastDir){ return; }
   const i = lastDir.lastIndexOf('/');
-  send({t:'dir', p: i < 0 ? '' : lastDir.slice(0, i)});
+  关原图();
+  请求目录(i < 0 ? '' : lastDir.slice(0, i));
 }
 
 /* 缩略图由电脑端主动攒批推（thb），这里不再逐张请求 */
 
-/* ---------------- 原图详情 ---------------- */
+/* ---------------- 原图详情（含悬浮翻页 + 操作条） ---------------- */
 let vBusy = false;
 function askOrig(p, f){
   if (vBusy) return;
   vBusy = true;
+  detailFile = f;
   el.view.classList.add('on');
   el.vnm.textContent = f;
-  el.vimg.innerHTML = '<div id="vinfo">正在提取原图（≤100KB）…</div>';
+  el.vpos.textContent = curIndex >= 0 ? (curIndex + 1) + '/' + curList.length : '';
+  el.vpic.innerHTML = '<div id="vinfo">正在提取原图（≤100KB）…</div>';
   send({t:'orig', p: p, f: f});
 }
 function showOrig(m){
   const info = document.getElementById('vinfo');
-  if (info && info.parentNode === el.vimg){
-    el.vimg.innerHTML = '';
+  if (info && info.parentNode === el.vpic){
+    el.vpic.innerHTML = '';
     const img = document.createElement('img');
     img.src = 'data:' + (m.mime || 'image/jpeg') + ';base64,' + m.img;
-    el.vimg.appendChild(img);
+    el.vpic.appendChild(img);
     const kb = (m.bytes / 1024).toFixed(1);
     el.vnm.textContent = m.f + '（' + kb + ' KB）';
   }
   vBusy = false;
 }
-document.getElementById('b_close').onclick = function(){
+function 关原图(){
   el.view.classList.remove('on');
+  detailFile = null; vBusy = false;
+  el.grid.querySelectorAll('.cell').forEach(function(c){ c.classList.remove('sel'); });
+}
+/* 上一张 / 下一张：按当前排序在当前文件夹里循环（与 PC 版底部悬浮条同义） */
+function 翻张(d){
+  if (!curList.length){ 提示('这个文件夹里没有图片'); return; }
+  if (curIndex < 0 || curIndex >= curList.length) curIndex = 0;
+  curIndex = (curIndex + d + curList.length) % curList.length;
+  const f = curList[curIndex];
   vBusy = false;
+  askOrig(lastDir, f);
+  高亮格子(f);
+}
+document.getElementById('b_close').onclick = 关原图;
+document.getElementById('vnavl').onclick = function(){ 翻张(-1); };
+document.getElementById('vnavr').onclick = function(){ 翻张(1); };
+/* 操作条：收藏 / 删除 / 重命名 / 旋转 —— 直接指挥电脑端动手 */
+function 当前文件(){ return (el.view.classList.contains('on') && detailFile) ? detailFile : null; }
+document.getElementById('a_fav').onclick = function(){
+  const f = 当前文件(); if (!f) return;
+  提示('已请求收藏…'); send({t:'fav', p:lastDir, f:f});
+};
+document.getElementById('a_del').onclick = function(){
+  const f = 当前文件(); if (!f) return;
+  if (!confirm('删除「' + f + '」？\n（移到本文件夹的 删除 子夹，电脑上可找回）')) return;
+  提示('已请求删除…'); send({t:'del', p:lastDir, f:f});
+};
+document.getElementById('a_ren').onclick = function(){
+  const f = 当前文件(); if (!f) return;
+  const 新名 = prompt('重命名（含扩展名）：', f);
+  if (新名 == null) return;
+  const n = 新名.trim();
+  if (!n || n === f) return;
+  detailFile = n;                       // 乐观改名，随后的 dir 刷新不会把它当"没了"
+  send({t:'ren', p:lastDir, f:f, name:n});
+  vBusy = false; askOrig(lastDir, n);
+};
+document.getElementById('a_rotl').onclick = function(){
+  const f = 当前文件(); if (!f) return;
+  send({t:'rot', p:lastDir, f:f, cw:false});
+};
+document.getElementById('a_rotr').onclick = function(){
+  const f = 当前文件(); if (!f) return;
+  send({t:'rot', p:lastDir, f:f, cw:true});
 };
 
 /* ---------------- 工具按钮 ---------------- */
 document.getElementById('b_up').onclick = goUp;
 document.getElementById('b_rf').onclick = function(){
-  if (connected) send({t:'dir', p: lastDir});
+  if (connected) 请求目录(lastDir);
 };
-document.getElementById('b_pw').onclick = function(){
+document.getElementById('b_more').onclick = 建菜单;
+document.getElementById('sheet_cls').onclick = function(){
+  el.sheet.classList.remove('on');
+};
+document.getElementById('opt_pw').onclick = function(){
+  el.sheet.classList.remove('on');
   el.gate.style.display = 'flex';
   el.pwi.value = pwGet();
   el.pwe.textContent = '';
 };
+document.getElementById('meta_my').textContent = '本机软件号：' + MYID + '（固定不可改）';
+
+/* ---------------- 更多菜单：排序 / 大小 / 视图（对齐 PC 版） ---------------- */
+function 建菜单(){
+  el.sheet.classList.add('on');
+  const sortBox = document.getElementById('opt_sort');
+  sortBox.innerHTML = '';
+  SORTS.forEach(function(s){
+    const b = document.createElement('span');
+    b.className = 'opt' + (s[0] === curSort[0] && s[1] === curSort[1] ? ' on' : '');
+    b.textContent = s[2];
+    b.onclick = function(){ curSort = [s[0], s[1]]; 存排序();
+                           el.sheet.classList.remove('on'); 请求目录(lastDir); };
+    sortBox.appendChild(b);
+  });
+  const sizeBox = document.getElementById('opt_size');
+  sizeBox.innerHTML = '';
+  ['特大', '大', '中大', '中小', '小', '特小'].forEach(function(lbl, i){
+    const b = document.createElement('span');
+    b.className = 'opt' + ((i + 1) === sizeLv ? ' on' : '');
+    b.textContent = lbl;
+    b.onclick = function(){ sizeLv = i + 1; 存档位(); 应用视图样式(); 建菜单(); };
+    sizeBox.appendChild(b);
+  });
+  const viewBox = document.getElementById('opt_view');
+  viewBox.innerHTML = '';
+  [['grid', '缩略图'], ['list', '列表']].forEach(function(v){
+    const b = document.createElement('span');
+    b.className = 'opt' + (viewMode === v[0] ? ' on' : '');
+    b.textContent = v[1];
+    b.onclick = function(){ viewMode = v[0]; 存视图(); 应用视图样式(); 建菜单(); };
+    viewBox.appendChild(b);
+  });
+  document.getElementById('meta_peer').textContent =
+    '电脑端：' + (peerLabel() || '（还没应答）');
+}
 
 /* 断线提示 */
 setInterval(function(){
@@ -546,9 +815,11 @@ window.addEventListener('pageshow', function(){ connect(); });
 window.addEventListener('focus', function(){ if (pwGet()) connect(); });
 
 /* 初始：有记住的密码就直接连（并收起密码门），否则弹密码门 */
+应用视图样式();
 if (pwGet()){
   el.pwi.value = pwGet();
   el.gate.style.display = 'none';
+  lastDir = lsGet(LS_PATH, '');
   connect();
 } else {
   el.gate.style.display = 'flex';
