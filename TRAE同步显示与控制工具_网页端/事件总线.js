@@ -204,7 +204,11 @@ function onEv(kind, v){
         else if (stage === 'typed') p.state = 'typed';
       }
       S.msgs_key = null;
-      el.ent.value = '';
+      /* 2.70：输入框公私隔离——别端 / AI 跨会话投递 / 电脑面板 / 后台提醒
+         等「sent」广播一律不得清掉本机正在打的草稿（本机自己发送早在 cmd()
+         里清过，此处的清空对本地本就是冗余）。用户 2026-10-04 定：Py 版
+         输入框=公用、网页版=私用，操作公用不得波及网页私用草稿。
+         对齐 WorkBuddy v1.74 同款修法。 */
       refreshSendBtn();
       renderAll();
       break;
