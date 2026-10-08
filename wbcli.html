@@ -538,6 +538,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_new" title="新建任务" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="拉起（重启当前目标）" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
+    <div class="dmi" id="btn_refresh_srv" title="广播点名，拉起全部服务端应答，刷新在线清单">↻ 刷新服务端</div>
     <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
   </div>
@@ -1118,7 +1119,7 @@ const el = {
   td_lock: $('td_lock'),
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
-  td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'),
+  td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'), refresh_srv: $('btn_refresh_srv'),
   checkin: $('btn_checkin'),
   fexit: $('fexit'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
@@ -3561,7 +3562,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.84';   /* 1.84：TTS 通道分层（用户 2026-10-07）——WS 直连为**默认**，
+const VER = '1.85';   /* 1.85：抽屉「操作」增「↻ 刷新服务端」——广播点名 who（不带 to、全员应答）
+   刷新在线名册（配合服务端 2.01 全程静默）
+   1.84：TTS 通道分层（用户 2026-10-07）——WS 直连为**默认**，
                          服务端「本机 TTS 中转」保留为**备用兜底**，仅在直连走不通时回落。
                          ★ 铁律：同一 id 只真正发出一次请求（直连 or 服务端二选一），
                          杜绝「两边同时提需求→回两份相同语音」；直连未就绪起连接并给
@@ -5096,6 +5099,13 @@ el.refresh_pts.onclick = () => {         /* 1.34：刷新积分（防升级移�
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   flash('正在刷新积分…', 'var(--blue)');
   sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
+};
+el.refresh_srv.onclick = () => {         /* 1.85：刷新服务端名册——广播点名 */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  flash('正在刷新服务端…', 'var(--blue)');
+  /* 不带 to：广播 who，频道内全部服务端各自应答一帧 srv（服务端 2.01 起） */
+  try { foxSend(JSON.stringify({t: 'who', nick: MY_NICK})).catch(() => {}); }
+  catch(e){}
 };
 el.checkin.onclick = () => {             /* 1.59：今日签到（领积分） */
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
