@@ -3562,7 +3562,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.86';   /* 1.86：服务端改名跟随（按稳定 sid 认人）——同一 srv_id 换了显示名，
+const VER = '1.87';   /* 1.87：升级即清缓存——VER 变化时清掉不重要的本地缓存（流量统计/消息时间/骨架/服务端版本号），
+   保留密钥等要项不动，再带 ?v=VER 重载；修「旧浏览器刷新不出来（残留缓存卡住）」
+   1.86：服务端改名跟随（按稳定 sid 认人）——同一 srv_id 换了显示名，
    自动把「当前操控/记忆」迁到新名，修「改了设备名→网页端失联（收得到却不渲染）」
    1.85：抽屉「操作」增「↻ 刷新服务端」——广播点名 who（不带 to、全员应答）
    刷新在线名册（配合服务端 2.01 全程静默）
@@ -3632,16 +3634,25 @@ const VER = '1.86';   /* 1.86：服务端改名跟随（按稳定 sid 认人）�
                          渲染成醒目琥珀色提问卡（左粗条+暖底+加粗），复用语音卡
                          同一套 ▶ 播放/TTS 通道，可直接听题（1:1 对齐 TRAE 2.21）。
                          用途：AI 向用户/其他 AI 提问时醒目可见、便于及时作答。 */
-/* 1.45 版本自愈：GitHub Pages 会缓存旧 html（约10分钟），升级后用户常用
-   浏览器可能仍拿到旧 JS 一直空白。本端把「上次见过的版本」落盘，发现与
-   本次不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新版文件，
-   之后不再刷。旧缓存里的旧 JS 没有本段，仍需第一次手动带参打开一次或等
-   缓存过期，见维护记录。 */
+/* 1.45 版本自愈 + 1.87 升级即清缓存：
+   ① GitHub Pages 会缓存旧 html（约10分钟），升级后旧浏览器可能一直空白 →
+      发现「上次见过的版本」与本次不同就带 ?v=VER 重载一次绕开 HTML 缓存；
+   ② 1.87（用户 2026-10-09）：光重载不够——旧浏览器常因残留 localStorage
+      缓存卡住、刷新不出来。故版本变化时先把「不重要的本地缓存」清掉：
+      流量统计 / 消息时间 / 骨架缓存 / 服务端版本号；
+      **保留要项不动**：频道密钥（含在 wb_cli_cfg）/ 昵称 / 软件号 / 模型收藏 /
+      待发箱 / 操控对象记忆。清完再重载。 */
 try {
   const _VK = 'wb_cli_ver_seen', _pv = localStorage.getItem(_VK);
-  localStorage.setItem(_VK, VER);
-  if (_pv !== null && _pv !== VER)
+  if (_pv !== null && _pv !== VER){
+    /* 1.87：升级清缓存（只清不重要项，密钥等要项保留） */
+    ['wb_cli_net', 'wb_cli_times', 'wb_cli_skel', 'wb_cli_srvver']
+      .forEach(function(k){ try { localStorage.removeItem(k); } catch(e){} });
+    localStorage.setItem(_VK, VER);
     location.replace(location.href.split('?')[0] + '?v=' + VER);
+  } else {
+    localStorage.setItem(_VK, VER);
+  }
 } catch(e){}
 function renderVer(box){
   try{
