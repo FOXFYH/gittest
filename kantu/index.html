@@ -37,16 +37,19 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
 #grid{flex:1 1 auto;overflow-y:auto;padding:0 8px 16px;
   display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-content:start}
 .cell{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-  overflow:hidden;position:relative;cursor:pointer}
-.cell.folder{aspect-ratio:1/1;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:6px}
-.cell.folder .ic{font-size:34px}
-.cell.folder .nm{font-size:11px;color:var(--dim);max-width:94%;overflow:hidden;
-  white-space:nowrap;text-overflow:ellipsis}
-.cell .ph{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;
+  overflow:hidden;position:relative;cursor:pointer;aspect-ratio:1/1}
+/* 格子撑成正方形：现代浏览器靠 aspect-ratio；老手机浏览器不认它，
+   由 JS(校准格子) 按实际列宽再设一次 height 兜底——绝不用 grid 里的百分比 padding
+   （grid 行高计算阶段会把百分比 padding 当 0，格子会塌成一条条）*/
+.cell>*{position:absolute}
+.cell.folder .ic{left:0;right:0;top:40%;text-align:center;font-size:34px;
+  transform:translateY(-50%)}
+.cell.folder .nm{left:4px;right:4px;bottom:9px;text-align:center;font-size:11px;
+  color:var(--dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.cell .ph{inset:0;display:flex;align-items:center;justify-content:center;
   color:#3a4152;font-size:22px}
-.cell img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover}
-.cell .tag{position:absolute;left:4px;bottom:4px;right:4px;font-size:10px;
+.cell img{inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.cell .tag{left:4px;bottom:4px;right:4px;font-size:10px;
   color:#fff;background:rgba(0,0,0,.55);border-radius:6px;padding:1px 5px;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 #hint{grid-column:1/-1;color:var(--dim);font-size:13px;text-align:center;
@@ -137,7 +140,7 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
    协议（正文 JSON）：本页→电脑 hello/hb/dir/thumb/orig；电脑→本页 st/dir/thb/th/og
    ========================================================================== */
 
-const VER = '1.02';
+const VER = '1.03';
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
   + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
 const LS_PW = 'kantu_web_pw';      // 记住的频道密码
@@ -459,7 +462,23 @@ function renderDir(m){
     el.grid.appendChild(mkHint('（空文件夹）'));
   }
   // 缩略图不用一张张要了：电脑端一进文件夹就会攒批复推（thb）
+  sizeCells();
 }
+/* 让每个缩略图格子是正方形：现代浏览器靠 CSS aspect-ratio；
+   老手机浏览器不认 aspect-ratio（格子会塌成一条条）——这里按实际列宽再设一次 height 兜底 */
+function sizeCells(){
+  requestAnimationFrame(function(){
+    const first = el.grid.querySelector('.cell');
+    if (!first) return;
+    const h = Math.round(first.getBoundingClientRect().width);
+    if (!h) return;
+    el.grid.querySelectorAll('.cell').forEach(function(c){
+      c.style.height = h + 'px';
+    });
+  });
+}
+window.addEventListener('resize', sizeCells);
+
 function mkHint(text){
   const d = document.createElement('div');
   d.id = 'hint'; d.textContent = text;
