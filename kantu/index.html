@@ -109,31 +109,35 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
     <p>远程查看电脑上看图器正在浏览的图片库。<br>
        需要输入电脑端设置的「频道密码」才能进入。</p>
     <input id="pwi" type="password" placeholder="输入频道密码…">
+    <input id="nki" type="text" placeholder="本机昵称（可留空）…">
     <div class="err" id="pwe"></div>
     <div class="row">
       <button id="pok" class="pri" style="flex:1">进入</button>
     </div>
+    <div id="myid" style="color:#8b93a5;font-size:11px;margin-top:10px"></div>
   </div>
 </div>
 
 <script>
 /* ==========================================================================
-   看图器网页版 · 手机客户端 v1.00（竖版）
+   看图器网页版 · 手机客户端 v1.01（竖版）
    --------------------------------------------------------------------------
    本地看图器 = 服务器（走 PieSocket 免费中继）；本页 = 远程界面。
+   身份（通用提示词 13.1）：本页有自己的【软件号】——随机 10 位（手机端 4xxxxxxxxx），
+   存 localStorage 随设备持久化、固定不可改；每条外发消息都套 FOX 帧头（13.2）：
+     【FOXID:<14位时间戳><8位随机><10位软件号>=cut(NNN/MMM)】<JSON正文>
+   帧头自带发送者软件号——中继把本机请求回显回来时（发送者=自己）直接丢弃，
+   多台手机同频道也不串台；正文带可选字段 nick（昵称），有则必报、有则必收。
+
    网页传输有节制（服务端承诺）：
      · 缩略图每张 ≤5KB，先进缩略图墙；
-     · 原图 ≤100KB（超过的由电脑端先压缩），点开才提取，按 8KB 分片。
+     · 原图 ≤100KB（超过的由电脑端先压缩），点开才提取；
+     · 正文 >64KB 按 UTF-8 边界切多段（段间隔 0.2s），接收端拼装、60 秒空闲硬超时。
 
-   协议：
-     本页→电脑： {"t":"hello"} {"t":"hb"}（10分钟）
-                {"t":"dir","p":"子/路径"} {"t":"thumb","p","f"} {"t":"orig","p","f"}
-     电脑→本页： {"t":"st","v","msg"} {"t":"dir","p","root","folders","imgs","trunc"}
-                {"t":"th","p","f","img"} {"t":"og","id","p","f","mime","bytes","img"}
-                大包自动切 {"t":"f","id","n","i","d"}，收齐拼回 JSON（与滑块镜像同款）
+   协议（正文 JSON）：本页→电脑 hello/hb/dir/thumb/orig；电脑→本页 st/dir/th/og
    ========================================================================== */
 
-const VER = '1.00';
+const VER = '1.01';
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
   + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
 const LS_PW = 'kantu_web_pw';      // 记住的频道密码
@@ -151,8 +155,26 @@ const el = {
   view: document.getElementById('view'), vimg: document.getElementById('vimg'),
   vnm: document.getElementById('vnm'),
   gate: document.getElementById('gate'), pwi: document.getElementById('pwi'),
-  pwe: document.getElementById('pwe')
+  pwe: document.getElementById('pwe'),
+  nki: document.getElementById('nki'), myid: document.getElementById('myid')
 };
+
+/* ---------------- 身份（13.1 软件号：随机 10 位、随设备持久化、只读不可改） ---------------- */
+const LS_MYID = 'kantu_my_id';      // 本机软件号（网页端取 4 开头，存 localStorage）
+const LS_MYNICK = 'kantu_my_nick';  // 本机昵称（给人看的，可留空）
+const _enc = new TextEncoder(), _dec = new TextDecoder('utf-8');
+function ensureMyId(){
+  let v = 0;
+  try { v = parseInt(localStorage.getItem(LS_MYID) || '0', 10); } catch(e){}
+  if (!v || String(v).length !== 10){
+    v = 4000000000 + Math.floor(Math.random() * 1000000000);   // 手机端段：4xxxxxxxxx
+    try { localStorage.setItem(LS_MYID, String(v)); } catch(e){}
+  }
+  return v;
+}
+let MYID = ensureMyId();
+let MYNICK = lsGet(LS_MYNICK, '') || '手机';
+let peerId = 0, peerNick = '';      // 电脑端身份（13.1 有则必收）
 
 function setDot(cls, text){
   el.dot.className = cls || '';
@@ -167,18 +189,23 @@ function pwSet(p){ try { localStorage.setItem(LS_PW, p); } catch(e){} }
 
 document.getElementById('pok').onclick = enter;
 el.pwi.addEventListener('keydown', function(e){ if (e.key === 'Enter') enter(); });
+el.nki.value = lsGet(LS_MYNICK, '');     // 回填本机昵称
+el.myid.textContent = '本机软件号：' + MYID + '（身份标识，固定不可改）';
 function enter(){
   const p = el.pwi.value.replace(/\s/g, '');
   if (!p){ el.pwe.textContent = '密码不能为空'; return; }
   pwSet(p);
+  MYNICK = (el.nki.value || '').trim().slice(0, 40);
+  lsSet(LS_MYNICK, MYNICK);
   el.gate.style.display = 'none';
   lastDir = '';
-  connect();
+  connect(true);        // 用户点「进入」＝强制按最新密码重连
 }
 
 /* ---------------- 连接 ---------------- */
 let ws = null, connected = false, kaT = null, rcT = null;
 let helloAcked = false, ackT = null, helloRetryT = null, helloNonce = 0;
+let connecting = false, 连接段 = 0;      // 防重复连接：同一时刻只允许一条在连/已连
 
 /* 严格握手：hello 带本次随机 nonce，只有服务端原样回带该 nonce 才算真连上 */
 function helloStart(){
@@ -198,15 +225,27 @@ function helloStart(){
     send({t:'hello', n: helloNonce});          // 没应答就继续敲门
   }, 5000);
 }
+function peerLabel(){
+  if (peerNick && peerId) return peerNick + '（' + peerId + '）';
+  if (peerId) return '软件号 ' + peerId;
+  return '';
+}
 function helloDone(msg){
   helloAcked = true;
   clearTimeout(ackT);
   clearInterval(helloRetryT); helloRetryT = null;
-  setDot('on', msg || '已连上电脑端');
+  const w = peerLabel();
+  setDot('on', (msg || '已连上电脑端') + (w ? ' · ' + w : ''));
 }
 let lastDir = '', lastRxAt = 0, reqThumbs = new Set();
 
-function connect(){
+function connect(强制){
+  // 同一时刻只允许一条连接：已在连/已连就别再开第二条（否则请求翻倍、目录乱跳）
+  if (!强制){
+    if (connecting) return;
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+  }
+  const my = ++连接段;
   try { if (ws) { ws.onclose = null; ws.close(); } } catch(e){}
   ws = null; connected = false;
   const pw = pwGet();
@@ -215,19 +254,23 @@ function connect(){
   let sock;
   try { sock = new WebSocket(WS_URL_TMPL.replace('%s', 'kantu' + pw)); }
   catch(e){ setDot('', '连接失败：' + e.message); return; }
+  connecting = true;
   sock.onopen = function(){
-    ws = sock; connected = true;
+    if (my !== 连接段){ try{ sock.close(); }catch(e){} return; }   // 已被更新的连接取代
+    ws = sock; connected = true; connecting = false;
     setDot('mid', '已进频道，等电脑端应答…');
     helloStart();
     startKA();
     send({t:'dir', p: lastDir || lsGet(LS_PATH, '')});
   };
   sock.onmessage = function(ev){
+    if (my !== 连接段) return;
     lastRxAt = Date.now();
     handleRaw(ev.data);
   };
   sock.onclose = function(){
-    if (ws !== sock) return;
+    if (my !== 连接段) return;
+    connecting = false;
     connected = false; ws = null; stopKA();
     helloAcked = false;
     clearTimeout(ackT); clearInterval(helloRetryT); helloRetryT = null;
@@ -237,56 +280,116 @@ function connect(){
   };
   sock.onerror = function(){};
 }
+/* ---------------- FOX 组帧（13.2：帧头自带 10 位软件号） ---------------- */
+const FOX_MAX = 65479;              // 单段正文上限（FOX 规范）
+function midGen(){
+  const d = new Date(), p2 = n => String(n).padStart(2, '0');
+  const ts = '' + d.getFullYear() + p2(d.getMonth()+1) + p2(d.getDate())
+           + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
+  let r = '';
+  for (let i = 0; i < 8; i++) r += String.fromCharCode(97 + Math.floor(Math.random()*26));
+  return ts + r;
+}
+function foxSegs(text){              // 按 UTF-8 字节切，绝不切坏多字节字符
+  const b = _enc.encode(text);
+  if (b.length <= FOX_MAX) return [text];
+  const out = []; let i = 0;
+  while (i < b.length){
+    let end = Math.min(i + FOX_MAX, b.length);
+    while (end < b.length && (b[end] & 0xC0) === 0x80) end--;   // 回退到字符边界
+    out.push(_dec.decode(b.subarray(i, end)));
+    i = end;
+  }
+  return out;
+}
+function p3(n){ return String(n).padStart(3, '0'); }
+function foxSend(text){
+  const segs = foxSegs(text);
+  if (segs.length > 999) return false;                 // 规范上限，超了不发
+  const mid = midGen();
+  for (let i = 0; i < segs.length; i++){
+    const frame = '【FOXID:' + mid + String(MYID).padStart(10, '0')
+                + '=cut(' + p3(i+1) + '/' + p3(segs.length) + ')】' + segs[i];
+    const delay = i * 200;                             // 段间隔 ≥0.2s（首段 0）
+    if (delay === 0){ try{ ws.send(frame); }catch(e){} }
+    else setTimeout(function(){ try{ ws.send(frame); }catch(e){} }, delay);
+  }
+  return true;
+}
 function send(o){
   if (!ws || ws.readyState !== 1) return false;
-  try { ws.send(JSON.stringify(o)); return true; } catch(e){ return false; }
+  o.sid = MYID;                     // 13.1【有则必报】：正文里也报一次软件号
+  if (MYNICK) o.nick = MYNICK;      // 昵称走可选字段（不改帧头格式）
+  try { return foxSend(JSON.stringify(o)); } catch(e){ return false; }
 }
 function startKA(){ stopKA(); kaT = setInterval(function(){ send({t:'hb'}); }, KA_SEC*1000); }
 function stopKA(){ if (kaT) { clearInterval(kaT); kaT = null; } }
 function lsGet(k, d){ try { return localStorage.getItem(k) || d; } catch(e){ return d; } }
 function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
 
-/* ---------------- 分片重组（与滑块镜像同款） ---------------- */
-const FRAG = {};
-function handleRaw(raw){
-  let m;
-  try { m = JSON.parse(raw); } catch(e){ return; }
-  if (!m || typeof m !== 'object') return;
-  if (m.t === 'f'){
-    let e = FRAG[m.id];
-    if (!e || e.n !== m.n){ e = FRAG[m.id] = {n:m.n, parts:new Array(m.n)}; }
-    if (m.i >= 0 && m.i < m.n) e.parts[m.i] = m.d;
-    let got = 0;
-    for (let i=0;i<e.n;i++) if (typeof e.parts[i] === 'string') got++;
-    if (got === e.n){
-      const full = e.parts.join('');
-      delete FRAG[m.id];
-      try { handleMsg(JSON.parse(full)); } catch(err){}
+/* ---------------- FOX 拆帧 + 多段拼装（60 秒空闲硬超时） ---------------- */
+const FOX_FRAG = {};                // (发送者|mid) -> {n, parts:{}, ts}
+function foxParse(raw){
+  if (typeof raw !== 'string' || raw.slice(0, 7) !== '【FOXID:' || raw.length < 53) return null;
+  const head = raw.slice(0, 53);
+  const sender = parseInt(head.slice(29, 39), 10);
+  const mid    = head.slice(7, 29);
+  const idx    = parseInt(head.slice(44, 47), 10);
+  const tot    = parseInt(head.slice(48, 51), 10);
+  if (!isFinite(sender) || !isFinite(idx) || !isFinite(tot)) return null;
+  if (sender === MYID) return null;              // 中继把本机请求回显回来了——丢
+  peerId = sender;                               // 13.1【有则必收】
+  const body = raw.slice(53);
+  if (tot <= 1) return body;
+  const now = Date.now();
+  for (const k in FOX_FRAG){
+    if (now - FOX_FRAG[k].ts > 60000){           // 空闲硬超时：宣告失败、清缓冲
+      const e = FOX_FRAG[k]; delete FOX_FRAG[k];
+      setDot('', '长消息接收超时宣告失败：ID=' + mid + '（收到 '
+             + Object.keys(e.parts).length + '/' + e.n + ' 段）');
     }
-    return;
   }
+  const key = sender + '|' + mid;
+  const e = FOX_FRAG[key] || (FOX_FRAG[key] = {n: tot, parts: {}, ts: now});
+  e.parts[idx] = body; e.ts = now;
+  if (Object.keys(e.parts).length < e.n) return null;
+  delete FOX_FRAG[key];
+  let full = '';
+  for (let i = 1; i <= e.n; i++){ if (typeof e.parts[i] !== 'string') return null; full += e.parts[i]; }
+  return full;
+}
+function handleRaw(raw){
+  const body = foxParse(raw);                    // 非 FOX / 自己的回显 → null
+  if (body == null) return;
+  let m;
+  try { m = JSON.parse(body); } catch(e){ return; }
+  if (!m || typeof m !== 'object') return;
+  if (m.nick) peerNick = String(m.nick).slice(0, 40);   // 13.1：能显示就显示
   handleMsg(m);
 }
 
 /* ---------------- 消息处理 ---------------- */
 function handleMsg(m){
   if (m.t === 'st'){
-    // 严格：带 nonce 的应答必须是本次握手那一发，别人的应答一律不算
+    // 严格：带口令的应答必须是本次握手那一发，别人的应答一律不算
     if (m.n != null && m.n !== helloNonce) return;
     if (m.v === 'err'){ helloDone(m.msg || '电脑端提示'); }
     else { helloDone(m.msg); }
     return;
   }
   if (m.t === 'dir'){
+    if (typeof m.root !== 'string' || !Array.isArray(m.folders)) return;
     renderDir(m);
     return;
   }
   if (m.t === 'th'){
+    if (!m.img) return;
     const rec = cellMap.get(cellKey(m.p, m.f));
-    if (rec && rec.img && m.img) rec.img.src = 'data:image/jpeg;base64,' + m.img;
+    if (rec && rec.img) rec.img.src = 'data:image/jpeg;base64,' + m.img;
     return;
   }
   if (m.t === 'og'){
+    if (!m.img) return;
     showOrig(m);
     return;
   }
@@ -435,10 +538,8 @@ setInterval(function(){
   }
 }, 15000);
 
-window.addEventListener('pageshow', function(){ if (!ws) connect(); });
-window.addEventListener('focus', function(){
-  if (!ws && pwGet()) connect();
-});
+window.addEventListener('pageshow', function(){ connect(); });
+window.addEventListener('focus', function(){ if (pwGet()) connect(); });
 
 /* 初始：有记住的密码就直接连（并收起密码门），否则弹密码门 */
 if (pwGet()){
