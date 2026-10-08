@@ -129,15 +129,15 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
    帧头自带发送者软件号——中继把本机请求回显回来时（发送者=自己）直接丢弃，
    多台手机同频道也不串台；正文带可选字段 nick（昵称），有则必报、有则必收。
 
-   网页传输有节制（服务端承诺）：
-     · 缩略图每张 ≤5KB，先进缩略图墙；
+  网页传输有节制（服务端承诺）：
+     · 缩略图每张 ≤5KB，进文件夹后由电脑端主动攒批推（thb，凑够 ≈64KB 一批）；
      · 原图 ≤100KB（超过的由电脑端先压缩），点开才提取；
      · 正文 >64KB 按 UTF-8 边界切多段（段间隔 0.2s），接收端拼装、60 秒空闲硬超时。
 
-   协议（正文 JSON）：本页→电脑 hello/hb/dir/thumb/orig；电脑→本页 st/dir/th/og
+   协议（正文 JSON）：本页→电脑 hello/hb/dir/thumb/orig；电脑→本页 st/dir/thb/th/og
    ========================================================================== */
 
-const VER = '1.01';
+const VER = '1.02';
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
   + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
 const LS_PW = 'kantu_web_pw';      // 记住的频道密码
@@ -237,7 +237,7 @@ function helloDone(msg){
   const w = peerLabel();
   setDot('on', (msg || '已连上电脑端') + (w ? ' · ' + w : ''));
 }
-let lastDir = '', lastRxAt = 0, reqThumbs = new Set();
+let lastDir = '', lastRxAt = 0;
 
 function connect(强制){
   // 同一时刻只允许一条连接：已在连/已连就别再开第二条（否则请求翻倍、目录乱跳）
@@ -382,6 +382,17 @@ function handleMsg(m){
     renderDir(m);
     return;
   }
+  if (m.t === 'thb'){
+    // 电脑端进文件夹后主动批量推来的缩略图：凑够一批就一条。
+    // 只认当前目录的批次——用户切走后，旧文件夹的批次自动作废
+    if (m.p !== lastDir || !Array.isArray(m.items)) return;
+    m.items.forEach(function(it){
+      if (!it || !it.f || !it.img) return;
+      const rec = cellMap.get(cellKey(lastDir, it.f));
+      if (rec && rec.img){ rec.img.src = 'data:image/jpeg;base64,' + it.img; }
+    });
+    return;
+  }
   if (m.t === 'th'){
     if (!m.img) return;
     const rec = cellMap.get(cellKey(m.p, m.f));
@@ -396,7 +407,6 @@ function handleMsg(m){
 }
 
 /* ---------------- 目录渲染 ---------------- */
-let observer = null;
 const cellMap = new Map();     // key -> {img, path, file}
 function cellKey(p, f){ return (p || '') + '|' + f; }
 
@@ -406,7 +416,6 @@ function renderDir(m){
   el.path.textContent = (m.root || '电脑端') + (lastDir ? ' / ' + lastDir : ' /（根目录）');
   el.grid.innerHTML = '';
   cellMap.clear();
-  reqThumbs.clear();
 
   if (lastDir){                       // 除根目录外，放一张"上一级"卡片
     const up = document.createElement('div');
@@ -449,7 +458,7 @@ function renderDir(m){
   if (!imgs.length && !(m.folders || []).length){
     el.grid.appendChild(mkHint('（空文件夹）'));
   }
-  lazyObserve();
+  // 缩略图不用一张张要了：电脑端一进文件夹就会攒批复推（thb）
 }
 function mkHint(text){
   const d = document.createElement('div');
@@ -466,31 +475,7 @@ function goUp(){
   send({t:'dir', p: i < 0 ? '' : lastDir.slice(0, i)});
 }
 
-/* 懒加载：滚到可见才要缩略图（省流量） */
-function lazyObserve(){
-  if (observer){ observer.disconnect(); }
-  if (!('IntersectionObserver' in window)){ askAllThumbs(); return; }
-  observer = new IntersectionObserver(function(entries){
-    entries.forEach(function(en){
-      if (!en.isIntersecting) return;
-      const cell = en.target;
-      observer.unobserve(cell);
-      askThumb(cell);
-    });
-  }, {root: el.grid, rootMargin: '220px'});
-  el.grid.querySelectorAll('.cell[data-th]').forEach(function(c){
-    observer.observe(c);
-  });
-}
-function askAllThumbs(){
-  el.grid.querySelectorAll('.cell[data-th]').forEach(askThumb);
-}
-function askThumb(cell){
-  const rec = cellMap.get(cell.dataset.th);
-  if (!rec || reqThumbs.has(cell.dataset.th)) return;
-  reqThumbs.add(cell.dataset.th);
-  send({t:'thumb', p: rec.p, f: rec.f});
-}
+/* 缩略图由电脑端主动攒批推（thb），这里不再逐张请求 */
 
 /* ---------------- 原图详情 ---------------- */
 let vBusy = false;
