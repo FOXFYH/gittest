@@ -2163,7 +2163,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.51';
+const VER = '1.52';
 /* 1.49 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
@@ -2174,7 +2174,7 @@ try {
   if (_pv !== null && _pv !== VER)
     location.replace(location.href.split('?')[0] + '?v=' + VER);
 } catch(e){}
-const VER_DESC = '1.51 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.50 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.49 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；1.48 多电脑名册落盘（只认名称）——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.47 输入行小图标统一正方形36×36（原 📎/📂 是46×36扁条）；输入框视线恒钉底部——打完字/收起输入法永远看得到最后一个字（原失焦后scrollTop归零看不见尾巴）；主界面上下不留空白——#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody 共7处 env(safe-area-inset-*) 留白一次清干净（手机上env≈44px凭空撑白，PC上env=0测不出），页面统一满屏到边；1.46 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.45 冷启动按上次服务端版本号拼缓存键——骨架/历史缓存真能秒开；全新架构（服务端1.55+网页1.46）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
+const VER_DESC = '1.52 服务端改名跟随（按稳定 sid 认人）——同一 srv_id 换显示名时，把「当前操控/记忆」与在线新鲜度自动迁到新名并删旧名条目（修「改设备名→网页端失联：收得到消息却全空」）；1.51 服务端名册启动即渲染+打开即选中（打开就显示落盘的全部服务端条目、直接选中上次那台，不依赖等心跳；用户规定）；1.50 服务端名册：每台左侧删除按钮（✕，删本地落盘，在线会重新发现）+ 当前默认打 ⭐（表示默认/常用）+ 无记忆自动接管第一台在线（用户规定）；1.49 版本自愈（版本号一变自动带参重载拿新版，不用手动清缓存）；1.48 多电脑名册落盘（只认名称）——网页端只认「电脑名称」（服务器随机ID一律不显示），名称＋最后出现时间存本地、刷新/重开即恢复清单（离线也留一行 ○），超7天未出现自动清理；去掉「按在线/新鲜度自动替你挑一台」，只认上次选中的那台（它上线就自动接管，没上线就不乱挑，清单里标「（上次）」），从未选过时仅当只有一台在线才自动选；1.47 输入行小图标统一正方形36×36（原 📎/📂 是46×36扁条）；输入框视线恒钉底部——打完字/收起输入法永远看得到最后一个字（原失焦后scrollTop归零看不见尾巴）；主界面上下不留空白——#hdr/#input_row/.cmsheet/.nhdr/.nbody/#bfoot/.tdbody 共7处 env(safe-area-inset-*) 留白一次清干净（手机上env≈44px凭空撑白，PC上env=0测不出），页面统一满屏到边；1.46 升级简介从左侧抽屉底部挪到「设置」页底部——给会话列表让出高度；1.45 冷启动按上次服务端版本号拼缓存键——骨架/历史缓存真能秒开；全新架构（服务端1.55+网页1.46）：请求-响应按需拉取——会话列表/历史本地缓存秒开，双版本号键（网页VER|服务端VER）任一变化自动清缓存重下，历史游标增量 + 向上滚动补拉更早消息；1.43 登录/重连骨架先行';
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -2418,6 +2418,7 @@ function regSrv(nm, d){
   s.ts = Date.now();
   touchSrvSeen(s);                            /* v1.48：记最后出现时间（落盘） */
   if (d.sid) s.sid = d.sid;
+  if (d.sid) followRename(nm, d.sid);         /* 1.52：改名跟随（按稳定 sid 认人） */
   if (d.v) s.v = d.v;
   if (d.t === 'hello' || d.t === 'srv'){
     if (d.boxes) s.boxes = d.boxes;
@@ -2431,6 +2432,30 @@ function regSrv(nm, d){
   }
   pickCur();
   renderTop();
+}
+/* 1.52：服务端改名跟随（按稳定 sid 认人，不认显示名）——同一台服务端改了
+   显示名后，旧名仍留在本地名册/记忆里，网页端会一直盯着旧名（S.cur），把新名
+   广播全当「非当前操控对象」拦掉，表现为失联（收得到消息、界面却全空）。
+   这里以 srv_id 为锚：发现名册里另有同 sid 的旧名条目，即把「当前选中/记忆」与
+   在线时间迁到新名，并清掉旧名条目。 */
+function followRename(nm, sid){
+  if (!sid) return;
+  const olds = Object.keys(S.servers).filter(
+    k => k !== nm && S.servers[k] && S.servers[k].sid === sid);
+  if (!olds.length) return;
+  const ns = S.servers[nm];
+  let want = null; try { want = localStorage.getItem(LS_SRV); } catch(e){}
+  for (const k of olds){
+    const o = S.servers[k];
+    if (!ns.ts && o.ts) ns.ts = o.ts;         /* 保留「曾上线」新鲜度，免被当没上线 */
+    if (!ns.seen && o.seen) ns.seen = o.seen;
+    delete S.servers[k];
+    if (S.cur === k) S.cur = nm;
+    if (want === k) want = nm;
+  }
+  if (S.cur === nm) want = nm;
+  try { if (want) localStorage.setItem(LS_SRV, want); } catch(e){}
+  saveSrvs();
 }
 function pickCur(){
   if (S.cur && S.servers[S.cur]) return;      /* 已选定且仍在名册：不动（离线也保持） */
