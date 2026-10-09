@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<!--
+  文件管理 · 说明书                当前版本 6.0
+  ★ 版本规则(改代码者必读): 每次修改 +0.01, 2.99 升 3.0。
+    改完必须同步"三处版本号", 三处一致才算改完:
+      ① 本备注的「当前版本」
+      ② 页面标题标签(title)里的 v1.xx
+      ③ 界面徽标(id=appVersionBadge)里的 v1.xx
+    改完重新部署到 GitHub 仓库 FOXFYH/b (见 github助手 CLI)。
+  版本沿革:
+    6.0 (2026-09-17) ★版本统一定稿：随 文件管理6.0.HTML 一并定稿为 6.0（原 1.00）。此后每次修改统一 +0.01，
+      并同步 文件管理6.0.HTML 与 云端同步脚本 三处产品版本号，保持一致。
+    1.00 (2026-09-17) 新建：作为 文件管理6.0.HTML 的"说明书"分页(以 iframe 内嵌加载)，
+      讲解项目文件性质、镜像文件/普通文件/正在被编辑、以及适用边界。纯展示文档，无逻辑代码。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文件管理说明书 v6.0</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:#fff;color:#333;line-height:1.7;font-size:14px}
+  .header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #e5e5e5;background:#fafafa;position:sticky;top:0;z-index:10}
+  .header h2{font-size:16px;font-weight:700;color:#222}
+  .app-ver{font-size:11px;color:#888;background:#eee;padding:1px 8px;border-radius:9px;margin-left:6px;font-weight:normal}
+  .wrap{max-width:760px;margin:0 auto;padding:18px 20px 40px}
+  .intro{font-size:13px;color:#666;border-left:3px solid #ccc;padding-left:12px;margin-bottom:20px}
+  section{margin-bottom:26px}
+  h3{font-size:15px;font-weight:700;color:#222;margin-bottom:10px;padding-left:10px;border-left:3px solid #999}
+  h4{font-size:13.5px;font-weight:700;color:#444;margin:14px 0 6px}
+  p{margin:8px 0;font-size:13.5px}
+  ul,ol{margin:6px 0 6px 22px}
+  li{margin:5px 0;font-size:13.5px}
+  .tag{display:inline-block;font-size:11px;padding:0 7px;border-radius:4px;margin-right:4px;vertical-align:1px}
+  .m{background:#f3f3f3;color:#555}
+  .n{background:#f3f3f3;color:#555}
+  .e{background:#eef;color:#44a;border:1px solid #dde}
+  .warn{background:#fbf6ec;border:1px solid #e8ddc0;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:12.5px;color:#7a6230}
+  .note{background:#f6f6f6;border:1px solid #e7e7e7;border-radius:6px;padding:10px 14px;margin:12px 0;font-size:12.5px;color:#555}
+  code,.k{font-family:Consolas,monospace;font-size:12px;background:#f4f4f4;border:1px solid #ebebeb;border-radius:3px;padding:0 4px;color:#333}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px}
+  th,td{border:1px solid #e3e3e3;padding:6px 10px;text-align:left;vertical-align:top}
+  th{background:#f4f4f4;font-weight:700;color:#222}
+  hr{border:none;border-top:1px solid #eee;margin:22px 0}
+  .foot{color:#aaa;font-size:11px;text-align:center;margin-top:30px}
+</style>
+</head>
+<body>
+<div class="header">
+  <h2>📋 文件管理器 说明书 <span id="appVersionBadge" class="app-ver">v6.02</span></h2>
+  <span style="font-size:11px;color:#aaa">独立文档 · iframe 内嵌</span>
+</div>
+<div class="wrap">
+
+  <div class="intro">
+    本说明面向需要了解"探索新型存储方式·文件管理器"工作方式的人。它讲清楚什么文件适合交给本系统管理、
+    镜像文件与普通文件各自是什么、以及哪些场景<b>不适合</b>使用本系统。
+  </div>
+
+  <section>
+    <h3>一、项目适合处理什么样的文件</h3>
+    <p>本系统是为<b>以云端为唯一权威、本地仅作有限落盘/缓存</b>的场景设计的。它管理的是<b>文件管理器自己在云端维护的那套文件</b>，而不是本地硬盘上可以被任意软件直接改的文件。</p>
+    <p>适用于两类文件：</p>
+    <ul>
+      <li><b>纯云端文件：</b>不落盘本地，始终以云端为准，在需要时按需取用。</li>
+      <li><b>有限落盘文件：</b>会落到本地，但只落一份<b>受控副本</b>，其写入权仍在文件管理器手中。</li>
+    </ul>
+    <p><b>写入权的含义（重要）：</b>谁掌握了文件的"版本号索引"（起点号 S / 终点号 E），谁才拥有合法的写入与上传资格。这个资格<b>由文件管理器把持</b>——本地其他编辑器即使改了缓存副本内容，也不具备合法上传资格。</p>
+    <div class="warn">
+      ⚠️ 需要清醒认识："写入权在文件管理器"是<b>设计约定与适用边界</b>，不是系统在底层的硬性拦截。第三方编辑器直接改本地缓存的内容、且不碰版本号索引时，本软件<b>无法感知</b>（同步只识别"新文件"或"终点号 E &gt; 起点号 S"，而 E 只有文件管理器自己的保存操作才会递增）。因此这类改动属于<b>越界操作、产出不被认可</b>，可能造成本地副本与云端不一致，最终以云端为准。
+    </div>
+  </section>
+
+  <section>
+    <h3>二、文件的两类 + 一个临时状态</h3>
+    <p>文件按是否<b>系统必要</b>、是否<b>长期占住本地</b>，分为两类，另有一个在编辑过程中出现的临时状态：</p>
+    <table>
+      <tr><th style="width:110px">类别</th><th>判定</th><th>系统必要</th><th>落盘策略</th></tr>
+      <tr><td><span class="tag m">★ 镜像文件</span></td><td>文件名以 ★ 开头（默认前缀，可在设置改）</td><td>是·重要系统级文件</td><td>有限落盘·本地常驻倾向</td></tr>
+      <tr><td><span class="tag n">普通文件</span></td><td>名称不以 ★ 开头</td><td>否·缺了宿主照样运行</td><td>云端纯存 / 按需下载当缓存</td></tr>
+      <tr><td><span class="tag e">正在被编辑</span></td><td>当前打开编辑中的文件（同一时刻仅一个）</td><td>—（临时状态）</td><td>受监控·策略接近镜像</td></tr>
+    </table>
+    <p class="note">
+      说明：所谓"四类"实为 <b>两类 + 一个临时状态</b>。普通文件本身会在"云端纯存(cloudOnly)"与"按需下载落盘当缓存"两种<b>存在形态</b>之间流动，并不是第四类独立文件。
+    </p>
+  </section>
+
+  <section>
+    <h3>三、⭐ 镜像文件</h3>
+    <p>镜像文件是<b>打上标志的有限落盘文件</b>，通常是需要长期存在于本地、比较重要的系统级文件。其特点：</p>
+    <ul>
+      <li>默认以 <code>★</code> 前缀命名，文件管理器据此识别并纳入监控。</li>
+      <li>写入权同样归文件管理器，本地只保留受控副本。</li>
+      <li>受监控（累计差异统计会把它计算在内），并且<b>下载内容时会自动落盘到本地</b>，倾向于长期常驻。</li>
+    </ul>
+    <div class="note">
+      ⚠️ <b>"常驻"是倾向，并非严格保证。</b>当本地浏览器存储空间超过缓存阈值（默认 70%）时，镜像文件<b>也会被当作缓存回收</b>（清理时只豁免"当前打开的文件"和"纯新文件"，并不豁免镜像）。被回收后，会在下次刷新/同步时从云端自动拉回。文档如实说明，未做特殊强制。
+    </div>
+  </section>
+
+  <section>
+    <h3>四、普通文件</h3>
+    <p>普通文件<b>不是系统运行所必要</b>的——它们被使用时才从云端下载落盘到本地，缺了它们宿主照样运行。</p>
+    <ul>
+      <li><b>未被使用：</b>仅存在于云端（cloudOnly 索引项），本地不占空间。</li>
+      <li><b>被使用：</b>按需下载落盘到本地，作为<b>缓存</b>。</li>
+      <li><b>缓存目的：</b>减少反复从云端下载。只要本地版本与云端版本对应得上，就降低了再次下载的概率。</li>
+      <li><b>清理策略：</b>本地存储使用量<b>超过阈值（默认 70%）时</b>，按"最后编辑时间"由旧到新回收缓存，直到降到阈值以下。豁免<b>当前正在打开的文件</b>与<b>纯新文件</b>；不豁免镜像文件。缓存是在本地放不下时才回收，并非周期性定时清理。</li>
+      <li><b>超大文件：</b>内容超过缓存字符上限（默认 100 万字符）的文件，不写入本地缓存，用时到云端取。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>五、正在被编辑（临时状态）</h3>
+    <p>同一时刻文件管理器只把<b>一个</b>文件标记为"正在被编辑"。这个临时状态受监控，其管理策略与镜像文件接近（系统必要、有关联），但它本身不是独立的一类文件。</p>
+  </section>
+
+  <section>
+    <h3>六、这里"系统/宿主"指什么</h3>
+    <p>上文所说的"系统"不是文件管理器自身，而是<b>接入本文件管理器的那个外接网站或其他项目</b>（即宿主）。镜像文件往往是宿主运行时要用到的重要配置/数据，普通文件则是可缺省的附属内容。</p>
+  </section>
+
+  <section>
+    <h3>七、本项目不适合管理什么文件</h3>
+    <p class="warn">
+      <b>不适合管理"落在本地硬盘、允许被任何软件自由修改"的文件。</b>这类文件的写入权不专一，任何程序都可能改动它，版本号无法由文件管理器统一把控，同步将失去权威依据。若要管理它，应先让文件管理器接管、把本地副本收敛为受控副本；否则请交给版本库等其他方案。
+    </p>
+  </section>
+
+  <hr>
+  <div class="foot">文件管理说明书 · v6.0 · 随 文件管理6.0.HTML v6.0 分页内嵌</div>
+</div>
+</body>
+</html>
