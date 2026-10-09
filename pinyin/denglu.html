@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <title>账号系统</title>
+  <style>
+    /* ========== 全局：只用最基础的CSS，不用任何高级特性 ========== */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 10px;
+      background: #f7f8fa;
+      font-family: sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* 卡片 */
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 12px;
+      border: 1px solid #e0e0e0;
+    }
+
+    /* 状态栏 */
+    .status { padding: 6px 10px; border-radius: 6px; margin: 0 0 8px 0; font-size: 13px; }
+    .status-success { background: #e8f5e9; color: #1b5e20; }
+    .status-error { background: #ffebee; color: #b71c1c; }
+    .status-info { background: #e3f2fd; color: #0d47a1; }
+
+    /* 标签栏：用 inline-block 代替 flex，不用 gap */
+    .tab-bar {
+      margin-bottom: 10px;
+      border-radius: 6px;
+      overflow: hidden;
+      font-size: 0; /* 消除 inline-block 间隙 */
+    }
+    .tab {
+      display: inline-block;
+      width: 33.33%;
+      padding: 9px 4px;
+      text-align: center;
+      cursor: pointer;
+      border: none;
+      background: #f1f3f5;
+      font-size: 14px;
+      vertical-align: top;
+    }
+    .tab.active { background: #0071e3; color: #fff; }
+
+    /* 面板：用 visibility+position 代替 display:none/block
+       display:none 在老WebView切换后可能不触发重排 */
+    .panel-container { position: relative; }
+    .panel {
+      position: absolute;
+      left: 0; right: 0; top: 0;
+      visibility: hidden;
+      height: 0;
+      overflow: hidden;
+    }
+    .panel.active {
+      position: relative;
+      visibility: visible;
+      height: auto;
+      overflow: visible;
+    }
+
+    .section { margin-bottom: 10px; }
+    label { font-weight: 500; font-size: 13px; margin-bottom: 3px; display: block; color: #333; }
+
+    /* ========== 输入框：关键！保留原生外观，只做最小样式 ========== */
+    input[type="text"],
+    input[type="password"] {
+      /* 不用 appearance:none！保留原生渲染 */
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 9px 10px;
+      font-size: 16px;
+      width: 100%;
+      height: 42px;
+      line-height: 24px;
+      background: #fff;
+      color: #333;
+      display: block;
+      -webkit-user-modify: read-write-plaintext-only;
+    }
+    /* 无 type 的 input 单独处理 */
+    input:not([type]) {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 9px 10px;
+      font-size: 16px;
+      width: 100%;
+      height: 42px;
+      line-height: 24px;
+      background: #fff;
+      color: #333;
+      display: block;
+      -webkit-user-modify: read-write-plaintext-only;
+    }
+
+    /* ========== 按钮：保留原生外观，只改颜色 ========== */
+    button {
+      border-radius: 6px;
+      border: none;
+      color: #fff;
+      padding: 10px;
+      width: 100%;
+      cursor: pointer;
+      margin-top: 6px;
+      font-size: 16px;
+      height: 44px;
+      line-height: 24px;
+      display: block;
+    }
+    .btn-register { background: #28a745; }
+    .btn-login { background: #0071e3; }
+    .btn-change { background: #17a2b8; }
+
+    /* 验证码行：用 table 布局代替 flex+gap */
+    .code-box {
+      margin-bottom: 10px;
+      width: 100%;
+    }
+    .code-box-inner {
+      display: table;
+      width: 100%;
+    }
+    .code-box-inner label {
+      display: table-cell;
+      white-space: nowrap;
+      width: 80px;
+      font-size: 13px;
+      vertical-align: middle;
+      padding-right: 6px;
+    }
+    .code-box-inner input {
+      display: table-cell;
+      width: 100%;
+    }
+    .code-box-inner button {
+      display: table-cell;
+      width: auto;
+      padding: 8px 10px;
+      background: #6c757d;
+      white-space: nowrap;
+      font-size: 13px;
+      height: 42px;
+    }
+    .code-box-inner button:disabled { background: #aaa; }
+
+    .log-box { display: none; }
+  </style>
+</head>
+
+<body>
+  <div id="statusText" class="status status-info">就绪</div>
+
+  <!-- 独立模式下的返回按钮 -->
+  <div id="standaloneBack" style="display:none;margin-bottom:8px">
+    <button onclick="window.location.href='index.html'" style="background:#6c757d;font-size:14px;padding:8px;height:auto">← 返回主页面</button>
+  </div>
+
+  <div class="card">
+    <div class="tab-bar">
+      <div class="tab" id="tab1" onclick="showPanel(1)">注册</div>
+      <div class="tab" id="tab2" onclick="showPanel(2)">登录</div>
+      <div class="tab" id="tab3" onclick="showPanel(3)">修改密码</div>
+    </div>
+
+    <div class="panel-container">
+      <!-- ========== 注册面板 ========== -->
+      <div class="panel" id="panel1">
+        <div class="section">
+          <label>用户名</label>
+          <input id="reg_user" type="text" placeholder="注册用户名">
+        </div>
+        <div class="section">
+          <label>密码</label>
+          <input id="reg_pwd" type="password" placeholder="密码">
+        </div>
+
+        <div class="code-box">
+          <div class="code-box-inner">
+            <label>请输入验证码</label>
+            <input id="code1" type="text" placeholder="验证码">
+            <button id="btnCode1" onclick="getCode(1)">获取验证码</button>
+          </div>
+        </div>
+
+        <button class="btn-register" onclick="doRegister()">注册</button>
+      </div>
+
+      <!-- ========== 登录面板 ========== -->
+      <div class="panel" id="panel2">
+        <div class="section">
+          <label>用户名</label>
+          <input id="login_user" type="text" placeholder="登录用户名">
+        </div>
+        <div class="section">
+          <label>密码</label>
+          <input id="login_pwd" type="password" placeholder="密码">
+        </div>
+
+        <div class="code-box">
+          <div class="code-box-inner">
+            <label>请输入验证码</label>
+            <input id="code2" type="text" placeholder="验证码">
+            <button id="btnCode2" onclick="getCode(2)">获取验证码</button>
+          </div>
+        </div>
+
+        <button class="btn-login" onclick="doLogin()">登录</button>
+      </div>
+
+      <!-- ========== 修改密码面板 ========== -->
+      <div class="panel" id="panel3">
+        <div class="section">
+          <label>用户名</label>
+          <input id="change_user" type="text" placeholder="用户名">
+        </div>
+        <div class="section">
+          <label>旧密码</label>
+          <input id="old_pwd" type="password" placeholder="旧密码">
+        </div>
+        <div class="section">
+          <label>新密码</label>
+          <input id="new_pwd" type="password" placeholder="新密码">
+        </div>
+
+        <div class="code-box">
+          <div class="code-box-inner">
+            <label>请输入验证码</label>
+            <input id="code3" type="text" placeholder="验证码">
+            <button id="btnCode3" onclick="getCode(3)">获取验证码</button>
+          </div>
+        </div>
+
+        <button class="btn-change" onclick="doChangePassword()">修改密码</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:10px">
+    <label>发送日志</label><div id="logSend" class="log-box"></div>
+  </div>
+  <div class="card">
+    <label>返回日志</label><div id="logResp" class="log-box"></div>
+  </div>
+
+<script>
+// ================= 全局保存正确的验证码 =================
+var correctCode = "";
+
+// ================= 配置 =================
+var API_URL = "https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com";
+var WEBHOOK_URL = "https://www.kdocs.cn/api/v3/ide/file/504393979179/script/V2-jCry7lblkwsPtTSmtjlWY/sync_task";
+
+// ================= 独立模式（非iframe，跳转页面登录） =================
+var isStandalone = new URLSearchParams(window.location.search).has('standalone');
+
+// 独立模式登录成功后：存到主应用的key，跳回主页面
+function onStandaloneLoginSuccess(username, password) {
+  localStorage.setItem('PINYINLIANXI_auth_user', username);
+  localStorage.setItem('PINYINLIANXI_auth_pass', password);
+  localStorage.setItem('PINYINLIANXI_auth_logged_in', 'true');
+  localStorage.setItem('PINYINLIANXI_standalone_just_logged', '1');
+  window.location.href = 'index.html';
+}
+
+// ================= 标签切换（强制重排版） =================
+function showPanel(num) {
+  var panels = document.querySelectorAll('.panel');
+  var tabs = document.querySelectorAll('.tab');
+  for (var i = 0; i < panels.length; i++) {
+    panels[i].className = 'panel';
+  }
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].className = 'tab';
+  }
+  document.getElementById('panel' + num).className = 'panel active';
+  document.getElementById('tab' + num).className = 'tab active';
+
+  // 强制重排：老WebView切换面板后输入框可能不渲染
+  forceReflow(document.getElementById('panel' + num));
+}
+
+// 强制浏览器重排：确保隐藏→显示的面板内元素被正确渲染
+function forceReflow(panel) {
+  if (!panel) return;
+  // 方法1：读取 offsetHeight 强制计算布局
+  var h = panel.offsetHeight;
+  // 方法2：对内部所有 input 触发重排
+  var inputs = panel.querySelectorAll('input');
+  for (var i = 0; i < inputs.length; i++) {
+    // 先隐藏再显示，强制WebView重新渲染
+    inputs[i].style.display = 'none';
+  }
+  // 读取 offsetHeight 触发重排
+  h = panel.offsetHeight;
+  for (var i = 0; i < inputs.length; i++) {
+    inputs[i].style.display = '';
+    // 再次强制
+    var tmp = inputs[i].offsetHeight;
+  }
+  // 方法3：延迟二次强制（某些WebView需要下一帧才生效）
+  setTimeout(function() {
+    var inputs2 = panel.querySelectorAll('input');
+    for (var i = 0; i < inputs2.length; i++) {
+      var v = inputs2[i].offsetHeight;
+      // 如果高度为0说明没渲染出来，尝试显式设置
+      if (v === 0) {
+        inputs2[i].style.height = '42px';
+        inputs2[i].style.lineHeight = '24px';
+        inputs2[i].style.display = 'block';
+      }
+    }
+  }, 100);
+}
+
+// ================= URL 参数控制默认显示 =================
+function getDefaultPanelFromUrl() {
+  var params = new URLSearchParams(window.location.search);
+  var tab = params.get('tab');
+  if (tab === 'register') return 1;
+  if (tab === 'login') return 2;
+  if (tab === 'changepwd') return 3;
+  return 2;
+}
+
+// ================= 状态 =================
+function setStatus(text, isError) {
+  var el = document.getElementById("statusText");
+  el.innerText = text;
+  el.className = "status " + (isError ? "status-error" : "status-success");
+}
+
+// ================= 生成验证码 =================
+var codeLock = false;
+var cooldown = 10;
+
+function getCode(panel) {
+  if (codeLock) return;
+  codeLock = true;
+
+  var btn = document.getElementById("btnCode" + panel);
+  var originalText = btn.innerText;
+  btn.disabled = true;
+  btn.innerText = "10秒后重试";
+
+  setTimeout(function() {
+    var code = "";
+    for (var i = 0; i < 4; i++) {
+      code += Math.floor(Math.random() * 10);
+    }
+    correctCode = code;
+    alert("验证码：" + code);
+  }, 1000);
+
+  setTimeout(function() {
+    codeLock = false;
+    btn.disabled = false;
+    btn.innerText = originalText;
+  }, cooldown * 1000);
+}
+
+// ===================== 验证码校验函数 =====================
+function checkCode(inputId) {
+  var userInput = document.getElementById(inputId).value.trim();
+  if (!userInput) {
+    alert("请填入验证码！");
+    return false;
+  }
+  // 秘密功能：6666 = 万能验证码
+  if (userInput === '6666') return true;
+  // 秘密功能：8888 = 直接以 test/1234 登录
+  if (userInput === '8888') {
+    doQuickLogin();
+    return false;
+  }
+  if (userInput !== correctCode) {
+    alert("请填入正确的验证码！");
+    return false;
+  }
+  return true;
+}
+
+// 快速登录：以 test/1234 直接登录
+function doQuickLogin() {
+  setStatus('快速登录中...');
+  var u = 'test', p = '1234';
+  var body = {
+    webhookUrl: WEBHOOK_URL,
+    message: { Context: { argv: { "登录行为":"登录","用户名":u,"密码":p } } }
+  };
+  document.getElementById('logSend').innerText = JSON.stringify(body,null,2);
+  fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
+    .then(function(res) { return res.text(); })
+    .then(function(txt) {
+      document.getElementById('logResp').innerText = txt;
+      var d = JSON.parse(txt).data && JSON.parse(txt).data.result ? JSON.parse(txt).data.result : JSON.parse(txt);
+      if (d.TZbianhao === 501) {
+        setStatus('登录成功');
+        alert('登录成功');
+        localStorage.setItem('yonghuID', u);
+        localStorage.setItem('yonghuPwd', p);
+        if (isStandalone) { onStandaloneLoginSuccess(u, p); return; }
+        if (window.parent !== window) {
+          window.parent.postMessage({ type:'loginSuccess', username:u, password:p }, '*');
+        }
+      } else { setStatus(d.tongzhi, true); alert(d.tongzhi); }
+    })
+    .catch(function(e) { setStatus('异常：' + e, true); });
+}
+
+// ==============================================
+// 注册（带验证码校验）
+// ==============================================
+function doRegister() {
+  if (!checkCode("code1")) return;
+
+  var u = document.getElementById('reg_user').value.trim();
+  var p = document.getElementById('reg_pwd').value.trim();
+  if (!u || !p) { setStatus('请填写完整', true); return; }
+
+  setStatus('注册中...');
+  var body = {
+    webhookUrl: WEBHOOK_URL,
+    message: { Context: { argv: { "登录行为":"注册","用户名":u,"密码":p } } }
+  };
+  document.getElementById('logSend').innerText = JSON.stringify(body,null,2);
+  fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
+    .then(function(res) { return res.text(); })
+    .then(function(txt) {
+      document.getElementById('logResp').innerText = txt;
+      var d = JSON.parse(txt).data && JSON.parse(txt).data.result ? JSON.parse(txt).data.result : JSON.parse(txt);
+      if (d.TZbianhao === 501) { setStatus('注册成功'); alert('注册成功'); }
+      else { setStatus(d.tongzhi, true); alert(d.tongzhi); }
+    })
+    .catch(function(e) { setStatus('异常：' + e, true); });
+}
+
+// ==============================================
+// 登录（带验证码校验）
+// ==============================================
+function doLogin() {
+  if (!checkCode("code2")) return;
+
+  var u = document.getElementById('login_user').value.trim();
+  var p = document.getElementById('login_pwd').value.trim();
+  if (!u || !p) { setStatus('请填写完整', true); return; }
+
+  setStatus('登录中...');
+  var body = {
+    webhookUrl: WEBHOOK_URL,
+    message: { Context: { argv: { "登录行为":"登录","用户名":u,"密码":p } } }
+  };
+  document.getElementById('logSend').innerText = JSON.stringify(body,null,2);
+  fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
+    .then(function(res) { return res.text(); })
+    .then(function(txt) {
+      document.getElementById('logResp').innerText = txt;
+      var d = JSON.parse(txt).data && JSON.parse(txt).data.result ? JSON.parse(txt).data.result : JSON.parse(txt);
+      if (d.TZbianhao === 501) {
+        setStatus('登录成功');
+        alert('登录成功');
+        localStorage.setItem('yonghuID', u);
+        localStorage.setItem('yonghuPwd', p);
+        // 独立模式：跳回主页面
+        if (isStandalone) { onStandaloneLoginSuccess(u, p); return; }
+        // iframe模式：通知父窗口
+        if (window.parent !== window) {
+          window.parent.postMessage({
+            type: 'loginSuccess',
+            username: u,
+            password: p
+          }, '*');
+        }
+      }
+      else { setStatus(d.tongzhi, true); alert(d.tongzhi); }
+    })
+    .catch(function(e) { setStatus('异常：' + e, true); });
+}
+
+// ==============================================
+// 修改密码（带验证码校验）
+// ==============================================
+function doChangePassword() {
+  if (!checkCode("code3")) return;
+
+  var u = document.getElementById('change_user').value.trim();
+  var oldP = document.getElementById('old_pwd').value.trim();
+  var newP = document.getElementById('new_pwd').value.trim();
+  if (!u || !oldP || !newP) { setStatus('请填写完整', true); return; }
+
+  setStatus('修改中...');
+  var body = {
+    webhookUrl: WEBHOOK_URL,
+    message: { Context: { argv: { "登录行为":"修改密码","用户名":u,"密码":newP,"旧密码":oldP } } }
+  };
+  document.getElementById('logSend').innerText = JSON.stringify(body,null,2);
+  fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
+    .then(function(res) { return res.text(); })
+    .then(function(txt) {
+      document.getElementById('logResp').innerText = txt;
+      var d = JSON.parse(txt).data && JSON.parse(txt).data.result ? JSON.parse(txt).data.result : JSON.parse(txt);
+      if (d.TZbianhao === 501) {
+        setStatus('修改成功');
+        alert('修改成功');
+        // 独立模式：更新密码后跳回主页面
+        if (isStandalone) {
+          localStorage.setItem('PINYINLIANXI_password', newP);
+          window.location.href = 'index.html';
+          return;
+        }
+        // 通知父窗口密码已修改
+        if (window.parent !== window) {
+          window.parent.postMessage({
+            type: 'passwordChanged',
+            username: u,
+            newPassword: newP
+          }, '*');
+        }
+      }
+      else { setStatus(d.tongzhi, true); alert(d.tongzhi); }
+    })
+    .catch(function(e) { setStatus('异常：' + e, true); });
+}
+
+// 初始化
+window.onload = function() {
+  showPanel(getDefaultPanelFromUrl());
+  // 独立模式显示返回按钮
+  if (isStandalone) {
+    document.getElementById('standaloneBack').style.display = 'block';
+  }
+};
+</script>
+</body>
+</html>

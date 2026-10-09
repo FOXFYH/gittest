@@ -1,0 +1,4399 @@
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<!DOCTYPE html>
+<!--
+  拼音练习 · 文件管理器        当前版本 6.05
+  ★ 版本规则(改代码者必读): 每次修改 +0.01, 2.99 升 3.0。
+    改完必须同步"三处版本号", 三处一致才算改完:
+      ① 本备注的「当前版本」
+      ② 页面标题标签(title)里的 v1.xx
+      ③ 界面徽标(id=appVersionBadge)里的 v1.xx
+    改完重新部署到 GitHub 仓库 FOXFYH/gittest 的 pinyin/ 子目录 (见 github助手 CLI)。
+  版本沿革:
+    6.05 (2026-10-09) 补齐「上云后自动迁入 IndexedDB」：上传成功(isNewFile 清除)时立即按分层规则重落盘，非星标普通文件内容即时由 localStorage 迁入 IndexedDB，避免已上传文件内容长期滞留 localStorage。
+    6.04 (2026-10-09) 三层本地缓存：核心数据与「星标」文件内容存 localStorage（星标常年落盘、不参与淘汰），其余已上云的普通文件内容改存 IndexedDB（增内存镜像 MEM + 启动预加载，保证同步读取命中）；未上云新文件暂存 localStorage、上云后自动迁入 IndexedDB；文件列表新增星标切换按钮与宿主 starFile 消息；版本号未变更时复用本地缓存、减少下载。
+    6.03 (2026-09-21) 补齐与宿主的消息互动缺口（配合 index.html 1.03）：① 新增结构化同步三态推送
+      syncState（state='syncing'|'done'|'error'，detail 为文本或统计对象），接入同步开始/无候选/
+      冲突处置段/同步完成/同步异常各关键点，驱动宿主"微型同步状态小面板"；syncStatusChanged/
+      syncToast/syncComplete 旧消息保持兼容不变；② 新增接收 case conflictResolved：宿主自备冲突
+      弹窗点选后回传 resolution（accept_cloud/overwrite/make_conflict/later），按语义调用
+      acceptCloudVersion/overwriteCloudWithLocal/saveConflictVersion/closeSyncConflict；
+      ③ 补 init（空载荷安全处理）与 smartSyncOnOpen 接收 case。
+    6.02 (2026-09-18) 写操作统一套用写入权网关：单文件 删除/移动/复制/改名/新建文件夹 原先直接调云端原语，
+      现统一改走 withWriteAccess（与批量三件套一致）——先"正在获得写入权"抢云端锁→确认云端与本地完全一致→云端执行→
+      **云端返回成功回执后才把结果落地本地**（改索引/删本地/刷新），等待期间仅右下角toast提示；withWriteAccess 增复用锁守卫，
+      使批量操作内再调单文件操作时不重复抢/解锁。单文件删除离线模式仍保留纯本地删除兜底。
+    6.01 (2026-09-18) 打勾选中+写入权网关：①文件列表每行最左侧增加复选框，作为唯一的选中态（覆盖本地文件/子文件夹/仅云端文件/仅云端文件夹，"返回上级"除外），
+      勾选1个或多个均可，高亮统一用复选框；②原顶部按钮 删除/移动到/复制 直接对勾选集合生效（有勾选走集合+写入权网关，未勾选沿用旧单选），不设独立批量栏；
+      ③新增写入权网关 withWriteAccess：任何写/批量操作前先"正在获得写入权"(抢云端锁)→"正在确认云端与本地完全一致"（只把
+      本地修改/新建上传抹平，不下载仅云端文件），抹平后才执行，结果以云端回执为准；④设置页新增"动作后自动刷新"(默认勾选)，
+      重命名/删除/复制后按此开关决定是否刷新云端索引。单文件删除改用 silent 参数并入集合单次确认。
+    6.0 (2026-09-17) ★版本统一定稿：本管理器版本起自 1.11 一次性定稿为 6.0，云端脚本同步定稿为 6.0，
+      一切从 6.0 重新计起。此后每次修改统一 +0.01（6.0→6.01→6.02…），不再沿用旧 2.99 进位规则。
+      改完必须同步 文件管理说明书6.0.HTML 与 云端同步脚本 三处产品版本号，保持一致。
+    1.11 (2026-09-17) 新增第三个"说明书"分页：tab栏新增 说明书 页签，页面内以 iframe 加载独立
+      的《文件管理说明书6.0.HTML》(v1.00)，用作本管理器的使用说明与概念模型讲解。纯展示层，
+      不动同步协调。说明书文件与本文件同目录，部署副本须成对更新。
+    1.10 (2026-09-17) 与思维导图版本号对齐(管理器JSON为准)：contentChanged 收到带 name+content 的编辑时
+      以本管理器文件JSON/终点号为权威源 bump 版本号并刷新面板，再通过 contentSaved 回推{e,s}给思维导图，
+      两边显示同一权威版本号。纯客户端，不动同步协调。
+    1.09 (2026-09-17) 标识系统·版本号显示修正：中段起点号S始终显示真实数值(0即0，不再灰"‑")，
+      消除左0/中‑/右☁0 的不一致；三段加字段标注(本地终点E/本地起点S/云端正统版本号)，云端号改显
+      "正统☁v"。纯显示层，未动同步逻辑。
+    1.08 (2026-09-17) 批量两阶段同步：批量"同步提交"一次打包全部候选、云端逐个判继承返回阵列，
+      本端据回执一次性批量转正/批量冲突处置；整批机械快段共占一把云端锁(holdCloudLock 压制
+      callCloudAPI 自动解锁)，快段末统一释放；同步冲突仍逐个串行处置(不占锁、人工可等待)。
+      云端脚本同步升级 v5.2→v5.3(同步提交/转正确认各加"文件列表"数组分支，标量模式兼容)。
+    1.07 (2026-09-16) 可移植化·前缀收口：账号/设备/清缓存等初始化 localStorage 键从写死的
+      storagetest_ 改为走 K()/APP_PREFIX 动态前缀，多项目同一浏览器运行数据互不串（本版默认
+      appPrefix=storagetest 不变，键名对存量数据兼容）；随包新增接入 runbook 与脚本副本。
+    1.06 (2026-09-16) 「文件JSON」列落实为云端唯一内容主体：物理移除「内容」列；数据均只写/只读
+      文件JSON列(整JSON)，超大文件按整JSON字符串长度切片存各片段行；云端脚本同步升级 v5.1→v5.2(删内容列)。
+    1.05 (2026-09-16) 云端「整JSON列」改造：云端表格最右新增 文件JSON 列，存放整个文件JSON
+      作为云端主体；其他列降级为本地算好传云端照写的展示/索引列，云端不再解析JSON结构。
+      上传(uploadData/writeFileToCloudWithSplit 的 数据)均追加 文件JSON 字段，超大整JSON走
+      首段整JSON+内容列分片承载；云端脚本同步升级 v5.0→v5.1。
+    1.04 (2026-09-16) 设置页参数改两列并列布局：利用宽度富余，把"软件自身/自动同步/冲突处置/
+      缓存管理"4个参数模块在滚动区内按两列(grid 2列)并排显示，减少纵向滚动。
+    1.03 (2026-09-16) 设置改造成页面内多标签：顶部新增 主页/设置 标签栏(主页左起第一个，
+      设置页右起第一个，以后可往中间加新功能页)；设置由弹窗改为独立"设置"分页区块；
+      新增 switchTab 切换函数。主页=原文件管理主界面，设置页=原同步设置弹窗内容。
+    1.02 (2026-09-16) 修复5个前端SE不一致与字段bug：
+      a. downloadCurrentFile 云端已删除分支 fileId未定义→改delId；
+      b. 智能下载"允许下载"云版本号读 result.云端版本号(原误读起点号)；
+      c. applyCloudDataToLocal 版本号后置到 saveFileData 之后，防 e+1 覆盖云版本号；
+      d. acceptCloudVersion 版本号后置到 saveFileData 之后；
+      e. saveConflictVersion 版本号后置到 saveFileData 之后。
+    1.01 (2026-09-15) 同步逻辑升级为 S/E双号+两阶段提交：文件JSON改存 起点号(s)/终点号(e)，
+      云端列改 起点号/终点号/状态，上传走 同步提交→转正确认 两阶段，批量改逐文件复用。
+    1.00 (2026-09-15) 从 思维导图网页版 文件管理器 v2.00 移植改名，作为
+      "探索新型存储方式" 项目基础版，改名存储测试，接入新云端表格。
+    2.00 (2026-09-11) 建立网页版独立版本号体系。此前只有项目名
+      "思维导图2.0", 部署到 Git 后无法判断线上是哪一版(曾因此误判
+      表头破坏来源)。本版起 标题标签 与 界面徽标 均显示版本号。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>文件管理 v6.05</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:#fff;height:100vh;display:flex;flex-direction:column;overflow:hidden;padding-bottom:40px}
+#mainUI{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.file-item{display:flex;align-items:center;justify-content:space-between;padding:5px 10px;border-radius:4px;margin-bottom:2px;background:#f8f9fa;cursor:pointer;transition:background .15s}
+.file-item:hover{background:#e8f0fe}
+.file-item .file-name{font-size:11px;color:#333;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-item .file-time{font-size:9px;color:#999;margin-left:6px;white-space:nowrap}
+.file-item .file-del{font-size:10px;color:#e74c3c;cursor:pointer;margin-left:6px;padding:1px 4px;border-radius:3px}
+.file-item .file-del:hover{background:#fef0ef}
+.file-check{display:flex;flex-shrink:0;margin:0 6px 0 0;cursor:pointer;align-items:center;pointer-events:auto}
+.file-check .chkbox{width:18px;height:18px;border:1px solid #999;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1;color:#fff;background:#fff;user-select:none}
+.file-check .chkbox .chktick{opacity:0}
+.file-check .chkbox.checked{background:#4a90d9;border-color:#4a90d9}
+.file-check .chkbox.checked .chktick{opacity:1}
+.file-item.active{background:#e8f0fe;border:1px solid #4A90D9}
+.file-item.selected{background:#d4e6f9;border:1px solid #2980b9}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 2px}
+.header h3{margin:0;font-size:14px}
+.app-ver{font-size:10px;font-weight:normal;color:#4A90D9;background:#eaf2fc;border:1px solid #cfe0f7;border-radius:8px;padding:0 6px;margin-left:4px;vertical-align:middle;white-space:nowrap}
+.header-right{display:flex;align-items:center;gap:6px;font-size:11px;color:#888}
+.btn-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center}
+.btn-row input{flex:1;min-width:120px;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px}
+.btn-row button,.btn-row2 button{padding:4px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:11px;font-family:inherit;white-space:nowrap;transition:all .15s}
+.btn-row button:hover,.btn-row2 button:hover{background:#e8f0fe;border-color:#4A90D9}
+.btn-row button.primary,.btn-row2 button.primary{background:#4A90D9;color:#fff;border-color:#4A90D9}
+.btn-row2{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.btn-row2 .spacer{flex:1}
+#fileList{flex:1;overflow-y:auto;min-height:100px}
+</style>
+</head>
+<body>
+<div id="mainUI">
+<div class="header">
+  <h3>📁 文件管理 <span id="appVersionBadge" class="app-ver" title="拼音练习 文件管理器 版本号">v6.05</span></h3>
+  <div class="header-right">
+    <span>路径:</span>
+    <span id="folderPath" style="font-weight:bold;color:#b8860b">/</span>
+    <button onclick="closeSelf()" title="关闭" style="margin-left:4px;padding:2px 6px;border:none;border-radius:4px;background:#fff;cursor:pointer;font-size:14px;color:#999;transition:all .2s" onmouseover="this.style.background='#f5f5f5';this.style.color='#e74c3c'" onmouseout="this.style.background='#fff';this.style.color='#999'">✕</button>
+  </div>
+</div>
+<div id="tab-bar" style="display:flex;border-bottom:1px solid #ddd;background:#fff;flex-shrink:0;font-size:13px">
+  <div class="app-tab active" data-tab="home" onclick="switchTab('home')" style="padding:7px 20px;cursor:pointer;border-bottom:2px solid transparent;color:#555;font-weight:bold">主页</div>
+  <div class="app-tab" data-tab="settings" onclick="switchTab('settings')" style="padding:7px 20px;cursor:pointer;border-bottom:2px solid transparent;color:#555;font-weight:bold">设置</div>
+  <div class="app-tab" data-tab="guide" onclick="switchTab('guide')" style="padding:7px 20px;cursor:pointer;border-bottom:2px solid transparent;color:#555;font-weight:bold">说明书</div>
+  <div style="flex:1;border-bottom:2px solid transparent"></div>
+</div>
+<div id="view-home" style="display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden">
+<div class="btn-row">
+  <input id="fileNameInput" type="text" placeholder="输入文件名" readonly>
+  <button onclick="showRenameDialog()">改名</button>
+  <button onclick="copyCurrentFile()">复制</button>
+</div>
+<div class="btn-row2">
+  <button onclick="batchSync(true)" id="syncBtn" style="background:#4A90D9;color:#fff;border-color:#3a7bd5">☁️ 同步</button>
+  <button onclick="refreshCloudIndex()" id="refreshBtn" style="background:#8e44ad;color:#fff;border-color:#7d3c98">🔄 刷新</button>
+  <button onclick="createFolder()" style="background:#f0c040;border-color:#d4a017;color:#333">新建文件夹</button>
+  <button onclick="openSelectedFile()" style="background:#27ae60;border-color:#1e8449;color:#fff">打开</button>
+  <button onclick="showMoveFileDialog()">移动到</button>
+  <button onclick="exportFileJSON()">导出文件</button>
+  <button onclick="exportSelectedFile()">导出内容</button>
+  <button onclick="importFileJSON()">导入文件</button>
+  <button onclick="importFile()">导入内容</button>
+  <button onclick="deleteSelectedFile()">删除</button>
+  <span class="spacer"></span>
+  <button onclick="closeSelf()">关闭</button>
+</div>
+<div id="fileList"></div>
+<div id="authBar" style="position:fixed;bottom:0;left:0;right:0;display:flex;align-items:center;gap:6px;padding:5px 10px;border-top:1px solid #ddd;background:#fff;box-shadow:0 -1px 4px rgba(0,0,0,.08);font-size:11px;z-index:100">
+  <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+    <span style="color:#999">设备:</span><input id="deviceIdInput" type="text" readonly style="width:80px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;font-size:10px;background:#f5f5f5;color:#666;font-family:monospace">
+    <span style="color:#999;margin-left:4px">用户:</span><input id="usernameInput" type="text" placeholder="用户名" style="width:70px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;font-size:11px">
+    <span style="color:#999">密码:</span><input id="passwordInput" type="text" placeholder="密码" style="width:70px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;font-size:11px">
+    <button onclick="saveAuthInfo()" style="padding:2px 8px;border:1px solid #4A90D9;border-radius:3px;background:#4A90D9;color:#fff;cursor:pointer;font-size:10px">保存</button>
+    <span id="authStatus" style="color:#999;font-size:10px"></span>
+  </div>
+  <div style="flex:1"></div>
+  <div id="statusToast" style="max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#666;text-align:right;opacity:0;transition:opacity .3s"></div>
+</div>
+</div>
+<div id="view-settings" style="display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden">
+  <div style="display:flex;flex-direction:column;flex:1;min-height:0;padding:12px 16px;overflow:hidden">
+    <div style="font-size:15px;font-weight:bold;color:#333;margin-bottom:10px">同步设置</div>
+    <div style="flex:1;min-height:0;overflow-y:auto;padding-right:6px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+
+    <!-- 第一类：软件自身参数（只读） -->
+    <div style="border:1px solid #d4e6f9;border-radius:6px;padding:8px 10px;margin-bottom:10px;background:#f0f6ff">
+      <div style="font-size:12px;font-weight:bold;color:#2c6fbb;margin-bottom:6px">🔧 软件自身参数 <span style="font-weight:normal;color:#999;font-size:10px">（写死，更换应用时改代码）</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
+        <div><label style="font-size:11px;color:#666">键名统一前缀</label><input id="syncAppPrefix" type="text" readonly title="所有localStorage键名的前缀，用于区分不同项目，更换应用时需改代码" style="width:100%;padding:3px 6px;border:1px solid #d0d0d0;border-radius:3px;font-size:11px;margin-top:2px;background:#e8e8e8;color:#888;font-family:monospace"></div>
+        <div><label style="font-size:11px;color:#666">操作目标表格</label><input id="syncSheetName" type="text" readonly title="WPS多维表格中用于存储数据的表名，更换应用时需改代码" style="width:100%;padding:3px 6px;border:1px solid #d0d0d0;border-radius:3px;font-size:11px;margin-top:2px;background:#e8e8e8;color:#888"></div>
+        <div style="grid-column:1/-1"><label style="font-size:11px;color:#666">云函数地址</label><input id="syncApiUrl" type="text" readonly title="AirScript云函数的API入口地址" style="width:100%;padding:3px 6px;border:1px solid #d0d0d0;border-radius:3px;font-size:11px;margin-top:2px;background:#e8e8e8;color:#888;font-family:monospace"></div>
+        <div style="grid-column:1/-1"><label style="font-size:11px;color:#666">脚本地址</label><input id="syncWebhookUrl" type="text" readonly title="WPS脚本的webhook地址，用于触发云端同步任务" style="width:100%;padding:3px 6px;border:1px solid #d0d0d0;border-radius:3px;font-size:11px;margin-top:2px;background:#e8e8e8;color:#888;font-family:monospace"></div>
+        <div style="grid-column:1/-1"><label style="font-size:11px;color:#666">AirScript Token</label><input id="syncToken" type="text" readonly placeholder="未设置" title="AirScript执行令牌，部分脚本需要此token才能运行" style="width:100%;padding:3px 6px;border:1px solid #d0d0d0;border-radius:3px;font-size:11px;margin-top:2px;background:#e8e8e8;color:#888;font-family:monospace"></div>
+      </div>
+    </div>
+
+    <!-- 第二类：自动同步参数 -->
+    <div style="border:1px solid #d5f5e3;border-radius:6px;padding:8px 10px;margin-bottom:10px;background:#f0faf4">
+      <div style="font-size:12px;font-weight:bold;color:#1e8449;margin-bottom:6px">🔄 自动同步参数</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
+        <div><label style="font-size:11px;color:#666">检查间隔(分)</label><input id="syncCloudCheckInterval" type="number" value="5" min="1" max="60" title="定时检查云端变化的间隔分钟数，到期自动触发同步" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px"></div>
+        <div><label style="font-size:11px;color:#666">同步差值</label><input id="syncThreshold" type="number" value="10" min="1" max="50" title="受监控文件（编辑+镜像）的累计版本差值达到此数时触发同步" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px"></div>
+        <div><label style="font-size:11px;color:#666">差值同步间隔(秒)</label><input id="syncDeltaInterval" type="number" value="5" min="1" max="60" title="差值触发同步后，至少等待多少秒才能再次差值触发" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px"></div>
+        <div><label style="font-size:11px;color:#666">重试次数</label><input id="syncRetryCount" type="number" value="5" min="1" max="10" title="同步请求失败后的最大重试次数" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px"></div>
+        <div><label style="font-size:11px;color:#666">重试间隔(秒)</label><input id="syncRetryInterval" type="number" value="2" min="1" max="10" title="每次重试之间等待的秒数" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px"></div>
+        <div><label style="font-size:11px;color:#666">任务间隔(秒)</label><input id="syncTaskInterval" type="number" value="0" min="0" max="30" title="两次同步任务之间的最小间隔秒数，0表示不限制" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px"></div>
+        <div><label style="font-size:11px;color:#666">镜像文件前缀</label><input id="syncMirrorPrefix" type="text" value="★" title="文件名以此前缀开头的自动识别为镜像文件，受监控并享受特殊同步策略（与项目约定俗成）" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px"></div>
+        <div style="display:flex;align-items:center;gap:6px;grid-column:1/-1;margin-top:2px"><input id="syncEnabled" type="checkbox" checked><label for="syncEnabled" style="margin:0;font-size:11px;color:#666">启用云同步</label></div>
+        <div style="display:flex;align-items:center;gap:6px;grid-column:1/-1;margin-top:2px"><input id="syncAutoRefreshOnOpen" type="checkbox" checked><label for="syncAutoRefreshOnOpen" style="margin:0;font-size:11px;color:#666">打开时自动刷新</label></div>
+        <div style="display:flex;align-items:center;gap:6px;grid-column:1/-1;margin-top:2px"><input id="syncAutoRefreshAfterAction" type="checkbox" checked><label for="syncAutoRefreshAfterAction" style="margin:0;font-size:11px;color:#666">动作后自动刷新（重命名/移动/复制/删除后刷新云端索引）</label></div>
+      </div>
+    </div>
+
+    <!-- 第三类：冲突处置参数 -->
+    <div style="border:1px solid #f5cba7;border-radius:6px;padding:8px 10px;margin-bottom:10px;background:#fef5ee">
+      <div style="font-size:12px;font-weight:bold;color:#ca6f1e;margin-bottom:6px">⚔️ 冲突处置参数</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
+        <div style="grid-column:1/-1"><label style="font-size:11px;color:#666">冲突处置模式</label><select id="syncConflictMode" title="人工精细：每次冲突弹窗选择；暴力：版本号大的自动覆盖；半自动：根据阈值和丢步容忍度自动判断" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px"><option value="manual">人工精细处理（默认）</option><option value="violent">暴力处理（谁大覆盖谁）</option><option value="semi_auto">半自动模式</option></select></div>
+        <div><label style="font-size:11px;color:#666">半自动-差异阈值</label><input id="syncSemiAutoThreshold" type="number" value="100" min="1" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px" title="差异大于此值暴力覆盖"></div>
+        <div><label style="font-size:11px;color:#666">半自动-下载丢步容忍</label><input id="syncSemiAutoDownloadLoss" type="number" value="4" min="0" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px" title="下载时本地丢步小于此值自动同意"></div>
+        <div><label style="font-size:11px;color:#666">半自动-上传丢步容忍</label><input id="syncSemiAutoUploadLoss" type="number" value="4" min="0" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px" title="上传时云端丢步小于此值自动同意"></div>
+      </div>
+    </div>
+
+    <!-- 第四类：缓存管理 -->
+    <div style="border:1px solid #d2b4de;border-radius:6px;padding:8px 10px;margin-bottom:10px;background:#f5eef8">
+      <div style="font-size:12px;font-weight:bold;color:#7d3c98;margin-bottom:6px">💾 缓存管理</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px">
+        <div><label style="font-size:11px;color:#666">缓存上限(%)</label><input id="syncCacheMaxUsage" type="number" value="70" min="30" max="95" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px" title="本地存储使用量超过此比例时自动清理老文件"></div>
+        <div><label style="font-size:11px;color:#666">不缓存阈值(字符)</label><input id="syncCacheMaxFileChars" type="number" value="1000000" min="100000" style="width:100%;padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:11px;margin-top:2px" title="单个文件超过此字符数不缓存本地"></div>
+      </div>
+    </div>
+
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+      <button onclick="closeSyncSettings()" style="padding:6px 18px;border-radius:5px;border:1px solid #ccc;background:#fff;cursor:pointer;font-family:inherit;font-size:13px">取消</button>
+      <button onclick="saveSyncSettings()" style="padding:6px 18px;border-radius:5px;border:1px solid #4A90D9;background:#4A90D9;color:#fff;cursor:pointer;font-family:inherit;font-size:13px">保存</button>
+    </div>
+    </div>
+    </div>
+  </div>
+</div>
+
+<div id="view-guide" style="display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden">
+  <iframe id="guideFrame" src="文件管理说明书6.0.HTML" style="width:100%;height:100%;border:none;background:#fff"></iframe>
+</div>
+
+<div id="sync-conflict-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);z-index:200;justify-content:center;align-items:center">
+  <div style="background:#fff;border-radius:10px;padding:20px;width:380px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,.2)">
+    <h3>⚠️ 版本冲突</h3>
+    <p id="conflictDesc" style="font-size:13px;color:#666;margin:10px 0">版本不一致</p>
+    <div style="background:#f5f5f5;padding:10px;border-radius:4px;font-size:12px;margin:10px 0">
+      <div>本地版本：<span id="localVersion">-</span></div>
+      <div>云端版本：<span id="cloudVersion">-</span></div>
+      <div>共同号：<span id="syncVersion">-</span> <span style="color:#999;font-size:10px">(上次同步一致版本)</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:16px" id="conflictBtns">
+      <button style="padding:8px 18px;border:none;border-radius:5px;border:1px solid #4A90D9;background:#4A90D9;color:#fff;cursor:pointer;font-size:13px" onclick="acceptCloudVersion()">使用云端版本（覆盖本地）</button>
+      <button onclick="saveConflictVersion()" style="padding:8px 18px;border-radius:5px;border:1px solid #ccc;background:#fff;cursor:pointer;font-size:13px">建立冲突版本</button>
+      <button id="btnOverwriteCloud" onclick="overwriteCloudWithLocal()" style="padding:8px 18px;border-radius:5px;border:1px solid #ccc;background:#fff;cursor:pointer;font-size:13px">用本地覆盖云端</button>
+      <button id="btnDeleteCloud" onclick="deleteCloudVersion()" style="padding:8px 18px;border-radius:5px;border:1px solid #e74c3c;background:#fff;color:#e74c3c;cursor:pointer;font-size:13px;display:none">删除云端版本（等上传阶段再占领）</button>
+      <button onclick="closeSyncConflict()" style="padding:8px 18px;border-radius:5px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;font-size:13px">稍后处理</button>
+    </div>
+    <div id="conflictCountdown" style="text-align:center;margin-top:10px;font-size:12px;color:#e67e22;display:none"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 通用文件同步管理器 v1.0
+// 遵循《通用文件同步管理器-文件协议规范v1.0》
+// ============================================================
+
+const PRIMARY_API_URLS=['https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com'];
+const FALLBACK_API_URLS=[];
+const MAX_CLOUD_CHARS=30000;
+
+// APP_PREFIX：应用唯一前缀，不同应用必须使用不同前缀
+// 可通过同步设置修改，也可通过 postMessage('initConfig') 初始化
+let APP_PREFIX='PINYINLIANXI';
+
+// 设备标识：用于云端抢锁，每个浏览器实例唯一
+let DEVICE_ID=(()=>{
+  let id=localStorage.getItem(K('device_id'));
+  if(!id){id='D'+Date.now().toString(36)+Math.random().toString(36).substr(2,4);localStorage.setItem(K('device_id'),id);}
+  return id;
+})();
+
+// 用户认证信息：用户名+密码，持久化到localStorage
+let AUTH_USERNAME=(()=>{return localStorage.getItem(K('auth_user'))||'';})();
+let AUTH_PASSWORD=(()=>{return localStorage.getItem(K('auth_pass'))||'';})();
+
+function saveAuthInfo(){
+  const u=document.getElementById('usernameInput').value.trim();
+  const p=document.getElementById('passwordInput').value.trim();
+  if(!u||!p){toast('用户名和密码不能为空','warn');return}
+  AUTH_USERNAME=u;AUTH_PASSWORD=p;
+  localStorage.setItem(K('auth_user'),u);
+  localStorage.setItem(K('auth_pass'),p);
+  document.getElementById('authStatus').textContent='已保存';
+  document.getElementById('authStatus').style.color='#27ae60';
+  setTimeout(()=>{document.getElementById('authStatus').textContent=''},2000);
+}
+
+function initAuthBar(){
+  document.getElementById('deviceIdInput').value=DEVICE_ID;
+  document.getElementById('usernameInput').value=AUTH_USERNAME;
+  document.getElementById('passwordInput').value=AUTH_PASSWORD;
+}
+
+// 存储键名生成函数：所有 localStorage 键通过此函数生成
+function K(suffix){return APP_PREFIX+'_'+suffix}
+
+const DEFAULT_SYNC_CONFIG={enabled:true,apiUrl:PRIMARY_API_URLS[0],webhookUrl:'https://www.kdocs.cn/api/v3/ide/file/519302387327/script/V2-6t4db1ZSsEPesqKsD7aj3/sync_task',token:'',cloudCheckInterval:5,syncThreshold:10,syncDeltaInterval:5,sheetName:'拼音练习',retryCount:5,retryInterval:2,conflictMode:'manual',semiAutoThreshold:100,semiAutoDownloadLoss:4,semiAutoUploadLoss:4,taskInterval:0,appPrefix:'PINYINLIANXI',cacheMaxUsage:0.7,cacheMaxFileChars:1000000,mirrorPrefix:'★',autoRefreshOnOpen:true,autoRefreshAfterAction:true};
+
+let syncConfig=null;
+let cloudFileCache=new Map();
+let currentFolder='';
+let currentFileName='';
+let currentFileContent='';
+let selectedFileId='';
+let selectedFileName='';
+let selectedFolderId='';  // 选中的文件夹ID（FOLDER_xxx），用于移动/打开文件夹
+let selectedBatchSet=new Set();  // 批量多选集（存文件/文件夹ID字符串）
+let syncMutex=false;
+let syncQueue=[];
+let conflictResolver=null;
+let pendingCloudVersion=null;
+let conflictContext='';
+let lastSyncTime=0;
+let _networkTime=null;
+let _networkTimeFetched=0;
+let autoSyncTimer=null;
+let autoSyncCheckTimer=null;
+let lastDeltaSyncTime=0;
+
+// ========== 文件标志系统（同步逻辑2.1） ==========
+// editingFileId: 当前正在编辑的文件ID（内存，不持久化，只能有一个）
+// mirrorFileIds: 镜像文件ID集合（内存，不持久化，文件名前缀★判断）
+// 普通文件: 无特殊标志
+let editingFileId=null;
+let mirrorFileIds=new Set();
+
+function isMirrorFile(name){if(!name)return false;const prefix=(getSyncConfig().mirrorPrefix||'★');return name.startsWith(prefix)}
+function refreshMirrorFileIds(){mirrorFileIds.clear();const idx=getFileIndex();for(const f of idx){if(isMirrorFile(f.name))mirrorFileIds.add(f.id)}}
+
+function syncCurrentFileFromLocal(){
+  const name=localStorage.getItem(K('current_file'))||'';
+  if(!name)return;
+  currentFileName=name;
+  const meta=getFileMeta(name);
+  if(meta&&meta.id){
+    const fd=loadFileDataById(meta.id);
+    if(fd&&fd.data)currentFileContent=fd.data;
+  }
+  if(!currentFileContent){
+    const fd=loadFileData(name);
+    if(fd&&fd.data)currentFileContent=fd.data;
+  }
+}
+
+function formatBeijingTime(ts){
+  const d=new Date(ts||Date.now());
+  const pad=n=>String(n).padStart(2,'0');
+  const fmt=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+  const parts={};fmt.formatToParts(d).forEach(p=>parts[p.type]=p.value);
+  return parts.year+'-'+parts.month+'-'+parts.day+' '+parts.hour+':'+parts.minute+':'+parts.second;
+}
+
+function getLastEditTime(){
+  return localStorage.getItem(K('last_edit_time'))||'';
+}
+
+function notifyParent(type,data){
+  if(window.parent&&window.parent!==window){
+    window.parent.postMessage({type,...data},'*');
+  }
+}
+
+// 结构化同步三态推送（v6.03）：state='syncing'|'done'|'error'，detail 为文本或统计对象
+function notifyParentSyncState(state,detail){
+  notifyParent('syncState',{state,detail});
+}
+
+function closeSelf(){
+  notifyParent('closeFileManager',{});
+}
+
+function genFileId(){return Math.floor(1000000000+Math.random()*9000000000).toString()}
+function countChars(str){return [...(str||'')].length}
+
+// 整JSON拆分：超过30000字符时按整JSON字符串长度切分为多段（每段为一个JSON片段行）
+function splitCloudJson(wholeJson,baseId){
+  const totalLen=wholeJson.length;
+  if(totalLen<=MAX_CLOUD_CHARS)return null; // 无需拆分
+  const totalParts=Math.ceil(totalLen/MAX_CLOUD_CHARS);
+  const parts=[];
+  for(let i=0;i<totalParts;i++){
+    const start=i*MAX_CLOUD_CHARS;
+    const end=Math.min(start+MAX_CLOUD_CHARS,totalLen);
+    const partJson=wholeJson.slice(start,end);
+    const partId=i===0?baseId:baseId+'-'+(i+1);
+    const charCountStr=totalLen+'-'+(i+1)+'/'+totalParts;
+    parts.push({id:partId,json:partJson,charCountStr});
+  }
+  return parts;
+}
+
+// 从云端行整JSON列提取内容（无分片，单行文件JSON为完整JSON）
+function extractCloudContent(file){
+  try{const p=JSON.parse((file&&file['文件JSON'])||'');return p&&p.内容?p.内容:''}catch(e){return ''}
+}
+
+// 合并云端分片行的文件JSON列，还原完整内容（分片时各段文件JSON=整JSON片段）
+function joinCloudFragmentsContent(fragments){
+  const sorted=[...fragments].sort((a,b)=>{const pa=parseCharCountStr(a['内容字符数']);const pb=parseCharCountStr(b['内容字符数']);return(pa?pa.part:1)-(pb?pb.part:1)});
+  let json='';for(const frag of sorted)json+=frag['文件JSON']||frag['内容']||'';
+  try{const p=JSON.parse(json);return p.内容||''}catch(e){return ''}
+}
+
+// 解析字符数字段，返回{total,part,totalParts}或null
+function parseCharCountStr(str){
+  if(!str)return null;
+  const m=String(str).match(/^(\d+)-(\d+)\/(\d+)$/);
+  if(!m)return null;
+  return{total:parseInt(m[1]),part:parseInt(m[2]),totalParts:parseInt(m[3])};
+}
+
+// 查找云端所有拆分片段（包括主ID和后缀ID）
+async function findCloudFragments(baseId){
+  const fragments=[];
+  // 查找主ID
+  const mainResult=await findFileInCloudById(baseId);
+  if(mainResult.file)fragments.push(mainResult.file);
+  // 查找后缀ID -2, -3, ... 最多查到-20防止无限
+  for(let i=2;i<=20;i++){
+    const suffixId=baseId+'-'+i;
+    const result=await findFileInCloudById(suffixId);
+    if(!result.file)break; // 连续编号，断了就停
+    fragments.push(result.file);
+  }
+  return fragments;
+}
+
+// 合并云端拆分片段为完整内容
+async function mergeCloudFragments(baseId,mainFile){
+  const mainParsed=parseCharCountStr(mainFile.内容字符数);
+  if(!mainParsed||mainParsed.totalParts<=1)return extractCloudContent(mainFile); // 无需合并：单行整JSON直接解析
+  // 检查版本一致性（正牌文件 起点号==终点号）
+  const mainVer=parseInt(mainFile.起点号||'0');
+  const fragments=await findCloudFragments(baseId);
+  // 按part编号排序
+  const sorted=[];
+  for(const f of fragments){
+    const p=parseCharCountStr(f.内容字符数);
+    if(!p||p.total!==mainParsed.total||parseInt(f.起点号||'0')!==mainVer){
+      return{error:'片段版本不一致或格式异常，无法合并',partial:true};
+    }
+    sorted.push({part:p.part,json:f['文件JSON']||''});
+  }
+  sorted.sort((a,b)=>a.part-b.part);
+  if(sorted.length<mainParsed.totalParts){
+    return{error:'片段未到齐('+sorted.length+'/'+mainParsed.totalParts+')，无法合并',partial:true};
+  }
+  const fullJson=sorted.map(s=>s.json).join('');
+  try{const p=JSON.parse(fullJson);return p.内容||''}catch(e){return{error:'合并后JSON解析失败，无法还原内容',partial:true}}
+}
+
+// 删除云端多余的拆分片段（上轮残留）
+async function cleanupCloudFragments(baseId,keepPartCount){
+  let cleaned=0;
+  for(let i=keepPartCount+1;i<=20;i++){
+    const suffixId=baseId+'-'+i;
+    const result=await findFileInCloudById(suffixId);
+    if(!result.file)break;
+    // 云端"删除行"只需ID参数，会自己遍历表格找匹配行删除
+    const delResult=await callCloudAPI('删除行',{ID:suffixId});
+    if(delResult.status==='success')cleaned++;
+  }
+  return cleaned;
+}
+
+// 将文件内容写入云端（自动处理拆分）
+// 统一用ID模式：已有行云端自己findRowById定位，新建用本地新文件标识
+async function writeFileToCloudWithSplit({baseId,baseRow,fileName,content,version,folder,owner,createTime,lastUploadTime,lastEditTime}){
+  const totalChars=countChars(content);
+  // 云端主体：整个文件JSON（含内容、S/E、文件名、路径、拥有者、时间戳等全部信息），内容列不再写入
+  const wholeJson=JSON.stringify({id:baseId,name:fileName,内容:content,起点号:version,终点号:version,拥有者:owner||'',文件夹路径:folder||'',创建日期:createTime||'',最后编辑时间:lastEditTime||'',内容字符数:totalChars});
+  const parts=splitCloudJson(wholeJson,baseId);
+  if(!parts){
+    // 无需拆分，单条写入整JSON
+    const result=await callCloudAPI('批量写入',{
+      ID:baseId,
+      本地新文件标识:'true',
+      数据:{ID:baseId,文件名:fileName,起点号:version.toString(),终点号:version.toString(),拥有者:owner||'',文件夹路径:folder||'',内容字符数:String(totalChars),创建日期:createTime||'',最后上传发起时间:lastUploadTime||'',最后编辑时间:lastEditTime||'',文件JSON:wholeJson}
+    });
+    if(result.status!=='success')return{success:false,result};
+    // 清理可能的上轮残留片段
+    await cleanupCloudFragments(baseId,1);
+    return{success:true,result,partCount:1};
+  }
+  // 需要拆分：整JSON按字符流切片，逐段写入（统一ID模式，内容列不再写入）
+  for(let i=0;i<parts.length;i++){
+    const p=parts[i];
+    const result=await callCloudAPI('批量写入',{
+      ID:p.id,
+      本地新文件标识:'true',
+      数据:{ID:p.id,文件名:fileName,起点号:version.toString(),终点号:version.toString(),拥有者:owner||'',文件夹路径:folder||'',内容字符数:p.charCountStr,创建日期:createTime||'',最后上传发起时间:lastUploadTime||'',最后编辑时间:lastEditTime||'',文件JSON:p.json}
+    });
+    if(result.status!=='success')return{success:false,result,failedPart:i+1};
+  }
+  // 清理上轮多余片段
+  await cleanupCloudFragments(baseId,parts.length);
+  return{success:true,partCount:parts.length};
+}
+
+function getSyncConfig(){
+  if(!syncConfig){
+    try{const saved=localStorage.getItem(K('sync_config'));syncConfig=saved?JSON.parse(saved):{...DEFAULT_SYNC_CONFIG}}
+    catch(e){syncConfig={...DEFAULT_SYNC_CONFIG}}
+  }
+  // 以下字段写死，不读取本地存储（输入框仅供观赏复制）
+  syncConfig.sheetName=DEFAULT_SYNC_CONFIG.sheetName;
+  syncConfig.webhookUrl=DEFAULT_SYNC_CONFIG.webhookUrl;
+  syncConfig.token=DEFAULT_SYNC_CONFIG.token;
+  syncConfig.apiUrl=DEFAULT_SYNC_CONFIG.apiUrl;
+  // 应用 APP_PREFIX
+  if(syncConfig.appPrefix&&syncConfig.appPrefix!==APP_PREFIX){
+    APP_PREFIX=syncConfig.appPrefix;
+  }
+  if(syncConfig.syncDeltaInterval===undefined){syncConfig.syncDeltaInterval=DEFAULT_SYNC_CONFIG.syncDeltaInterval;saveSyncConfig(syncConfig)}
+  if(syncConfig.syncThreshold===undefined||syncConfig.syncThreshold<1){syncConfig.syncThreshold=DEFAULT_SYNC_CONFIG.syncThreshold;saveSyncConfig(syncConfig)}
+  if(syncConfig.conflictMode===undefined){syncConfig.conflictMode=DEFAULT_SYNC_CONFIG.conflictMode;saveSyncConfig(syncConfig)}
+  if(syncConfig.semiAutoThreshold===undefined){syncConfig.semiAutoThreshold=DEFAULT_SYNC_CONFIG.semiAutoThreshold;saveSyncConfig(syncConfig)}
+  if(syncConfig.semiAutoDownloadLoss===undefined){syncConfig.semiAutoDownloadLoss=DEFAULT_SYNC_CONFIG.semiAutoDownloadLoss;saveSyncConfig(syncConfig)}
+  if(syncConfig.semiAutoUploadLoss===undefined){syncConfig.semiAutoUploadLoss=DEFAULT_SYNC_CONFIG.semiAutoUploadLoss;saveSyncConfig(syncConfig)}
+  if(syncConfig.taskInterval===undefined){syncConfig.taskInterval=DEFAULT_SYNC_CONFIG.taskInterval;saveSyncConfig(syncConfig)}
+  if(syncConfig.appPrefix===undefined){syncConfig.appPrefix=DEFAULT_SYNC_CONFIG.appPrefix;saveSyncConfig(syncConfig)}
+  if(syncConfig.sheetName===undefined){syncConfig.sheetName='';saveSyncConfig(syncConfig)}
+  return syncConfig;
+}
+
+function saveSyncConfig(config){syncConfig=config;APP_PREFIX=config.appPrefix||APP_PREFIX;try{localStorage.setItem(K('sync_config'),JSON.stringify(config))}catch(e){}}
+
+function getFileIndex(){try{return JSON.parse(localStorage.getItem(K('file_index'))||'[]')}catch(e){return[]}}
+function setFileIndex(idx){
+  // 去重：同名只保留最后一条
+  const seen=new Map();
+  for(let i=idx.length-1;i>=0;i--){
+    const key=idx[i].name;
+    if(!seen.has(key))seen.set(key,i);
+  }
+  const deduped=[];
+  const added=new Set();
+  for(let i=0;i<idx.length;i++){
+    const key=idx[i].name;
+    if(seen.get(key)===i&&!added.has(key)){
+      deduped.push(idx[i]);
+      added.add(key);
+    }
+  }
+  try{localStorage.setItem(K('file_index'),JSON.stringify(deduped))}catch(e){}
+  refreshMirrorFileIds();
+}
+
+function getFileMeta(name){
+  try{
+    const idx=getFileIndex();
+    const f=idx.find(x=>x.name===name);
+    if(!f){
+      const netTime=Date.now();
+      const newEntry={name,id:genFileId(),s:0,e:0,isNewFile:true,folder:currentFolder||'',owner:'',createTime:formatBeijingTime(netTime),lastUploadTime:'',lastEditTime:'',contentLength:0};
+      idx.push(newEntry);
+      setFileIndex(idx);
+      return newEntry;
+    }
+    if(!f.id){f.id=genFileId();f.isNewFile=true}
+    // 旧数据迁移：version→e, lastSyncVersion→s
+    if(f.e===undefined&&f.version!==undefined){f.e=f.version;delete f.version}
+    if(f.s===undefined&&f.lastSyncVersion!==undefined){f.s=f.lastSyncVersion;delete f.lastSyncVersion}
+    if(f.s===undefined&&f.e===undefined){f.s=0;f.e=0;setFileIndex(idx)}
+    if(f.owner===undefined){f.owner='';setFileIndex(idx)}
+    if(f.createTime===undefined){f.createTime=formatBeijingTime(f.time||Date.now());setFileIndex(idx)}
+    if(f.lastUploadTime===undefined){f.lastUploadTime='';setFileIndex(idx)}
+    if(f.lastEditTime===undefined){f.lastEditTime='';setFileIndex(idx)}
+    if(f.contentLength===undefined){f.contentLength=0;setFileIndex(idx)}
+    return f;
+  }catch(e){return{name,id:genFileId(),s:0,e:0,isNewFile:true,owner:'',createTime:formatBeijingTime(Date.now()),lastUploadTime:'',lastEditTime:'',contentLength:0}}
+}
+
+function getFileVersion(name){const meta=getFileMeta(name||currentFileName);return meta.e||0}
+function setFileVersion(name,ver){const idx=getFileIndex();const f=idx.find(x=>x.name===name);if(f){f.e=ver;setFileIndex(idx)}}
+function getLastSyncVersion(name){const meta=getFileMeta(name||currentFileName);return meta.s||0}
+function setLastSyncVersion(name,ver){const idx=getFileIndex();const f=idx.find(x=>x.name===name);if(f){f.s=ver;setFileIndex(idx)}}
+function clearNewFileFlag(id){const idx=getFileIndex();const f=idx.find(x=>x.id===id);if(f&&f.isNewFile){f.isNewFile=false;setFileIndex(idx);const o=_readFileObjSync(id);if(o)_persistFileObj(id,o)}}
+
+function hasLocalEdits(name){const meta=getFileMeta(name||currentFileName);return(meta.e||0)!==(meta.s||0)}
+
+function getLastSyncTime(){try{return parseInt(localStorage.getItem(K('last_sync_time'))||'0')}catch(e){return 0}}
+function setLastSyncTime(t){lastSyncTime=t;try{localStorage.setItem(K('last_sync_time'),t.toString())}catch(e){}}
+
+// 同步抢占锁：基于localStorage，防止多实例同时触发同步
+// 原理：同步前先尝试把当前时间写入锁，写入后再读回来比较，如果读到的值与自己写入的一致则抢锁成功
+// 锁有效期30秒，超时自动释放（防止页面崩溃导致死锁）
+const SYNC_LOCK_TTL=30000;
+function tryAcquireSyncLock(){
+  try{
+    const now=Date.now();
+    const lockKey=K('sync_lock');
+    // 检查是否有未过期的锁
+    const existing=parseInt(localStorage.getItem(lockKey)||'0');
+    if(existing&&now-existing<SYNC_LOCK_TTL)return false; // 别人持有锁
+    // 尝试抢锁：写入自己的时间戳
+    localStorage.setItem(lockKey,now.toString());
+    // 双重检查：读回来确认是自己抢到的（防止两个页面同时写入）
+    const readBack=parseInt(localStorage.getItem(lockKey)||'0');
+    return readBack===now;
+  }catch(e){return true} // localStorage异常时放行
+}
+function releaseSyncLock(){try{localStorage.removeItem(K('sync_lock'))}catch(e){}}
+
+// ============================================================
+// 分层本地存储（v6.04）
+//   核心区：软件自身运行必需的数据（索引/配置/认证/当前文件等）→ localStorage（由本文件其它部分管理）
+//   星标区：宿主标记为星标的文件内容 → localStorage（常年落盘，不参与淘汰）
+//   普通区：其余已上云的普通文件内容 → IndexedDB（容量大，少吃 localStorage 配额）
+//   未上云的新文件(isNewFile) 暂存 localStorage，上云后自动迁入 IndexedDB
+//   运行时设内存镜像 MEM，保证 loadFileData* 仍可同步读取；启动时预加载 IndexedDB
+// ============================================================
+const IDB_STORE='files';
+let _idb=null,_idbOpening=null;
+const MEM={};
+const MEM_LOADING=new Set();
+
+function _idbName(){return (APP_PREFIX||'storagetest')+'_fm'}
+function _idbOpen(){
+  if(_idb)return Promise.resolve(_idb);
+  if(_idbOpening)return _idbOpening;
+  _idbOpening=new Promise(resolve=>{
+    try{
+      if(!window.indexedDB){resolve(null);return}
+      const req=indexedDB.open(_idbName(),1);
+      req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(IDB_STORE))db.createObjectStore(IDB_STORE)};
+      req.onsuccess=()=>{_idb=req.result;resolve(_idb)};
+      req.onerror=()=>resolve(null);
+    }catch(e){resolve(null)}
+  });
+  return _idbOpening;
+}
+function _idbGet(id){return _idbOpen().then(db=>new Promise(resolve=>{
+  if(!db){resolve(null);return}
+  try{const rq=db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(id);
+    rq.onsuccess=()=>resolve(rq.result||null);rq.onerror=()=>resolve(null);
+  }catch(e){resolve(null)}
+}))}
+function _idbPut(id,obj){return _idbOpen().then(db=>new Promise(resolve=>{
+  if(!db){resolve(false);return}
+  try{const tx=db.transaction(IDB_STORE,'readwrite');tx.objectStore(IDB_STORE).put(obj,id);
+    tx.oncomplete=()=>resolve(true);tx.onerror=()=>resolve(false);
+  }catch(e){resolve(false)}
+}))}
+function _idbDel(id){return _idbOpen().then(db=>new Promise(resolve=>{
+  if(!db){resolve(false);return}
+  try{const tx=db.transaction(IDB_STORE,'readwrite');tx.objectStore(IDB_STORE).delete(id);
+    tx.oncomplete=()=>resolve(true);tx.onerror=()=>resolve(false);
+  }catch(e){resolve(false)}
+}))}
+function _idbKeys(){return _idbOpen().then(db=>new Promise(resolve=>{
+  if(!db){resolve([]);return}
+  try{const rq=db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).getAllKeys();
+    rq.onsuccess=()=>resolve(rq.result||[]);rq.onerror=()=>resolve([]);
+  }catch(e){resolve([])}
+}))}
+function _idbClear(){return _idbOpen().then(db=>new Promise(resolve=>{
+  if(!db){resolve(false);return}
+  try{const tx=db.transaction(IDB_STORE,'readwrite');tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete=()=>resolve(true);tx.onerror=()=>resolve(false);
+  }catch(e){resolve(false)}
+}))}
+
+function _metaById(id){try{return getFileIndex().find(x=>x.id===id)||null}catch(e){return null}}
+
+// 星标：宿主标记的重要文件，内容常年落盘 localStorage、不参与淘汰
+function isStarred(id){const f=_metaById(id);return !!(f&&f.star)}
+function setStarred(id,val){
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.id===id);
+  if(!f)return false;
+  f.star=!!val;
+  setFileIndex(idx);
+  const o=_readFileObjSync(id);
+  if(o)_persistFileObj(id,o);   // 立即按新的分层规则迁移落地
+  return true;
+}
+
+// 分层判定
+function _tierOf(id){
+  const f=_metaById(id);
+  if(!f)return 'idb';
+  if(f.star)return 'local';
+  if(f.isNewFile)return 'local';
+  return 'idb';
+}
+
+// 同步读取文件对象：localStorage 优先，其次内存镜像
+function _readFileObjSync(id){
+  try{const raw=localStorage.getItem(K('file_id_')+id);if(raw){const o=JSON.parse(raw);MEM[id]=o;return o}}catch(e){}
+  return MEM[id]||null;
+}
+
+// 按分层规则持久化
+function _persistFileObj(id,obj){
+  if(!id||!obj)return;
+  if(_tierOf(id)==='local'){
+    try{localStorage.setItem(K('file_id_')+id,JSON.stringify(obj))}catch(e){toast('存储空间不足')}
+    _idbDel(id);
+  }else{
+    _idbPut(id,obj).then(ok=>{
+      // 仅当 IndexedDB 写入成功才移除 localStorage 副本；失败则保留兜底，避免丢数据
+      if(ok){try{localStorage.removeItem(K('file_id_')+id)}catch(e){}}
+    });
+  }
+}
+
+// 便捷写入/删除/迁移
+function _saveFileObj(id,data,view){const o={data:data,view:view||null};MEM[id]=o;_persistFileObj(id,o);return o}
+function _removeFileObj(id){try{localStorage.removeItem(K('file_id_')+id)}catch(e){}delete MEM[id];_idbDel(id)}
+function _moveFileObj(oldId,newId){if(!oldId||!newId||oldId===newId)return;const o=_readFileObjSync(oldId);if(o){MEM[newId]=o;_persistFileObj(newId,o)}_removeFileObj(oldId)}
+
+// 预热单个文件内容（IndexedDB → 内存镜像）；同步流程读内容前可 await 它
+function ensureFileData(id){
+  if(!id)return Promise.resolve(null);
+  const o=_readFileObjSync(id);
+  if(o)return Promise.resolve(o);
+  return _idbGet(id).then(obj=>{if(obj)MEM[id]=obj;return obj||null});
+}
+
+// 启动预加载：把 IndexedDB 全部普通文件读入内存镜像
+async function preloadFileCacheFromIdb(){
+  try{
+    const keys=await _idbKeys();
+    for(const k of keys){
+      if(MEM[k])continue;
+      const obj=await _idbGet(k);
+      if(obj)MEM[k]=obj;
+    }
+  }catch(e){}
+}
+
+function saveFileData(name,data){
+  const idx=getFileIndex();
+  const existing=idx.find(f=>f.name===name);
+  let fileId;
+  if(existing){
+    const oldObj=_readFileObjSync(existing.id)||{};
+    const oldData=oldObj.data||'';
+    if(oldData!==data){existing.e=(existing.e||0)+1}
+    existing.time=Date.now();
+    existing.lastEditTime=formatBeijingTime(Date.now());
+    existing.contentLength=countChars(data);
+    if(!existing.id){existing.id=genFileId();existing.isNewFile=true}
+    if(existing.e===undefined)existing.e=0;
+    if(existing.s===undefined)existing.s=0;
+    if(existing.owner===undefined)existing.owner='';
+    if(existing.createTime===undefined)existing.createTime=formatBeijingTime(existing.time);
+    if(existing.lastUploadTime===undefined)existing.lastUploadTime='';
+    fileId=existing.id;
+  }else{
+    fileId=genFileId();
+    const netTime=Date.now();
+    idx.push({name:name,time:netTime,id:fileId,e:1,s:0,isNewFile:true,folder:currentFolder||'',owner:'',createTime:formatBeijingTime(netTime),lastUploadTime:'',lastEditTime:formatBeijingTime(netTime),contentLength:countChars(data)});
+  }
+  setFileIndex(idx);
+  const oldView=(MEM[fileId]&&MEM[fileId].view)||(_readFileObjSync(fileId)||{}).view||null;
+  _saveFileObj(fileId,data,oldView);
+  return fileId;
+}
+
+function loadFileData(name){
+  try{
+    const f=getFileIndex().find(x=>x.name===name);
+    if(!f||!f.id)return null;
+    const o=_readFileObjSync(f.id);
+    if(o)return o;
+    ensureFileData(f.id);   // 后台预热，下次同步命中
+    return null;
+  }catch(e){return null}
+}
+
+function loadFileDataById(id){
+  try{
+    if(!id)return null;
+    const o=_readFileObjSync(id);
+    if(o)return o;
+    ensureFileData(id);     // 后台预热
+    return null;
+  }catch(e){return null}
+}
+
+function deleteFileDataById(id){
+  if(!id)return;
+  const idx=getFileIndex();
+  _removeFileObj(id);
+  const newIdx=idx.filter(x=>x.id!==id);
+  setFileIndex(newIdx);
+}
+
+// 自动删除本地文件（云端已删除时调用，无确认弹窗）
+function deleteFileFromLocal(id){
+  if(!id)return;
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.id===id);
+  const name=f?f.name:'';
+  deleteFileDataById(id);
+  if(currentFileName===name){
+    currentFileName='';
+    currentFileContent='';
+    notifyParent('fileDeleted',{name});
+  }
+  renderFileList();
+}
+
+function deleteFileData(name){
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.name===name);
+  if(f&&f.id)_removeFileObj(f.id);
+  const newIdx=idx.filter(x=>x.name!==name);
+  setFileIndex(newIdx);
+}
+
+function syncLocalFileName(localFile,cloudFileName){
+  if(!cloudFileName||cloudFileName===localFile.name)return false;
+  const oldName=localFile.name;
+  const fd=loadFileData(oldName);
+  if(fd&&localFile.id){_saveFileObj(localFile.id,fd.data,fd.view)}
+  localFile.name=cloudFileName;
+  if(oldName===currentFileName){
+    currentFileName=cloudFileName;
+  }
+  return true;
+}
+
+function _applyServerDate(dateStr){
+  if(!dateStr)return false;
+  try{
+    const t=new Date(dateStr).getTime();
+    if(!isNaN(t)&&t>1600000000000){_networkTime=t;_networkTimeFetched=Date.now();return true}
+  }catch(e){}
+  return false;
+}
+
+async function getNetworkTime(){
+  const now=Date.now();
+  if(_networkTime&&now-_networkTimeFetched<300000)return _networkTime+(now-_networkTimeFetched);
+  const tryUrls=[
+    'https://worldtimeapi.org/api/timezone/Etc/UTC',
+    'https://timeapi.io/api/time/current/zone?timeZone=UTC',
+    'https://timeapi.io/api/Time/current/zone?timeZone=UTC'
+  ];
+  for(const url of tryUrls){
+    try{
+      const ctrl=new AbortController();
+      const tid=setTimeout(()=>ctrl.abort(),4000);
+      const res=await fetch(url,{signal:ctrl.signal});
+      clearTimeout(tid);
+      const dateHeader=res.headers.get('Date');
+      if(dateHeader&&_applyServerDate(dateHeader))return _networkTime+(Date.now()-_networkTimeFetched);
+      const data=await res.json();
+      const timeField=data.utc_datetime||data.dateTime||data.datetime;
+      if(timeField&&_applyServerDate(timeField+'Z'))return _networkTime+(Date.now()-_networkTimeFetched);
+      if(data.unixtime){
+        _networkTime=data.unixtime*1000;_networkTimeFetched=Date.now();
+        return _networkTime+(Date.now()-_networkTimeFetched);
+      }
+    }catch(e){}
+  }
+  return Date.now();
+}
+
+async function callCloudAPI(action,params={}){
+  const config=getSyncConfig();
+  if(!config.enabled)return{status:'error',message:'云同步未启用',isNetworkError:false};
+  if(!AUTH_USERNAME||!AUTH_PASSWORD)return{status:'error',message:'未登录，无法访问云端',isNetworkError:false};
+  // 写操作自动加入设备标识（用于云端抢锁）
+  const writeActions=['同步提交','转正确认','清理临时','强制覆盖云端','删除行','批量写入'];
+  const finalParams={...params};
+  if(writeActions.includes(action)){
+    finalParams.锁登记处=finalParams.锁登记处||DEVICE_ID;
+  }
+  const payload={webhookUrl:config.webhookUrl,message:{Context:{argv:{表格名:config.sheetName,操作:action,用户名:AUTH_USERNAME,密码:AUTH_PASSWORD,...finalParams}}}};
+  const headers={'Content-Type':'application/json'};
+  if(config.token)headers['AirScript-Token']=config.token;
+  const allUrls=[...PRIMARY_API_URLS,...FALLBACK_API_URLS];
+  const maxRetries=config.retryCount||5;
+  const retryInterval=config.retryInterval||2;
+  const fetchTimeout=30000;
+  let lockRetryCount=0; // 抢锁重试计数
+  const maxLockRetries=3; // 最多抢锁重试3次
+  for(const apiUrl of allUrls){
+    let lastError=null;
+    let lastIsNetworkError=true;
+    for(let attempt=0;attempt<maxRetries;attempt++){
+      try{
+        const ctrl=new AbortController();
+        const tid=setTimeout(()=>ctrl.abort(),fetchTimeout);
+        const response=await fetch(apiUrl,{method:'POST',headers,body:JSON.stringify(payload),signal:ctrl.signal});
+        clearTimeout(tid);
+        if(!response.ok)throw new Error('HTTP '+response.status);
+        const dateHeader=response.headers.get('Date');
+        if(dateHeader)_applyServerDate(dateHeader);
+        const result=await response.json();
+        const r=result.data?.result||result;
+        if(r.status==='success'){
+          // 写操作完成后自动解锁（批量快段 holdCloudLock 时压制，段末统一释放）
+          if(!holdCloudLock&&writeActions.includes(action)){
+            releaseCloudLock().catch(()=>{});
+          }
+          return r;
+        }
+        if(r.tongzhi){
+          // 认证失败：提示用户检查用户名密码
+          if(r.需要认证){
+            toast('认证失败: '+r.tongzhi,'error');
+            document.getElementById('authStatus').textContent='认证失败';
+            document.getElementById('authStatus').style.color='#e74c3c';
+            return{...r,isNetworkError:false};
+          }
+          // 抢锁失败：等待后重试（不计入网络重试次数）
+          if(r.判定结果==='抢锁失败'&&writeActions.includes(action)){
+            lockRetryCount++;
+            if(lockRetryCount>maxLockRetries){
+              if(!holdCloudLock)releaseCloudLock().catch(()=>{});
+              return{...r,isNetworkError:false};
+            }
+            const waitSec=Math.min(r.剩余秒||3,10);
+            toast('锁被占用('+r.锁登记处+')，'+waitSec+'秒后重试('+lockRetryCount+'/'+maxLockRetries+')','warn');
+            await new Promise(res=>setTimeout(res,waitSec*1000));
+            attempt--; // 不消耗重试次数
+            continue;
+          }
+          const netKeywords=['网络','超时','timeout','ECONNRESET','ENOTFOUND','fetch','Failed to fetch','NetworkError','Network request'];
+          const isNet=netKeywords.some(k=>r.tongzhi.includes(k));
+          if(!isNet){
+            // 写操作失败也要解锁（批量快段压制）
+            if(!holdCloudLock&&writeActions.includes(action)){
+              releaseCloudLock().catch(()=>{});
+            }
+            return{...r,isNetworkError:false};
+          }
+          lastError=new Error(r.tongzhi);lastIsNetworkError=true;
+        }else{
+          lastError=new Error(r.message||JSON.stringify(r).slice(0,100)||'未知错误');lastIsNetworkError=true;
+        }
+      }catch(error){
+        if(error.name==='AbortError')lastError=new Error('请求超时('+fetchTimeout/1000+'秒)');
+        else lastError=error;
+        lastIsNetworkError=true;
+      }
+      if(attempt<maxRetries-1)await new Promise(r=>setTimeout(r,retryInterval*1000));
+    }
+  }
+  // 所有重试失败，写操作解锁（批量快段压制）
+  if(!holdCloudLock&&writeActions.includes(action)){
+    releaseCloudLock().catch(()=>{});
+  }
+  return{status:'error',message:lastError?.message||'所有云函数地址均不可用',isNetworkError:lastIsNetworkError};
+}
+
+async function findFirstEmptyRow(){
+  const result=await callCloudAPI('获取维度');
+  if(result.status==='success'&&result.最大行)return result.最大行+1;
+  return 2;
+}
+
+async function findFileInCloudById(fileId){
+  if(!fileId)return{file:null,networkOk:false};
+  const result=await callCloudAPI('查找',{列名:'ID',关键字:fileId});
+  if(result.status==='success'){
+    if(result.匹配数>0)return{file:result.数据[0],networkOk:true};
+    return{file:null,networkOk:true};
+  }
+  if(result.isNetworkError)return{file:null,networkOk:false};
+  return{file:null,networkOk:true};
+}
+
+// ========== 抢锁/解锁封装 ==========
+const LOCK_RETRY_INTERVAL=3000;  // 重试间隔3秒
+const LOCK_RETRY_COUNT=3;        // 重试次数3次
+// 批量同步"机械快段"门闩：置真时压制 callCloudAPI 的自动解锁，让批量提交+批量转正共占一把云端锁，到段结束统一释放
+let holdCloudLock=false;
+
+async function acquireCloudLock(){
+  for(let attempt=0;attempt<LOCK_RETRY_COUNT;attempt++){
+    const result=await callCloudAPI('抢锁',{锁登记处:DEVICE_ID});
+    if(result.status==='success')return true;
+    if(result.判定结果==='抢锁失败'){
+      const remaining=result.剩余秒||60;
+      if(attempt<LOCK_RETRY_COUNT-1){
+        toast('锁被占用('+result.锁登记处+')，'+remaining+'秒后重试('+(attempt+1)+'/'+LOCK_RETRY_COUNT+')','warn');
+        await new Promise(r=>setTimeout(r,Math.min(remaining*1000,LOCK_RETRY_INTERVAL)));
+      }
+    }else{
+      break;
+    }
+  }
+  return false;
+}
+
+async function releaseCloudLock(){
+  try{
+    // 直接调用云端解锁，不走 callCloudAPI 的自动锁逻辑
+    const config=getSyncConfig();
+    if(!config.enabled)return;
+    const payload={webhookUrl:config.webhookUrl,message:{Context:{argv:{表格名:config.sheetName,操作:'解锁',锁登记处:DEVICE_ID,用户名:AUTH_USERNAME,密码:AUTH_PASSWORD}}}};
+    const allUrls=[...PRIMARY_API_URLS,...FALLBACK_API_URLS];
+    for(const apiUrl of allUrls){
+      try{
+        const ctrl=new AbortController();
+        const tid=setTimeout(()=>ctrl.abort(),10000);
+        await fetch(apiUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:ctrl.signal});
+        clearTimeout(tid);
+        return;
+      }catch(e){continue;}
+    }
+  }catch(e){}
+}
+
+// 带锁执行写操作：自动抢锁→执行操作→解锁
+async function withLock(fn){
+  const locked=await acquireCloudLock();
+  if(!locked){
+    toast('抢锁失败，无法执行写操作','error');
+    return{status:'error',message:'抢锁失败'};
+  }
+  try{
+    return await fn();
+  }finally{
+    await releaseCloudLock();
+  }
+}
+
+// ========== 写入权网关（执行任何写操作/批量操作前必须先满足大前提） ==========
+// 前提① 占领云端写入权；前提② 确认本地与云端完全一致（只把"本地修改/新建"上传抹平，不下载云端独有）
+// 只有云端存在、本地未修改过的文件天然一致，无需处理；本地修改(e>s)或本地新建(isNewFile)才需抹平
+let _wxActive=false; // 复用锁：已在 withWriteAccess 内时不再重复抢锁（批量内再调单文件操作）
+async function withWriteAccess(operationName, fn){
+  // 处于已有写入权上下文时直接执行，避免嵌套重复抢/解锁
+  if(_wxActive){await fn();return}
+  _wxActive=true;
+  toast('正在获得写入权...');
+  if(!await acquireCloudLock()){toast('抢锁失败，无法执行'+operationName,'error');_wxActive=false;return}
+  let relockNeeded=false;
+  try{
+    // 前提② 抹平本地未一致：复用 batchSync(内部自管云锁，段末会释放当前锁，故用 relockNeeded 记录后续重抢)
+    toast('正在确认云端与本地完全一致...');
+    for(let guard=0;guard<10;guard++){
+      const pending=getFileIndex().filter(f=>!isFolderItem(f)&&!f.cloudOnly&&(f.isNewFile||(f.e||0)>(f.s||0)));
+      if(pending.length===0)break;
+      relockNeeded=true;
+      await batchSync(true);
+    }
+    // 复查：仍有未一致项则中止
+    const left=getFileIndex().filter(f=>!isFolderItem(f)&&!f.cloudOnly&&(f.isNewFile||(f.e||0)>(f.s||0)));
+    if(left.length>0){toast('仍有'+left.length+'个文件未与云端一致，已取消'+operationName,'error');return}
+    // 若抹平时释放过锁，重新占领写入权再执行操作
+    if(relockNeeded){
+      toast('正在获得写入权...');
+      if(!await acquireCloudLock()){toast('抢锁失败，无法执行'+operationName,'error');return}
+    }
+    await fn();
+  }finally{
+    await releaseCloudLock();
+    _wxActive=false;
+  }
+  afterActionRefresh();
+}
+
+// ========== 写操作（对勾选集合生效：选1个或多个都行） ==========
+// 勾选集合即唯一选中态；为空时各按钮回退旧的单选路径
+
+// 清掉当前已不在渲染列表中的历史id（切目录后残留）
+function pruneBatchSet(){
+  const live=new Set();
+  document.querySelectorAll('#fileList .file-item[data-id]').forEach(el=>live.add(el.getAttribute('data-id')));
+  for(const id of [...selectedBatchSet]){if(!live.has(id))selectedBatchSet.delete(id)}
+}
+
+// ========== 动作后自动刷新 ==========
+function afterActionRefresh(){
+  try{
+    const config=getSyncConfig();
+    if(config.autoRefreshAfterAction!==false)refreshCloudIndex();
+    else renderFileList();
+  }catch(e){renderFileList()}
+}
+
+// ========== 批量操作 ==========
+async function batchDelete(){
+  const items=[...selectedBatchSet];
+  if(items.length===0)return;
+  const folders=items.filter(isFolderId).length;
+  if(!confirm('确定删除勾选的 '+items.length+' 项？('+(items.length-folders)+'文件, '+folders+'文件夹)\n删除结果以云端回执为准。'))return;
+  await withWriteAccess('批量删除', async()=>{
+    for(const id of items){
+      try{
+        if(isFolderId(id))await deleteFolder(id,true);
+        else await deleteFileById(id,true);
+      }catch(e){toast('删除失败('+id+'):'+e.message,'warn')}
+    }
+  });
+  selectedBatchSet.clear();renderFileList();
+}
+
+async function batchMove(){
+  const items=[...selectedBatchSet];
+  if(items.length===0)return;
+  // 弹出目标文件夹选择对话框（含空的"根目录"选项）
+  showBatchFolderPicker(async targetId=>{
+    await withWriteAccess('批量移动', async()=>{
+      for(const id of items){
+        try{await moveToFolder(id,targetId)}
+        catch(e){toast('移动失败('+id+'):'+e.message,'warn')}
+      }
+    });
+    selectedBatchSet.clear();renderFileList();
+  });
+}
+
+async function batchCopy(){
+  const items=[...selectedBatchSet];
+  if(items.length===0)return;
+  const fileItems=items.filter(id=>!isFolderId(id));
+  const skipped=items.length-fileItems.length;
+  if(fileItems.length===0){toast('批量复制仅支持文件'+(skipped?('，已跳过'+skipped+'个文件夹'):''),'warn');return}
+  if(skipped)toast('批量复制不处理文件夹，已跳过'+skipped+'个文件夹','warn');
+  await withWriteAccess('批量复制', async()=>{
+    for(const id of fileItems){
+      const fi=getFileIndex().find(x=>x.id===id);
+      const fd=fi?loadFileDataById(id):null;
+      if(!fi||!fd||!fd.data){toast('跳过无本地内容的文件：'+(fi?fi.name:id),'warn');continue}
+      await copyFileIntoCloud(id,fi.name,fd.data);
+    }
+  });
+  selectedBatchSet.clear();renderFileList();
+}
+
+// 目标文件夹选择对话框：选 root(空) 或任意子文件夹
+function showBatchFolderPicker(onDone){
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000';
+  const box=document.createElement('div');
+  box.style.cssText='background:#fff;border-radius:12px;padding:20px;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3);max-height:60vh;display:flex;flex-direction:column';
+  let navId='';
+  function render(parentId){
+    const subs=getSubFolderIds(parentId);
+    let h='<div style="margin-bottom:8px;font-size:12px;color:#888">';
+    if(!parentId)h+='<span style="font-weight:bold">🏠 根目录</span>';
+    else{
+      h+='<span style="cursor:pointer" data-nv="">🏠</span> / ';
+      const pathParts=[];let cur=parentId;const visited=new Set();
+      while(cur&&!visited.has(cur)){visited.add(cur);pathParts.unshift({id:cur,name:getFolderName(cur)});cur=getParentFolderId(cur)}
+      for(let i=0;i<pathParts.length;i++){const isLast=i===pathParts.length-1;h+=`<span style="cursor:pointer;${isLast?'font-weight:bold':''}" data-nv="${pathParts[i].id}">${pathParts[i].name||'(未命名)'}</span>`;if(!isLast)h+=' / '}
+    }
+    h+='</div><div style="flex:1;overflow-y:auto">';
+    h+=`<button data-mv="${parentId||''}" style="display:block;width:100%;text-align:left;padding:8px 12px;margin:4px 0;border:1px solid #4A90D9;border-radius:6px;background:#e8f0fe;cursor:pointer;font-size:13px;color:#4A90D9">${parentId?'✓ 移动到当前文件夹':'✓ 移动到根目录'}</button>`;
+    for(const sub of subs){
+      h+=`<button data-nv="${sub.id}" style="display:block;width:100%;text-align:left;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-size:13px">📁 ${sub.name||'(未命名)'} ▸</button>`;
+    }
+    if(subs.length===0)h+='<div style="text-align:center;color:#999;padding:10px;font-size:11px">（无子文件夹）</div>';
+    h+='</div>';
+    return h;
+  }
+  box.innerHTML='<h4 style="margin:0 0 12px;font-size:14px">📁 移动选中项到：</h4><div id="bfContent">'+render('')+'</div><button id="bfCancel" style="margin-top:8px;padding:6px 16px;border:1px solid #ddd;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:12px">取消</button>';
+  modal.appendChild(box);document.body.appendChild(modal);
+  function redraw(){const el=document.getElementById('bfContent');if(el)el.innerHTML=render(navId)}
+  function bind(){
+    const el=document.getElementById('bfContent');if(!el)return;
+    el.querySelectorAll('[data-mv]').forEach(b=>{b.onclick=()=>{document.body.removeChild(modal);onDone(b.getAttribute('data-mv'))}});
+    el.querySelectorAll('[data-nv]').forEach(b=>{b.onclick=()=>{navId=b.getAttribute('data-nv');redraw();bind()}});
+  }
+  bind();
+  document.getElementById('bfCancel').onclick=()=>document.body.removeChild(modal);
+}
+
+// 单文件复制：按 id/名称/内容直接生成副本并上传（含本地落盘）
+async function copyFileIntoCloud(id,fileName,content){
+  const baseName=fileName.replace(/\.\w+$/,'');
+  const ext=fileName.match(/\.\w+$/)?fileName.match(/\.\w+$/)[0]:'';
+  const idx=getFileIndex();
+  let copyName=baseName+'_副本'+ext;let n=1;
+  while(idx.find(f=>f.name===copyName)){copyName=baseName+'_副本'+(++n)+ext}
+  const copyId=genFileId();
+  saveFileData(copyName,content);
+  const idx2=getFileIndex();
+  const f=idx2.find(x=>x.name===copyName);
+  if(f){
+    const oldId=f.id;
+    _moveFileObj(oldId,copyId);
+    f.id=copyId;f.e=1;f.s=0;f.isNewFile=true;setFileIndex(idx2);
+  }
+  const config=getSyncConfig();
+  if(config.enabled){
+    const netTime=await getNetworkTime();
+    const wr=await writeFileToCloudWithSplit({baseId:copyId,baseRow:0,fileName:copyName,content:content,version:1,folder:getFileMeta(copyName).folder,owner:'',createTime:formatBeijingTime(netTime),lastUploadTime:formatBeijingTime(netTime),lastEditTime:getLastEditTime()});
+    if(wr.success){
+      setLastSyncVersion(copyName,1);clearNewFileFlag(copyId);setLastSyncTime(Date.now());
+      toast('已复制并上传：'+copyName);
+    }else{
+      toast('已复制本地，云端上传失败：'+copyName,'warn');
+    }
+  }else{toast('已复制：'+copyName)}
+}
+
+// 同步任务管理器：串行调用、同ID覆盖、任务间隔、消息提醒不丢失
+let syncPendingMessages=[];
+
+// ========== 缓存管理策略 ==========
+// 估算localStorage已用字节数
+function estimateStorageUsage(){
+  let total=0;
+  try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k)total+=k.length+(localStorage.getItem(k)||'').length}}
+  catch(e){}
+  return total*2; // UTF-16每个字符2字节
+}
+
+// 估算localStorage总容量（约5MB）
+function estimateStorageCapacity(){
+  if(_storageCapacity>0)return _storageCapacity;
+  try{
+    const testKey='__storage_test__';
+    let data='';
+    for(let i=0;i<1024;i++)data+='x'; // 1KB
+    let total=0;
+    while(true){
+      try{localStorage.setItem(testKey+total,data);total++}
+      catch(e){break}
+    }
+    for(let i=0;i<total;i++)localStorage.removeItem(testKey+i);
+    _storageCapacity=total*1024;
+  }catch(e){_storageCapacity=5*1024*1024}
+  return _storageCapacity;
+}
+let _storageCapacity=0;
+
+// 检查文件是否应该缓存本地（>100万字符不缓存）
+function shouldCacheFile(content){
+  const config=getSyncConfig();
+  const maxChars=config.cacheMaxFileChars||1000000;
+  return countChars(content)<=maxChars;
+}
+
+// 智能清理缓存：当使用量超过阈值时，按最后编辑时间删除老文件
+function smartCleanCache(){
+  const config=getSyncConfig();
+  const maxUsage=config.cacheMaxUsage||0.7;
+  const used=estimateStorageUsage();
+  const cap=estimateStorageCapacity();
+  if(used<cap*maxUsage)return; // 未超阈值，无需清理
+  const idx=getFileIndex();
+  // 按最后编辑时间排序（老的排前面）
+  const sorted=[...idx].sort((a,b)=>{
+    const ta=a.lastEditTime||a.createTime||'';
+    const tb=b.lastEditTime||b.createTime||'';
+    return ta.localeCompare(tb);
+  });
+  let freed=0;
+  const needFree=used-cap*maxUsage;
+  for(const f of sorted){
+    if(freed>=needFree)break;
+    // 不清理当前打开的文件
+    if(f.name===currentFileName)continue;
+    // 不清理纯新文件（未上云）
+    if(f.isNewFile)continue;
+    // 星标文件常年落盘，不清理
+    if(f.star)continue;
+    const o=_readFileObjSync(f.id);
+    if(o){
+      const size=JSON.stringify(o).length*2;
+      _removeFileObj(f.id);
+      freed+=size;
+    }
+  }
+  if(freed>0)console.log('[缓存管理] 释放了'+(freed/1024).toFixed(1)+'KB');
+}
+
+// ========== 同步任务管理器 ==========
+function enqueueSync(fn,label,fileId){
+  return new Promise((resolve,reject)=>{
+    // 同ID覆盖：同一个ID的同步请求还未被执行，后面又来了新请求，删除前面的
+    const existingIdx=fileId?syncQueue.findIndex(t=>t.fileId===fileId):-1;
+    if(existingIdx!==-1){
+      const old=syncQueue[existingIdx];
+      // 旧任务的消息提醒不可石沉大海
+      if(old.pendingMsgs)syncPendingMessages.push(...old.pendingMsgs);
+      old.fn=fn;old.resolve=resolve;old.reject=reject;old.label=label;
+    }else{
+      const labelIdx=syncQueue.findIndex(t=>t.label===label);
+      if(labelIdx!==-1){const old=syncQueue[labelIdx];old.fn=fn;old.resolve=resolve;old.reject=reject}
+      else syncQueue.push({fn,label,fileId,resolve,reject,pendingMsgs:[]});
+    }
+    processSyncQueue();
+  });
+}
+
+function processSyncQueue(){
+  if(syncMutex||syncQueue.length===0)return;
+  // 处理积压消息
+  if(syncPendingMessages.length>0){
+    for(const msg of syncPendingMessages)toast(msg);
+    syncPendingMessages=[];
+  }
+  syncMutex=true;
+  const config=getSyncConfig();
+  const interval=(config?.taskInterval||0)*1000;
+  const task=syncQueue.shift();
+  task.fn().then(task.resolve).catch(task.reject).finally(()=>{
+    syncMutex=false;
+    // 任务间隔
+    if(interval>0)setTimeout(()=>processSyncQueue(),interval);
+    else processSyncQueue();
+  });
+}
+
+// ============================================================
+// ID制文件夹系统（v2.0）
+// "文件夹路径"列存父文件夹ID（FOLDER_xxx），空字符串=根目录
+// 文件夹登记行：ID=FOLDER_xxx, 文件名=文件夹显示名, 内容='', 文件夹路径=父文件夹ID
+// ============================================================
+
+// 判断ID是否为文件夹ID
+function isFolderId(id){return !!(id&&String(id).startsWith('FOLDER_'))}
+
+// 判断索引项是否为文件夹
+function isFolderItem(item){return item&&isFolderId(item.id)}
+
+// 根据文件夹ID获取文件夹显示名
+function getFolderName(folderId){
+  if(!folderId)return '';
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.id===folderId);
+  if(f)return f.name;
+  const cf=cloudFileCache.get(folderId);
+  return cf?(cf.文件名||''):'';
+}
+
+// 根据文件夹ID获取父文件夹ID
+function getParentFolderId(folderId){
+  if(!folderId)return '';
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.id===folderId);
+  if(f)return f.folder||'';
+  const cf=cloudFileCache.get(folderId);
+  return cf?(cf.文件夹路径||''):'';
+}
+
+// 根据文件夹ID获取完整路径字符串（用于显示）
+function getFolderPathString(folderId){
+  if(!folderId)return '';
+  const parts=[];
+  let currentId=folderId;
+  const visited=new Set();
+  while(currentId&&!visited.has(currentId)){
+    visited.add(currentId);
+    const name=getFolderName(currentId);
+    if(!name)break;
+    parts.unshift(name);
+    currentId=getParentFolderId(currentId);
+  }
+  return parts.join('/');
+}
+
+// 获取直接子文件夹列表（返回[{id,name}]数组）
+function getSubFolderIds(parentFolderId){
+  const subs=[];
+  const seenIds=new Set();
+  const idx=getFileIndex();
+  for(const f of idx){
+    if(isFolderItem(f)&&(f.folder||'')===parentFolderId&&!seenIds.has(f.id)){
+      subs.push({id:f.id,name:f.name});
+      seenIds.add(f.id);
+    }
+  }
+  for(const[id,cf]of cloudFileCache){
+    if(isFolderId(id)&&(cf.文件夹路径||'')===parentFolderId&&!seenIds.has(id)){
+      subs.push({id,name:cf.文件名||''});
+      seenIds.add(id);
+    }
+  }
+  return subs.sort((a,b)=>a.name.localeCompare(b.name));
+}
+
+// 获取直接子文件列表（非文件夹）
+function getFilesInFolder(folderId){
+  const idx=getFileIndex();
+  const localIds=new Set();
+  const files=[];
+  for(const f of idx){
+    if(!isFolderItem(f)&&(f.folder||'')===folderId){
+      files.push({...f,source:'local'});
+      localIds.add(f.id);
+    }
+  }
+  for(const[id,cf]of cloudFileCache){
+    if(!localIds.has(id)&&!isFolderId(id)){
+      if((cf.文件夹路径||'')===folderId&&cf.文件名&&cf.文件名.trim()){
+        files.push({id,name:cf.文件名,s:parseInt(cf.起点号||'0'),folder:folderId,source:'cloud'});
+      }
+    }
+  }
+  return files.sort((a,b)=>(b.time||0)-(a.time||0)||a.name.localeCompare(b.name));
+}
+
+// 从云端索引数据递归获取所有子孙ID（文件+子文件夹）
+function getAllDescendantsFromCloud(cloudFiles,folderId){
+  const result=[];
+  const queue=[folderId];
+  const visited=new Set();
+  while(queue.length>0){
+    const currentId=queue.shift();
+    if(visited.has(currentId))continue;
+    visited.add(currentId);
+    for(const cf of cloudFiles){
+      if(!cf.ID||cf.ID===currentId)continue;
+      const parentFolder=cf.文件夹路径||'';
+      if(parentFolder===currentId){
+        result.push(cf.ID);
+        if(isFolderId(cf.ID))queue.push(cf.ID);
+      }
+    }
+  }
+  return result;
+}
+
+// 从本地索引+缓存递归获取所有子孙ID
+function getAllDescendants(folderId){
+  const result=[];
+  const queue=[folderId];
+  const visited=new Set();
+  while(queue.length>0){
+    const currentId=queue.shift();
+    if(visited.has(currentId))continue;
+    visited.add(currentId);
+    const idx=getFileIndex();
+    for(const f of idx){
+      if((f.folder||'')===currentId&&f.id!==currentId){
+        result.push(f.id);
+        if(isFolderItem(f))queue.push(f.id);
+      }
+    }
+    for(const[id,cf]of cloudFileCache){
+      if(id!==currentId&&(cf.文件夹路径||'')===currentId){
+        if(!result.includes(id))result.push(id);
+        if(isFolderId(id))queue.push(id);
+      }
+    }
+  }
+  return result;
+}
+
+function getFileSyncStatus(localFile){
+  const fd=loadFileDataById(localFile.id);
+  const hasLocalContent=!!fd&&!!fd.data;
+  const localVer=localFile.e||0;
+  const syncVer=localFile.s||0;
+  const cloud=cloudFileCache.get(localFile.id);
+  const cloudVer=cloud?parseInt(cloud.起点号||'0'):null;
+
+  // 本地无真实内容 → 仅云端存在
+  if(!hasLocalContent&&cloudVer!==null)return{label:'仅存于云端',color:'#9b59b6',icon:'☁️'};
+  if(!hasLocalContent&&cloudVer===null)return{label:'本地索引无内容',color:'#ccc',icon:'❓'};
+
+  // 本地新文件，从未同步过
+  if(localFile.isNewFile&&cloudVer===null)return{label:'本地新文件',color:'#3498DB',icon:'🆕'};
+
+  // 本地有内容但无云端记录
+  if(cloudVer===null)return{label:'待上传',color:'#e67e22',icon:'📤'};
+
+  // 三号齐全，基于三号判断
+  if(localVer===cloudVer&&localVer===syncVer)return{label:'与云端一致',color:'#27ae60',icon:'✅'};
+  if(localVer>syncVer&&cloudVer===syncVer)return{label:'待上传',color:'#e67e22',icon:'📤'};
+  if(cloudVer>syncVer&&localVer===syncVer)return{label:'版本落后于云端',color:'#f39c12',icon:'⬇️'};
+  if(localVer>syncVer&&cloudVer>syncVer)return{label:'与云端版本冲突',color:'#e74c3c',icon:'⚠️'};
+  return{label:'待上传',color:'#e67e22',icon:'📤'};
+}
+
+function showAllSyncConflict(fileName,localVer,cloudVer){
+  document.getElementById('mainUI').style.display='none';
+  notifyParent('syncConflict',{cloudVer,context:'allSync',fileName});
+  return new Promise(resolve=>{
+    const modal=document.createElement('div');
+    modal.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000';
+    const box=document.createElement('div');
+    box.style.cssText='background:#fff;border-radius:12px;padding:24px;max-width:380px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3)';
+    box.innerHTML='<h3 style="margin:0 0 12px;font-size:16px;color:#e67e22">⚠️ 同步冲突</h3>'+
+      '<p style="margin:0 0 8px;font-size:14px;color:#333">"'+fileName+'" 本地v'+localVer+' vs 云端v'+cloudVer+'</p>'+
+      '<p style="margin:0 0 16px;font-size:13px;color:#666">本地有未同步编辑，云端版本更高</p>'+
+      '<div style="display:flex;flex-direction:column;gap:8px">'+
+      '<button id="syncOverwrite" style="padding:10px;border:none;border-radius:8px;background:#3498DB;color:#fff;cursor:pointer;font-size:14px">覆盖本地（用云端版本）</button>'+
+      '<button id="syncConflict" style="padding:10px;border:none;border-radius:8px;background:#e67e22;color:#fff;cursor:pointer;font-size:14px">建立冲突版本+覆盖本地</button>'+
+      '<button id="syncReverse" style="padding:10px;border:none;border-radius:8px;background:#9b59b6;color:#fff;cursor:pointer;font-size:14px">用本地覆盖云端</button>'+
+      '<button id="syncSkip" style="padding:10px;border:none;border-radius:8px;background:#95a5a6;color:#fff;cursor:pointer;font-size:14px">跳过此文件</button>'+
+      '</div>'+
+      '<div id="allSyncCountdown" style="text-align:center;margin-top:10px;font-size:12px;color:#e67e22"></div>';
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+    // 15秒倒计时自动忽略
+    let countdown=15;
+    const cdEl=box.querySelector('#allSyncCountdown');
+    cdEl.textContent=countdown+'秒后自动忽略';
+    const timer=setInterval(()=>{
+      countdown--;
+      if(countdown<=0){
+        clearInterval(timer);
+        if(document.body.contains(modal)){document.body.removeChild(modal);resolve('skip');toast('冲突已自动忽略，继续同步');}
+      }else{
+        cdEl.textContent=countdown+'秒后自动忽略';
+      }
+    },1000);
+    const cleanup=()=>{clearInterval(timer);if(document.body.contains(modal))document.body.removeChild(modal)};
+    box.querySelector('#syncOverwrite').onclick=()=>{cleanup();resolve('overwrite')};
+    box.querySelector('#syncConflict').onclick=()=>{cleanup();resolve('conflict')};
+    box.querySelector('#syncReverse').onclick=()=>{cleanup();resolve('reverse')};
+    box.querySelector('#syncSkip').onclick=()=>{cleanup();resolve('skip')};
+  });
+}
+
+// 冲突弹窗倒计时自动忽略
+let _conflictCountdownTimer=null;
+let _conflictCountdownLeft=0;
+
+function _startConflictCountdown(seconds){
+  _stopConflictCountdown();
+  _conflictCountdownLeft=seconds;
+  _updateCountdownDisplay();
+  _conflictCountdownTimer=setInterval(()=>{
+    _conflictCountdownLeft--;
+    _updateCountdownDisplay();
+    if(_conflictCountdownLeft<=0){
+      _stopConflictCountdown();
+      closeSyncConflict();
+      toast('冲突已自动忽略，稍后可再处置');
+    }
+  },1000);
+}
+
+function _stopConflictCountdown(){
+  if(_conflictCountdownTimer){clearInterval(_conflictCountdownTimer);_conflictCountdownTimer=null}
+  _conflictCountdownLeft=0;
+  const cd=document.getElementById('conflictCountdown');
+  if(cd)cd.style.display='none';
+}
+
+function _updateCountdownDisplay(){
+  const cd=document.getElementById('conflictCountdown');
+  if(!cd)return;
+  cd.style.display='block';
+  cd.textContent=_conflictCountdownLeft>0?_conflictCountdownLeft+'秒后自动忽略':'';
+}
+
+function showSyncConflict(cloudVer,context,passedLocalVer,passedSyncVer){
+  // 优先使用调用方传入的版本号，避免重新读取时因竞态拿到不一致的值
+  const localVer=passedLocalVer!==undefined?passedLocalVer:getFileVersion(currentFileName);
+  const syncVer=passedSyncVer!==undefined?passedSyncVer:getLastSyncVersion(currentFileName);
+  document.getElementById('localVersion').textContent=localVer;
+  document.getElementById('cloudVersion').textContent=cloudVer;
+  document.getElementById('syncVersion').textContent=syncVer;
+  conflictContext=context||'';
+  const desc=document.getElementById('conflictDesc');
+  const btnDeleteCloud=document.getElementById('btnDeleteCloud');
+  if(context==='upload'){
+    desc.textContent='云端版本更高，如何处理？';
+    btnDeleteCloud.style.display='none';
+  }else if(context==='download_has_edits'){
+    desc.textContent='本地有未同步编辑(共同号v'+syncVer+')，云端版本更高，如何处理？';
+    btnDeleteCloud.style.display='block';
+  }else{
+    desc.textContent='版本不一致，如何处理？';
+    btnDeleteCloud.style.display='none';
+  }
+  document.getElementById('sync-conflict-modal').style.display='flex';
+  document.getElementById('mainUI').style.display='none';
+  notifyParent('syncConflict',{cloudVer,context,fileName:currentFileName});
+  // 15秒倒计时自动忽略
+  _startConflictCountdown(15);
+}
+
+function closeSyncConflict(){
+  _stopConflictCountdown();
+  document.getElementById('sync-conflict-modal').style.display='none';
+  document.getElementById('mainUI').style.display='';
+  pendingCloudVersion=null;
+  conflictContext='';
+  if(conflictResolver){
+    const r=conflictResolver;
+    conflictResolver=null;
+    r();
+  }
+  notifyParent('conflictResolved');
+}
+
+async function acceptCloudVersion(){
+  try{
+    toast('正在获取云端版本...');
+    syncCurrentFileFromLocal();
+    const fileName=currentFileName||'';
+    if(!fileName){toast('无法接受：缺少文件名');closeSyncConflict();return}
+    const meta=getFileMeta(fileName);
+    const cloudResult=await findFileInCloudById(meta.id);
+    if(!cloudResult.networkOk){
+      toast('网络异常，无法获取云端文件');
+      closeSyncConflict();
+      return;
+    }
+    if(cloudResult.file){
+      // 合并拆分片段
+      const merged=await mergeCloudFragments(meta.id,cloudResult.file);
+      const content=typeof merged==='string'?merged:extractCloudContent(cloudResult.file);
+      const cloudFileName=cloudResult.file.文件名||fileName;
+      const cloudVer=parseInt(cloudResult.file.起点号||'0');
+      const idx=getFileIndex();
+      const localEntry=idx.find(x=>x.id===meta.id);
+      const needRename=localEntry?syncLocalFileName(localEntry,cloudFileName):false;
+      if(needRename)setFileIndex(idx);
+      clearNewFileFlag(meta.id);
+      saveFileData(currentFileName,content);
+      // 保存云端内容后再固定版本号，避免 saveFileData 因内容变化将终点号 e+1 覆盖
+      setFileVersion(currentFileName,cloudVer);
+      setLastSyncVersion(currentFileName,cloudVer);
+      setLastSyncTime(Date.now());
+      currentFileContent=content;
+      notifyParent('fileContentUpdated',{name:currentFileName,content});
+      renderFileList();
+      toast('已更新为云端版本'+(needRename?' → '+cloudFileName:''));
+    }
+    closeSyncConflict();
+  }catch(e){
+    toast('接受云端版本异常：'+e.message);
+    closeSyncConflict();
+  }
+}
+
+async function saveConflictVersion(){
+  try{
+    toast('正在创建冲突版本...');
+    syncCurrentFileFromLocal();
+    if(!currentFileName){closeSyncConflict();return}
+  const netTime=await getNetworkTime();
+  const ts=formatBeijingTime(netTime).replace(/[-: ]/g,'').substring(0,14);
+  const ext=currentFileName.match(/\.\w+$/)?currentFileName.match(/\.\w+$/)[0]:'';
+  const conflictName=currentFileName.replace(/\.\w+$/,'')+'冲突版本'+ts+ext;
+  const originalFileName=currentFileName;
+  const content=currentFileContent;
+  const oldMeta=getFileMeta(originalFileName);
+  const oldId=oldMeta.id;
+  const newId=genFileId();
+  const idx=getFileIndex();
+  const localEntry=idx.find(x=>x.id===oldId);
+  if(localEntry){
+    const fd=loadFileData(localEntry.name);
+    if(fd){
+      _removeFileObj(oldId); _saveFileObj(newId, fd?fd.data:'', fd?fd.view:null);
+    }
+    localEntry.name=conflictName;
+    localEntry.id=newId;
+    localEntry.e=1;
+    localEntry.s=0;
+    localEntry.isNewFile=true;
+    setFileIndex(idx);
+  }
+  const writeResult=await writeFileToCloudWithSplit({baseId:newId,baseRow:0,fileName:conflictName,content:content,version:1,folder:getFileMeta(conflictName).folder,owner:'',createTime:formatBeijingTime(netTime),lastUploadTime:formatBeijingTime(netTime),lastEditTime:getLastEditTime()});
+  if(writeResult.success){
+    setLastSyncTime(Date.now());
+    setLastSyncVersion(conflictName,1);
+    clearNewFileFlag(newId);
+  }
+  const cloudResult=await findFileInCloudById(oldId);
+  if(cloudResult.networkOk&&cloudResult.file){
+    // 合并拆分片段
+    const merged=await mergeCloudFragments(oldId,cloudResult.file);
+    const cloudContent=typeof merged==='string'?merged:extractCloudContent(cloudResult.file);
+    const cloudVer=parseInt(cloudResult.file.起点号||'0');
+    const cloudFileName=cloudResult.file.文件名||originalFileName;
+    const cloudFolder=cloudResult.file.文件夹路径||'';
+    const existingCloudLocal=idx.find(x=>x.id===oldId&&x.name!==conflictName);
+    if(!existingCloudLocal){
+      idx.push({name:cloudFileName,time:Date.now(),id:oldId,e:cloudVer,s:cloudVer,folder:cloudFolder});
+    }else{
+      existingCloudLocal.e=cloudVer;
+      existingCloudLocal.s=cloudVer;
+      if(cloudFileName!==existingCloudLocal.name)existingCloudLocal.name=cloudFileName;
+    }
+    setFileIndex(idx);
+    saveFileData(cloudFileName,cloudContent);
+    // 保存云端内容后再固定版本号，避免 saveFileData 因内容变化将终点号 e+1 覆盖
+    setFileVersion(cloudFileName,cloudVer);
+    setLastSyncVersion(cloudFileName,cloudVer);
+  }
+  currentFileName=conflictName;
+  currentFileContent=content;
+  localStorage.setItem(K('current_file'),conflictName);
+  notifyParent('openFile',{name:conflictName,content,id:newId});
+  renderFileList();
+  toast('已创建冲突版本(新ID): '+conflictName+'，云端版本已下载到本地');
+  closeSyncConflict();
+  }catch(e){
+    toast('创建冲突版本异常：'+e.message,'error');
+    closeSyncConflict();
+  }
+}
+
+async function overwriteCloudWithLocal(){
+  try{
+    toast('正在覆盖云端...');
+    syncCurrentFileFromLocal();
+    const fileName=currentFileName||'';
+    const content=currentFileContent;
+    if(!fileName||!content){toast('无法覆盖：缺少文件名或内容');closeSyncConflict();return}
+    const meta=getFileMeta(fileName);
+    const localE=getFileVersion(fileName); // 本地终点号E
+    const localS=getLastSyncVersion(fileName); // 本地起点号S
+    const netTime=await getNetworkTime();
+    const uploadData={
+      '拥有者':meta.owner||'',
+      'ID':meta.id,
+      '文件名':fileName,
+      '内容':content,
+      '起点号':String(localE),
+      '终点号':String(localE),
+      '文件夹路径':meta.folder||'',
+      '最后上传发起时间':formatBeijingTime(netTime),
+      '最后编辑时间':meta.lastEditTime||formatBeijingTime(Date.now()),
+      '同步时间':formatBeijingTime(netTime),
+      'MD5':meta.md5||'',
+      '内容字符数':String(countChars(content)),
+      '创建日期':meta.createTime||''
+    };
+    const forceResult=await callCloudAPI('强制覆盖云端',{
+      ID:meta.id,
+      强制终点号:localE,
+      数据:uploadData
+    });
+    if(forceResult.status==='success'){
+      const finalVer=parseInt(forceResult.终点号||forceResult.起点号||localE)||localE;
+      setFileVersion(fileName,finalVer);
+      setLastSyncVersion(fileName,finalVer);
+      clearNewFileFlag(meta.id);
+      setLastSyncTime(Date.now());
+      toast('已用本地版本覆盖云端，终点号: '+finalVer);
+    }else{
+      toast('覆盖云端失败：'+(forceResult.tongzhi||forceResult.message||'未知错误'));
+    }
+    closeSyncConflict();
+  }catch(e){
+    toast('覆盖云端异常：'+e.message);
+    closeSyncConflict();
+  }
+}
+
+async function deleteCloudVersion(){
+  try{
+    toast('正在删除云端版本...');
+    syncCurrentFileFromLocal();
+    const fileName=currentFileName||'';
+    if(!fileName){toast('无法操作：缺少文件名');closeSyncConflict();return}
+    const meta=getFileMeta(fileName);
+    const cloudResult=await findFileInCloudById(meta.id);
+    if(!cloudResult.networkOk){
+      toast('网络异常，无法确认云端状态');
+      closeSyncConflict();
+      return;
+    }
+    if(cloudResult.file){
+      // 云端"删除行"只需ID参数，会自己遍历表格找匹配行删除
+      const writeResult=await callCloudAPI('删除行',{ID:meta.id});
+      if(writeResult.status==='success'){
+        // 同时清理拆分片段
+        await cleanupCloudFragments(meta.id,0);
+        setLastSyncTime(Date.now());
+        toast('已删除云端版本，上传阶段将重新占领此ID');
+      }else{
+        toast('删除云端版本失败：'+(writeResult.tongzhi||writeResult.message||'未知错误'));
+        closeSyncConflict();
+        return;
+      }
+    }else{
+      toast('云端无此文件记录，无需删除');
+    }
+    closeSyncConflict();
+  }catch(e){
+    toast('删除云端版本异常：'+e.message);
+    closeSyncConflict();
+  }
+}
+
+
+function renderFileList(){
+  const list=document.getElementById('fileList');
+  const idx=getFileIndex().sort((a,b)=>b.time-a.time||a.name.localeCompare(b.name));
+  const localIds=new Set(idx.map(f=>f.id));
+  let html='';
+  if(idx.length===0&&cloudFileCache.size===0){list.innerHTML='<div style="text-align:center;color:#999;padding:30px 0">暂无保存的文件</div>';return}
+  // 当前文件夹下的子文件夹（基于文件夹ID）
+  const subFolders=getSubFolderIds(currentFolder);
+  // 返回上级
+  if(currentFolder){
+    const parentId=getParentFolderId(currentFolder);
+    html+=`<div class="file-item" style="background:#f0f0f0;cursor:pointer" onclick="navigateFolder('${parentId}')">
+      <span class="file-name">⬆ 返回上级</span>
+      <span class="file-time"></span>
+    </div>`;
+  }
+  // 子文件夹列表
+  if(subFolders.length>0){
+    for(const sub of subFolders){
+      const count=getFilesInFolder(sub.id).length;
+      html+=`<div class="file-item" style="background:#f5f0e8;cursor:pointer" data-folder="${sub.id}">
+        <span class="file-name">📁 ${sub.name||'(未命名)'} <span style="font-size:9px;color:#999">(${count}个文件)</span></span>
+        <span class="file-time"></span>
+        <span class="file-del" data-del-folder="${sub.id}">✕</span>
+        <div class="file-check" data-check="folder" data-id="${sub.id}"><div class="chkbox${selectedBatchSet.has(sub.id)?' checked':''}"><span class="chktick">✓</span></div></div>
+      </div>`;
+    }
+  }
+  // 当前文件夹下的本地文件（f.folder存的是文件夹ID）
+  const displayFiles=idx.filter(f=>!isFolderItem(f)&&(f.folder||'')===currentFolder);
+  html+=displayFiles.map(f=>{
+    const d=new Date(f.time);
+    const ts=d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const active=f.name===currentFileName?' active':'';
+    const enc=encodeURIComponent(f.name);
+    const fid=f.id||'';
+    const status=getFileSyncStatus(f);
+    const statusHtml=`<span style="font-size:9px;color:${status.color}" title="${status.label}">${status.icon}</span> `;
+    const fd=loadFileDataById(fid);
+    const charCount=fd?countChars(fd.data):(f.contentLength||0);
+    const charHtml=`<span style="font-size:9px;color:#999" title="内容字符数">${charCount}字</span> `;
+    const starHtml=`<span data-star="${fid}" title="${f.star?'已星标（内容常年落盘 localStorage）：点击取消':'未星标（内容存 IndexedDB）：点击设为星标'}" style="cursor:pointer;font-size:12px;margin-left:3px;color:${f.star?'#f5b301':'#ccc'}">${f.star?'★':'☆'}</span>`;
+    // 三号显示：本地终点号E/起点号S/云端起点号
+    const hasLocalContent=!!fd&&!!fd.data; // 本地有真实下载或创建的文件内容
+    const localVer=hasLocalContent?`<span style="color:#555">${f.e||0}</span>`:'<span style="color:#ccc">-</span>';
+    // 起点号S：始终显示真实数值（0 就显示 0），已同步过用绿色，否则灰
+    const syncVer=`<span style="color:${(f.s||0)>0?'#2ecc71':'#888'}">${f.s||0}</span>`;
+    const cloud=cloudFileCache.get(fid);
+    const cloudVer=cloud?`<span style="color:#9b59b6">☁${cloud.起点号||0}</span>`:'<span style="color:#ccc">☁-</span>';
+    const verInfo=`<span style="font-size:9px" title="起点号S">${syncVer}</span><span style="font-size:9px;color:#aaa;margin:0 1px">/</span><span style="font-size:9px" title="终点号E">${localVer}</span><span style="font-size:9px;color:#aaa;margin:0 1px">/</span><span style="font-size:9px" title="云端正统版本号">${cloudVer}</span>`;
+    const idHtml=`<span style="font-size:8px;color:#aaa;font-family:monospace" title="文件ID">${fid.substring(0,8)}</span> `;
+    return `<div class="file-item${active}" data-id="${fid}" data-name="${enc}">
+      <div class="file-check" data-check="file" data-id="${fid}"><div class="chkbox${selectedBatchSet.has(fid)?' checked':''}"><span class="chktick">✓</span></div></div>
+      <span class="file-name">📄 ${f.name} ${idHtml}${verInfo} ${statusHtml}${charHtml}</span>
+      <span class="file-time">${ts}</span>${starHtml}
+      <span class="file-del" data-del="${fid}">✕</span>
+    </div>`;
+  }).join('');
+  // 仅存于云端的文件和文件夹
+  if(cloudFileCache.size>0){
+    const cloudOnlyFolders=[];
+    const cloudOnlyFiles=[];
+    for(const[cid,cf]of cloudFileCache){
+      if(localIds.has(cid))continue;  // 本地已有
+      if(!cf.ID)continue;
+      const cfFolder=cf.文件夹路径||'';
+      if(cfFolder!==currentFolder)continue;  // 不在当前文件夹
+      if(isFolderId(cid)){
+        // 云端文件夹：文件名作为显示名
+        if(cf.文件名&&cf.文件名.trim()){
+          cloudOnlyFolders.push({id:cid,name:cf.文件名});
+        }
+      }else{
+        // 云端文件：必须有文件名
+        if(cf.文件名&&cf.文件名.trim()){
+          // 跳过拆分片段
+          const cp=parseCharCountStr(cf.内容字符数);
+          if(cp&&cp.part>1)continue;
+          cloudOnlyFiles.push({id:cid,name:cf.文件名,ver:cf.起点号||'0',内容字符数:cf.内容字符数||''});
+        }
+      }
+    }
+    if(cloudOnlyFolders.length>0||cloudOnlyFiles.length>0){
+      html+='<div style="padding:4px 10px;font-size:10px;color:#999;border-top:1px solid #eee;margin-top:2px">☁️ 以下仅存于云端</div>';
+      // 云端文件夹
+      for(const cf of cloudOnlyFolders){
+        html+=`<div class="file-item" data-folder="${cf.id}" style="background:#f5f0e8;opacity:0.7;cursor:pointer">
+          <span class="file-name">📁 ${cf.name} <span style="font-size:9px;color:#9b59b6">仅云端</span></span>
+          <span class="file-time"></span>
+          <span class="file-del" data-del-folder="${cf.id}">✕</span>
+          <div class="file-check" data-check="cloudFolder" data-id="${cf.id}"><div class="chkbox${selectedBatchSet.has(cf.id)?' checked':''}"><span class="chktick">✓</span></div></div>
+        </div>`;
+      }
+      // 云端文件
+      html+=cloudOnlyFiles.map(cf=>{
+        const cloudChar=cf.内容字符数?((()=>{const p=parseCharCountStr(cf.内容字符数);return p?p.total:parseInt(cf.内容字符数)||0})()) :0;
+        const charHtml=`<span style="font-size:9px;color:#999" title="云端字符数">${cloudChar}字</span> `;
+        const localVer='<span style="color:#ccc">-</span>';
+        const syncVer='<span style="color:#ccc">-</span>';
+        const cloudVerHtml=`<span style="color:#9b59b6">☁${cf.ver}</span>`;
+        const verInfo=`<span style="font-size:9px" title="起点号S">${syncVer}</span><span style="font-size:9px;color:#aaa;margin:0 1px">/</span><span style="font-size:9px" title="终点号E">${localVer}</span><span style="font-size:9px;color:#aaa;margin:0 1px">/</span><span style="font-size:9px" title="云端正统版本号">${cloudVerHtml}</span>`;
+        const idHtml=`<span style="font-size:8px;color:#aaa;font-family:monospace" title="文件ID">${cf.id.substring(0,8)}</span> `;
+        const cloudStarred=isStarred(cf.id);
+        const starHtml=`<span data-star="${cf.id}" title="${cloudStarred?'已星标（内容常年落盘 localStorage）：点击取消':'未星标（内容存 IndexedDB）：点击设为星标'}" style="cursor:pointer;font-size:12px;margin-left:3px;color:${cloudStarred?'#f5b301':'#ccc'}">${cloudStarred?'★':'☆'}</span>`;
+        return `<div class="file-item" data-id="${cf.id}" data-name="${encodeURIComponent(cf.name)}" style="opacity:0.7">
+          <div class="file-check" data-check="cloudFile" data-id="${cf.id}"><div class="chkbox${selectedBatchSet.has(cf.id)?' checked':''}"><span class="chktick">✓</span></div></div>
+          <span class="file-name">☁️ ${cf.name} ${idHtml}${verInfo} ${charHtml}<span style="font-size:9px;color:#9b59b6">仅存于云端</span></span>
+          <span class="file-time">-</span>${starHtml}
+        </div>`;
+      }).join('');
+    }
+  }
+  list.innerHTML=html;
+}
+
+document.getElementById('fileList').addEventListener('click',function(e){
+  // 点击复选框＝多选切换，不触发行本体单选
+  const chk=e.target.closest('.file-check');
+  if(chk){
+    e.stopPropagation();
+    const id=chk.getAttribute('data-id');
+    if(selectedBatchSet.has(id))selectedBatchSet.delete(id);
+    else selectedBatchSet.add(id);
+    const cb=chk.querySelector('.chkbox');
+    if(cb)cb.classList.toggle('checked',selectedBatchSet.has(id));
+    updateBatchBar();
+    return;
+  }
+  const star=e.target.closest('[data-star]');
+  if(star){e.stopPropagation();const sid=star.getAttribute('data-star');setStarred(sid,!isStarred(sid));renderFileList();notifyParent('starChanged',{id:sid,star:isStarred(sid)});return}
+  const del=e.target.closest('[data-del]');
+  if(del){e.stopPropagation();deleteFileById(del.getAttribute('data-del'));return}
+  const delFolder=e.target.closest('[data-del-folder]');
+  if(delFolder){e.stopPropagation();deleteFolder(delFolder.getAttribute('data-del-folder'));return}
+  // 单击选中文件或文件夹（仅记录，供打开/改名等；高亮统一用最左复选框）
+  const folderItem=e.target.closest('[data-folder]');
+  if(folderItem){
+    selectedFileId='';
+    selectedFileName='';
+    selectedFolderId=folderItem.getAttribute('data-folder');
+    return;
+  }
+  const item=e.target.closest('[data-id]');
+  if(item){
+    const id=item.getAttribute('data-id');
+    const name=decodeURIComponent(item.getAttribute('data-name'));
+    document.getElementById('fileNameInput').value=name;
+    selectedFileId=id;
+    selectedFileName=name;
+    selectedFolderId='';
+  }
+});
+
+// 双击打开文件或文件夹
+document.getElementById('fileList').addEventListener('dblclick',function(e){
+  const folderItem=e.target.closest('[data-folder]');
+  if(folderItem){navigateFolder(folderItem.getAttribute('data-folder'));return}
+  const item=e.target.closest('[data-id]');
+  if(item){
+    const id=item.getAttribute('data-id');
+    const name=decodeURIComponent(item.getAttribute('data-name'));
+    const idx=getFileIndex();
+    const localFile=idx.find(x=>x.id===id);
+    if(localFile){
+      openFileById(id);
+    }else{
+      downloadCloudFileById(id,name);
+    }
+  }
+});
+
+// 导航到指定文件夹（folderId为空=根目录）
+function navigateFolder(folderId){
+  currentFolder=folderId||'';
+  renderFileList();
+  pruneBatchSet();
+  updateFolderPath();
+}
+
+// 更新顶部路径面包屑（基于文件夹ID链向上追溯）
+function updateFolderPath(){
+  const pathEl=document.getElementById('folderPath');
+  if(!pathEl)return;
+  if(!currentFolder){pathEl.innerHTML='<span style="cursor:pointer" onclick="navigateFolder(\'\')">/</span>';return}
+  // 从当前文件夹ID向上追溯，构建路径数组
+  const pathParts=[];
+  let curId=currentFolder;
+  const visited=new Set();
+  while(curId&&!visited.has(curId)){
+    visited.add(curId);
+    const name=getFolderName(curId);
+    if(!name)break;
+    pathParts.unshift({id:curId,name:name});
+    curId=getParentFolderId(curId);
+  }
+  let html='<span style="cursor:pointer" onclick="navigateFolder(\'\')">/</span>';
+  for(let i=0;i<pathParts.length;i++){
+    const isLast=i===pathParts.length-1;
+    html+=`<span style="cursor:pointer;${isLast?'font-weight:bold':''}" onclick="navigateFolder('${pathParts[i].id}')">${pathParts[i].name}</span>`;
+    if(!isLast)html+='<span style="color:#ccc">/</span>';
+  }
+  pathEl.innerHTML=html;
+}
+
+// 创建文件夹：云端先建FOLDER_登记行，确认成功后刷新本地
+async function createFolder(){
+  const name=prompt('请输入文件夹名称：');
+  if(!name||!name.trim())return;
+  const folderName=name.trim();
+  // 同父下重名校验
+  const subs=getSubFolderIds(currentFolder);
+  if(subs.some(s=>s.name===folderName)){toast('同名文件夹已存在');return}
+  const config=getSyncConfig();
+  if(!config.enabled){
+    toast('未启用云同步，无法创建文件夹','warn');
+    return;
+  }
+  toast('正在创建云端文件夹...');
+  // 先占领写入权→云端创建→云端成功后才刷新本地
+  await withWriteAccess('新建文件夹', async()=>{
+    const netTime=await getNetworkTime();
+    const folderId='FOLDER_'+genFileId();
+    // 用ID+本地新文件标识模式，让云端自己findEmptyRow，避免行号超出范围
+    const writeResult=await callCloudAPI('批量写入',{
+      ID:folderId,
+      本地新文件标识:'true',
+      数据:{
+        ID:folderId,
+        文件名:folderName,
+        内容:'',
+        起点号:'0',
+        终点号:'0',
+        文件夹路径:currentFolder||'',  // 父文件夹ID（空=根目录）
+        最后上传发起时间:formatBeijingTime(netTime)
+      }
+    });
+    if(writeResult.status!=='success'){
+      toast('云端创建文件夹失败：'+(writeResult.tongzhi||writeResult.message||'未知错误'));
+      return;
+    }
+    toast('文件夹已创建：'+folderName);
+    // 确认云端成功后才刷新本地
+    await refreshCloudIndex();
+  });
+}
+
+// 重命名文件夹：只改FOLDER_登记行的"文件名"字段，子孙无需改动（他们靠ID引用）
+async function renameFolder(folderId){
+  if(!isFolderId(folderId)){toast('无效的文件夹ID');return}
+  const oldName=getFolderName(folderId);
+  if(!oldName){toast('文件夹不存在');return}
+  const newName=prompt('请输入新的文件夹名称：',oldName);
+  if(newName===null)return;
+  const trimmed=newName.trim();
+  if(!trimmed){toast('文件夹名不能为空');return}
+  if(trimmed===oldName){toast('文件夹名未变化');return}
+  // 同父下重名校验
+  const parentId=getParentFolderId(folderId);
+  const subs=getSubFolderIds(parentId);
+  if(subs.some(s=>s.id!==folderId&&s.name===trimmed)){toast('同名文件夹已存在');return}
+  const config=getSyncConfig();
+  if(!config.enabled){
+    toast('未启用云同步，无法重命名','warn');
+    return;
+  }
+  toast('正在重命名云端文件夹...');
+  // 先占领写入权→云端重命名→云端成功后才刷新本地
+  await withWriteAccess('改名文件夹', async()=>{
+    const cloudResult=await findFileInCloudById(folderId);
+    if(!cloudResult.networkOk){
+      toast('网络异常，无法确认云端状态，重命名中止');
+      return;
+    }
+    if(!cloudResult.file){
+      toast('云端未找到该文件夹，重命名中止');
+      return;
+    }
+    const netTime=await getNetworkTime();
+    const cf=cloudResult.file;
+    // 纯ID模式，云端自己findRowById定位行
+    const writeResult=await callCloudAPI('批量写入',{
+      ID:folderId,
+      数据:{
+        ID:folderId,
+        文件名:trimmed,
+        内容:'',
+        起点号:cf.起点号||'0',
+        终点号:cf.起点号||'0',
+        文件夹路径:cf.文件夹路径||'',
+        最后上传发起时间:formatBeijingTime(netTime)
+      }
+    });
+    if(writeResult.status!=='success'){
+      if(writeResult.isNetworkError){
+        toast('网络异常，云端重命名失败');
+      }else{
+        toast('云端重命名失败：'+(writeResult.tongzhi||writeResult.message||'业务错误'));
+      }
+      return;
+    }
+    toast('文件夹已重命名：'+oldName+' → '+trimmed);
+    // 确认云端成功后才刷新本地
+    await refreshCloudIndex();
+  });
+}
+
+// 删除文件夹：递归删除整个文件夹（所有子孙文件+子文件夹+文件夹本身）
+async function deleteFolder(folderId){
+  if(!isFolderId(folderId)){toast('无效的文件夹ID');return}
+  const folderName=getFolderName(folderId);
+  if(!folderName){toast('文件夹不存在');return}
+  const config=getSyncConfig();
+  if(!config.enabled){
+    toast('未启用云同步，无法删除文件夹','warn');
+    return;
+  }
+  // 先读取云端索引，递归找出所有子孙ID
+  const cloudResult=await callCloudAPI('读取索引');
+  if(cloudResult.status!=='success'||!cloudResult.数据){
+    toast('读取云端索引失败：'+((cloudResult&&cloudResult.tongzhi)||'未知错误'));
+    return;
+  }
+  const cloudFiles=cloudResult.数据;
+  const descendantIds=getAllDescendantsFromCloud(cloudFiles,folderId);
+  const allIds=[folderId,...descendantIds];
+  if(!silent&&!confirm('确定删除文件夹"'+folderName+'"？\n该文件夹及其内部 '+descendantIds.length+' 个子项将一并删除。'))return;
+  toast('正在删除云端文件夹...');
+  // 先占领写入权→循环云端删除→云端成功后才刷新本地
+  await withWriteAccess('删除文件夹', async()=>{
+    let deleteFailed=false;
+    let failedId='';
+    let deletedCount=0;
+    for(const id of allIds){
+      // 云端"删除行"只需ID参数，会自己遍历表格找匹配行删除
+      const delResult=await callCloudAPI('删除行',{ID:id});
+      if(delResult.status!=='success'){
+        deleteFailed=true;
+        failedId=id;
+        break;
+      }
+      deletedCount++;
+      // 清理该文件的拆分片段（仅对文件，文件夹无片段）
+      if(!isFolderId(id)){
+        await cleanupCloudFragments(id,0);
+      }
+    }
+    if(deleteFailed){
+      toast('云端删除失败(ID:'+failedId+')，已中止。已删除'+deletedCount+'项，请刷新后重试');
+      // 仍刷新一次以同步已删除的部分
+      await refreshCloudIndex();
+      return;
+    }
+    toast('文件夹已删除：'+folderName+'（共'+deletedCount+'项）');
+    // 若当前所在文件夹被删除，回到根目录
+    if(currentFolder===folderId||descendantIds.includes(currentFolder)){
+      currentFolder='';
+    }
+    // 确认云端成功后才刷新本地
+    await refreshCloudIndex();
+  });
+}
+
+// 移动文件/文件夹到目标文件夹（targetFolderId为空=根目录）
+async function moveToFolder(itemId,targetFolderId){
+  if(!itemId){toast('未选择移动对象');return}
+  if(targetFolderId&&!isFolderId(targetFolderId)){toast('无效的目标文件夹ID');return}
+  // 若移动的是文件夹，禁止移入自身或其子孙（避免环）
+  if(isFolderId(itemId)){
+    if(itemId===targetFolderId){toast('不能移入自身');return}
+    const config=getSyncConfig();
+    if(config.enabled){
+      const cloudResult=await callCloudAPI('读取索引');
+      if(cloudResult.status==='success'&&cloudResult.数据){
+        const descIds=getAllDescendantsFromCloud(cloudResult.数据,itemId);
+        if(descIds.includes(targetFolderId)){toast('不能移入自身的子文件夹');return}
+      }
+    }
+  }
+  const config=getSyncConfig();
+  if(!config.enabled){
+    toast('未启用云同步，无法移动','warn');
+    return;
+  }
+  const idx=getFileIndex();
+  const localFile=idx.find(x=>x.id===itemId);
+  const oldFolderId=localFile?(localFile.folder||''):'';
+  if(oldFolderId===(targetFolderId||'')){toast('已在目标文件夹中');return}
+  toast('正在云端移动...');
+  // 先占领写入权→云端移动→云端成功后才刷新本地
+  await withWriteAccess('移动', async()=>{
+    const cloudResult=await findFileInCloudById(itemId);
+    if(!cloudResult.networkOk){
+      toast('网络异常，移动中止');
+      return;
+    }
+    if(!cloudResult.file){
+      toast('云端未找到该对象，移动中止');
+      return;
+    }
+    const netTime=await getNetworkTime();
+    const cf=cloudResult.file;
+    // 更新主ID行的文件夹路径（纯ID模式，云端自己findRowById定位行）
+    const writeResult=await callCloudAPI('批量写入',{
+      ID:itemId,
+      数据:{
+        ID:itemId,
+        文件名:cf.文件名||(localFile?localFile.name:''),
+        内容:extractCloudContent(cf),
+        起点号:cf.起点号||(localFile?String(localFile.s||0):'0'),
+        终点号:cf.终点号||(localFile?String(localFile.e||0):'0'),
+        拥有者:cf.拥有者||(localFile?localFile.owner||'':''),
+        文件夹路径:targetFolderId||'',
+        内容字符数:cf.内容字符数||'',
+        创建日期:cf.创建日期||(localFile?localFile.createTime||'':''),
+        最后上传发起时间:formatBeijingTime(netTime),
+        最后编辑时间:cf.最后编辑时间||(localFile?localFile.lastEditTime||'':'')
+      }
+    });
+    if(writeResult.status!=='success'){
+      if(writeResult.isNetworkError){
+        toast('网络异常，云端移动失败');
+      }else{
+        toast('云端移动失败：'+(writeResult.tongzhi||writeResult.message||'业务错误'));
+      }
+      return;
+    }
+    // 若是文件且有拆分片段，同步更新片段的文件夹路径
+    if(!isFolderId(itemId)){
+      const parsed=parseCharCountStr(cf.内容字符数);
+      if(parsed&&parsed.totalParts>1){
+        for(let i=2;i<=parsed.totalParts;i++){
+          const suffixId=itemId+'-'+i;
+          const suffixResult=await findFileInCloudById(suffixId);
+          if(suffixResult.file){
+            // 纯ID模式，不依赖行号
+            await callCloudAPI('批量写入',{
+              ID:suffixId,
+              数据:{
+                ID:suffixId,
+                文件名:suffixResult.file.文件名||'',
+                文件夹路径:targetFolderId||'',
+                最后上传发起时间:formatBeijingTime(netTime)
+              }
+            });
+          }
+        }
+      }
+    }
+    const targetName=getFolderName(targetFolderId);
+    toast('已移动到：'+(targetFolderId?(targetName||'目标文件夹'):'根目录'));
+    // 确认云端成功后才刷新本地
+    await refreshCloudIndex();
+  });
+}
+
+// 移动文件对话框：基于文件夹ID导航
+function showMoveFileDialog(){
+  const idx=getFileIndex();
+  // 优先使用selectedFileId，其次selectedFolderId（移动文件夹）
+  let itemId=selectedFileId||'';
+  let itemIsFolder=false;
+  if(!itemId&&selectedFolderId){
+    itemId=selectedFolderId;
+    itemIsFolder=true;
+  }
+  if(!itemId&&!currentFileName){toast('请先选择一个文件或文件夹');return}
+  if(!itemId){toast('请先选择一个文件或文件夹');return}
+  itemIsFolder=isFolderId(itemId);
+  const displayName=itemIsFolder?getFolderName(itemId):(idx.find(x=>x.id===itemId)?.name||'');
+  if(!displayName){toast('请先选择一个文件或文件夹');return}
+
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000';
+  const box=document.createElement('div');
+  box.style.cssText='background:#fff;border-radius:12px;padding:20px;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3);max-height:60vh;display:flex;flex-direction:column';
+  let navFolderId='';  // 当前对话框内浏览到的文件夹ID
+  const currentParentId=itemIsFolder?getParentFolderId(itemId):(idx.find(x=>x.id===itemId)?.folder||'');
+
+  function renderFolderList(parentId){
+    const subs=getSubFolderIds(parentId);
+    let html='<div style="margin-bottom:8px;font-size:12px;color:#888">';
+    if(!parentId){
+      html+='<span style="font-weight:bold">🏠 根目录</span>';
+    }else{
+      html+='<span style="cursor:pointer" data-nav-id="">🏠</span> / ';
+      // 显示从根到当前的面包屑
+      const pathParts=[];
+      let cur=parentId;
+      const visited=new Set();
+      while(cur&&!visited.has(cur)){visited.add(cur);pathParts.unshift({id:cur,name:getFolderName(cur)});cur=getParentFolderId(cur)}
+      for(let i=0;i<pathParts.length;i++){
+        const isLast=i===pathParts.length-1;
+        html+=`<span style="cursor:pointer;${isLast?'font-weight:bold':''}" data-nav-id="${pathParts[i].id}">${pathParts[i].name||'(未命名)'}</span>`;
+        if(!isLast)html+=' / ';
+      }
+    }
+    html+='</div>';
+    html+='<div style="flex:1;overflow-y:auto">';
+    // 移动到此处的按钮
+    const isCurrent=(currentParentId===(parentId||''));
+    const moveLabel=parentId?('✓ 移动到此文件夹'+(isCurrent?' (当前)':'')):('✓ 移动到根目录'+(isCurrent?' (当前)':''));
+    html+=`<button data-move-id="${parentId||''}" style="display:block;width:100%;text-align:left;padding:8px 12px;margin:4px 0;border:1px solid #4A90D9;border-radius:6px;background:${isCurrent?'#e8f0fe':'#fff'};cursor:pointer;font-size:13px;color:#4A90D9">${moveLabel}</button>`;
+    // 子文件夹列表
+    for(const sub of subs){
+      // 移动文件夹时，禁止进入自身或子孙
+      const disabled=itemIsFolder&&(sub.id===itemId);
+      const navStyle=disabled?'opacity:0.4;cursor:not-allowed':'cursor:pointer';
+      const navAttr=disabled?'':`data-nav-id="${sub.id}"`;
+      html+=`<button ${navAttr} style="display:block;width:100%;text-align:left;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#fff;${navStyle};font-size:13px" ${disabled?'disabled':''}>📁 ${sub.name||'(未命名)'} ${disabled?'(自身)':'▸'}</button>`;
+    }
+    if(subs.length===0){
+      html+='<div style="text-align:center;color:#999;padding:10px;font-size:11px">（无子文件夹）</div>';
+    }
+    html+='</div>';
+    return html;
+  }
+  box.innerHTML='<h4 style="margin:0 0 12px;font-size:14px">移动 '+(itemIsFolder?'📁 ':'📄 ')+displayName+' 到：</h4>'+
+    '<div id="moveFolderContent">'+renderFolderList('')+'</div>'+
+    '<button id="moveCancel" style="margin-top:8px;padding:6px 16px;border:1px solid #ddd;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:12px">取消</button>';
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  function bindButtons(){
+    box.querySelectorAll('[data-move-id]').forEach(btn=>{
+      btn.onclick=async()=>{
+        const targetId=btn.getAttribute('data-move-id');
+        document.body.removeChild(modal);
+        await moveToFolder(itemId,targetId);
+      };
+    });
+    box.querySelectorAll('[data-nav-id]').forEach(btn=>{
+      btn.onclick=()=>{
+        const id=btn.getAttribute('data-nav-id');
+        navFolderId=id||'';
+        box.querySelector('#moveFolderContent').innerHTML=renderFolderList(navFolderId);
+        bindButtons();
+      };
+    });
+  }
+  bindButtons();
+  box.querySelector('#moveCancel').onclick=()=>{document.body.removeChild(modal)};
+}
+
+// ============================================================
+// 导出文件（JSON格式，符合文件管理器协议）
+// ============================================================
+function exportFileJSON(){
+  if(!selectedFileId){toast('请先选择一个文件');return}
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.id===selectedFileId);
+  if(!f){toast('文件不存在');return}
+  const fd=loadFileDataById(selectedFileId);
+  let content=fd?fd.data:'';
+  const exportData={
+    name:f.name,
+    id:f.id,
+    e:f.e||0,
+    s:f.s||0,
+    isNewFile:f.isNewFile||false,
+    folder:f.folder||'',
+    owner:f.owner||'',
+    createTime:f.createTime||'',
+    lastUploadTime:f.lastUploadTime||'',
+    lastEditTime:f.lastEditTime||'',
+    contentLength:countChars(content),
+    content:content
+  };
+  const text=JSON.stringify(exportData,null,2);
+  const blob=new Blob([text],{type:'application/json;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=f.name+'.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('已导出文件: '+f.name+'.json');
+}
+
+// ============================================================
+// 导入文件（JSON格式，符合文件管理器协议）
+// 规则：
+//   1. 同ID文件存在 → 覆盖它，打上新文件标识
+//   2. 同名不同ID → 弹窗选择：更新同名文件内容(打新文件标识) / 当做全新文件(冲突后缀)
+//   3. 不同名不同ID → 建立全新文件，赋予新ID
+// 新文件标识保护：首次上传云端前不可被云端指令删除
+// 首次同步时版本号小于云端 → 强制覆盖云端（先矫正版本号再上传）
+// ============================================================
+function importFileJSON(){
+  const input=document.createElement('input');
+  input.type='file';
+  input.accept='.json';
+  input.multiple=true;
+  input.onchange=function(e){
+    const files=Array.from(e.target.files);
+    if(!files.length)return;
+    let processed=0;
+    files.forEach(file=>{
+      const reader=new FileReader();
+      reader.onload=function(ev){
+        try{
+          const data=JSON.parse(ev.target.result);
+          if(!data.name&&!data.id){toast('无效的导入文件：缺少文件名和ID','error');return}
+          const fileName=data.name||'未命名';
+          const fileId=data.id||'';
+          const content=data.content||'';
+          const idx=getFileIndex();
+
+          // 规则1：同ID文件存在 → 覆盖，打新文件标识
+          if(fileId){
+            const sameIdFile=idx.find(x=>x.id===fileId);
+            if(sameIdFile){
+              // 覆盖同ID文件内容
+              _saveFileObj(fileId,content,null);
+              sameIdFile.isNewFile=true;
+              sameIdFile.s=0;
+              sameIdFile.contentLength=countChars(content);
+              sameIdFile.lastEditTime=formatBeijingTime(Date.now());
+              // 保留导入的终点号，起点号归零确保首次同步强制覆盖云端
+              sameIdFile.e=data.e||data.s||1;
+              if(data.folder!==undefined)sameIdFile.folder=data.folder;
+              if(data.owner!==undefined)sameIdFile.owner=data.owner;
+              if(data.createTime!==undefined)sameIdFile.createTime=data.createTime;
+              setFileIndex(idx);
+              if(currentFileName===sameIdFile.name){
+                currentFileContent=content;
+                notifyParent('fileContentChanged',{name:sameIdFile.name,content:content});
+              }
+              toast('已覆盖同ID文件: '+sameIdFile.name+' (ID:'+fileId+')');
+              processed++;
+              if(processed===files.length)renderFileList();
+              return;
+            }
+          }
+
+          // 规则2 & 3：同ID不存在，检查同名
+          const sameNameFile=idx.find(x=>x.name===fileName);
+          if(sameNameFile){
+            // 同名不同ID → 弹窗选择
+            showImportJSONConflictDialog(fileName,fileId,content,data,sameNameFile);
+          }else{
+            // 规则3：不同名不同ID → 建立全新文件
+            const newId=fileId||genFileId();
+            const netTime=Date.now();
+            idx.push({
+              name:fileName,
+              time:netTime,
+              id:newId,
+              e:data.e||data.s||1,
+              s:0,
+              isNewFile:true,
+              folder:data.folder||currentFolder||'',
+              owner:data.owner||'',
+              createTime:data.createTime||formatBeijingTime(netTime),
+              lastUploadTime:'',
+              lastEditTime:formatBeijingTime(netTime),
+              contentLength:countChars(content)
+            });
+            setFileIndex(idx);
+            _saveFileObj(newId,content,null);
+            toast('已导入新文件: '+fileName);
+          }
+          processed++;
+          if(processed===files.length)renderFileList();
+        }catch(err){
+          toast('导入失败: '+err.message,'error');
+          processed++;
+          if(processed===files.length)renderFileList();
+        }
+      };
+      reader.readAsText(file,'utf-8');
+    });
+  };
+  input.click();
+}
+
+// JSON导入同名冲突弹窗
+function showImportJSONConflictDialog(fileName,fileId,content,data,existingFile){
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);z-index:300;display:flex;justify-content:center;align-items:center';
+  const box=document.createElement('div');
+  box.style.cssText='background:#fff;border-radius:10px;padding:20px;width:400px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,.2)';
+  box.innerHTML=`
+    <h3 style="font-size:15px;margin-bottom:10px">📥 导入文件冲突</h3>
+    <p style="font-size:13px;color:#666;margin-bottom:8px">文件"<b>${fileName}</b>"已存在（ID不同）</p>
+    <div style="background:#f5f5f5;padding:8px 10px;border-radius:4px;font-size:12px;margin-bottom:14px">
+      <div>本地 ID：<span style="font-family:monospace">${existingFile.id}</span>　终点号：<span>${existingFile.e||0}</span></div>
+      <div>导入 ID：<span style="font-family:monospace">${fileId||'(无)'}</span>　终点号：<span>${data.e||data.s||0}</span></div>
+      <div>本地字符数：<span>${existingFile.contentLength||0}</span>　导入字符数：<span>${countChars(content)}</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button id="jsonImportUpdate" style="padding:8px 18px;border:none;border-radius:5px;background:#4A90D9;color:#fff;cursor:pointer;font-size:13px">更新同名文件内容（打新文件标识，首次同步强制覆盖云端）</button>
+      <button id="jsonImportNew" style="padding:8px 18px;border-radius:5px;border:1px solid #27ae60;background:#fff;color:#27ae60;cursor:pointer;font-size:13px">当做全新文件（带冲突后缀）</button>
+      <button id="jsonImportCancel" style="padding:8px 18px;border-radius:5px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;font-size:13px">取消</button>
+    </div>
+  `;
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+
+  box.querySelector('#jsonImportUpdate').onclick=()=>{
+    // 更新同名文件内容，打新文件标识，起点号归零
+    // 首次同步时终点号大于起点号 → 强制覆盖云端（isNewFile=true + s=0 保证此行为）
+    const idx2=getFileIndex();
+    const f=idx2.find(x=>x.id===existingFile.id);
+    if(f){
+      _saveFileObj(f.id,content,null);
+      f.isNewFile=true;
+      f.s=0;
+      f.e=data.e||data.s||1;
+      f.contentLength=countChars(content);
+      f.lastEditTime=formatBeijingTime(Date.now());
+      if(data.folder!==undefined)f.folder=data.folder;
+      if(data.owner!==undefined)f.owner=data.owner;
+      setFileIndex(idx2);
+      if(currentFileName===fileName){
+        currentFileContent=content;
+        notifyParent('fileContentChanged',{name:fileName,content:content});
+      }
+    }
+    document.body.removeChild(modal);
+    renderFileList();
+    toast('已更新同名文件: '+fileName+' (新文件标识，首次同步强制覆盖云端)');
+  };
+
+  box.querySelector('#jsonImportNew').onclick=()=>{
+    // 当做全新文件，名字加冲突后缀，赋予新ID
+    const idx2=getFileIndex();
+    const ts=formatBeijingTime(Date.now()).replace(/[-: ]/g,'').substring(0,14);
+    const ext=fileName.match(/\.\w+$/)?fileName.match(/\.\w+$/)[0]:'';
+    const conflictName=fileName.replace(/\.\w+$/,'')+'冲突版本'+ts+ext;
+    const newId=genFileId();
+    const netTime=Date.now();
+    idx2.push({
+      name:conflictName,
+      time:netTime,
+      id:newId,
+      e:1,
+      s:0,
+      isNewFile:true,
+      folder:data.folder||currentFolder||'',
+      owner:data.owner||'',
+      createTime:formatBeijingTime(netTime),
+      lastUploadTime:'',
+      lastEditTime:formatBeijingTime(netTime),
+      contentLength:countChars(content)
+    });
+    setFileIndex(idx2);
+    _saveFileObj(newId,content,null);
+    document.body.removeChild(modal);
+    renderFileList();
+    toast('已导入冲突版本: '+conflictName);
+  };
+
+  box.querySelector('#jsonImportCancel').onclick=()=>{
+    document.body.removeChild(modal);
+  };
+}
+
+// 导出选中文件为纯文本TXT（原汁原味内容，超过30000字符拆分为多个文件）
+function exportSelectedFile(){
+  if(!selectedFileId){toast('请先选择一个文件');return}
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.id===selectedFileId);
+  if(!f){toast('文件不存在');return}
+  const fd=loadFileDataById(selectedFileId);
+  let content=fd?fd.data:'';
+  if(!content){toast('文件内容为空');return}
+
+  const totalChars=countChars(content);
+  if(totalChars<=MAX_CLOUD_CHARS){
+    // 单文件导出
+    const blob=new Blob([content],{type:'text/plain;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=f.name+'.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('已导出: '+f.name+'.txt');
+  }else{
+    // 拆分导出：超过30000字符按片段导出多个TXT
+    const chars=[...content];
+    const totalParts=Math.ceil(totalChars/MAX_CLOUD_CHARS);
+    for(let i=0;i<totalParts;i++){
+      const start=i*MAX_CLOUD_CHARS;
+      const end=Math.min(start+MAX_CLOUD_CHARS,chars.length);
+      const partContent=chars.slice(start,end).join('');
+      const partName=i===0?f.name+'.txt':f.name+'_part'+(i+1)+'.txt';
+      const blob=new Blob([partContent],{type:'text/plain;charset=utf-8'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=partName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    toast('已拆分导出 '+totalParts+' 个文件: '+f.name);
+  }
+}
+
+// 导入文件从.txt（纯文本内容，支持多文件选择合并拆分片段）
+function importFile(){
+  const input=document.createElement('input');
+  input.type='file';
+  input.accept='.txt';
+  input.multiple=true; // 支持多选，用于拆分片段合并导入
+  input.onchange=function(e){
+    const files=Array.from(e.target.files);
+    if(!files.length)return;
+
+    // 按文件名分组：主文件和_partN片段
+    // 主文件：name.txt  片段：name_partN.txt
+    const fileGroups={};
+    files.forEach(file=>{
+      const baseName=file.name.replace(/\.txt$/i,'');
+      // 检测是否为拆分片段 _part2, _part3 等
+      const partMatch=baseName.match(/^(.+)_part(\d+)$/);
+      if(partMatch){
+        const mainName=partMatch[1];
+        const partNum=parseInt(partMatch[2]);
+        if(!fileGroups[mainName])fileGroups[mainName]={parts:{}};
+        fileGroups[mainName].parts[partNum]=file;
+      }else{
+        if(!fileGroups[baseName])fileGroups[baseName]={parts:{}};
+        fileGroups[baseName].mainFile=file;
+        fileGroups[baseName].mainName=baseName;
+      }
+    });
+
+    // 逐组处理
+    const groupNames=Object.keys(fileGroups);
+    let processed=0;
+
+    groupNames.forEach(groupName=>{
+      const group=fileGroups[groupName];
+      const mainFile=group.mainFile;
+      const partKeys=Object.keys(group.parts).map(Number).sort((a,b)=>a-b);
+
+      // 读取所有文件的Promise
+      const readPromises=[];
+      if(mainFile){
+        readPromises.push(readFileAsText(mainFile).then(t=>({isMain:true,content:t})));
+      }
+      partKeys.forEach(pk=>{
+        readPromises.push(readFileAsText(group.parts[pk]).then(t=>({isMain:false,partNum:pk,content:t})));
+      });
+
+      Promise.all(readPromises).then(results=>{
+        // 拼接内容：主文件在前，片段按序号排列
+        let fullContent='';
+        const mainResult=results.find(r=>r.isMain);
+        const partResults=results.filter(r=>!r.isMain).sort((a,b)=>a.partNum-b.partNum);
+        if(mainResult)fullContent+=mainResult.content;
+        partResults.forEach(pr=>{fullContent+=pr.content});
+
+        const fileName=groupName; // 去掉.txt和_part后缀的文件名
+        processImportedContent(fileName,fullContent);
+        processed++;
+        if(processed===groupNames.length)renderFileList();
+      });
+    });
+  };
+  input.click();
+}
+
+// 读取文件为文本
+function readFileAsText(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>resolve(e.target.result);
+    reader.onerror=()=>reject(new Error('读取文件失败'));
+    reader.readAsText(file,'utf-8');
+  });
+}
+
+// 处理导入内容：同名提示覆盖或新建，不同名直接新建
+function processImportedContent(fileName,content){
+  const idx=getFileIndex();
+  const existing=idx.find(x=>x.name===fileName);
+
+  if(existing){
+    // 同名文件：弹窗让用户选择覆盖还是新建
+    showImportConflictDialog(fileName,content,existing);
+  }else{
+    // 不同名：直接新建文件
+    createNewLocalFile(fileName,content);
+    toast('已导入新文件: '+fileName);
+  }
+}
+
+// 导入内容同名冲突弹窗
+function showImportConflictDialog(fileName,content,existingFile){
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);z-index:300;display:flex;justify-content:center;align-items:center';
+  const box=document.createElement('div');
+  box.style.cssText='background:#fff;border-radius:10px;padding:20px;width:360px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,.2)';
+  box.innerHTML=`
+    <h3 style="font-size:15px;margin-bottom:10px">📥 导入内容冲突</h3>
+    <p style="font-size:13px;color:#666;margin-bottom:8px">文件"<b>${fileName}</b>"已存在</p>
+    <div style="background:#f5f5f5;padding:8px 10px;border-radius:4px;font-size:12px;margin-bottom:14px">
+      <div>本地终点号：<span>${existingFile.e||0}</span></div>
+      <div>本地字符数：<span>${existingFile.contentLength||0}</span></div>
+      <div>导入字符数：<span>${countChars(content)}</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button id="importOverwrite" style="padding:8px 18px;border:none;border-radius:5px;background:#4A90D9;color:#fff;cursor:pointer;font-size:13px">更新同名文件内容（打新文件标识，首次同步强制覆盖云端）</button>
+      <button id="importNewFile" style="padding:8px 18px;border-radius:5px;border:1px solid #27ae60;background:#fff;color:#27ae60;cursor:pointer;font-size:13px">当做全新文件（带冲突后缀）</button>
+      <button id="importCancel" style="padding:8px 18px;border-radius:5px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;font-size:13px">取消</button>
+    </div>
+  `;
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+
+  box.querySelector('#importOverwrite').onclick=()=>{
+    // 更新同名文件内容，打新文件标识，起点号归零
+    // 首次同步时终点号大于起点号 → 强制覆盖云端（isNewFile=true + s=0 保证此行为）
+    const idx2=getFileIndex();
+    const f=idx2.find(x=>x.name===fileName);
+    if(f){
+      _saveFileObj(f.id,content,null);
+      f.isNewFile=true;
+      f.s=0;
+      f.e=(f.e||0)+1;
+      f.contentLength=countChars(content);
+      f.lastEditTime=formatBeijingTime(Date.now());
+      setFileIndex(idx2);
+      if(currentFileName===fileName){
+        currentFileContent=content;
+        notifyParent('fileContentChanged',{name:fileName,content:content});
+      }
+    }
+    document.body.removeChild(modal);
+    renderFileList();
+    toast('已更新同名文件: '+fileName+' (新文件标识，首次同步强制覆盖云端)');
+  };
+
+  box.querySelector('#importNewFile').onclick=()=>{
+    // 当做全新文件，名字加冲突后缀，赋予新ID
+    const idx2=getFileIndex();
+    const ts=formatBeijingTime(Date.now()).replace(/[-: ]/g,'').substring(0,14);
+    const ext=fileName.match(/\.\w+$/)?fileName.match(/\.\w+$/)[0]:'';
+    const conflictName=fileName.replace(/\.\w+$/,'')+'冲突版本'+ts+ext;
+    createNewLocalFile(conflictName,content);
+    document.body.removeChild(modal);
+    renderFileList();
+    toast('已导入冲突版本: '+conflictName);
+  };
+
+  box.querySelector('#importCancel').onclick=()=>{
+    document.body.removeChild(modal);
+  };
+}
+
+// 创建新本地文件
+function createNewLocalFile(name,content){
+  const fileId=genFileId();
+  const idx=getFileIndex();
+  const netTime=Date.now();
+  idx.push({
+    name,
+    time:netTime,
+    id:fileId,
+    e:1,
+    s:0,
+    isNewFile:true,
+    folder:currentFolder||'',
+    owner:'',
+    createTime:formatBeijingTime(netTime),
+    lastUploadTime:'',
+    lastEditTime:formatBeijingTime(netTime),
+    contentLength:countChars(content)
+  });
+  setFileIndex(idx);
+  _saveFileObj(fileId,content,null);
+}
+
+function deleteSelectedFile(){
+  const selItem=selectedFileId?document.querySelector('.file-item[data-id="'+selectedFileId+'"]'):null;
+  if(!selItem){toast('请先选择一个文件');return}
+  if(selectedFileId)deleteFileById(selectedFileId);
+}
+
+async function deleteNamedFile(name){
+  if(!confirm('确定删除 "'+name+'" ？'))return;
+  const meta=getFileMeta(name);
+  const config=getSyncConfig();
+  if(config.enabled){
+    const cloudResult=await findFileInCloudById(meta.id);
+    if(!cloudResult.networkOk){
+      toast('网络异常，无法确认云端状态，删除中止');
+      return;
+    }
+    if(cloudResult.file){
+      // 云端"删除行"只需ID参数，会自己遍历表格找匹配行删除
+      const result=await callCloudAPI('删除行',{ID:meta.id});
+      if(result.status!=='success'){
+        if(result.isNetworkError){
+          toast('网络异常，云端删除失败，删除中止');
+        }else{
+          toast('云端删除失败：'+(result.tongzhi||result.message||'业务错误'));
+        }
+        return;
+      }
+      // 清理拆分片段
+      await cleanupCloudFragments(meta.id,0);
+      setLastSyncTime(Date.now());
+    }
+  }
+  deleteFileData(name);
+  if(currentFileName===name){
+    currentFileName='';
+    currentFileContent='';
+    notifyParent('fileDeleted',{name});
+  }
+  renderFileList();
+  toast('已删除：'+name);
+}
+
+async function deleteFileById(id,silent){
+  if(!id)return;
+  // 文件夹必须通过deleteFolder删除（递归删除子孙）
+  if(isFolderId(id)){deleteFolder(id,silent);return}
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.id===id);
+  if(!f){toast('文件不存在');return}
+  const name=f.name;
+  if(!silent&&!confirm('确定删除 "'+name+'" ？'))return;
+  const config=getSyncConfig();
+  if(config.enabled){
+    // 在线删除：先占领写入权→云端删除→云端成功后本地落地
+    await withWriteAccess('删除文件', async()=>{
+      const cloudResult=await findFileInCloudById(id);
+      if(!cloudResult.networkOk){
+        toast('网络异常，无法确认云端状态，删除中止');
+        return;
+      }
+      if(cloudResult.file){
+        // 云端"删除行"只需ID参数，会自己遍历表格找匹配行删除
+        const result=await callCloudAPI('删除行',{ID:id});
+        if(result.status!=='success'){
+          if(result.isNetworkError){
+            toast('网络异常，云端删除失败，删除中止');
+          }else{
+            toast('云端删除失败：'+(result.tongzhi||result.message||'业务错误'));
+          }
+          return;
+        }
+        // 清理拆分片段
+        await cleanupCloudFragments(id,0);
+        setLastSyncTime(Date.now());
+      }
+      // 云端确认成功后本地落地
+      deleteFileDataById(id);
+      if(currentFileName===name){
+        currentFileName='';
+        currentFileContent='';
+        notifyParent('fileDeleted',{name});
+      }
+      renderFileList();
+      toast('已删除：'+name);
+    });
+    return;
+  }
+  deleteFileDataById(id);
+  if(currentFileName===name){
+    currentFileName='';
+    currentFileContent='';
+    notifyParent('fileDeleted',{name});
+  }
+  renderFileList();
+  toast('已删除：'+name);
+}
+
+async function downloadCloudFileById(id,name){
+  const cloudResult=await findFileInCloudById(id);
+  if(!cloudResult.networkOk){toast('网络异常，无法下载');return}
+  if(!cloudResult.file){toast('云端文件不存在');return}
+  // 合并拆分片段
+  const merged=await mergeCloudFragments(id,cloudResult.file);
+  const content=typeof merged==='string'?merged:extractCloudContent(cloudResult.file);
+  const cloudVer=parseInt(cloudResult.file.起点号||'0');
+  const cloudFileName=cloudResult.file.文件名||name;
+  const cloudFolder=cloudResult.file.文件夹路径||'';
+  const idx=getFileIndex();
+  const existing=idx.find(x=>x.id===id);
+  if(existing){
+    // 已在索引中（cloudOnly），更新为已下载状态
+    existing.e=cloudVer;
+    existing.s=cloudVer;
+    existing.cloudOnly=false;
+    existing.contentLength=countChars(content);
+    existing.name=cloudFileName;
+    existing.folder=cloudFolder;
+    setFileIndex(idx);
+  }else{
+    // 不在索引中，新增
+    const parsed=parseCharCountStr(cloudResult.file.内容字符数);
+    idx.push({name:cloudFileName,time:Date.now(),id:id,e:cloudVer,s:cloudVer,folder:cloudFolder,contentLength:parsed?parsed.total:countChars(content),cloudOnly:false,isNewFile:false});
+    setFileIndex(idx);
+  }
+  // 直接保存内容到localStorage，不经过saveFileData（避免终点号+1）
+  if(shouldCacheFile(content)){
+    _saveFileObj(id,content,(_readFileObjSync(id)||{}).view);
+  }else{
+    console.log('[缓存管理] 文件过大('+countChars(content)+'字符)，不缓存本地');
+  }
+  currentFileName=cloudFileName;
+  currentFileContent=content;
+  localStorage.setItem(K('current_file'),cloudFileName);
+  notifyParent('openFile',{name:cloudFileName,content,id});
+  renderFileList();
+  smartCleanCache();
+  toast('已从云端下载：'+cloudFileName);
+}
+
+function openSelectedFile(){
+  if(selectedFolderId){
+    navigateFolder(selectedFolderId);
+    return;
+  }
+  if(!selectedFileId){toast('请先选择一个文件或文件夹');return}
+  const idx=getFileIndex();
+  const localFile=idx.find(x=>x.id===selectedFileId);
+  if(localFile){
+    openFileById(selectedFileId);
+  }else{
+    // 云端文件：先下载到本地再打开（下载即同步）
+    downloadCloudFileById(selectedFileId,selectedFileName);
+  }
+}
+
+// 先一致再打开策略：
+// 1. 纯新文件(isNewFile=true) → 直接打开
+// 2. 已上云文件 → 必须先与云端确认一致，确认一致后才打开
+// 3. 无法联网 → 提醒断网离线使用
+async function openFileById(id){
+  const idx=getFileIndex();
+  const f=idx.find(x=>x.id===id);
+  if(!f){toast('文件不存在');return}
+  const fd=loadFileDataById(id);
+
+  // cloudOnly文件：本地无数据，需先下载
+  if(!fd&&f.cloudOnly){
+    toast('正在从云端下载...');
+    await downloadCloudFileById(id,f.name);
+    return;
+  }
+
+  if(!fd){toast('文件数据不存在');return}
+
+  // 纯新文件：直接打开
+  if(f.isNewFile){
+    currentFileName=f.name;
+    currentFileContent=fd.data||'';
+    localStorage.setItem(K('current_file'),f.name);
+    notifyParent('openFile',{name:f.name,content:fd.data,id:f.id});
+    renderFileList();
+    toast('已打开：'+f.name);
+    return;
+  }
+
+  // 已上云文件：必须先与云端确认一致
+  const config=getSyncConfig();
+  if(!config.enabled){
+    // 未启用云同步，直接打开
+    currentFileName=f.name;
+    currentFileContent=fd.data||'';
+    localStorage.setItem(K('current_file'),f.name);
+    notifyParent('openFile',{name:f.name,content:fd.data,id:f.id});
+    renderFileList();
+    toast('已打开：'+f.name);
+    return;
+  }
+
+  toast('正在与云端确认一致性...');
+  try{
+    const cloudResult=await findFileInCloudById(id);
+    if(!cloudResult.networkOk){
+      // 无法联网 → 提醒断网离线使用
+      const proceed=confirm('无法连接云端，是否离线打开？\n（离线编辑可能产生版本冲突）');
+      if(!proceed){toast('已取消打开');return}
+      currentFileName=f.name;
+      currentFileContent=fd.data||'';
+      localStorage.setItem(K('current_file'),f.name);
+      notifyParent('openFile',{name:f.name,content:fd.data,id:f.id,isOffline:true});
+      renderFileList();
+      toast('离线打开：'+f.name);
+      return;
+    }
+
+    if(!cloudResult.file){
+      // 云端无此文件 → 可能被其他设备删除
+      const proceed=confirm('云端无此文件记录，可能已被其他设备删除。\n是否仍要打开本地版本？');
+      if(!proceed){toast('已取消打开');return}
+      currentFileName=f.name;
+      currentFileContent=fd.data||'';
+      localStorage.setItem(K('current_file'),f.name);
+      notifyParent('openFile',{name:f.name,content:fd.data,id:f.id});
+      renderFileList();
+      return;
+    }
+
+    const cloudVer=parseInt(cloudResult.file.起点号||'0');
+    const localVer=f.e||0;
+    const syncVer=f.s||0;
+
+    if(localVer===cloudVer&&localVer===syncVer){
+      // 本地与云端完全一致 → 直接打开
+      currentFileName=f.name;
+      currentFileContent=fd.data||'';
+      localStorage.setItem(K('current_file'),f.name);
+      notifyParent('openFile',{name:f.name,content:fd.data,id:f.id});
+      renderFileList();
+      toast('已打开（与云端一致）：'+f.name);
+      return;
+    }
+
+    if(cloudVer===syncVer&&localVer>syncVer){
+      // 本地有未同步编辑但云端未更新 → 先上传再打开
+      toast('本地有未同步编辑，正在上传...');
+      currentFileName=f.name;
+      currentFileContent=fd.data||'';
+      localStorage.setItem(K('current_file'),f.name);
+      await uploadCurrentFile();
+      notifyParent('openFile',{name:f.name,content:fd.data,id:f.id});
+      renderFileList();
+      toast('已同步并打开：'+f.name);
+      return;
+    }
+
+    if(cloudVer>syncVer){
+      // 云端版本更高 → 检查是否实际一致
+      if(localVer===cloudVer){
+        // 本地终点号=云端起点号>本地起点号 → 未发生真实上传/下载，不修正起点号
+        currentFileName=f.name;
+        currentFileContent=fd.data||'';
+        localStorage.setItem(K('current_file'),f.name);
+        notifyParent('openFile',{name:f.name,content:fd.data,id:f.id});
+        renderFileList();
+        toast('已打开（与云端版本一致）：'+f.name);
+        return;
+      }
+      // 云端版本更高且本地版本不同 → 先下载覆盖本地再打开
+      toast('云端版本更高，正在下载...');
+      currentFileName=f.name;
+      currentFileContent=fd.data||'';
+      localStorage.setItem(K('current_file'),f.name);
+      const dlResult=await downloadCurrentFile();
+      if(dlResult.status==='success'||dlResult.status==='no_update'){
+        const updatedFd=loadFileDataById(id);
+        currentFileContent=updatedFd?updatedFd.data:fd.data;
+        notifyParent('openFile',{name:f.name,content:currentFileContent,id:f.id});
+        renderFileList();
+        toast('已同步并打开：'+f.name);
+      }else if(dlResult.status==='conflict'){
+        // 冲突 → 不打开，等用户处理
+        toast('版本冲突，请先处理冲突再打开','warn');
+        notifyParent('openDenied',{name:f.name,reason:'conflict',localVer,cloudVer,syncVer});
+      }else{
+        toast('同步失败：'+(dlResult.message||'未知错误'),'warn');
+        notifyParent('openDenied',{name:f.name,reason:'sync_failed',message:dlResult.message});
+      }
+      return;
+    }
+
+    // 其他情况（本地版本异常等）→ 直接打开但警告
+    currentFileName=f.name;
+    currentFileContent=fd.data||'';
+    localStorage.setItem(K('current_file'),f.name);
+    notifyParent('openFile',{name:f.name,content:fd.data,id:f.id});
+    renderFileList();
+    toast('已打开：'+f.name);
+  }catch(e){
+    toast('同步检查异常：'+e.message);
+    notifyParent('openDenied',{name:f.name,reason:'error',message:e.message});
+  }
+}
+
+function switchTab(name){
+  const home=document.getElementById('view-home');
+  const settings=document.getElementById('view-settings');
+  const guide=document.getElementById('view-guide');
+  if(home)home.style.display=(name==='home')?'flex':'none';
+  if(settings)settings.style.display=(name==='settings')?'flex':'none';
+  if(guide)guide.style.display=(name==='guide')?'flex':'none';
+  document.querySelectorAll('#tab-bar .app-tab').forEach(t=>{
+    const on=t.getAttribute('data-tab')===name;
+    t.classList.toggle('active',on);
+    t.style.borderBottomColor=on?'#4A90D9':'transparent';
+    t.style.color=on?'#4A90D9':'#555';
+  });
+  // 打开设置页时预填充表单
+  if(name==='settings'&&typeof showSyncSettings==='function')showSyncSettings();
+}
+
+function showSyncSettings(){
+  const config=getSyncConfig();
+  document.getElementById('syncAppPrefix').value=config.appPrefix||APP_PREFIX;
+  document.getElementById('syncApiUrl').value=config.apiUrl||'';
+  document.getElementById('syncWebhookUrl').value=config.webhookUrl||'';
+  document.getElementById('syncToken').value=config.token||'';
+  document.getElementById('syncSheetName').value=config.sheetName||'';
+  document.getElementById('syncConflictMode').value=config.conflictMode||'manual';
+  document.getElementById('syncMirrorPrefix').value=config.mirrorPrefix||'★';
+  document.getElementById('syncSemiAutoThreshold').value=config.semiAutoThreshold||100;
+  document.getElementById('syncSemiAutoDownloadLoss').value=config.semiAutoDownloadLoss||4;
+  document.getElementById('syncSemiAutoUploadLoss').value=config.semiAutoUploadLoss||4;
+  document.getElementById('syncCloudCheckInterval').value=config.cloudCheckInterval||5;
+  document.getElementById('syncThreshold').value=config.syncThreshold||10;
+  document.getElementById('syncDeltaInterval').value=config.syncDeltaInterval||5;
+  document.getElementById('syncRetryCount').value=config.retryCount||5;
+  document.getElementById('syncRetryInterval').value=config.retryInterval||2;
+  document.getElementById('syncTaskInterval').value=config.taskInterval||0;
+  document.getElementById('syncCacheMaxUsage').value=Math.round((config.cacheMaxUsage||0.7)*100);
+  document.getElementById('syncCacheMaxFileChars').value=config.cacheMaxFileChars||1000000;
+  document.getElementById('syncEnabled').checked=config.enabled!==false;
+  document.getElementById('syncAutoRefreshOnOpen').checked=config.autoRefreshOnOpen!==false;
+}
+
+function closeSyncSettings(){
+  switchTab('home');
+}
+
+function saveSyncSettings(){
+  const cloudCheckInterval=parseInt(document.getElementById('syncCloudCheckInterval').value)||5;
+  const config={
+    enabled:document.getElementById('syncEnabled').checked,
+    appPrefix:APP_PREFIX,
+    // 以下4项写死，不从输入框读取
+    apiUrl:DEFAULT_SYNC_CONFIG.apiUrl,
+    webhookUrl:DEFAULT_SYNC_CONFIG.webhookUrl,
+    token:DEFAULT_SYNC_CONFIG.token,
+    sheetName:DEFAULT_SYNC_CONFIG.sheetName,
+    cloudCheckInterval:cloudCheckInterval,
+    syncThreshold:parseInt(document.getElementById('syncThreshold').value)||10,
+    syncDeltaInterval:parseInt(document.getElementById('syncDeltaInterval').value)||5,
+    retryCount:parseInt(document.getElementById('syncRetryCount').value)||5,
+    retryInterval:parseInt(document.getElementById('syncRetryInterval').value)||2,
+    conflictMode:document.getElementById('syncConflictMode').value||'manual',
+    mirrorPrefix:document.getElementById('syncMirrorPrefix').value||'★',
+    semiAutoThreshold:parseInt(document.getElementById('syncSemiAutoThreshold').value)||100,
+    semiAutoDownloadLoss:parseInt(document.getElementById('syncSemiAutoDownloadLoss').value)||4,
+    semiAutoUploadLoss:parseInt(document.getElementById('syncSemiAutoUploadLoss').value)||4,
+    taskInterval:parseInt(document.getElementById('syncTaskInterval').value)||0,
+    cacheMaxUsage:(parseInt(document.getElementById('syncCacheMaxUsage').value)||70)/100,
+    cacheMaxFileChars:parseInt(document.getElementById('syncCacheMaxFileChars').value)||1000000,
+    autoRefreshOnOpen:document.getElementById('syncAutoRefreshOnOpen').checked
+  };
+  saveSyncConfig(config);
+  closeSyncSettings();
+  refreshMirrorFileIds();
+  toast('同步设置已保存');
+  startAutoSync();
+  notifyParent('syncSettingsChanged',config);
+}
+
+function showRenameDialog(){
+  // 优先处理选中的文件夹重命名
+  if(selectedFolderId&&isFolderId(selectedFolderId)){
+    renameFolder(selectedFolderId);
+    return;
+  }
+  if(!currentFileName){toast('当前没有打开的文件');return}
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000';
+  const box=document.createElement('div');
+  box.style.cssText='background:#fff;border-radius:12px;padding:20px;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3)';
+  const baseName=currentFileName.replace(/\.\w+$/,'');
+  box.innerHTML='<h4 style="margin:0 0 12px;font-size:14px">改名</h4>'+
+    '<input id="renameInput" type="text" value="'+baseName+'" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box">'+
+    '<div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">'+
+    '<button id="renameCancel" style="padding:6px 16px;border:1px solid #ddd;border-radius:4px;background:#f5f5f5;cursor:pointer;font-size:12px">取消</button>'+
+    '<button id="renameConfirm" style="padding:6px 16px;border:none;border-radius:4px;background:#4A90D9;color:#fff;cursor:pointer;font-size:12px">确定</button></div>';
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  const input=box.querySelector('#renameInput');
+  input.focus();input.select();
+  input.onkeydown=function(e){if(e.key==='Enter'){box.querySelector('#renameConfirm').click()}if(e.key==='Escape'){document.body.removeChild(modal)}};
+  box.querySelector('#renameCancel').onclick=()=>{document.body.removeChild(modal)};
+  box.querySelector('#renameConfirm').onclick=async()=>{
+    const newName=input.value.trim();
+    document.body.removeChild(modal);
+    if(!newName){toast('请输入文件名');return}
+    document.getElementById('fileNameInput').value=newName;
+    await renameCurrentFile();
+  };
+}
+
+async function renameCurrentFile(){
+  if(!currentFileName){toast('当前没有打开的文件');return}
+  const oldName=currentFileName;
+  let newName=document.getElementById('fileNameInput').value.trim();
+  if(!newName){toast('请输入新文件名');return}
+  if(newName===oldName){toast('文件名未变化');return}
+  const meta=getFileMeta(oldName);
+  const config=getSyncConfig();
+  let cloudSuccess=!config.enabled; // 离线时直接本地落地；在线须云端成功后才落地
+  if(config.enabled){
+    // 先占领写入权→云端改名→云端成功后才本地落地
+    await withWriteAccess('改名', async()=>{
+      updateSyncButton('🔄');
+      const cloudResult=await findFileInCloudById(meta.id);
+      if(!cloudResult.networkOk){
+        toast('网络异常，无法确认云端状态，重命名中止');
+        updateSyncButton('☁️');
+        return;
+      }
+      if(cloudResult.file){
+        const netTime=await getNetworkTime();
+        // 纯ID模式，云端自己findRowById定位行
+        const result=await callCloudAPI('批量写入',{
+          ID:meta.id,
+          数据:{ID:meta.id,文件名:newName,拥有者:meta.owner||'',文件夹路径:meta.folder||'',内容字符数:meta.contentLength?String(meta.contentLength):'',创建日期:meta.createTime||'',最后上传发起时间:formatBeijingTime(netTime),最后编辑时间:meta.lastEditTime||''}
+        });
+        if(result.status!=='success'){
+          if(result.isNetworkError){
+            toast('网络异常，云端重命名失败，重命名中止');
+          }else{
+            toast('云端重命名失败：'+(result.tongzhi||result.message||'业务错误'));
+          }
+          updateSyncButton('☁️');
+          return;
+        }
+        // 同时更新拆分片段的文件名
+        const parsed=parseCharCountStr(cloudResult.file.内容字符数);
+        if(parsed&&parsed.totalParts>1){
+          for(let i=2;i<=parsed.totalParts;i++){
+            const suffixId=meta.id+'-'+i;
+            const suffixResult=await findFileInCloudById(suffixId);
+            if(suffixResult.file){
+              // 纯ID模式，不依赖行号
+              await callCloudAPI('批量写入',{
+                ID:suffixId,
+                数据:{ID:suffixId,文件名:newName,文件夹路径:meta.folder||''}
+              });
+            }
+          }
+        }
+        setLastSyncTime(Date.now());
+      }
+      cloudSuccess=true; // 云端已确认(或云端无此文件)，允许本地正式改名
+    });
+  }
+  if(!cloudSuccess)return;
+  const fd=loadFileData(oldName);
+  if(fd){
+    _saveFileObj(meta.id, fd.data, fd.view);
+    const idx=getFileIndex();
+    const f=idx.find(x=>x.id===meta.id);
+    if(f){f.name=newName}
+    setFileIndex(idx);
+  }
+  currentFileName=newName;
+  updateSyncButton('☁️');
+  notifyParent('fileRenamed',{oldName,newName});
+  renderFileList();
+  toast('已重命名为：'+newName);
+}
+
+async function copyCurrentFile(){
+  // 有勾选(1个或多个)→走集合版复制；否则沿用旧单选复制
+  if(selectedBatchSet.size>0){batchCopy();return}
+  if(!currentFileName){toast('请先选择一个文件');return}
+  const fd=loadFileData(currentFileName);
+  if(!fd){toast('文件不存在');return}
+  const baseName=currentFileName.replace(/\.\w+$/,'');
+  const ext=currentFileName.match(/\.\w+$/)?currentFileName.match(/\.\w+$/)[0]:'';
+  const idx=getFileIndex();
+  let copyName=baseName+'_副本'+ext;
+  let n=1;
+  while(idx.find(f=>f.name===copyName)){copyName=baseName+'_副本'+(++n)+ext}
+  const content=fd.data||'';
+  const copyId=genFileId();
+  saveFileData(copyName,content);
+  const idx2=getFileIndex();
+  const f=idx2.find(x=>x.name===copyName);
+  if(f){
+    const oldId=f.id;
+    _moveFileObj(oldId,copyId);
+    f.id=copyId;f.e=1;f.s=0;f.isNewFile=true;setFileIndex(idx2);
+  }
+  const config=getSyncConfig();
+  if(config.enabled){
+    // 先占领写入权→云端上传副本→云端成功后才标记已同步
+    await withWriteAccess('复制', async()=>{
+      const netTime=await getNetworkTime();
+      const wr=await writeFileToCloudWithSplit({baseId:copyId,baseRow:0,fileName:copyName,content:content,version:1,folder:getFileMeta(copyName).folder,owner:'',createTime:formatBeijingTime(netTime),lastUploadTime:formatBeijingTime(netTime),lastEditTime:getLastEditTime()});
+      if(wr.success){
+        setLastSyncVersion(copyName,1);
+        clearNewFileFlag(copyId);
+        setLastSyncTime(Date.now());
+        toast('已复制并上传：'+copyName);
+      }else{
+        toast('已复制本地，云端上传失败：'+(wr.result?.tongzhi||wr.result?.message||''));
+      }
+    });
+  }else{
+    toast('已复制：'+copyName);
+  }
+  renderFileList();
+}
+
+// 消息队列：防止连续提醒互相覆盖
+let _toastQueue=[];
+let _toastShowing=false;
+
+function toast(msg,level){
+  // level: 'error'(红色8秒) | 'warn'(橙色5秒) | 默认(灰色3秒)
+  _toastQueue.push({msg,level:level||'info'});
+  if(!_toastShowing)_showNextToast();
+  // 始终通知主程序（主程序在文件管理器关闭时弹悬浮窗提醒用户）
+  notifyParent('syncToast',{message:msg});
+}
+
+function _showNextToast(){
+  if(_toastQueue.length===0){_toastShowing=false;return}
+  _toastShowing=true;
+  const {msg,level}=_toastQueue.shift();
+  const bar=document.getElementById('statusToast');
+  if(bar){
+    bar.textContent=msg;
+    if(level==='error'){bar.style.color='#e74c3c';bar.style.fontWeight='bold'}
+    else if(level==='warn'){bar.style.color='#e67e22';bar.style.fontWeight='normal'}
+    else{bar.style.color='#666';bar.style.fontWeight='normal'}
+    bar.style.opacity='1';
+    const duration=level==='error'?8000:level==='warn'?5000:3000;
+    clearTimeout(_showNextToast._timer);
+    _showNextToast._timer=setTimeout(()=>{
+      bar.style.opacity='0';
+      setTimeout(()=>_showNextToast(),300);
+    },duration);
+  }else{
+    _showNextToast();
+  }
+}
+
+function updateSyncButton(icon){
+  const btn=document.getElementById('syncBtn');
+  if(btn)btn.textContent=icon+' 同步';
+  notifyParent('syncStatusChanged',{icon:icon});
+}
+
+function startAutoSync(){
+  stopAutoSync();
+  const config=getSyncConfig();
+  if(!config.enabled)return;
+  autoSyncCheckTimer=setInterval(()=>{
+    checkAutoSyncTriggers();
+  },5000);
+}
+
+function stopAutoSync(){
+  if(autoSyncCheckTimer){clearInterval(autoSyncCheckTimer);autoSyncCheckTimer=null}
+  if(autoSyncTimer){clearTimeout(autoSyncTimer);autoSyncTimer=null}
+}
+
+function checkAutoSyncTriggers(){
+  const config=getSyncConfig();
+  if(!config.enabled)return;
+  if(syncMutex)return;
+  const now=Date.now();
+  const deltaIntervalMs=(config.syncDeltaInterval||5)*1000;
+  if(now-lastDeltaSyncTime<deltaIntervalMs)return;
+  // 累计所有受监控文件（编辑+镜像）的差值
+  const idx=getFileIndex();
+  let totalDiff=0;
+  for(let i=0;i<idx.length;i++){
+    const f=idx[i];
+    // 只监测编辑文件和镜像文件
+    if(f.id!==editingFileId&&!mirrorFileIds.has(f.id))continue;
+    if(f.isNewFile){totalDiff+=1;continue}
+    const diff=(f.e||0)-(f.s||0);
+    if(diff>0)totalDiff+=diff;
+  }
+  if(totalDiff>=(config.syncThreshold||10)){
+    lastDeltaSyncTime=now;
+    autoSyncCurrentFile('差值触发(累计+'+totalDiff+')');
+    return;
+  }
+  const lastAny=getLastSyncTime();
+  const checkIntervalMs=(config.cloudCheckInterval||5)*60*1000;
+  if(lastAny>0&&now-lastAny>=checkIntervalMs){
+    lastDeltaSyncTime=now;
+    autoSyncCurrentFile('定时触发');
+    return;
+  }
+}
+
+async function autoSyncCurrentFile(reason){
+  if(syncMutex||!currentFileName)return;
+  const config=getSyncConfig();
+  if(!config.enabled)return;
+  syncCurrentFileFromLocal();
+  await batchSync();
+}
+
+// ========== 批量同步引擎：逐文件两阶段提交（同步提交→转正确认） ==========
+// 新云端（v4.0 脚本）已无"批量同步/批量强制覆盖"，故改为逐个文件复用两阶段流程。
+
+// 单文件两阶段同步：f 为本地文件索引条目，返回 {status, version}
+// status: 'success' | 'no_update' | 'error' | 'conflict'
+async function syncOneFileTwoPhase(f){
+  try{
+    if(!f)return{status:'error',message:'无文件'};
+    if(f.cloudOnly){
+      // 本地无真实内容，只是云端占位，不参与上传
+      return{status:'no_update',version:(f.s||0)};
+    }
+    const fd=await ensureFileData(f.id);const content=fd?fd.data:'';
+    const S=f.s||0;const E=f.e||0;
+    if(!f.isNewFile&&E<=S){
+      // 无本地改动，无需上传
+      return{status:'no_update',version:E};
+    }
+    const netTime=Date.now();
+    const uploadData={
+      '拥有者':f.owner||'',
+      'ID':f.id,
+      '文件名':f.name,
+      '内容':content,
+      '起点号':String(S),
+      '终点号':String(E),
+      '文件夹路径':f.folder||'',
+      '最后上传发起时间':formatBeijingTime(netTime),
+      '最后编辑时间':f.lastEditTime||formatBeijingTime(netTime),
+      '同步时间':formatBeijingTime(netTime),
+      'MD5':'',
+      '内容字符数':String(countChars(content)),
+      '创建日期':f.createTime||'',
+      // 云端主体：整个文件JSON（含内容、S/E、文件名、路径、拥有者、时间戳等全部信息）
+      '文件JSON':JSON.stringify({id:f.id,name:f.name,内容:content,起点号:S,终点号:E,拥有者:f.owner||'',文件夹路径:f.folder||'',创建日期:f.createTime||'',最后编辑时间:f.lastEditTime||formatBeijingTime(netTime),内容字符数:countChars(content)})
+    };
+    // 阶段1：同步提交（收为临时行）
+    const result=await callCloudAPI('同步提交',{
+      ID:f.id,
+      起点号:String(S),
+      终点号:String(E),
+      本地新文件标识:f.isNewFile?'true':'false',
+      数据:uploadData
+    });
+    if(!result.status||result.status==='error'){
+      const isNet=result.isNetworkError;
+      if(result.判定结果==='本地异常降级'){toast('文件['+f.name+']本地终点号异常降级，禁止上传','error')}
+      else if(result.判定结果==='异常升级'){toast('文件['+f.name+']本地终点号异常升级，不上传','error')}
+      else if(result.判定结果==='标识错乱'){toast('文件['+f.name+']标识错乱，请联系管理员','error')}
+      else{toast('提交['+f.name+']失败：'+(result.tongzhi||result.message||'未知错误'))}
+      return{status:'error',message:result.tongzhi||result.message,isNetworkError:isNet,version:E};
+    }
+    const 判=result.判定结果;
+    // 无需上传
+    if(判==='无需上传'){
+      setLastSyncTime(Date.now());
+      return{status:'no_update',version:E};
+    }
+    // 全新接收 / 收为临时：更新本地起点号，清空新文件标识
+    if(判==='全新接收'||判==='收为临时'){
+      const idx=getFileIndex();const ff=idx.find(x=>x.id===f.id);
+      const newS=parseInt(result.终点号||result.起点号||E)||E;
+      if(ff){ff.s=newS;setFileIndex(idx)}clearNewFileFlag(f.id);
+      setLastSyncTime(Date.now());
+      if(判==='全新接收'){
+        toast('已接收云端：'+f.name);
+        return{status:'success',version:newS};
+      }
+      // 阶段2：转正确认（临时转正）
+      const confirmResult=await callCloudAPI('转正确认',{ID:f.id,起点号:String(newS)});
+      if(confirmResult.status==='success'&&(!confirmResult.判定结果||confirmResult.判定结果==='转正成功')){
+        toast('已同步提交：'+f.name);
+        return{status:'success',version:newS};
+      }
+      // 转正失败（临时失效/版本不符）→ 走冲突处置
+      toast('文件['+f.name+']转正确认失败，进入冲突处置','warn');
+      return await syncTwoPhaseConflict(f,E,S,uploadData,newS);
+    }
+    // 同步冲突
+    if(判==='同步冲突'){
+      const cloudS=parseInt(result.起点号||'0')||0;
+      return await syncTwoPhaseConflict(f,E,S,uploadData,cloudS);
+    }
+    // 其他未知结果
+    toast('提交['+f.name+']结果：'+(result.tongzhi||'未知'));
+    return{status:'success',version:E};
+  }catch(e){
+    toast('同步['+f.name+']异常：'+e.message,'error');
+    return{status:'error',message:e.message,version:(f&&f.e)||0};
+  }
+}
+
+// 两阶段同步的冲突处置：overwrite(强制覆盖终点号) / accept_cloud(接受云端) / manual(主弹窗)
+async function syncTwoPhaseConflict(f,E,S,uploadData,cloudVer){
+  cloudVer=parseInt(cloudVer||'0')||0;
+  const conflictAction=resolveConflictMode(E,cloudVer,S,'upload');
+  if(conflictAction==='overwrite'){
+    // 强制覆盖云端：强制终点号=本地终点号E
+    const forceResult=await callCloudAPI('强制覆盖云端',{ID:f.id,强制终点号:E,数据:uploadData});
+    if(forceResult.status==='success'){
+      const idx=getFileIndex();const ff=idx.find(x=>x.id===f.id);
+      const finalE=parseInt(forceResult.终点号||forceResult.起点号||E)||E;
+      if(ff){ff.s=finalE;ff.e=finalE;setFileIndex(idx)}clearNewFileFlag(f.id);
+      setLastSyncTime(Date.now());
+      toast('已强制覆盖云端：'+f.name);
+      return{status:'success',version:finalE};
+    }
+    toast('强制覆盖['+f.name+']失败：'+(forceResult.tongzhi||forceResult.message||''));
+    return{status:'error',message:'强制覆盖失败',version:E};
+  }
+  if(conflictAction==='accept_cloud'){
+    const cloudResult=await findFileInCloudById(f.id);
+    if(cloudResult.networkOk&&cloudResult.file){
+      const merged=await mergeCloudFragments(f.id,cloudResult.file);
+      const cloudContent=typeof merged==='string'?merged:extractCloudContent(cloudResult.file);
+      const newCloudVer=parseInt(cloudResult.file.起点号||'0');
+      await applyCloudDataToLocalBatch(f.id,{...cloudResult.file,'内容':cloudContent,'起点号':String(newCloudVer)},null);
+      setLastSyncTime(Date.now());
+      return{status:'success',version:newCloudVer};
+    }
+    toast('获取云端['+f.name+']失败','error');
+    return{status:'error',message:'获取云端失败',version:E};
+  }
+  // 人工模式 → 主冲突弹窗（作用于当前文件）
+  const prevName=currentFileName;
+  try{
+    currentFileName=f.name;
+    currentFileContent=(loadFileDataById(f.id)||{}).data||'';
+    pendingCloudVersion=cloudVer;
+    await showSyncConflict(cloudVer,'upload',E,S);
+  }catch(err){}
+  currentFileName=prevName;
+  return{status:'conflict',version:E};
+}
+
+async function applyCloudDataToLocalBatch(id,cloudData,fragments){
+  if(!cloudData)return;
+  let content='';
+  if(fragments&&fragments.length>1)content=joinCloudFragmentsContent(fragments);
+  else content=cloudData?extractCloudContent(cloudData):'';
+  const cloudVer=parseInt(cloudData['起点号'])||0;
+  const idx=getFileIndex();const f=idx.find(x=>x.id===id);
+  if(f){
+    if(shouldCacheFile(content)){_saveFileObj(id,content,null)}
+    f.e=cloudVer;f.s=cloudVer;f.name=cloudData['文件名']||f.name;
+    f.folder=cloudData['文件夹路径']||f.folder;f.owner=cloudData['拥有者']||f.owner;
+    f.contentLength=countChars(content);f.lastEditTime=cloudData['最后编辑时间']||f.lastEditTime;
+    f.cloudOnly=false;
+    setFileIndex(idx);
+    if(currentFileName===f.name){currentFileContent=content;notifyParent('fileContentUpdated',{name:f.name,content})}
+  }else{
+    // 本地无此ID文件 → 全新写入本地
+    const fileName=cloudData['文件名']||('未命名_'+id);
+    if(shouldCacheFile(content)){_saveFileObj(id,content,null)}
+    idx.push({name:fileName,time:Date.now(),id:id,e:cloudVer,s:cloudVer,folder:cloudData['文件夹路径']||'',owner:cloudData['拥有者']||'',contentLength:countChars(content),lastEditTime:cloudData['最后编辑时间']||'',createTime:cloudData['创建日期']||formatBeijingTime(Date.now()),cloudOnly:false,isNewFile:false});
+    setFileIndex(idx);
+    if(currentFileName===fileName){currentFileContent=content;notifyParent('fileContentUpdated',{name:fileName,content})}
+  }
+}
+
+async function createConflictVersionBatch(id,cloudData){
+  const idx=getFileIndex();const f=idx.find(x=>x.id===id);if(!f)return;
+  const fd=await ensureFileData(id);const content=fd?fd.data:'';
+  const ts=formatBeijingTime(Date.now()).replace(/[-: ]/g,'').substring(0,14);
+  const ext=f.name.match(/\.\w+$/)?f.name.match(/\.\w+$/)[0]:'';
+  const conflictName=f.name.replace(/\.\w+$/,'')+'_冲突版本'+ts+ext;
+  const newId=genFileId();
+  idx.push({name:conflictName,time:Date.now(),id:newId,e:0,s:0,isNewFile:true,folder:f.folder,owner:f.owner,createTime:formatBeijingTime(Date.now()),lastUploadTime:'',lastEditTime:formatBeijingTime(Date.now()),contentLength:countChars(content)});
+  setFileIndex(idx);_saveFileObj(newId,content,null);
+  toast('已建立冲突版本: '+conflictName);
+}
+
+async function batchSync(skipLock){
+  const config=getSyncConfig();if(!config.enabled){toast('云同步未启用');return}
+  if(!AUTH_USERNAME||!AUTH_PASSWORD){toast('未登录，无法同步','warn');return}
+  if(syncMutex){toast('同步排队中，请稍候');return}
+  // 自动同步时必须抢锁，防止多实例同时触发；手动同步(skipLock=true)跳过锁检查
+  if(!skipLock&&!tryAcquireSyncLock()){return}
+  await enqueueSync(async()=>{
+    updateSyncButton('🔄');toast('同步中...');notifyParentSyncState('syncing','同步中...');
+    try{
+      let uploaded=0,conflicts=0,noUpdate=0;
+      const idx=getFileIndex();
+      const candidates=idx.filter(f=>!isFolderItem(f)&&(!f.cloudOnly)&&(f.isNewFile||(f.e||0)>(f.s||0)));
+      if(candidates.length===0){
+        // 本地无待同步文件时，从云端拉取索引
+        await syncAllFilesInternal();
+        renderFileList();
+        toast('已从云端拉取文件列表');
+        updateSyncButton('☁️');
+        notifyParent('syncComplete',{pulled:1,uploaded:0,conflicts:0,deleted:0});
+        notifyParentSyncState('done',{pulled:1,uploaded:0,conflicts:0,deleted:0});
+        return;
+      }
+      // 逐文件复用两阶段提交（同步提交→转正确认）
+      // v1.08 起改批量两阶段：所有候选打包成一条"同步提交"，云端逐个判继承并返回阵列；
+      //       整批"机械快段"共占一把云端锁（holdCloudLock 压制自动解锁），快段结束后统一释放；
+      //       同步冲突的再逐个串行走冲突处置（不占锁，人工处置允许等待）。
+      const submitList=[];
+      const measured=new Map();
+      for(const f of candidates){
+        const fd=await ensureFileData(f.id);const content=fd?fd.data:'';
+        const S=f.s||0;const E=f.e||0;
+        if(!f.isNewFile&&E<=S){noUpdate++;continue;}
+        const netTime=Date.now();
+        const uploadData={
+          '拥有者':f.owner||'',
+          'ID':f.id,
+          '文件名':f.name,
+          '内容':content,
+          '起点号':String(S),
+          '终点号':String(E),
+          '文件夹路径':f.folder||'',
+          '最后上传发起时间':formatBeijingTime(netTime),
+          '最后编辑时间':f.lastEditTime||formatBeijingTime(netTime),
+          '同步时间':formatBeijingTime(netTime),
+          'MD5':'',
+          '内容字符数':String(countChars(content)),
+          '创建日期':f.createTime||'',
+          '文件JSON':JSON.stringify({id:f.id,name:f.name,内容:content,起点号:S,终点号:E,拥有者:f.owner||'',文件夹路径:f.folder||'',创建日期:f.createTime||'',最后编辑时间:f.lastEditTime||formatBeijingTime(netTime),内容字符数:countChars(content)})
+        };
+        submitList.push({ID:f.id,起点号:String(S),终点号:String(E),本地新文件标识:f.isNewFile?'true':'false',数据:uploadData});
+        measured.set(f.id,{f,uploadData,S,E});
+      }
+      // 机械快段：批量提交 → 批量转正，一把锁占到底
+      if(submitList.length>0){
+        holdCloudLock=true;
+        const promoteList=[];   // 待转正确认 [{ID,起点号}]
+        const conflictList=[];  // 需冲突处置 [{f,E,S,uploadData,cloudVer}]
+        try{
+          const result=await callCloudAPI('同步提交',{文件列表:submitList});
+          if(!result.status||result.status==='error'){
+            toast('批量同步提交失败：'+(result.tongzhi||result.message||'未知错误'),'error');
+          }else if(result.结果&&Array.isArray(result.结果)){
+            for(const r of result.结果){
+              const m=measured.get(r.ID);if(!m)continue;
+              const 判=r.判定结果;
+              if(判==='无需上传'){noUpdate++;}
+              else if(判==='全新接收'||判==='收为临时'){
+                const newS=parseInt(r.终点号||r.起点号||m.E)||m.E;
+                const ff=idx.find(x=>x.id===r.ID);
+                if(ff){ff.s=newS;setFileIndex(idx)}clearNewFileFlag(r.ID);
+                setLastSyncTime(Date.now());
+                if(判==='全新接收'){uploaded++;}
+                else{promoteList.push({ID:r.ID,起点号:String(newS)});}
+              }
+              else if(判==='同步冲突'){
+                conflictList.push({f:m.f,E:m.E,S:m.S,uploadData:m.uploadData,cloudVer:parseInt(r.云端版本号||'0')||0});
+              }
+              else{toast('提交['+m.f.name+']异常：'+(r.tongzhi||r.判定结果||'未知'),'warn');}
+            }
+          }else{
+            toast('批量同步提交无有效回执','error');
+          }
+          // 阶段2：批量转正确认
+          if(promoteList.length>0){
+            const confirmResult=await callCloudAPI('转正确认',{文件列表:promoteList});
+            if(confirmResult.结果&&Array.isArray(confirmResult.结果)){
+              for(const r of confirmResult.结果){
+                if(r.status==='success'&&(!r.判定结果||r.判定结果==='转正成功')){
+                  uploaded++;
+                }else{
+                  const m=measured.get(r.ID);
+                  toast('['+(m?m.f.name:r.ID)+']转正确认失败，进入冲突处置','warn');
+                  if(m)conflictList.push({f:m.f,E:m.E,S:m.S,uploadData:m.uploadData,cloudVer:parseInt(r.云端版本号||'0')||(r.临时版本||0)});
+                }
+              }
+            }else{
+              toast('批量转正确认无有效回执','error');
+            }
+          }
+        }finally{
+          holdCloudLock=false;
+          // 机械快段结束，先释放云端锁，再逐个处理冲突（人工处置不占锁）
+          await releaseCloudLock();
+        }
+        // 冲突处置：不占锁，逐个串行处理
+        if(conflictList.length>0)notifyParentSyncState('syncing','冲突处置中（'+conflictList.length+'个文件）');
+        for(const c of conflictList){
+          const r=await syncTwoPhaseConflict(c.f,c.E,c.S,c.uploadData,c.cloudVer);
+          if(r.status==='success')uploaded++;
+          else if(r.status==='conflict')conflicts++;
+          else if(r.status==='no_update')noUpdate++;
+          setLastSyncTime(Date.now());
+        }
+      }
+      // 同步完成后刷新云端索引，确保本地状态与云端一致
+      await refreshCloudIndex();
+      renderFileList();
+      toast('同步完成 | 上传:'+uploaded+' 冲突:'+conflicts+' 无改动:'+noUpdate);
+      notifyParent('syncComplete',{pulled:0,uploaded,conflicts,deleted:0});
+      notifyParentSyncState('done',{pulled:0,uploaded,conflicts,noUpdate,deleted:0});
+    }catch(e){toast('同步异常：'+e.message,'error');notifyParentSyncState('error','同步异常：'+e.message)}finally{updateSyncButton('☁️');releaseSyncLock()}
+  },'同步');
+}
+
+function triggerLoginSync(){
+  const config=getSyncConfig();
+  if(!config.enabled)return;
+  setTimeout(()=>{
+    if(!syncMutex)batchSync();
+  },2000);
+}
+
+// 冲突处置模式解析：返回 'overwrite'(暴力覆盖) | 'ask'(人工处理) | 'accept_cloud'(接受云端)
+function resolveConflictMode(localVer,cloudVer,syncVer,direction){
+  const config=getSyncConfig();
+  const mode=config.conflictMode||'manual';
+  if(mode==='violent'){
+    // 暴力模式：谁大覆盖谁，无需提醒
+    if(direction==='upload'&&localVer>cloudVer)return'overwrite';
+    if(direction==='download'&&cloudVer>localVer)return'accept_cloud';
+    return'ask';
+  }
+  if(mode==='semi_auto'){
+    // 半自动模式
+    const diff=Math.abs(localVer-cloudVer);
+    if(diff>=(config.semiAutoThreshold||100)){
+      // 差异大于设定值 → 暴力覆盖
+      if(direction==='upload'&&localVer>cloudVer)return'overwrite';
+      if(direction==='download'&&cloudVer>localVer)return'accept_cloud';
+    }
+    if(direction==='download'){
+      const localLoss=cloudVer-localVer;
+      if(localLoss<=(config.semiAutoDownloadLoss||4))return'accept_cloud';
+    }
+    if(direction==='upload'){
+      const cloudLoss=localVer-cloudVer;
+      if(cloudLoss<=(config.semiAutoUploadLoss||4))return'overwrite';
+    }
+    return'ask';
+  }
+  // manual 人工精细处理
+  return'ask';
+}
+
+async function uploadCurrentFile(){
+  const config=getSyncConfig();
+  if(!config.enabled){toast('云同步未启用');return{status:'error',message:'未启用',isNetworkError:false}}
+  if(!currentFileName){toast('请先打开文件');return{status:'error',message:'无文件',isNetworkError:false}}
+  updateSyncButton('🔄');
+  const fileName=currentFileName;
+  const meta=getFileMeta(fileName);
+  if(!currentFileContent){
+    const fd=loadFileDataById(meta.id)||loadFileData(fileName);
+    if(fd&&fd.data)currentFileContent=fd.data;
+  }
+  // 交由逐文件两阶段提交处理（同步提交→转正确认）
+  const r=await syncOneFileTwoPhase(meta);
+  if(r.status==='success'){updateSyncButton('✅');setTimeout(()=>updateSyncButton('☁️'),2000)}
+  else updateSyncButton('☁️');
+  return{status:r.status,version:r.version,message:r.message,isNetworkError:r.isNetworkError,tongzhi:r.message};
+}
+
+async function downloadCurrentFile(){
+  const config=getSyncConfig();
+  if(!config.enabled){toast('云同步未启用');return{status:'error',message:'未启用',isNetworkError:false}}
+  if(!currentFileName){toast('请先打开文件');return{status:'error',message:'无文件',isNetworkError:false}}
+  const fileName=currentFileName;
+  const localVer=getFileVersion(fileName);
+  const syncVer=getLastSyncVersion(fileName);
+  const meta=getFileMeta(fileName);
+  if(syncVer===0&&localVer>0){
+    setLastSyncVersion(fileName,localVer);
+  }
+  const effectiveSyncVer=syncVer===0&&localVer>0?localVer:syncVer;
+  updateSyncButton('🔄');
+
+  // 调用云端智能下载：本地起点号S=effectiveSyncVer，本地终点号E=localVer
+  const result=await callCloudAPI('智能下载',{
+    ID:meta.id,
+    本地起点号:effectiveSyncVer,
+    本地终点号:localVer,
+    内容字符数:meta.contentLength||'',
+    本地新文件标识:meta.isNewFile?'true':'false'
+  });
+
+  if(!result.status||result.status==='error'){
+    updateSyncButton('❌');
+    setTimeout(()=>updateSyncButton('☁️'),2000);
+    if(result.判定结果==='云端异常降级'){
+      toast('云端起点号异常降级(云端起点<本地终点'+localVer+')，禁止下载','error');
+    }else if(result.判定结果==='本地滞后'){
+      toast('云端文件已删除，本地索引滞后，请刷新云端','warn');
+      return{status:'stale',message:'本地索引滞后'};
+    }else if(result.判定结果==='新文件跳过'){
+      toast('本地新文件无需下载');
+      return{status:'no_update',version:localVer};
+    }else{
+      toast('下载失败：'+(result.tongzhi||result.message||'未知错误'));
+    }
+    return{status:'error',message:result.tongzhi||result.message,isNetworkError:result.isNetworkError};
+  }
+
+  // 云端判定：云端已删除 → 自动删除本地文件（有内容的新文件保留）
+  if(result.判定结果==='云端已删除'){
+    updateSyncButton('☁️');
+    const delId=meta.id;
+    if(meta&&meta.isNewFile){
+      const fd=loadFileDataById(delId);
+      const charCount=fd?countChars(fd.data):0;
+      if(charCount>0){
+        toast('云端已删除，但本地新文件有内容，保留本地副本','warn');
+        return{status:'cloud_deleted',message:'云端已删除，本地新文件保留'};
+      }
+    }
+    // 老文件或空新文件：自动删除本地
+    deleteFileFromLocal(delId);
+    toast('云端已删除，本地文件已自动清理: '+delId,'warn');
+    return{status:'auto_deleted',message:'云端已删除，本地已自动清理'};
+  }
+
+  // 云端判定：无需下载
+  if(result.判定结果==='无需下载'){
+    // 修正起点号：如果本地终点与云端一致但起点号落后，同步起点号
+    const cloudVer=parseInt(result.起点号||'0')||0;
+    if(cloudVer>effectiveSyncVer&&localVer===cloudVer){
+      setLastSyncVersion(fileName,cloudVer);
+    }
+    updateSyncButton('☁️');
+    toast('本地已同步此版本');
+    return{status:'no_update',version:localVer};
+  }
+
+  // 云端判定：允许下载
+  if(result.判定结果==='允许下载'){
+    const cloudVer=parseInt(result.云端版本号||result.起点号||result.终点号||'0')||0;
+    const cloudData=result.云端数据;
+    const fragments=result.片段数据;
+
+    // 获取完整内容
+    let content='';
+    if(fragments&&fragments.length>1){
+      // 按片段号排序合并整JSON
+      content=joinCloudFragmentsContent(fragments);
+    }else if(cloudData){
+      content=extractCloudContent(cloudData);
+    }
+
+    if(!content&&content!==''){
+      updateSyncButton('❌');
+      setTimeout(()=>updateSyncButton('☁️'),2000);
+      toast('下载内容为空');
+      return{status:'error',message:'内容为空'};
+    }
+
+    // 下载判断：可直接覆盖升级本地
+    if(result.下载判断==='可直接覆盖升级本地'){
+      applyCloudDataToLocal(cloudData,content,cloudVer,meta,fileName);
+      updateSyncButton('✅');
+      setTimeout(()=>updateSyncButton('☁️'),2000);
+      toast('已下载，版本: '+cloudVer);
+      return{status:'success',version:cloudVer};
+    }
+
+    // 下载判断：冲突处置
+    if(result.下载判断==='冲突处置'){
+      const conflictAction=resolveConflictMode(localVer,cloudVer,effectiveSyncVer,'download');
+      if(conflictAction==='accept_cloud'){
+        applyCloudDataToLocal(cloudData,content,cloudVer,meta,fileName);
+        updateSyncButton('✅');
+        setTimeout(()=>updateSyncButton('☁️'),2000);
+        toast('已强制覆盖本地，版本: '+cloudVer);
+        return{status:'success',version:cloudVer};
+      }
+      // 人工模式 → 弹窗提醒选择
+      pendingCloudVersion=cloudVer;
+      showSyncConflict(cloudVer,'download_has_edits',localVer,effectiveSyncVer);
+      updateSyncButton('☁️');
+      return{status:'conflict',message:'本地有未同步编辑(共同号v'+effectiveSyncVer+')，云端版本更高'};
+    }
+
+    // 下载判断：本地终点号异常降级
+    if(result.下载判断==='本地版本异常降级'){
+      toast('本地终点号异常降级(本地终点'+localVer+'<本地起点'+effectiveSyncVer+')，禁止下载','error');
+      updateSyncButton('❌');
+      setTimeout(()=>updateSyncButton('☁️'),2000);
+      return{status:'error',message:'本地版本异常降级',isNetworkError:false};
+    }
+  }
+
+  updateSyncButton('☁️');
+  toast('下载结果：'+(result.tongzhi||'未知'));
+  return{status:'success',version:localVer};
+}
+
+// 下载后应用云端数据到本地的通用函数
+function applyCloudDataToLocal(cloudData,content,cloudVer,meta,fileName){
+  const cloudFileName=cloudData['文件名']||fileName;
+  const idx=getFileIndex();
+  const localEntry=idx.find(x=>x.id===meta.id);
+  const needRename=localEntry?syncLocalFileName(localEntry,cloudFileName):false;
+  if(localEntry){
+    if(cloudData['拥有者'])localEntry.owner=cloudData['拥有者'];
+    if(cloudData['创建日期'])localEntry.createTime=cloudData['创建日期'];
+    if(cloudData['内容字符数']){
+      const parsed=parseCharCountStr(cloudData['内容字符数']);
+      localEntry.contentLength=parsed?parsed.total:parseInt(cloudData['内容字符数'])||0;
+    }
+    localEntry.lastUploadTime=cloudData['最后上传发起时间']||'';
+    localEntry.lastEditTime=cloudData['最后编辑时间']||'';
+  }
+  if(needRename)setFileIndex(idx);
+  clearNewFileFlag(meta.id);
+  if(shouldCacheFile(content)){
+    saveFileData(currentFileName,content);
+  }else{
+    console.log('[缓存管理] 文件过大，不缓存本地');
+  }
+  // 版本号放在 saveFileData 之后设置，避免 saveFileData 对内容变化又做 e+1 覆盖
+  setFileVersion(currentFileName,cloudVer);
+  setLastSyncVersion(currentFileName,cloudVer);
+  setLastSyncTime(Date.now());
+  currentFileContent=content;
+  notifyParent('fileContentUpdated',{name:currentFileName,content});
+  renderFileList();
+  smartCleanCache();
+}
+
+// 首次同步/新登录同步：只获取云端索引建本地索引，不下载内容
+// 仅镜像文件自动下载内容，其余按需下载
+async function syncAllFilesInternal(){
+  const config=getSyncConfig();
+  if(!config.enabled)return;
+  await refreshCloudIndex();
+}
+
+// 轻量刷新云端索引：只获取云端ID+文件名+起点号，不下载内容
+// 云端不存在的本地非新文件/文件夹会被删除
+// 识别FOLDER_前缀ID作为文件夹登记行
+async function refreshCloudIndex(){
+  if(!AUTH_USERNAME||!AUTH_PASSWORD){toast('未登录，无法刷新','warn');return}
+  const btn=document.getElementById('refreshBtn');
+  if(btn){btn.textContent='🔄 刷新中...';btn.disabled=true}
+  try{
+    const cloudResult=await callCloudAPI('读取索引');
+    if(cloudResult.status!=='success'||!cloudResult.数据){
+      toast('刷新失败：'+((cloudResult&&cloudResult.tongzhi)||'未知错误'),'error');
+      return;
+    }
+    const cloudFiles=cloudResult.数据;
+    // 更新cloudFileCache
+    cloudFileCache.clear();
+    for(const cf of cloudFiles){if(cf.ID)cloudFileCache.set(cf.ID,cf)}
+    // 同步云端路径信息到本地已存在条目（folder字段以云端为准）
+    // 解决：移动文件云端成功后本地folder未更新，导致文件还在原文件夹显示
+    const cloudFolderMap=new Map();
+    for(const cf of cloudFiles){if(cf.ID)cloudFolderMap.set(cf.ID,cf.文件夹路径||'')}
+    const idx0=getFileIndex();
+    let folderUpdatedCount=0;
+    for(const f of idx0){
+      if(f.id&&cloudFolderMap.has(f.id)){
+        const newFolder=cloudFolderMap.get(f.id);
+        if((f.folder||'')!==newFolder){
+          f.folder=newFolder;
+          folderUpdatedCount++;
+        }
+      }
+    }
+    if(folderUpdatedCount>0)setFileIndex(idx0);
+    // 删除云端不存在的本地非新文件/文件夹
+    const cloudIds=new Set(cloudFiles.filter(cf=>cf.ID).map(cf=>cf.ID));
+    const idx=getFileIndex();
+    let deletedCount=0;
+    for(let di=idx.length-1;di>=0;di--){
+      if(!idx[di].isNewFile&&idx[di].id&&!cloudIds.has(idx[di].id)){
+        deleteFileFromLocal(idx[di].id);
+        deletedCount++;
+      }
+    }
+    // 发现云端新增但本地不存在的条目：只建索引，不下载内容
+    const localIds=new Set(getFileIndex().map(x=>x.id));
+    const idx2=getFileIndex();
+    let addedCount=0;
+    for(const cf of cloudFiles){
+      if(!cf.ID||cf.ID.trim()===''||localIds.has(cf.ID))continue;
+      // 跳过拆分片段
+      const cp=parseCharCountStr(cf.内容字符数);if(cp&&cp.part>1)continue;
+      if(isFolderId(cf.ID)){
+        // 文件夹登记行：文件名=文件夹显示名，内容为空
+        if(!cf.文件名||cf.文件名.trim()==='')continue;
+        idx2.push({name:cf.文件名,time:Date.now(),id:cf.ID,e:0,s:0,folder:cf.文件夹路径||'',owner:cf.拥有者||'',contentLength:0,cloudOnly:true,isNewFile:false});
+        addedCount++;
+      }else{
+        // 普通文件
+        if(!cf.文件名||cf.文件名.trim()==='')continue;
+        const cloudVer=parseInt(cf.起点号||'0');
+        idx2.push({name:cf.文件名,time:Date.now(),id:cf.ID,e:cloudVer,s:0,folder:cf.文件夹路径||'',owner:cf.拥有者||'',contentLength:(()=>{const p=parseCharCountStr(cf.内容字符数);return p?p.total:0})(),cloudOnly:true,isNewFile:false});
+        addedCount++;
+      }
+    }
+    setFileIndex(idx2);
+    smartCleanCache();
+    renderFileList();
+    setLastSyncTime(Date.now());
+    toast('刷新完成 | 云端:'+cloudFiles.length+' 新增:'+addedCount+' 本地清理:'+deletedCount);
+  }catch(e){
+    toast('刷新异常：'+e.message,'error');
+  }finally{
+    if(btn){btn.textContent='🔄 刷新';btn.disabled=false}
+  }
+}
+
+async function initSyncSheet(){
+  const config=getSyncConfig();
+  if(!config.enabled)return;
+  try{
+    const headersResult=await callCloudAPI('获取表头');
+    if(headersResult.status==='success'){
+      const existingHeaders=headersResult.表头||[];
+      // 表头已存在（至少有ID列）→ 不做任何操作，表头由用户手动管理
+      if(existingHeaders.length>0)return;
+    }else{
+      // 获取表头失败（网络/认证异常）→ 绝不能贸然初始化，防止误覆盖表头
+      console.log('获取表头失败，跳过表头初始化:',headersResult.tongzhi||headersResult.message);
+      return;
+    }
+    // 表头完全不存在时才初始化（仅首次使用）
+    const requiredHeaders=['拥有者','ID','文件名','起点号','终点号','状态','文件夹路径','最后上传发起时间','最后编辑时间','同步时间','MD5','内容字符数','创建日期','文件JSON','锁登记处','上锁时刻'];
+    const result=await callCloudAPI('初始化表头',{表头:requiredHeaders});
+    if(result.status==='success'){
+      console.log('已初始化云端表头');
+    }else{
+      console.log('初始化表头失败:',result.tongzhi||result.message);
+    }
+  }catch(error){
+    console.log('初始化表头失败:',error);
+  }
+}
+
+window.addEventListener('message',function(e){
+  const data=e.data;
+  if(!data||!data.type)return;
+  if(!data.target||data.target!=='fileManager')return;
+  switch(data.type){
+    // ---- 初始化/配置 ----
+    case 'initConfig':
+      // 宿主应用初始化配置：{appPrefix, apiUrl, webhookUrl, token, sheetName, ...}
+      if(data.appPrefix){APP_PREFIX=data.appPrefix}
+      if(data.config){
+        const cfg={...getSyncConfig(),...data.config,appPrefix:data.config.appPrefix||APP_PREFIX};
+        saveSyncConfig(cfg);
+      }
+      renderFileList();
+      break;
+
+    case 'init':
+      // 宿主初始化完成（v6.03 空载荷安全处理）：从本地恢复当前文件并刷新列表
+      syncCurrentFileFromLocal();
+      renderFileList();
+      break;
+    case 'smartSyncOnOpen':
+      // 宿主打开文件后触发（v6.03）：按 fileId 定位当前文件显示（仅刷新，不做写操作）
+      if(data.fileId){
+        const _f=(getFileIndex()||[]).find(x=>x.id===data.fileId);
+        if(_f){currentFileName=_f.name;document.getElementById('fileNameInput').value=_f.name;}
+      }
+      renderFileList();
+      break;
+
+    // ---- 文件操作 ----
+    case 'open':
+    case 'setCurrentFile':
+      currentFileName=data.currentFileName||data.name||'';
+      currentFileContent=data.currentContent||data.content||'';
+      document.getElementById('fileNameInput').value=currentFileName;
+      renderFileList();
+      // 如果cloudFileCache为空，主动读取云端索引以显示同步状态
+      if(cloudFileCache.size===0&&AUTH_USERNAME&&AUTH_PASSWORD){
+        (async function(){
+          try{
+            const cloudResult=await callCloudAPI('读取索引');
+            if(cloudResult.status==='success'&&cloudResult.数据){
+              cloudFileCache.clear();
+              for(const cf of cloudResult.数据){
+                if(cf.ID)cloudFileCache.set(cf.ID,cf);
+              }
+              renderFileList();
+            }
+          }catch(e){console.warn('打开时读取云端索引失败:',e)}
+        })();
+      }
+      break;
+
+    case 'openFile':
+      // 请求打开文件（走先一致再打开策略）
+      if(data.id){openFileById(data.id)}
+      else if(data.name){
+        const idx=getFileIndex();
+        const f=idx.find(x=>x.name===data.name);
+        if(f&&f.id)openFileById(f.id);
+        else toast('文件不存在：'+data.name);
+      }
+      break;
+
+    case 'requestOpenFile':
+      // 宿主应用请求打开文件（先一致再打开）
+      // 返回 openFile 或 openDenied 消息
+      if(data.id){openFileById(data.id)}
+      else if(data.name){
+        const idx=getFileIndex();
+        const f=idx.find(x=>x.name===data.name);
+        if(f&&f.id)openFileById(f.id);
+        else notifyParent('openDenied',{name:data.name,reason:'not_found'});
+      }
+      break;
+
+    case 'registerNewFile':
+      // 宿主应用注册新创建的文件
+      // {name, content, folder?}
+      (async function(){
+        try{
+          let fileName=data.name||'';
+          const content=data.content||'';
+          const folder=data.folder||'';
+          if(!fileName){notifyParent('registerResult',{success:false,message:'文件名不能为空'});return}
+          // 简单本地自动防重名
+          const idx=getFileIndex();
+          const existing=idx.find(x=>x.name===fileName&&x.folder===(folder||''));
+          if(existing){
+            const base=fileName.replace(/\.\w+$/,'');
+            const ext=fileName.match(/\.\w+$/)?fileName.match(/\.\w+$/)[0]:'';
+            let n=2;
+            while(idx.find(x=>x.name===base+'('+n+')'+ext&&x.folder===(folder||'')))n++;
+            fileName=base+'('+n+')'+ext;
+          }
+          const newId=genFileId();
+          saveFileData(fileName,content);
+          const idx2=getFileIndex();
+          const f=idx2.find(x=>x.name===fileName);
+          if(f){
+            const oldId=f.id;
+            if(oldId&&oldId!==newId)_moveFileObj(oldId,newId);
+            f.id=newId;f.e=1;f.s=0;f.isNewFile=true;
+            if(folder)f.folder=folder;
+            setFileIndex(idx2);
+          }
+          currentFileName=fileName;
+          currentFileContent=content;
+          localStorage.setItem(K('current_file'),fileName);
+          document.getElementById('fileNameInput').value=fileName;
+          notifyParent('registerResult',{success:true,name:fileName,id:newId});
+          notifyParent('openFile',{name:fileName,content,id:newId});
+          renderFileList();
+          const config=getSyncConfig();
+          if(config.enabled){await uploadCurrentFile()}
+          toast('已注册新文件：'+fileName);
+        }catch(err){notifyParent('registerResult',{success:false,message:err.message})}
+      })();
+      break;
+
+    case 'importFileData':
+      // 宿主应用导入文件数据（遵从协议格式）
+      // {name, content, folder?}
+      (async function(){
+        try{
+          let fileName=data.name||'';
+          const content=data.content||'';
+          const folder=data.folder||'';
+          if(!fileName){notifyParent('importResult',{success:false,message:'文件名不能为空'});return}
+          // 简单本地自动防重名（导入必须赋予新ID，不覆盖已有文件）
+          const idx=getFileIndex();
+          const existing=idx.find(x=>x.name===fileName&&x.folder===(folder||''));
+          if(existing){
+            const base=fileName.replace(/\.\w+$/,'');
+            const ext=fileName.match(/\.\w+$/)?fileName.match(/\.\w+$/)[0]:'';
+            let n=2;
+            while(idx.find(x=>x.name===base+'('+n+')'+ext&&x.folder===(folder||'')))n++;
+            fileName=base+'('+n+')'+ext;
+          }
+          const newId=genFileId();
+          saveFileData(fileName,content);
+          const idx2=getFileIndex();
+          const f=idx2.find(x=>x.name===fileName);
+          if(f){
+            const oldId=f.id;
+            if(oldId&&oldId!==newId)_moveFileObj(oldId,newId);
+            f.id=newId;f.e=1;f.s=0;f.isNewFile=true;
+            if(folder)f.folder=folder;
+            setFileIndex(idx2);
+          }
+          currentFileName=fileName;
+          currentFileContent=content;
+          localStorage.setItem(K('current_file'),fileName);
+          notifyParent('importResult',{success:true,name:fileName,id:newId,action:'created'});
+          notifyParent('openFile',{name:fileName,content,id:newId});
+          renderFileList();
+          const config=getSyncConfig();
+          if(config.enabled){await uploadCurrentFile()}
+          toast('已导入新文件：'+fileName);
+        }catch(err){notifyParent('importResult',{success:false,message:err.message})}
+      })();
+      break;
+
+    // ---- 同步操作 ----
+    case 'syncCurrentFromMain':
+      (async function(){
+        try{
+          syncCurrentFileFromLocal();
+          await batchSync(true);
+        }catch(err){}
+      })();
+      break;
+
+    case 'uploadCurrent':
+      (async function(){
+        try{
+          syncCurrentFileFromLocal();
+          await batchSync(true);
+        }catch(err){}
+      })();
+      break;
+
+    case 'syncAllFiles':
+      batchSync(true);
+      break;
+
+    case 'downloadCloudFile':
+      (async function(){
+        try{
+          await downloadCloudFileById(data.fileId,data.fileName);
+        }catch(err){}
+      })();
+      break;
+
+    case 'refreshCloud':
+      renderFileList();
+      break;
+
+    case 'refreshFileList':
+      renderFileList();
+      break;
+
+    // ---- 文件变更通知（来自宿主应用）----
+    case 'fileDeleted':
+      if(currentFileName===data.name){
+        currentFileName='';
+        currentFileContent='';
+      }
+      renderFileList();
+      break;
+
+    case 'fileRenamed':
+      if(currentFileName===data.oldName){
+        currentFileName=data.newName;
+        document.getElementById('fileNameInput').value=currentFileName;
+      }
+      renderFileList();
+      break;
+
+    case 'fileRenamed_local':
+      (async function(){
+        try{
+          const idx=getFileIndex();
+          const f=idx.find(x=>x.id===data.fileId);
+          if(!f)return;
+          const cloudResult=await findFileInCloudById(data.fileId);
+          if(cloudResult.networkOk&&cloudResult.file){
+            const netTime=await getNetworkTime();
+            // 纯ID模式，云端自己findRowById定位行
+            await callCloudAPI('批量写入',{
+              ID:data.fileId,
+              数据:{ID:data.fileId,文件名:f.name,最后上传发起时间:formatBeijingTime(netTime)}
+            });
+            const parsed=parseCharCountStr(cloudResult.file.内容字符数);
+            if(parsed&&parsed.totalParts>1){
+              for(let i=2;i<=parsed.totalParts;i++){
+                const suffixId=data.fileId+'-'+i;
+                const suffixResult=await findFileInCloudById(suffixId);
+                if(suffixResult.file){
+                  // 纯ID模式，不依赖行号
+                  await callCloudAPI('批量写入',{
+                    ID:suffixId,
+                    数据:{ID:suffixId,文件名:f.name}
+                  });
+                }
+              }
+            }
+            setLastSyncTime(Date.now());
+          }
+        }catch(err){}
+      })();
+      break;
+
+    case 'fileDeleted_local':
+      (async function(){
+        try{
+          const cloudResult=await findFileInCloudById(data.fileId);
+          if(cloudResult.networkOk&&cloudResult.file){
+            // 云端"删除行"只需ID参数，会自己遍历表格找匹配行删除
+            const delResult=await callCloudAPI('删除行',{ID:data.fileId});
+            if(delResult.status==='success'){
+              await cleanupCloudFragments(data.fileId,0);
+              setLastSyncTime(Date.now());
+            }else{
+              toast('云端删除失败(ID:'+data.fileId+')：'+(delResult.tongzhi||delResult.message||'未知错误'));
+            }
+          }
+        }catch(err){}
+      })();
+      break;
+
+    case 'fileCopied':
+      (async function(){
+        try{
+          const idx=getFileIndex();
+          const f=idx.find(x=>x.id===data.fileId);
+          if(!f)return;
+          const fd=loadFileDataById(data.fileId);
+          const content=fd?fd.data:'';
+          const netTime=await getNetworkTime();
+          const wr=await writeFileToCloudWithSplit({baseId:data.fileId,baseRow:0,fileName:f.name,content:content,version:1,folder:f.folder,owner:f.owner,createTime:f.createTime,lastUploadTime:formatBeijingTime(netTime),lastEditTime:f.lastEditTime||getLastEditTime()});
+          if(wr.success){
+            setLastSyncVersion(f.name,1);
+            clearNewFileFlag(data.fileId);
+            setLastSyncTime(Date.now());
+          }
+        }catch(err){}
+      })();
+      break;
+
+    case 'setStar':
+    case 'starFile':
+      // 宿主请求设置/取消星标：{id, star}
+      if(data.id){setStarred(data.id,data.star!==false);renderFileList();notifyParent('starChanged',{id:data.id,star:isStarred(data.id)})}
+      break;
+
+    case 'contentChanged':
+      // 父窗口通知内容变化，保存并增加版本号；版本号以本管理器文件JSON(终点号)为准
+      if(data.name&&data.content!==undefined){
+        saveFileData(data.name,data.content);
+        if(data.name===currentFileName){currentFileContent=data.content}
+        renderFileList();
+        // 回推权威版本号给父窗口，保证思维导图面板与管理器面板同源
+        var _idx=getFileIndex();var _f=_idx.find(function(x){return x.name===data.name});
+        notifyParent('contentSaved',{name:data.name,e:_f?(_f.e||0):0,s:_f?(_f.s||0):0});
+        syncCurrentFileFromLocal();
+      }else{
+        syncCurrentFileFromLocal();
+      }
+      break;
+
+    case 'syncComplete':
+      toast('同步完成 | 拉取:'+(data.pulled||0)+' 上传:'+(data.uploaded||0));
+      break;
+
+    case 'conflictResolved':
+      // 宿主自备冲突弹窗处置后回传 resolution（v6.03）：按语义调用对应内部处置函数
+      if(data.fileName&&!currentFileName)currentFileName=data.fileName;
+      if(data.resolution==='accept_cloud'){acceptCloudVersion();}
+      else if(data.resolution==='overwrite'){overwriteCloudWithLocal();}
+      else if(data.resolution==='make_conflict'){saveConflictVersion();}
+      else if(data.resolution==='later'){closeSyncConflict();}
+      else{closeSyncConflict();}
+      break;
+
+    // ---- 生命周期 ----
+    case 'mainReady':
+    case 'mainActivated':
+      startAutoSync();
+      break;
+
+    // ---- 认证信息同步 ----
+    case 'authChanged':
+      if(data.username){AUTH_USERNAME=data.username;localStorage.setItem(K('auth_user'),data.username)}
+      if(data.password){AUTH_PASSWORD=data.password;localStorage.setItem(K('auth_pass'),data.password)}
+      document.getElementById('usernameInput').value=AUTH_USERNAME;
+      document.getElementById('passwordInput').value=AUTH_PASSWORD;
+      document.getElementById('authStatus').textContent='已同步';
+      document.getElementById('authStatus').style.color='#27ae60';
+      setTimeout(()=>{document.getElementById('authStatus').textContent=''},2000);
+      // 切换账号后自动从云端拉取新账号的文件索引
+      triggerLoginSync();
+      break;
+
+    // ---- 登出：清空缓存 ----
+    case 'logout':
+      AUTH_USERNAME='';AUTH_PASSWORD='';
+      stopAutoSync();
+      // 清空所有 {APP_PREFIX}_ 开头的缓存（保留 device_id）
+      var keysToRemove=[];
+      for(var i=0;i<localStorage.length;i++){
+        var k=localStorage.key(i);
+        if(k&&k.startsWith(K(''))&&k!==K('device_id'))keysToRemove.push(k);
+      }
+      for(var ri=0;ri<keysToRemove.length;ri++){localStorage.removeItem(keysToRemove[ri])}
+      try{for(var _mk in MEM)delete MEM[_mk]}catch(e){}
+      _idbClear();
+      // 重置内存状态
+      currentFileName='';currentFileContent='';selectedFileId='';selectedFileName='';
+      cloudFileCache.clear();editingFileId=null;mirrorFileIds.clear();
+      renderFileList();
+      document.getElementById('usernameInput').value='';
+      document.getElementById('passwordInput').value='';
+      break;
+  }
+});
+
+(function init(){
+  initAuthBar();
+  refreshMirrorFileIds();
+  preloadFileCacheFromIdb().finally(function(){
+    const savedCurrent=localStorage.getItem(K('current_file'));
+    if(savedCurrent){
+      currentFileName=savedCurrent;
+      const fd=loadFileData(savedCurrent);
+      if(fd)currentFileContent=fd.data||'';
+      document.getElementById('fileNameInput').value=currentFileName;
+    }
+    renderFileList();
+    updateFolderPath();
+  });
+  const config=getSyncConfig();
+  if(config.enabled){
+    initSyncSheet().catch(()=>{});
+    startAutoSync();
+    if(config.autoRefreshOnOpen!==false&&AUTH_USERNAME&&AUTH_PASSWORD){
+      refreshCloudIndex().catch(()=>{});
+    }
+    triggerLoginSync();
+  }
+})();
+</script>
+</body>
+</html>

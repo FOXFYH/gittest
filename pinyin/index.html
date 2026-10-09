@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>拼音练习</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+    <canvas id="fx-canvas"></canvas>
+
+    <!-- 主界面 -->
+    <div id="app">
+        <!-- 首页 -->
+        <section id="view-home" class="view">
+            <div class="home-header">
+                <div class="app-logo">拼</div>
+                <h1 class="app-title">拼音练习</h1>
+                <span class="test-mode-badge" id="test-mode-badge" style="display:none">测试模式</span>
+                <div class="student-info" id="home-student-info">
+                    <span class="student-name" id="home-student-name">未设置</span>
+                    <span class="student-level-badge" id="home-student-level">Lv.1</span>
+                    <span class="sync-status" id="home-sync-status" title="同步状态">☁️</span>
+                    <button class="btn-logout-sm" onclick="App.Auth.logout()" title="退出登录">退出</button>
+                </div>
+            </div>
+            <div class="home-stats">
+                <div class="stat-item"><span class="stat-value" id="home-total-points">0</span><span class="stat-label">积分</span></div>
+                <div class="stat-item"><span class="stat-value" id="home-accuracy">0%</span><span class="stat-label">正确率</span></div>
+                <div class="stat-item"><span class="stat-value" id="home-sessions">0</span><span class="stat-label">场次</span></div>
+                <div class="stat-item"><span class="stat-value" id="home-badges">0</span><span class="stat-label">荣誉</span></div>
+            </div>
+            <div class="home-semester" id="home-semester-info">
+                <span class="semester-label">当前学期</span>
+                <span class="semester-name" id="home-semester-name">一年级上学期</span>
+                <span class="semester-phase" id="home-semester-phase">摸底阶段</span>
+            </div>
+            <div class="home-difficulty" id="home-difficulty">
+                <span class="diff-label">难度</span>
+                <div class="diff-buttons">
+                    <button class="diff-btn" data-diff="easy" onclick="App.Home.selectDifficulty('easy')">简单</button>
+                    <button class="diff-btn" data-diff="medium" onclick="App.Home.selectDifficulty('medium')">中等</button>
+                    <button class="diff-btn" data-diff="hard" onclick="App.Home.selectDifficulty('hard')">困难</button>
+                </div>
+            </div>
+            <div class="home-progress-section" id="home-progress-section">
+                <div class="home-progress-bar-wrap">
+                    <div class="home-progress-bar"><div class="home-progress-fill" id="home-progress-fill"></div></div>
+                    <span class="home-progress-text" id="home-progress-text">0/0</span>
+                </div>
+                <button class="btn-exam-entry locked" id="btn-exam-entry" onclick="App.ExamSetup.enterExamChallenge()">
+                    <span class="exam-entry-icon">🏆</span>
+                    <span class="exam-entry-text">升级考核</span>
+                    <span class="exam-entry-hint" id="exam-entry-hint">进度未满</span>
+                </button>
+            </div>
+            <button class="btn-start" onclick="App.Exam.start()">开始练习</button>
+            <div class="home-actions home-actions-5">
+                <button class="btn-action" onclick="App.switchView('profile')"><span class="action-icon">👤</span><span>我的</span></button>
+                <button class="btn-action" onclick="App.switchView('semester')"><span class="action-icon">📚</span><span>学期</span></button>
+                <button class="btn-action" onclick="App.switchView('badges')"><span class="action-icon">🏅</span><span>荣誉</span></button>
+                <button class="btn-action" onclick="App.switchView('settings')"><span class="action-icon">⚙️</span><span>设置</span></button>
+                <button class="btn-action" onclick="App.FileSync.openManager()"><span class="action-icon" id="btn-sync-icon">☁️</span><span>同步</span></button>
+            </div>
+        </section>
+
+        <!-- 考试设置 -->
+        <section id="view-exam-setup" class="view">
+            <div class="setup-header">
+                <button class="btn-back" onclick="App.switchView('home')">←</button>
+                <h2>选择难度</h2>
+            </div>
+            <div class="difficulty-cards">
+                <div class="diff-card" data-diff="easy" onclick="App.Exam.selectDifficulty('easy')">
+                    <div class="diff-icon">🌟</div>
+                    <div class="diff-info">
+                        <div class="diff-name">简单</div>
+                        <div class="diff-desc">少量选项，较长倒计时</div>
+                        <div class="diff-score">每字 10 分</div>
+                    </div>
+                </div>
+                <div class="diff-card" data-diff="medium" onclick="App.Exam.selectDifficulty('medium')">
+                    <div class="diff-icon">🔥</div>
+                    <div class="diff-info">
+                        <div class="diff-name">中等</div>
+                        <div class="diff-desc">较多选项，中等倒计时</div>
+                        <div class="diff-score">每字 15 分</div>
+                    </div>
+                    <div class="diff-lock" id="lock-medium">🔒 简单模式完成学期解锁</div>
+                </div>
+                <div class="diff-card" data-diff="hard" onclick="App.Exam.selectDifficulty('hard')">
+                    <div class="diff-icon">💀</div>
+                    <div class="diff-info">
+                        <div class="diff-name">困难</div>
+                        <div class="diff-desc">全部选项，短倒计时</div>
+                        <div class="diff-score">每字 20 分</div>
+                    </div>
+                    <div class="diff-lock" id="lock-hard">🔒 中等模式完成学期解锁</div>
+                </div>
+            </div>
+            <div class="setup-info" id="setup-phase-info">
+                <span>当前阶段：</span><strong id="setup-phase-name">摸底</strong>
+                <span> | 学期：</span><strong id="setup-semester-name">一年级上学期</strong>
+            </div>
+        </section>
+
+        <!-- 答题界面 -->
+        <section id="view-exam" class="view">
+            <div class="exam-top-bar">
+                <button class="btn-end-exam" id="btn-end-exam" onclick="App.Exam.endEarly()">结束</button>
+                <div class="font-size-ctrl">
+                    <button class="font-size-btn" onclick="App.Exam.changeFontSize(-1)">A-</button>
+                    <span class="font-size-label" id="font-size-label">20</span>
+                    <button class="font-size-btn" onclick="App.Exam.changeFontSize(1)">A+</button>
+                </div>
+                <div class="exam-progress-info">
+                    <span id="exam-progress-text">1/30</span>
+                </div>
+                <div class="exam-timer-wrap">
+                    <div class="timer-bar"><div class="timer-fill" id="exam-timer-fill"></div></div>
+                    <span class="timer-text" id="exam-timer-text">30s</span>
+                </div>
+                <div class="exam-score" id="exam-score">0分</div>
+                <button class="font-size-btn fullscreen-btn" id="btn-fullscreen" onclick="App.toggleFullscreen()" title="全屏">⛶</button>
+            </div>
+
+            <!-- 显示字 -->
+            <div class="char-display-area">
+                <div class="target-char" id="target-char">字</div>
+                <div class="current-pinyin" id="current-pinyin">_ _ _</div>
+            </div>
+
+            <!-- 选择区域 -->
+            <div class="select-area" id="select-area">
+                <!-- 步骤提示 -->
+                <div class="step-hint" id="step-hint">请选择声母</div>
+                <!-- 声母选择 -->
+                <div class="select-section" id="section-initial">
+                    <div class="option-grid" id="grid-initial"></div>
+                </div>
+                <!-- 整体认读音节选择 -->
+                <div class="select-section" id="section-whole" style="display:none">
+                    <div class="option-grid whole-grid" id="grid-whole"></div>
+                </div>
+                <!-- 介母选择 -->
+                <div class="select-section" id="section-medial">
+                    <div class="option-grid medial-grid" id="grid-medial"></div>
+                </div>
+                <!-- 韵母选择 -->
+                <div class="select-section" id="section-final">
+                    <div class="option-grid" id="grid-final"></div>
+                </div>
+                <!-- 声调选择 -->
+                <div class="select-section" id="section-tone">
+                    <div class="option-grid tone-grid" id="grid-tone"></div>
+                </div>
+            </div>
+
+            <!-- 答题反馈 -->
+            <div class="feedback-overlay hidden" id="feedback-overlay">
+                <div class="feedback-content" id="feedback-content">
+                    <div class="feedback-icon" id="feedback-icon"></div>
+                    <div class="feedback-text" id="feedback-text"></div>
+                    <div class="feedback-pinyin" id="feedback-pinyin"></div>
+                    <button class="feedback-confirm-btn hidden" id="feedback-confirm-btn" onclick="App.Exam.confirmFeedback()">确定</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 场次结算 -->
+        <section id="view-result" class="view">
+            <div class="result-header">
+                <h2>本场结束</h2>
+            </div>
+            <div class="result-grade" id="result-grade">
+                <div class="grade-letter" id="grade-letter">A</div>
+                <div class="grade-bonus" id="grade-bonus">+20%</div>
+            </div>
+            <div class="result-stats">
+                <div class="result-row"><span>正确</span><span id="result-correct">0/30</span></div>
+                <div class="result-row"><span>正确率</span><span id="result-accuracy">0%</span></div>
+                <div class="result-row"><span>基础分</span><span id="result-base-score">0</span></div>
+                <div class="result-row"><span>时间加成</span><span id="result-time-bonus">0</span></div>
+                <div class="result-row"><span>评级加成</span><span id="result-grade-bonus-val">0</span></div>
+                <div class="result-row total"><span>总得分</span><span id="result-total-score">0</span></div>
+            </div>
+            <div class="result-badges" id="result-badges"></div>
+            <div class="result-phase-info" id="result-phase-info"></div>
+            <button class="btn-start" onclick="App.switchView('home')">返回首页</button>
+        </section>
+
+        <!-- 个人信息 -->
+        <section id="view-profile" class="view">
+            <div class="page-header">
+                <button class="btn-back" onclick="App.switchView('home')">←</button>
+                <h2>我的信息</h2>
+            </div>
+            <div class="profile-card">
+                <div class="profile-avatar" id="profile-avatar">拼</div>
+                <input type="text" class="profile-name-input" id="profile-name-input" placeholder="输入姓名" maxlength="10">
+                <div class="profile-level" id="profile-level">Lv.1 拼音新手</div>
+                <div class="profile-points" id="profile-points">0 积分</div>
+            </div>
+            <div class="profile-stats-grid">
+                <div class="pstat"><span class="pstat-val" id="pstat-total">0</span><span class="pstat-label">总答题</span></div>
+                <div class="pstat"><span class="pstat-val" id="pstat-correct">0</span><span class="pstat-label">答对</span></div>
+                <div class="pstat"><span class="pstat-val" id="pstat-accuracy">0%</span><span class="pstat-label">正确率</span></div>
+                <div class="pstat"><span class="pstat-val" id="pstat-streak">0</span><span class="pstat-label">最长连对</span></div>
+            </div>
+            <div class="profile-level-progress">
+                <div class="level-bar-label"><span id="level-current-name">Lv.1 拼音新手</span><span id="level-next-name">Lv.2 拼音学徒</span></div>
+                <div class="level-bar"><div class="level-bar-fill" id="level-bar-fill" style="width:0%"></div></div>
+                <div class="level-bar-info"><span id="level-current-pts">0</span><span id="level-next-pts">100</span></div>
+            </div>
+            <button class="btn-save-name" onclick="App.Profile.saveName()">保存姓名</button>
+        </section>
+
+        <!-- 学期选择 -->
+        <section id="view-semester" class="view">
+            <div class="page-header">
+                <button class="btn-back" onclick="App.switchView('home')">←</button>
+                <h2>学期选择</h2>
+            </div>
+            <div class="semester-list" id="semester-list"></div>
+        </section>
+
+        <!-- 荣誉/成绩 -->
+        <section id="view-badges" class="view">
+            <div class="page-header">
+                <button class="btn-back" onclick="App.switchView('home')">←</button>
+                <h2>我的荣誉</h2>
+            </div>
+            <div class="tab-bar" id="badges-tab-bar">
+                <button class="tab-btn active" onclick="App.Badges.switchTab('badges')">荣誉</button>
+                <button class="tab-btn" onclick="App.Badges.switchTab('scores')">成绩</button>
+            </div>
+            <div class="badges-grid" id="badges-grid"></div>
+            <div class="scores-table" id="scores-table" style="display:none"></div>
+        </section>
+
+        <!-- 设置 -->
+        <section id="view-settings" class="view">
+            <div class="page-header">
+                <button class="btn-back" onclick="App.switchView('home')">←</button>
+                <h2>设置</h2>
+            </div>
+            <div class="settings-list">
+                <!-- 游戏参数（需密码解锁） -->
+                <div class="setting-group-label setting-locked-header" id="setting-lock-header" onclick="App.Settings.toggleLocked()">
+                    <span>游戏参数</span>
+                    <span class="lock-icon" id="setting-lock-icon">🔒</span>
+                </div>
+                <div class="setting-locked-group" id="setting-locked-group" style="display:none">
+                <div class="setting-item" data-tip="答错时的扣分相对比例。100%为标准惩罚，调高则错字扣分更重，调低则更宽容。">
+                    <span>惩罚概率</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-penalty-rate" min="50" max="200" value="100" step="10">
+                        <span id="setting-penalty-val">100%</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="每场练习/考核包含的字数。字数越多单场时间越长，但能覆盖更多内容。">
+                    <span>每场字数</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-chars-per-session" min="10" max="50" value="30" step="5">
+                        <span id="setting-chars-val">30</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="每场中复习之前错字的比例。如30%表示每场有30%的题来自之前错字，70%为新字。">
+                    <span>复习字比例</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-review-ratio" min="0" max="50" value="30" step="5">
+                        <span id="setting-review-val">30%</span>
+                    </div>
+                </div>
+
+                <!-- 难度参数 -->
+                <div class="setting-group-label">难度参数</div>
+                <div class="setting-item" data-tip="简单难度下每题的答题倒计时秒数。时间充裕，适合初学。">
+                    <span>简单倒计时(秒)</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-easy-timer" min="15" max="60" value="30" step="5">
+                        <span id="setting-easy-timer-val">30s</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="中等难度下每题的答题倒计时秒数。时间较紧，需要熟练。">
+                    <span>中等倒计时(秒)</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-medium-timer" min="10" max="40" value="20" step="5">
+                        <span id="setting-medium-timer-val">20s</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="困难难度下每题的答题倒计时秒数。时间紧迫，考验反应速度。">
+                    <span>困难倒计时(秒)</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-hard-timer" min="5" max="25" value="12" step="1">
+                        <span id="setting-hard-timer-val">12s</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="简单难度下答对一字的基础得分。难度越高分值越高以作奖励。">
+                    <span>简单每字分值</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-easy-score" min="5" max="20" value="10" step="1">
+                        <span id="setting-easy-score-val">10</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="中等难度下答对一字的基础得分。">
+                    <span>中等每字分值</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-medium-score" min="10" max="25" value="15" step="1">
+                        <span id="setting-medium-score-val">15</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="困难难度下答对一字的基础得分。">
+                    <span>困难每字分值</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-hard-score" min="15" max="30" value="20" step="1">
+                        <span id="setting-hard-score-val">20</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="答题速度加成中剩余时间所占的权重。权重越高，答得越快加分越多；权重低则更看重正确率。">
+                    <span>时间加成权重</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-time-weight" min="20" max="80" value="50" step="5">
+                        <span id="setting-time-weight-val">50%</span>
+                    </div>
+                </div>
+
+                <!-- 评级参数 -->
+                <div class="setting-group-label">评级参数</div>
+                <div class="setting-item" data-tip="评级达到 SSS 所需的最低正确率。越高越难拿到 SSS 评级。">
+                    <span>SSS最低正确率</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-sss-acc" min="90" max="100" value="97" step="1">
+                        <span id="setting-sss-acc-val">97%</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="评级达到 SSS 所需的最低连续答对次数。考验稳定性。">
+                    <span>SSS最低连对</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-sss-streak" min="5" max="30" value="15" step="1">
+                        <span id="setting-sss-streak-val">15</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="评级加成的上限比例。如40%表示最高额外加40%的基础分。">
+                    <span>最高加成比例</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-max-bonus" min="20" max="60" value="40" step="5">
+                        <span id="setting-max-bonus-val">40%</span>
+                    </div>
+                </div>
+                </div><!-- end setting-locked-group -->
+
+                <!-- 系统设置 -->
+                <div class="setting-group-label">系统设置</div>
+                <div class="setting-item" data-tip="答题反馈区（答对/答错提示）的字体大小。调大方便查看，调小节省空间。">
+                    <span>答案字体大小</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-feedback-font-size" min="18" max="48" value="28" step="2">
+                        <span id="setting-feedback-font-size-val">28px</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="考试界面顶部拼音显示区的字体大小。调大更清晰，调小避免遮挡。">
+                    <span>拼音显示区大小</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-pinyin-display-size" min="36" max="80" value="56" step="4">
+                        <span id="setting-pinyin-display-size-val">56px</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="开启后答题时播放正确/错误音效，关闭则静音。">
+                    <span>音效</span>
+                    <div class="setting-control">
+                        <label class="switch"><input type="checkbox" id="setting-sound" checked><span class="slider"></span></label>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="数据云端同步状态。已开启表示答题进度会自动上传到云端备份。">
+                    <span>云同步</span>
+                    <div class="setting-control">
+                        <span style="color:var(--success);font-size:13px">已开启</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="自动保存答题进度的时间间隔（分钟）。防止意外退出丢失进度。">
+                    <span>自动保存间隔(分)</span>
+                    <div class="setting-control">
+                        <input type="range" id="setting-auto-save" min="1" max="10" value="1" step="1">
+                        <span id="setting-auto-save-val">1</span>
+                    </div>
+                </div>
+                <div class="setting-item" data-tip="管理当前登录账号，可切换账号或修改密码。">
+                    <span>账号管理</span>
+                    <button class="btn-danger-sm" onclick="App.Auth.showAccountManager()">管理</button>
+                </div>
+                <div class="setting-item" data-tip="退出当前账号登录，本地缓存会被清空，下次需重新登录。">
+                    <span>退出登录</span>
+                    <button class="btn-danger-sm" onclick="App.Auth.logout()">退出</button>
+                </div>
+                <div class="setting-item" data-tip="进入测试模式可快速验证升级流程：每学期4字、每场2字，进度独立保存。退出后恢复正常数据。">
+                    <span>测试模式</span>
+                    <button class="btn-danger-sm" id="setting-test-mode-btn" onclick="App.TestMode.enter()">进入测试</button>
+                </div>
+                <div class="setting-item" data-tip="清空所有本地和云端数据，包括进度、荣誉、积分等。此操作不可恢复，请谨慎！">
+                    <span>重置数据</span>
+                    <button class="btn-danger-sm" onclick="App.Settings.resetData()">重置</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 模态框 -->
+    <div class="modal-overlay" id="modal-overlay" onclick="App.Modal.closeOnOverlay(event)">
+        <div class="modal-box">
+            <div class="modal-title" id="modal-title"></div>
+            <div class="modal-body" id="modal-body"></div>
+            <div class="modal-footer" id="modal-footer"></div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- 文件管理器后台 iframe（常驻，供后台自动同步） -->
+    <iframe id="fileManagerBg" src="about:blank" style="position:absolute;width:0;height:0;border:0;visibility:hidden" title="文件管理器后台"></iframe>
+
+    <!-- 文件管理器弹窗 -->
+    <div class="file-modal-overlay" id="file-modal" onclick="if(event.target===this)App.FileSync.closeManager()">
+        <div class="file-modal-box">
+            <iframe id="fileManagerFrame" src="about:blank"></iframe>
+        </div>
+    </div>
+
+    <!-- 登录浮动弹窗 -->
+    <div id="loginOverlay" class="login-overlay">
+        <div id="loginIframeContainer" class="login-modal">
+            <div id="loginHeader" class="login-modal-header">
+                <span>登录系统</span>
+                <button id="closeLoginBtn" class="login-modal-close" onclick="App.Auth.hideLogin()">✕</button>
+            </div>
+            <iframe id="loginFrame" src="about:blank"></iframe>
+            <div style="padding:8px 12px;border-top:1px solid #eee;flex-shrink:0">
+                <button onclick="window.location.href='denglu.html?standalone=1'" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#666;font-size:13px;cursor:pointer;touch-action:manipulation;-webkit-appearance:none;appearance:none">输入框无法显示？点此备用登录</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 悬浮解释提示 -->
+    <div class="setting-tip" id="setting-tip"></div>
+
+    <!-- 升级考核恭喜页面 -->
+    <div class="celebration-overlay hidden" id="celebration-overlay">
+        <div class="celebration-content">
+            <div class="celebration-trophy">🏆</div>
+            <div class="celebration-title">考核通关</div>
+            <div class="celebration-subtitle" id="celebration-subtitle"></div>
+            <div class="celebration-unlocks" id="celebration-unlocks"></div>
+            <div class="celebration-stats" id="celebration-stats"></div>
+            <button class="celebration-btn" id="celebration-btn" onclick="App.Celebration.hide()">太棒了！</button>
+        </div>
+    </div>
+
+    <script src="pinyin-data.js"></script>
+    <script src="polyphones.js"></script>
+    <script src="badge-system.js"></script>
+    <script src="grade-system.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
