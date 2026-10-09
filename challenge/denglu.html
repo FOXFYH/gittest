@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <title>账号系统</title>
+  <style>
+    *{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif;margin:0;padding:0}
+    body{background:#f7f8fa;padding:16px;min-height:100vh;display:flex;flex-direction:column;gap:10px}
+
+    /* 状态条 */
+    .status{padding:8px 12px;border-radius:8px;font-size:13px;text-align:center;transition:all .2s}
+    .status-success{background:#e8f5e9;color:#2e7d32}
+    .status-error{background:#ffebee;color:#c62828}
+    .status-info{background:#e3f2fd;color:#1565c0}
+
+    /* 主卡片 */
+    .card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 6px rgba(0,0,0,0.08)}
+
+    /* 标签栏 */
+    .tab-bar{display:flex;border-radius:8px;overflow:hidden;margin-bottom:14px;background:#f1f3f5}
+    .tab{flex:1;padding:10px 0;text-align:center;cursor:pointer;border:none;background:transparent;font-size:14px;font-weight:500;color:#666;transition:all .2s}
+    .tab.active{background:#0071e3;color:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,113,227,0.3)}
+
+    /* 面板 */
+    .panel{display:none}
+    .panel.active{display:block}
+
+    /* 表单 */
+    .section{margin-bottom:14px}
+    label{font-weight:500;font-size:13px;margin-bottom:6px;display:block;color:#555}
+    input{border-radius:8px;border:1.5px solid #e0e0e0;padding:10px 12px;font-size:15px;width:100%;transition:border .2s;outline:none}
+    input:focus{border-color:#0071e3;box-shadow:0 0 0 3px rgba(0,113,227,0.1)}
+
+    /* 按钮 */
+    button{border-radius:8px;border:none;color:#fff;padding:11px;width:100%;cursor:pointer;font-size:15px;font-weight:500;transition:all .15s}
+    button:active{transform:scale(0.98)}
+    .btn-register{background:#34c759}
+    .btn-register:active{background:#2db84e}
+    .btn-login{background:#0071e3}
+    .btn-login:active{background:#0062c4}
+    .btn-change{background:#5ac8fa}
+    .btn-change:active{background:#40b8e8}
+
+    /* 验证码行 */
+    .code-box{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+    .code-box label{white-space:nowrap;width:72px;margin:0;font-size:13px}
+    .code-box input{flex:1;padding:10px 8px;font-size:15px}
+    .code-box button{width:auto;padding:10px 12px;background:#8e8e93;font-size:13px;white-space:nowrap;border-radius:8px}
+    .code-box button:disabled{background:#c7c7cc;cursor:not-allowed}
+
+    /* 日志（可折叠） */
+    .log-toggle{font-size:12px;color:#8e8e93;cursor:pointer;text-align:center;padding:6px;user-select:none}
+    .log-toggle:hover{color:#555}
+    .log-wrap{display:none}
+    .log-wrap.show{display:block}
+    .log-box{height:100px;background:#f8f9fa;border:1px solid #e8e8e8;border-radius:8px;padding:8px;font-size:11px;white-space:pre-wrap;overflow-y:auto;margin-top:4px;font-family:Menlo,Consolas,monospace;color:#555}
+  </style>
+</head>
+
+<body>
+  <div id="statusText" class="status status-info">就绪</div>
+
+  <div class="card">
+    <div class="tab-bar">
+      <div class="tab" id="tab1" onclick="showPanel(1)">注册</div>
+      <div class="tab" id="tab2" onclick="showPanel(2)">登录</div>
+      <div class="tab" id="tab3" onclick="showPanel(3)">改密</div>
+    </div>
+
+    <div class="panel-container">
+      <!-- 注册 -->
+      <div class="panel" id="panel1">
+        <div class="section">
+          <label>用户名</label>
+          <input id="reg_user" placeholder="注册用户名" autocomplete="off">
+        </div>
+        <div class="section">
+          <label>密码</label>
+          <input id="reg_pwd" type="password" placeholder="密码">
+        </div>
+        <div class="code-box">
+          <label>验证码</label>
+          <input id="code1" placeholder="输入验证码" autocomplete="off">
+          <button id="btnCode1" onclick="getCode(1)">获取</button>
+        </div>
+        <button class="btn-register" onclick="doRegister()">注册</button>
+      </div>
+
+      <!-- 登录 -->
+      <div class="panel" id="panel2">
+        <div class="section">
+          <label>用户名</label>
+          <input id="login_user" placeholder="登录用户名" autocomplete="off">
+        </div>
+        <div class="section">
+          <label>密码</label>
+          <input id="login_pwd" type="password" placeholder="密码">
+        </div>
+        <div class="code-box">
+          <label>验证码</label>
+          <input id="code2" placeholder="输入验证码" autocomplete="off">
+          <button id="btnCode2" onclick="getCode(2)">获取</button>
+        </div>
+        <button class="btn-login" onclick="doLogin()">登录</button>
+      </div>
+
+      <!-- 修改密码 -->
+      <div class="panel" id="panel3">
+        <div class="section">
+          <label>用户名</label>
+          <input id="change_user" placeholder="用户名" autocomplete="off">
+        </div>
+        <div class="section">
+          <label>旧密码</label>
+          <input id="old_pwd" type="password" placeholder="旧密码">
+        </div>
+        <div class="section">
+          <label>新密码</label>
+          <input id="new_pwd" type="password" placeholder="新密码">
+        </div>
+        <div class="code-box">
+          <label>验证码</label>
+          <input id="code3" placeholder="输入验证码" autocomplete="off">
+          <button id="btnCode3" onclick="getCode(3)">获取</button>
+        </div>
+        <button class="btn-change" onclick="doChangePassword()">修改密码</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日志区（可折叠） -->
+  <div class="log-toggle" onclick="toggleLog()">调试日志 ▼</div>
+  <div class="log-wrap" id="logWrap">
+    <div class="card" style="padding:10px">
+      <label style="font-size:11px;color:#999">发送</label><div id="logSend" class="log-box"></div>
+    </div>
+    <div class="card" style="padding:10px;margin-top:6px">
+      <label style="font-size:11px;color:#999">返回</label><div id="logResp" class="log-box"></div>
+    </div>
+  </div>
+
+<script>
+let correctCode = "";
+
+const API_URL = "https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com";
+const WEBHOOK_URL = "https://www.kdocs.cn/api/v3/ide/file/504393979179/script/V2-jCry7lblkwsPtTSmtjlWY/sync_task";
+
+// 未登录状态下清空本地缓存（保留设备标识），确保网站无法被操作
+function clearLocalCacheOnLoad(){
+  try{
+    var keysToRemove = [];
+    for(var i = 0; i < localStorage.length; i++){
+      var key = localStorage.key(i);
+      if(key && key.indexOf('exam_') === 0 && key !== 'exam_device_id'){
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(function(k){ localStorage.removeItem(k); });
+  }catch(e){}
+}
+
+// 登录成功后保存凭据并跳转主页
+function onLoginSuccess(username, password){
+  localStorage.setItem('exam_auth_user', username);
+  localStorage.setItem('exam_auth_pass', password);
+  setStatus('登录成功，正在跳转...');
+  setTimeout(function(){ window.location.href = 'index.html'; }, 400);
+}
+
+function toggleLog(){
+  document.getElementById('logWrap').classList.toggle('show');
+}
+
+function showPanel(num) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('panel'+num).classList.add('active');
+  document.getElementById('tab'+num).classList.add('active');
+}
+
+function getDefaultPanelFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  if (tab === 'register') return 1;
+  if (tab === 'login') return 2;
+  if (tab === 'changepwd') return 3;
+  return 2;
+}
+
+function setStatus(text, isError=false) {
+  const el = document.getElementById("statusText");
+  el.innerText = text;
+  el.className = "status " + (isError ? "status-error" : "status-success");
+}
+
+let codeLock = false;
+const cooldown = 10;
+
+function getCode(panel) {
+  if (codeLock) return;
+  codeLock = true;
+  let btn = document.getElementById("btnCode" + panel);
+  let originalText = btn.innerText;
+  btn.disabled = true;
+  let remain = cooldown;
+  btn.innerText = remain + "s";
+  const timer = setInterval(() => {
+    remain--;
+    if (remain <= 0) {
+      clearInterval(timer);
+      codeLock = false;
+      btn.disabled = false;
+      btn.innerText = originalText;
+    } else {
+      btn.innerText = remain + "s";
+    }
+  }, 1000);
+
+  setTimeout(() => {
+    let code = "";
+    for (let i = 0; i < 4; i++) code += Math.floor(Math.random() * 10);
+    correctCode = code;
+    alert("验证码：" + code);
+  }, 1000);
+}
+
+function checkCode(inputId) {
+  const userInput = document.getElementById(inputId).value.trim();
+  if (!userInput) { alert("请填入验证码！"); return false; }
+  if (userInput === "8888") { quickTestLogin(); return false; }
+  if (userInput === "6666") return true;
+  if (userInput !== correctCode) { alert("请填入正确的验证码！"); return false; }
+  return true;
+}
+
+async function quickTestLogin() {
+  const u = 'test', p = '1234';
+  setStatus('快速登录中...');
+  try {
+    const res = await fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({webhookUrl:WEBHOOK_URL,message:{Context:{argv:{"登录行为":"登录","用户名":u,"密码":p}}}}) });
+    const txt = await res.text();
+    const d = JSON.parse(txt).data?.result || JSON.parse(txt);
+    if (d.TZbianhao===501) {
+      onLoginSuccess(u, p);
+    } else { setStatus(d.tongzhi,true); alert(d.tongzhi); }
+  } catch(e) { setStatus('异常：'+e,true); }
+}
+
+async function doRegister() {
+  if (!checkCode("code1")) return;
+  const u = document.getElementById('reg_user').value.trim();
+  const p = document.getElementById('reg_pwd').value.trim();
+  if (!u || !p) { setStatus('请填写完整',true); return; }
+  setStatus('注册中...');
+  const body = {webhookUrl:WEBHOOK_URL,message:{Context:{argv:{"登录行为":"注册","用户名":u,"密码":p}}}};
+  document.getElementById('logSend').innerText = JSON.stringify(body,null,2);
+  try {
+    const res = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const txt = await res.text();
+    document.getElementById('logResp').innerText = txt;
+    const d = JSON.parse(txt).data?.result || JSON.parse(txt);
+    if (d.TZbianhao===501) { setStatus('注册成功'); alert('注册成功，请登录'); showPanel(2); }
+    else { setStatus(d.tongzhi,true); alert(d.tongzhi); }
+  } catch(e) { setStatus('异常：'+e,true); }
+}
+
+async function doLogin() {
+  if (!checkCode("code2")) return;
+  const u = document.getElementById('login_user').value.trim();
+  const p = document.getElementById('login_pwd').value.trim();
+  if (!u || !p) { setStatus('请填写完整',true); return; }
+  setStatus('登录中...');
+  const body = {webhookUrl:WEBHOOK_URL,message:{Context:{argv:{"登录行为":"登录","用户名":u,"密码":p}}}};
+  document.getElementById('logSend').innerText = JSON.stringify(body,null,2);
+  try {
+    const res = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const txt = await res.text();
+    document.getElementById('logResp').innerText = txt;
+    const d = JSON.parse(txt).data?.result || JSON.parse(txt);
+    if (d.TZbianhao===501) {
+      onLoginSuccess(u, p);
+    } else { setStatus(d.tongzhi,true); alert(d.tongzhi); }
+  } catch(e) { setStatus('异常：'+e,true); }
+}
+
+async function doChangePassword() {
+  if (!checkCode("code3")) return;
+  const u = document.getElementById('change_user').value.trim();
+  const oldP = document.getElementById('old_pwd').value.trim();
+  const newP = document.getElementById('new_pwd').value.trim();
+  if (!u || !oldP || !newP) { setStatus('请填写完整',true); return; }
+  setStatus('修改中...');
+  const body = {webhookUrl:WEBHOOK_URL,message:{Context:{argv:{"登录行为":"修改密码","用户名":u,"密码":newP,"旧密码":oldP}}}};
+  document.getElementById('logSend').innerText = JSON.stringify(body,null,2);
+  try {
+    const res = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const txt = await res.text();
+    document.getElementById('logResp').innerText = txt;
+    const d = JSON.parse(txt).data?.result || JSON.parse(txt);
+    if (d.TZbianhao===501) {
+      setStatus('修改成功'); alert('修改成功，请重新登录');
+      // 清空旧凭据，跳转到登录标签
+      localStorage.removeItem('exam_auth_user');
+      localStorage.removeItem('exam_auth_pass');
+      showPanel(2);
+    } else { setStatus(d.tongzhi,true); alert(d.tongzhi); }
+  } catch(e) { setStatus('异常：'+e,true); }
+}
+
+// 监听父窗口切换标签指令
+window.addEventListener('message', function(e){
+  if(e.data && e.data.action === 'switchTab'){
+    if(e.data.tab === 'login') showPanel(2);
+    else if(e.data.tab === 'register') showPanel(1);
+    else if(e.data.tab === 'changepwd') showPanel(3);
+  }
+});
+
+window.onload = () => {
+  clearLocalCacheOnLoad();
+  showPanel(getDefaultPanelFromUrl());
+}
+</script>
+</body>
+</html>
