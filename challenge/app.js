@@ -3013,7 +3013,7 @@
                 var levels=App.Storage.getSettings().levels||[];
                 // 检查是否有非默认的用户数据（有云端ID的题库说明是旧同步数据）
                 var hasRealData=banks.some(function(b){return b.id&&b.id.indexOf('QB_')===0})||
-                    students.length>0||
+                    students.some(function(s){return !s._demo})||
                     Object.keys(records).length>0;
                 if(!hasRealData){
                     localStorage.setItem('exam_sync_migrated_v2','1');
