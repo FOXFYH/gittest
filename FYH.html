@@ -212,8 +212,16 @@
 //   密钥不硬编码，由使用者手输，只存密钥本体于 localStorage 键 fyh_pw；
 //   前缀 CHANNEL_PREFIX 由本页代码自动拼接；真频道名（fyhbus+密钥）不落地于前端。
 const CHANNEL_PREFIX = "fyhbus";
-const DEFAULT_API_KEY = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug"; // api_key 默认值（保持现状，可被设置覆盖）
-let API_KEY = localStorage.getItem("fyh_key") || DEFAULT_API_KEY;
+/* 接口密钥不再内置：首次由使用者输入并保存在本机，源码不含密钥 */
+function FOX_API_KEY(){
+  try{
+    var k = localStorage.getItem('fox_ws_api_key');
+    if(!k){ k = (prompt('请输入 PieSocket 接口密钥（源码不含，仅存本机）')||'').trim(); if(k) localStorage.setItem('fox_ws_api_key', k); }
+    return k;
+  }catch(e){ return ''; }
+}
+const DEFAULT_API_KEY = ""; // api_key 默认值（保持现状，可被设置覆盖）
+let API_KEY = localStorage.getItem("fyh_key") || DEFAULT_API_KEY || FOX_API_KEY();
 let PW = (function () {                                // 只存「密钥」部分
   var p = localStorage.getItem("fyh_pw");
   if (p === null) {                                    // 首次：尝试从 v1.13 旧键 fyh_ch 迁移
@@ -495,7 +503,7 @@ function saveCfg() {
   let v = (document.getElementById("cfgPw").value || "").trim();
   if (v.indexOf(CHANNEL_PREFIX) === 0) v = v.slice(CHANNEL_PREFIX.length);  // 容忍粘贴完整频道名
   if (!v) { log("密码不能为空"); return; }
-  const key = (document.getElementById("cfgKey").value || "").trim() || DEFAULT_API_KEY;
+  const key = (document.getElementById("cfgKey").value || "").trim() || DEFAULT_API_KEY || FOX_API_KEY();
   PW = v;
   API_KEY = key;
   localStorage.setItem("fyh_pw", PW);   // 只存密钥本体：同源页面填一份、多处共用
