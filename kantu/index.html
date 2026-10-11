@@ -223,16 +223,8 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#fff;font-weigh
    ========================================================================== */
 
 const VER = '1.04';
-/* 接口密钥不再内置：首次由使用者输入并保存在本机，源码不含密钥 */
-function FOX_API_KEY(){
-  try{
-    var k = localStorage.getItem('fox_ws_api_key');
-    if(!k){ k = (prompt('请输入 PieSocket 接口密钥（源码不含，仅存本机）')||'').trim(); if(k) localStorage.setItem('fox_ws_api_key', k); }
-    return k;
-  }catch(e){ return ''; }
-}
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
-  + '?api_key=' + FOX_API_KEY());
+  + '?api_key=' + 'ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
 const LS_PW = 'kantu_web_pw';      // 记住的频道密码
 const LS_PATH = 'kantu_web_path';  // 记住的目录
 const LS_SORT = 'kantu_web_sort';  // 记住的排序 [键, 向]
