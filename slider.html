@@ -137,16 +137,8 @@ button.on{background:var(--green);border-color:var(--green);color:#04220f;font-w
    ========================================================================== */
 
 const VER = '1.02';
-/* 接口密钥不再内置：首次由使用者输入并保存在本机，源码不含密钥 */
-function FOX_API_KEY(){
-  try{
-    var k = localStorage.getItem('fox_ws_api_key');
-    if(!k){ k = (prompt('请输入 PieSocket 接口密钥（源码不含，仅存本机）')||'').trim(); if(k) localStorage.setItem('fox_ws_api_key', k); }
-    return k;
-  }catch(e){ return ''; }
-}
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
-  + '?api_key=' + FOX_API_KEY());
+  + '?api_key=' + 'ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
 /* 默认频道（可在页内「频道」按钮改；改后与服务端设置里的一致即可） */
 const DEF_CH = 'fh_slider_9f3c7a2e';
 const KA_SEC = 25;          // WS 保活心跳（秒）
