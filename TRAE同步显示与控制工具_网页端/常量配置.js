@@ -7,12 +7,29 @@ if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
 const SERVER_ID= '1000000001';
 /* v1.27：频道名 = 密码（只有服务端知道），本端绝不硬编码——
  * 首次使用弹窗输入（localStorage 持久），网络页可改。 */
+/* 接口密钥不再内置：首次由使用者输入并保存在本机，源码不含密钥 */
+function FOX_API_KEY(){
+  try{
+    var k = localStorage.getItem('fox_ws_api_key');
+    if(!k){ k = (prompt('请输入 PieSocket 接口密钥（源码不含，仅存本机）')||'').trim(); if(k) localStorage.setItem('fox_ws_api_key', k); }
+    return k;
+  }catch(e){ return ''; }
+}
+
+/* 备用接口密钥不再内置：首次由使用者输入并保存在本机，源码不含密钥 */
+function FOX_API_KEY2(){
+  try{
+    var k = localStorage.getItem('fox_ws_api_key2');
+    if(!k){ k = (prompt('请输入 PieSocket 备用接口密钥（源码不含，仅存本机）')||'').trim(); if(k) localStorage.setItem('fox_ws_api_key2', k); }
+    return k;
+  }catch(e){ return ''; }
+}
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
-                     + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+                     + '?api_key=' + FOX_API_KEY());
 /* v1.50：副频道（WS2，新集群 s20307.nyc1）——备用兜底/翻倍流量配额。
  * 与服务端一致：副频道走独立模板，但频道名沿用主频道同名 */
 const WS_URL_TMPL2 = ('wss://s20307.nyc1.piesocket.com/v3/%s'
-                      + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
+                      + '?api_key=' + FOX_API_KEY2());
 const RECONNECT = 3;    // 断线重连间隔（秒）
 const RECONNECT_MAX = 8; // 13.3：连续连不上中继的自动重连次数上限（用尽即停并明告失败）
 /* 1.59：状态灯判活阈值 —— 原来硬编码 16s，手机端太敏感：
