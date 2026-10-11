@@ -53,9 +53,9 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 <div id="status"><span id="stLeft"><span class="dot" id="dot"></span><span id="stTxt">连接中…</span></span><span id="stVer"></span></div>
 <div id="setup" style="display:none;position:fixed;inset:0;z-index:50;background:var(--bg);color:var(--fg);padding:22px">
   <h3 style="margin:8px 0 10px">连接设置</h3>
-  <p style="color:var(--sub);font-size:13px;line-height:1.6">这是线上公共页。只需填写「频道公共段」——与账号数组里的密码同值（如 <b>31415926fF@</b>），本页会自动拼上文件专属后缀并记住；接口密钥与口令已内置默认值，无需填写。<br>宿主身份：<b id="stHost"></b></p>
+  <p style="color:var(--sub);font-size:13px;line-height:1.6">这是线上公共页。只需填写「频道公共段」——即本人掌握的那段口令，本页会自动拼上文件专属后缀并记住；接口密钥与口令已内置默认值，无需填写。<br>宿主身份：<b id="stHost"></b></p>
   <label style="display:block;font-size:13px;margin:12px 0 4px">频道公共段</label>
-  <input id="stChan" autocomplete="off" placeholder="31415926fF@" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font-size:15px">
+  <input id="stChan" autocomplete="off" placeholder="在此输入频道公共段" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font-size:15px">
   <button id="stGo" style="margin-top:18px;width:100%;padding:13px;border:0;border-radius:9px;background:var(--acc);color:var(--bg);font-size:16px">连接</button>
 </div>
 
@@ -280,7 +280,7 @@ el("btnFont").onclick=()=>{
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.05");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.06");
 document.getElementById("stHost").textContent=HOST||"standalone";
 if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
 function showSetup(){
