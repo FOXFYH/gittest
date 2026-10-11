@@ -35,6 +35,7 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
         background:var(--bg);border-top:1px solid var(--line);display:flex;justify-content:space-between}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#bbb;margin-right:5px;vertical-align:middle}
 .dot.on{background:#3aa655}.dot.off{background:#c0392b}
+.row .pk{flex:none;width:34px;text-align:center;font-size:16px;color:var(--acc);border-left:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -44,17 +45,43 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
   <button id="btnHome">⌂</button>
   <button id="btnUp">↑</button>
   <button id="btnFont">A</button>
+  <button id="btnPick" title="选定当前文件夹（把路径回传给宿主页）" style="display:none">✅</button>
 </div>
 <div id="crumbs"></div>
 <div id="list"></div>
 <div id="reader"><pre id="text"></pre><button id="more" style="display:none"></button><div id="note"></div></div>
-<div id="status"><span id="stLeft"><span class="dot" id="dot"></span><span id="stTxt">连接中…</span></span><span id="stVer">v1.02</span></div>
+<div id="status"><span id="stLeft"><span class="dot" id="dot"></span><span id="stTxt">连接中…</span></span><span id="stVer"></span></div>
+<div id="setup" style="display:none;position:fixed;inset:0;z-index:50;background:var(--bg);color:var(--fg);padding:22px">
+  <h3 style="margin:8px 0 10px">连接设置</h3>
+  <p style="color:var(--sub);font-size:13px;line-height:1.6">这是线上公共页。只需填写「频道公共段」——与账号数组里的密码同值（如 <b>31415926fF@</b>），本页会自动拼上文件专属后缀并记住；接口密钥与口令已内置默认值，无需填写。<br>宿主身份：<b id="stHost"></b></p>
+  <label style="display:block;font-size:13px;margin:12px 0 4px">频道公共段</label>
+  <input id="stChan" autocomplete="off" placeholder="31415926fF@" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font-size:15px">
+  <button id="stGo" style="margin-top:18px;width:100%;padding:13px;border:0;border-radius:9px;background:var(--acc);color:var(--bg);font-size:16px">连接</button>
+</div>
 
 <script>
-// ============ 配置（由服务端注入） ============
-const CHANNEL="fyhbus31415926fF@", API_KEY="ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug", TOKEN="fvwr9k2q7x", NS="FVWR";
-const WS_URL="wss://free.blr2.piesocket.com/v3/"+CHANNEL+"?api_key="+API_KEY;
+// ============ 配置 ============
+// 本机页：由服务端注入（占位符被真值替换）。线上公共页：占位符原样保留，改为
+// 走 URL 参数 / 本地记忆 / 页面手输——人类只需提供「公共段」，后缀与密钥取内置默认。
+const NS="FVWR";
+const CHANNEL_TAG="FILE";              // 文件查看器专属后缀：真频道 = 公共段 + FILE
+const DEF_API="ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";  // 内置接口密钥（可被 URL 参数覆盖）
+const DEF_TOK="fvwr9k2q7x";                                 // 内置口令（轻口径，防串台）
+const _raw=v=>(v&&v.indexOf("__")!==0)?v:"";      // 未注入的占位符 → 空
+const _q=new URLSearchParams(location.search);
+const _q1=k=>_q.get(k)||"";
+const HOST=_raw("__HOST__")||_q1("h")||_q1("host")||"standalone";  // 宿主角色：?h=trae / ?h=workbuddy
+const ROLE_ID=_raw("__ROLEID__");
+const PICK=_q1("pick")==="1";          // 选路径模式：由宿主网页打开，选中后把路径回传
+const PICK_MODE=_q1("mode")||"ins";    // 回传用途：ins=插入输入框 / newdir=回填工作目录
+function baseChan(v){v=(v||"").trim();return v.slice(-CHANNEL_TAG.length)===CHANNEL_TAG?v.slice(0,-CHANNEL_TAG.length):v;}
+function joinChan(base){base=baseChan(base);return base?base+CHANNEL_TAG:"";}
+let CHANNEL_IN=baseChan(_raw("__CHANNEL__"))||_q1("channel")||localStorage.getItem("fvwr_channel")||"";
+let CHANNEL=joinChan(CHANNEL_IN);
+let API_KEY=_raw("__APIKEY__")||_q1("api")||localStorage.getItem("fvwr_api")||DEF_API;
+let TOKEN=_raw("__TOKEN__")||_q1("tk")||localStorage.getItem("fvwr_token")||DEF_TOK;
 const REQ_PRE="【"+NS+"Q】", REQ_SUF="【/"+NS+"Q】", RESP_PRE="【"+NS+"A】", RESP_SUF="【/"+NS+"A】";
+function wsUrl(){return "wss://free.blr2.piesocket.com/v3/"+CHANNEL+"?api_key="+API_KEY;}
 
 // ============ 工具 ============
 const MY_ID=(()=>{let i=localStorage.getItem("fvwr_id");if(!i){i="";for(let k=0;k<10;k++)i+=Math.floor(Math.random()*10);localStorage.setItem("fvwr_id",i);}return i;})();
@@ -80,7 +107,7 @@ let ws=null, connected=false, recvBuf={}, pending={};
 function setStatus(cls,txt){document.getElementById("dot").className="dot "+cls;document.getElementById("stTxt").textContent=txt;}
 function connect(){
   setStatus("","连接中…");
-  try{ws=new WebSocket(WS_URL);}catch(e){setStatus("off","连接失败");return;}
+  try{ws=new WebSocket(wsUrl());}catch(e){setStatus("off","连接失败");return;}
   ws.onopen=()=>{connected=true;setStatus("on","已连接");probe();};
   ws.onclose=()=>{connected=false;setStatus("off","离线，重连中…");setTimeout(connect,5000);};
   ws.onerror=()=>{setStatus("off","连接异常");};
@@ -114,7 +141,7 @@ function req(t,params,timeout){
   timeout=timeout||20000;
   return new Promise(resolve=>{
     const rid=MY_ID+"_"+(++ridSeq);
-    const obj=Object.assign({v:1,t:t,tk:TOKEN,rid:rid},params||{});
+    const obj=Object.assign({v:1,t:t,tk:TOKEN,rid:rid,h:HOST},params||{});
     const payload=REQ_PRE+JSON.stringify(obj)+REQ_SUF;
     const timer=setTimeout(()=>{delete pending[rid];resolve({ok:false,err:"本地服务未响应（可能没开）"});},timeout);
     pending[rid]={resolve:resolve,timer:timer};
@@ -148,6 +175,12 @@ function rowEl(name,isDir,path,size,mtime){
   d.querySelector(".nm").textContent=name;
   d.querySelector(".meta").textContent=isDir?"":fmtSize(size);
   d.onclick=()=>{ if(isDir) openDir(path); else openFile(path); };
+  if(PICK){                       // 选路径模式：行尾 ➕ 直接把该路径回传宿主页
+    const b=document.createElement("span");
+    b.className="pk"; b.textContent="➕"; b.title="选中此项（回传路径给宿主页）";
+    b.onclick=ev=>{ ev.stopPropagation(); pickBack(path); };
+    d.appendChild(b);
+  }
   return d;
 }
 function openDir(path){
@@ -224,10 +257,21 @@ function goUp(){
 }
 function goHome(){ if(inReader){reading=null;} showBrowse(); probe(); }
 
+// ============ 选路径（pick）============
+// 宿主网页以 ?pick=1 打开本页；选中文件/文件夹后，把路径 postMessage 回宿主页，
+// 由宿主决定用途（插入输入框 / 回填工作目录），随后自动关闭本窗口。
+function pickBack(path){
+  if(!path){ alert("请先进入一个文件夹，再点 ✅ 选定"); return; }
+  try{ if(window.opener && !window.opener.closed)
+        window.opener.postMessage({type:"fvwr_pick", path:path, mode:PICK_MODE, h:HOST}, "*"); }catch(e){}
+  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);
+}
+
 // ============ 事件 ============
 el("btnBack").onclick=goBack;
 el("btnUp").onclick=goUp;
 el("btnHome").onclick=goHome;
+el("btnPick").onclick=()=>pickBack(curPath);
 el("btnFont").onclick=()=>{
   fontSize=fontSize>=24?14:fontSize+2;
   el("text").style.fontSize=fontSize+"px";
@@ -235,7 +279,26 @@ el("btnFont").onclick=()=>{
 };
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
-connect();
+// ============ 启动 ============
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.05");
+document.getElementById("stHost").textContent=HOST||"standalone";
+if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
+function showSetup(){
+  el("setup").style.display="block";
+  el("stChan").value=CHANNEL_IN||"";
+  el("stGo").onclick=()=>{
+    const b=baseChan(el("stChan").value);
+    if(!b){ alert("请填写频道公共段"); return; }
+    CHANNEL_IN=b; CHANNEL=joinChan(b);
+    localStorage.setItem("fvwr_channel",CHANNEL_IN);
+    localStorage.setItem("fvwr_api",API_KEY);
+    localStorage.setItem("fvwr_token",TOKEN);
+    el("setup").style.display="none";
+    connect();
+  };
+}
+function boot(){ if(!CHANNEL){ setStatus("off","待配置"); showSetup(); } else { connect(); } }
+boot();
 </script>
 </body>
 </html>
