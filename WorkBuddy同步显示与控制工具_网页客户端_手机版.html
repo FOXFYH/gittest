@@ -627,8 +627,16 @@ if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
   try { localStorage.setItem('wb_webm_uid', MY_ID); } catch(e){}
 }
 const SERVER_ID= '1000000001';
+/* 接口密钥不再内置：首次由使用者输入并保存在本机，源码不含密钥 */
+function FOX_API_KEY(){
+  try{
+    var k = localStorage.getItem('fox_ws_api_key');
+    if(!k){ k = (prompt('请输入 PieSocket 接口密钥（源码不含，仅存本机）')||'').trim(); if(k) localStorage.setItem('fox_ws_api_key', k); }
+    return k;
+  }catch(e){ return ''; }
+}
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
-                    + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+                    + '?api_key=' + FOX_API_KEY());
 /* 1.45：加密频道——完整频道名 = 前缀(workb) + 客户端填写的密钥。
    客户端只暴露密钥（如 密码段@），前缀由代码自动拼接，真频道名
    workb密码段@ 不落在客户端任何一处,等于一道密码手段。 */
