@@ -2173,7 +2173,10 @@ function renderConvs(rows, conv_unread){
 
 /* 1.25：会话操作菜单（长按会话行弹出）。本期实现「重命名」——
    走服务端 conv_display_name（右键会话行 → 上下文菜单「重命名」→
-   内联编辑框写入 → Enter）；1.4x 新增「删除任务」（走 conv_del）。
+   内联编辑框写入 → Enter）；1.4x 新增「删除此会话」（走 conv_del）。
+   1.88：菜单项「🗑 删除任务」→「🗑 删除此会话」——旧文案「任务」易被误当
+     成「定时任务」；用户曾误以为在取消定时，实际却删了会话。会话行的删除
+     一律明说「此会话」，「定时」二字只归定时相关操作。
    1.24：菜单里凡是「给人看」的名字一律用显示名 disp||title；title(r[1])
    只是会话ID(身份key)，仅用于 conv_del/conv_display_name 传参。 */
 function convMenuOpen(title, disp){
@@ -2190,7 +2193,7 @@ function convMenuOpen(title, disp){
     + '<button data-act="sched">⏰ 定时自我激活'
     + (nSched ? '（' + nSched + '）' : '') + '</button>'
     + '<button data-act="ren">✎ 重命名</button>'
-    + '<button class="cmdel" data-act="del">🗑 删除任务</button>'
+    + '<button class="cmdel" data-act="del">🗑 删除此会话</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
     + '</div>';
   ov.onclick = e => { if (e.target === ov) ov.remove(); };
@@ -3562,7 +3565,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.87';   /* 1.87：升级即清缓存——VER 变化时清掉不重要的本地缓存（流量统计/消息时间/骨架/服务端版本号），
+const VER = '1.88';   /* 1.88：会话右键菜单「🗑 删除任务」→「🗑 删除此会话」——
+   明确是删会话、不是取消定时（用户 2026-10-11 曾误认）。
+   1.87：升级即清缓存——VER 变化时清掉不重要的本地缓存（流量统计/消息时间/骨架/服务端版本号），
    保留密钥等要项不动，再带 ?v=VER 重载；修「旧浏览器刷新不出来（残留缓存卡住）」
    1.86：服务端改名跟随（按稳定 sid 认人）——同一 srv_id 换了显示名，
    自动把「当前操控/记忆」迁到新名，修「改了设备名→网页端失联（收得到却不渲染）」
