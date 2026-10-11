@@ -38,7 +38,9 @@ select{font-size:12px;}
 .h2row{display:flex; align-items:center; gap:5px; padding:0 8px 2px;
   flex-wrap:wrap;}
 #cmb_model{flex:1; min-width:0;}
-#lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
+#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
+#cmb_acct{max-width:150px; font-size:12px; flex:none;}
+#btn_acct_scan{flex:none; padding:0 5px; font-size:12px; line-height:1.4;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:1px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -496,7 +498,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
   <div class="h2row" data-page-node-id="euyPvOhmsEx2BKClFKwgAN">
-    <span id="lbl_ports" data-page-node-id="zBgT5txMkCBKKMlkXhsbis">在线 —</span>
+    <select id="cmb_acct" data-page-node-id="zBgT5txMkCBKKMlkXhsbis" title="登录账号（切换后积分 / 签到即按新账号）"></select>
+    <button id="btn_acct_scan" title="重扫本机其它安装（沙盘 / 影子里的 WorkBuddy 分身），把新账号收编进账号库">⟳</button>
     <span id="lbl_points" data-page-node-id="yFYp8ovoyEJEqbf3s1uUjI">积分 —</span>
     <select id="cmb_model" data-page-node-id="QQf0z68kfKCspuI3tgt6mc"></select>
     <button id="btn_fav" title="模型收藏管理" data-page-node-id="QQf0z68kfKCspuI3tgt6md">☆</button>
@@ -1005,6 +1008,9 @@ const S = {
   ws: null, onLine: false, wsOpenAt: 0, lastSrv: 0,
   box: '(未连接)', port: 0, boxes: [], alive: new Set(),
   points: '—', acct: '', qn: 0, snap: {},
+  /* 1.89：登录账号库（服务端 hello/acct_list 下发）——顶部下拉切换账号，
+     acct_asked=已向服务端点过名（只点一次，避免重复请求） */
+  acct_items: [], acct_asked: false,
   attach_pending: null,
   model_map: {}, model_busy: false,
   /* 1.50 模型校验：
@@ -1091,6 +1097,7 @@ const el = {
   menu: $('btn_menu'), rlink: $('lbl_rlink'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
+  acct_sel: $('cmb_acct'), acct_scan: $('btn_acct_scan'),   /* 1.89：登录账号切换 */
   acct: $('lbl_acct'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
   edit_row: $('edit_row'),                    /* 1.53：队列取回修改横幅 */
@@ -1977,6 +1984,18 @@ function scheduleRenderAll(){
 
 function renderAcct(){                     // 1.33：登录账号名（hello/account 更新）
   if (el.acct) el.acct.textContent = S.acct || '—';
+}
+
+/* 1.89：顶部「登录账号」切换下拉——选项＝账号库（acct_list 下发）+ 本机现用账号；
+   当前账号打勾并 selected。选中即发 acct_switch 切 WorkBuddy 登录态。 */
+function renderAcctSel(){
+  if (!el.acct_sel) return;
+  const items = S.acct_items || [];
+  if (!items.length){ el.acct_sel.innerHTML = '<option value="">（无账号）</option>'; return; }
+  el.acct_sel.innerHTML = items.map(it =>
+    '<option value="' + esc(it.key) + '"' + (it.cur ? ' selected' : '') + '>'
+    + (it.cur ? '✓ ' : '') + esc(it.name || '未命名')
+    + (it.uin ? '（' + esc(it.uin) + '）' : '') + '</option>').join('');
 }
 
 /* 1.67：托管排队条——AI 忙时发出的消息挂在这里（不打断它），本轮跑完由服务端
@@ -3565,7 +3584,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.88';   /* 1.88：会话右键菜单「🗑 删除任务」→「🗑 删除此会话」——
+const VER = '1.89';   /* 1.89：顶部「在线 x/y」撤下，改为「登录账号」切换下拉——
+   选项＝账号库+本机现用账号，选中即切 WorkBuddy 登录态（积分/签到随即按新账号）；
+   旁边「⟳」重扫本机其它安装（沙盘/影子里的分身），把新账号收编进账号库。
+   在线端计数移入设置页诊断。
+   1.88：会话右键菜单「🗑 删除任务」→「🗑 删除此会话」——
    明确是删会话、不是取消定时（用户 2026-10-11 曾误认）。
    1.87：升级即清缓存——VER 变化时清掉不重要的本地缓存（流量统计/消息时间/骨架/服务端版本号），
    保留密钥等要项不动，再带 ?v=VER 重载；修「旧浏览器刷新不出来（残留缓存卡住）」
@@ -4368,6 +4391,20 @@ function onEv(kind, v){
       S.acct = String(v || '');
       renderAcct();
       break;
+    case 'acct_list':                      /* 1.89：账号库（切账号下拉的数据源） */
+      S.acct_items = (v && v.items) || [];
+      renderAcctSel();
+      if (v && v.new) flash('已收编 ' + v.new + ' 个新账号', 'var(--green)');
+      break;
+    case 'acct_switched':                  /* 1.89：切账号结果 */
+      if (v && v.ok){
+        if (v.account){ S.acct = String(v.account); renderAcct(); }
+        flash('✅ 已切换账号：' + (v.account || ''), 'var(--green)');
+      } else {
+        flash('账号切换失败：' + ((v && v.msg) || '未知错误'), 'var(--red)');
+        sendCmd('acct_list', null);
+      }
+      break;
     case 'models':
       S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
       rebuildModelOptions();
@@ -4561,6 +4598,10 @@ function onHello(d){
     S.acct = String(d.acct || '');
     renderAcct();
   }
+  if (d.accts !== undefined){                      /* 1.89：账号库随 hello 下发 */
+    if (d.accts){ S.acct_items = d.accts.items || []; renderAcctSel(); }
+    if (!S.acct_asked){ S.acct_asked = true; try{ sendCmd('acct_list', null); }catch(e){} }
+  }
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
   if (d.box !== S.box){ applySwitch(d.box, port); }
@@ -4675,6 +4716,8 @@ function srvSeen(){                    // 服务端来向消息：判活 + 即�
 setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
 
 function renderPorts(){
+  /* 1.89：顶栏「在线 x/y」已撤下，改为登录账号切换下拉；元素不存在时直接跳过。 */
+  if (!el.ports) return;
   el.ports.textContent = '在线 ' + S.alive.size + '/' + S.boxes.length;
 }
 
@@ -5142,6 +5185,19 @@ el.refresh_pts.onclick = () => {         /* 1.34：刷新积分（防升级移�
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   flash('正在刷新积分…', 'var(--blue)');
   sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
+};
+el.acct_sel.onchange = () => {           /* 1.89：切 WorkBuddy 登录账号 */
+  const k = el.acct_sel.value;
+  const it = (S.acct_items || []).find(x => x.key === k);
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); renderAcctSel(); return; }
+  if (it && it.cur) return;
+  flash('正在切换账号：' + ((it && it.name) || k) + '…', 'var(--blue)');
+  sendCmd('acct_switch', k);
+};
+el.acct_scan.onclick = () => {           /* 1.89：重扫本机其它安装，收编新账号 */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  flash('正在扫描本机其它安装…', 'var(--blue)');
+  sendCmd('acct_scan', null);
 };
 el.refresh_srv.onclick = () => {         /* 1.85：刷新服务端名册——广播点名 */
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
