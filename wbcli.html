@@ -392,7 +392,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .frow.dead .fmark{flex:none; color:#c62828; font-size:11px;}
 .fhint{padding:10px 14px; color:var(--gray); font-size:12px;
   line-height:1.6;}
-#btn_fav{flex:none; min-width:34px;}
+#btn_fav{flex:none; width:36px; min-width:36px; height:36px; padding:0;}
 /* 1.33：收藏页「刷新模型」按钮——右侧圆角小按钮，配合 nhdr 标题 */
 #page_fav .nhdr b{flex:1; min-width:0;}
 #btn_favrefresh{flex:none; margin-left:auto; font-size:12px;
@@ -3584,7 +3584,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.91';   /* 1.91：顶栏账号下拉再收窄为 60px（＝上一轮 max-width:150px 的
+const VER = '1.92';   /* 1.92：模型收藏「☆」按钮改正方形（36×36，原 min-width:34px 看着
+   像长条）；另：顶栏积分由服务端 2.16 起只给整数（网页照显）。
+   1.91：顶栏账号下拉再收窄为 60px（＝上一轮 max-width:150px 的
    40%，用户口径「减到上一轮的 40%」）；#cmb_acct 改 flex:0 0 60px。
    1.90：顶栏账号下拉改定宽——余下空间全留给模型下拉
    （模型选择更重要）；先误按屏宽 40% 实现（flex:0 0 40%），1.91 已纠正。
