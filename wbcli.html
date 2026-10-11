@@ -2403,6 +2403,13 @@ function rid10(){
   return s;
 }
 
+/* 1.93：积分显示一律取整——显示层兜底归一（服务端 2.16 起本就只发整数，
+   这里再 Math.round 挡一道，避免旧缓存 / 异常值把小数带上屏）。 */
+function fmtPts(v){
+  const n = Number(v);
+  return isFinite(n) ? String(Math.round(n)) : String(v == null ? '—' : v);
+}
+
 function pendAdd(kind, text, rid, convSid){
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
   const same = S.pending.find(p => p.text === text);
@@ -3584,7 +3591,8 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.92';   /* 1.92：模型收藏「☆」按钮改正方形（36×36，原 min-width:34px 看着
+const VER = '1.93';   /* 1.93：积分显示一律取整（fmtPts 兜底归一，防小数上屏）。
+   1.92：模型收藏「☆」按钮改正方形（36×36，原 min-width:34px 看着
    像长条）；另：顶栏积分由服务端 2.16 起只给整数（网页照显）。
    1.91：顶栏账号下拉再收窄为 60px（＝上一轮 max-width:150px 的
    40%，用户口径「减到上一轮的 40%」）；#cmb_acct 改 flex:0 0 60px。
@@ -4366,7 +4374,7 @@ function onEv(kind, v){
     }
     case 'points':
       if (v && v !== '读取失败') S.points = v;
-      el.points.textContent = '积分 ' + v;
+      el.points.textContent = '积分 ' + fmtPts(v);
       break;
     case 'checkin': {
       /* 1.59：今日签到结果。成功→提示 +N 并把积分即时加进显示；
@@ -4377,7 +4385,7 @@ function onEv(kind, v){
         const credit = Number(v.credit) || 0;
         if (credit){
           S.points = (Number(S.points) || 0) + credit;
-          el.points.textContent = '积分 ' + S.points;
+          el.points.textContent = '积分 ' + fmtPts(S.points);
         }
         flash('✅ 签到成功' + (credit ? ' +' + credit + ' 积分' : '') +
               (v.streak_days ? '（连续 ' + v.streak_days + ' 天）' : ''),
@@ -4598,7 +4606,7 @@ function onHello(d){
   renderPorts();
   if (d.points && d.points !== '—'){
     S.points = d.points;
-    el.points.textContent = '积分 ' + d.points;
+    el.points.textContent = '积分 ' + fmtPts(d.points);
   }
   if (d.acct !== undefined){                       /* 1.33：登录账号名随 hello */
     S.acct = String(d.acct || '');
