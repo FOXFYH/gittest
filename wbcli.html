@@ -795,8 +795,8 @@ const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
 const WS2_URL_TMPL = ('wss://s20307.nyc1.piesocket.com/v3/%s'
                     + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
 /* 1.45：加密频道——完整频道名 = 前缀(TRAECLI) + 客户端填写的密钥。
-   客户端只暴露密钥（如 31415926fF@），前缀由代码自动拼接，真频道名
-   TRAECLI31415926fF@ 不落在客户端任何一处,等于一道密码手段。 */
+   客户端只暴露密钥（用户自填，不落源码），前缀由代码自动拼接，真频道名
+   不落在客户端任何一处,等于一道密码手段。 */
 const CH_PFX = 'TRAECLI';
 function chanUrlTmpl(){
   /* CFG.chan:'backup'=副B；'main'/空=主A（默认把流量归拢到账号A）。 */
@@ -3563,7 +3563,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.94';   /* 1.94：📂 改引用公共独立服务「本地文件查看器」——
+const VER = '1.95';   /* 1.94：📂 改引用公共独立服务「本地文件查看器」——
    本端工作台浏览页（page_bench / bench_ls）整体移除；📂 与新建任务「选目录」
    改用命名窗口打开 viewer，经 postMessage(fvwr_pick) 按 mode 回填
    （ins=插入输入区 / newdir=回填工作目录）。服务端同步删 cmd_bench_ls。
