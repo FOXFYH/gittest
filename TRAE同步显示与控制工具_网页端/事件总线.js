@@ -29,11 +29,6 @@ function onEv(kind, v){
       }
       return;
     }
-    case 'bench_write': {              /* 2.33：阅读器「编辑→保存」写回结果
-        （v={ok,path,size,enc} 或 {ok:False,err}）→ 交给阅读器收尾 */
-      if (window.FileRead && FileRead.onSaved) FileRead.onSaved(v);
-      return;
-    }
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
       /* 1.xx：登录轻启动——服务端 hello 只发「框架版」快照（无 msgs，
@@ -362,30 +357,6 @@ function onEv(kind, v){
         b.classList.remove('picked');
       });
       break;
-    case 'bench_ls':                       // 1.01：📂 目录应答
-      benchRender(v);
-      break;
-    case 'bench_del':                      // 2.38：⋯ 删除应答
-      benchOnDel(v);
-      break;
-    case 'bench_move':                     // 2.38：⋯ 移动应答
-      benchOnMove(v);
-      break;
-    case 'bench_rename':                   // 2.38：⋯ 重命名应答
-      benchOnRename(v);
-      break;
-    case 'bench_stat':                     // 2.39：⋯ 详细信息应答
-      benchOnStat(v);
-      break;
-    case 'bench_read':                     // 0.11：📄 文件阅读应答（分块）
-      FileRead.onData(v);
-      break;
-    case 'bench_open': {                   // 2.28：本地主动弹窗展示
-      const o = v || {};
-      if (o.mode === 'file') FileRead.open(o.path || '');
-      else benchOpen(o.path || '');
-      break;
-    }
     case 'msg_act':                        // 1.06：回退/删除完成 (kind, mi)
       flash(v[0] === 'revert'
         ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'

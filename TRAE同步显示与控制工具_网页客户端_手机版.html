@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.71</title>
-<link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.71">
+<title>TRAE远程 v2.72</title>
+<link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.72">
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
 
@@ -45,7 +45,7 @@
 <div id="attach_row" data-page-node-id="0FRu38I2Y9H4SjISPCj3qv"></div>
 <div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
   <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
-  <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
+  <button id="btn_bench" title="浏览本机文件（公共查看器），选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
   <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_take" title="取回 TRAE 输入框残留到此处并清空（编辑不丢）" data-page-node-id="k3pV7nZfJdQx2tRwA5cLm1">⇩</button>
   <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
@@ -79,25 +79,12 @@
        不再展示/调整。1.33 的历史：档位 0.5~30s，只影响聊天刷新。 -->
   </aside>
 
-<!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
-     1.06：双模式——插入路径 / 选定工作目录新建任务（✅ 头钮） -->
-<div id="page_bench" data-page-node-id="uHDGvgap8UHBowBBpOQDrH">
-  <div class="nhdr" data-page-node-id="L21IuAXdE94HzveZAKp5Z6">
-    <button id="btn_benchback" data-page-node-id="EOwUXuVYMphga9cSkEGX0g">‹ 返回</button>
-    <span id="lbl_bench" class="crumb" data-page-node-id="79NvRM4UbQGSgpsEBxQnL2"></span>
-    <button id="btn_bench_ok" title="选定当前浏览的目录（新建任务）"
-      style="margin-left:auto; min-width:52px; display:none;" data-page-node-id="0ECXrFOWDwaRJM8VQeLt2X">✅</button>
-    <button id="btn_bench_up" style="min-width:52px;" data-page-node-id="xCb5ddevivi6saWjwdt8b1">⬆</button>
-  </div>
-  <!-- 2.37：下拉刷新展露区（高度由 JS 控制，0=收起；列表顶部下拽 → 松手重拉当前目录） -->
-  <div id="bench_pull"><span class="bp_spin">↻</span><span class="bp_txt">下滑刷新</span></div>
-  <div id="bench_list" data-page-node-id="aNDBDnDCbWLXCl2z9LXguS"></div>
-  <div id="bfoot" data-page-node-id="FEpMnO7IgqKtfL6QzKv7zL">📁 目录单击进入 · 📄 文件单击查看 · ➕ 插入路径</div>
-</div>
+<!-- 2.72：原 📂 工作台远程浏览页（#page_bench）已删除——改引用公共独立服务
+     「网页版本地文件查看器」（GitHub Pages fileview/index.html），不再本端实现。 -->
 
 <!-- 1.08：新建任务弹窗（对齐服务端 v1.10 TaskDlg）——new_task_dlg
      展开输入区并抓 TRAE 记忆目录（task_dlg 事件预填）；选择/重选=
-     📂 浏览页选目录回填；创建=目录与记忆有变化才 task_dir_set，
+     公共文件查看器选目录回填；创建=目录与记忆有变化才 task_dir_set，
      一致零操作直接就绪；取消=task_dlg_cancel（Esc 关输入区） -->
 <div id="page_taskdlg" data-page-node-id="kV2H9hiNAlPGaDMK6yCdQF">
   <div class="nhdr" data-page-node-id="SaAHCCGxHWyKMeBapPlNsl">
@@ -117,7 +104,7 @@
     <div id="td_lock" class="tdhint" style="display:none;
         color:var(--blue); font-weight:bold;" data-page-node-id="MFjHnlYEfl4KwQ9vMEka8W"></div>
     <div class="tdhint" data-page-node-id="IpSHdKZWF7WUpqn72ktFXI">新任务的工作区将指向所选目录；与 TRAE 记忆一致
-      时零操作直接就绪。从 📂 浏览页选定后回到本页点「创建」。</div>
+      时零操作直接就绪。从文件查看器选定后回到本页点「创建」。</div>
     <div id="td_stat" class="tdstat" data-page-node-id="57lnk93UF2L7NlSUkvPx2w">正在展开新建任务…</div>
   </div>
 </div>
@@ -283,29 +270,28 @@
     立刻实测=真开无界面 Chrome 读官方用量页，耗时数分钟属正常。</div>
 </div>
 
-<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/长椅任务.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/文件阅读器.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.71"></script>
-<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.71"></script>
+<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.72"></script>
+<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.72"></script>
 </body>
 </html>

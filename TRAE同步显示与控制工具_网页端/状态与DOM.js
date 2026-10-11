@@ -18,10 +18,7 @@ const S = {
   model_names: new Set(),
   convs_key: null, msgs_key: null,
   /* 1.35：poll_sec 本地镜像与档位 UI 已移除（服务端 GUI 调整） */
-  busy: false, gen: false, ready: false, bench: null,
-  bench_mode: 'ins',
-  bench_retry_last: false,   /* 2.30：本次是否在尝试「上次目录」（失效则回落根） */
-  bench_move_src: '',        /* 2.38：移动模式下的待移动源路径（'' = 无） */
+  busy: false, gen: false, ready: false,
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
   /* 1.08 新建任务弹窗 / 1.11 task_lock=锁定文件夹 */
   /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡；
@@ -116,11 +113,7 @@ const el = {
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
   check_fulls: $('btn_check_fulls'), lbl_fulls: $('lbl_fulls'),
   netclear: $('btn_netclear'), diagcopy: $('btn_diagcopy'),
-  bench: $('btn_bench'), benchpage: $('page_bench'),
-  benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
-  benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
-  benchpull: $('bench_pull'),
-  bench_ok: $('btn_bench_ok'), bfoot: $('bfoot'),
+  bench: $('btn_bench'), bfoot: $('bfoot'),
   taskpage: $('page_taskdlg'), td_none: $('td_none'),
   td_lock: $('td_lock'),
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),

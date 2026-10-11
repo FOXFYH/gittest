@@ -426,48 +426,9 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .diaglog .bad{color:#c62828;}
 .diaglog .warn{color:#b26a00;}
 .diaglog .dim{color:#888;}
-/* ── 工作台浏览页（全屏覆盖，1.01）── */
-#page_bench{position:fixed; inset:0; z-index:40; background:#f2f4f7;
-  display:none; flex-direction:column;}
-#page_bench.on{display:flex;}
-/* 2.30：顶部路径改「可点击面包屑」——点任一级回退到该上级目录。
-   flex:1+水平滚动：路径再长也不挤掉右侧 ⬆ 钮，超长自动右滚到当前目录。 */
-#lbl_bench.crumb{flex:1; min-width:0; display:flex; align-items:center;
-  gap:1px; overflow-x:auto; white-space:nowrap; scrollbar-width:none;
-  font-size:15px; color:var(--blue); font-weight:bold;
-  -webkit-overflow-scrolling:touch;}
-#lbl_bench.crumb::-webkit-scrollbar{display:none;}
-.crumb .cs{color:var(--blue); cursor:pointer; padding:2px 3px;
-  border-radius:4px; flex:none;}
-.crumb .cs:active{background:#e3eefb;}
-.crumb .cs.cur{color:#111; cursor:default;}
-.crumb .sep{color:#bbb; flex:none; padding:0 1px;}
-/* 2.37：📂 浏览页「下拉刷新」展露区——高度由 JS 逐帧控制（0=收起），
-   拖拽时不加过渡、松手时才加 .settle 平滑收放；.load 时 ↻ 转圈。 */
-#bench_pull{flex:none; height:0; overflow:hidden; display:flex;
-  align-items:center; justify-content:center; gap:6px;
-  color:var(--gray); font-size:13px; background:#fff;}
-#bench_pull.settle{transition:height .18s ease;}
-#bench_pull .bp_spin{display:inline-block; font-size:15px; color:var(--blue);
-  transition:transform .15s;}
-#bench_pull.ready .bp_spin{transform:rotate(180deg);}
-#bench_pull.load .bp_spin{animation:bpSpin .8s linear infinite;}
-@keyframes bpSpin{to{transform:rotate(360deg);}}
-#bench_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  background:#fff; overscroll-behavior:contain;}
-.brow{padding:9px 14px; cursor:pointer; white-space:nowrap;
-  overflow:hidden; text-overflow:ellipsis; border-bottom:1px solid #eef1f4;}
-.brow:active{background:#eef4fb;}
-.brow.dir{color:#0d47a1;}
-.brow.file{color:#333;}
-.brow.up{color:var(--gray);}
-.brow.empty{color:#999; cursor:default;}
-.brow .plus{float:right; color:var(--blue); font-weight:bold;}
-.brow .ops{float:right; color:var(--gray); font-size:15px; font-weight:bold;
-  padding:0 10px;}                 /* 2.38：行尾 ⋯（在 ➕ 左边）更多操作 */
-.brow .ops:active{color:var(--blue);}
-.brow .bsz{float:right; color:var(--gray); font-size:12px;
-  padding:1px 8px;}                 /* 2.39：行尾文件大小（在 ⋯ 左边） */
+/* 2.72：原「工作台浏览页」样式（#page_bench / #lbl_bench.crumb / .crumb /
+   #bench_pull / #bench_list / .brow 系列）已删除——改引用公共独立服务
+   「网页版本地文件查看器」，本端不再自绘浏览页。#bfoot 仍被收藏页/分身页复用。 */
 #bfoot{flex:none; padding:6px 12px;
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
@@ -523,8 +484,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   padding:4px 10px; border:1px solid var(--bd); border-radius:14px;
   background:#fff; color:var(--blue); cursor:pointer; white-space:nowrap;}
 #btn_favrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
-/* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
-   bench 覆盖本页，选定后回来）── */
+/* ── 新建任务弹窗页（全屏覆盖，1.08；选目录时由公共文件查看器在浏览器
+   新窗口完成，选定后 postMessage 回填本页）── */
 #page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
   display:none; flex-direction:column;}
 #page_taskdlg.on{display:flex;}

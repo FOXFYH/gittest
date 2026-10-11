@@ -9,7 +9,7 @@
    2.47：新增 闹钟后缀(sid)（会话名后显示「 ⏰」，多条带条数）+ 定时指纹()
    （任务列表稳定指纹，参与 会话列表.js 的 convs_key 去重），供会话行一眼
    看出哪些会话设了定时提醒。
-   依赖：S、sendCmd、flash、$，以及 长椅任务.js 的 bsOpen/bsClose/bsBtn。 */
+   依赖：S、sendCmd、flash、$，以及 任务与输入.js 的 bsOpen/bsClose/bsBtn。 */
 
 const 自激活_默认文本 = '（定时自我激活：请继续。）';
 
