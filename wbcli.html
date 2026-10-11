@@ -39,7 +39,7 @@ select{font-size:12px;}
   flex-wrap:wrap;}
 #cmb_model{flex:1; min-width:0;}
 #lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
-#cmb_acct{max-width:150px; font-size:12px; flex:none;}
+#cmb_acct{flex:0 0 40%; min-width:0; font-size:12px;}
 #btn_acct_scan{flex:none; padding:0 5px; font-size:12px; line-height:1.4;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:1px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
@@ -3584,7 +3584,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.89';   /* 1.89：顶部「在线 x/y」撤下，改为「登录账号」切换下拉——
+const VER = '1.90';   /* 1.90：顶栏账号下拉改 40% 定宽——余下空间全留给模型下拉
+   （模型选择更重要）；即 #cmb_acct 由 max-width:150px 改 flex:0 0 40%。
+   1.89：顶部「在线 x/y」撤下，改为「登录账号」切换下拉——
    选项＝账号库+本机现用账号，选中即切 WorkBuddy 登录态（积分/签到随即按新账号）；
    旁边「⟳」重扫本机其它安装（沙盘/影子里的分身），把新账号收编进账号库。
    在线端计数移入设置页诊断。
