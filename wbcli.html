@@ -257,7 +257,7 @@ body.fmsg #fexit{display:block;}
   padding:6px 8px;
   background:#fff; border-top:1px solid var(--bd); flex:none;}
 /* 1.39：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
-#btn_attach,#btn_bench,#btn_copy{width:36px; min-width:36px;
+#btn_attach,#btn_fvwr,#btn_copy{width:36px; min-width:36px;
   height:36px; min-height:36px; padding:0; flex:none; font-size:15px;
   display:inline-flex; align-items:center; justify-content:center;}
 /* 1.40：📋 复制 只在输入框放大态出现，小态隐藏（省地方）。
@@ -270,7 +270,7 @@ body.fmsg #fexit{display:block;}
 #ent.grow{height:255px;}   /* 聚焦增高（约7倍单行高度+随内容自适应），对齐 TRAE 输入空间 */
 #input_row.grow{flex-wrap:wrap;}   /* 对齐 TRAE：聚焦时按钮跳顶行，输入框独占一行更大空间 */
 #input_row.grow #btn_attach,
-#input_row.grow #btn_bench,
+#input_row.grow #btn_fvwr,
 #input_row.grow #btn_send{order:1;}
 #input_row.grow #btn_send{margin-left:auto;}
 #input_row.grow #ent{order:2; flex-basis:100%; margin-top:6px;}
@@ -357,20 +357,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .diaglog .bad{color:#c62828;}
 .diaglog .warn{color:#b26a00;}
 .diaglog .dim{color:#888;}
-/* ── 工作台浏览页（全屏覆盖，1.01）── */
-#page_bench{position:fixed; inset:0; z-index:40; background:#f2f4f7;
-  display:none; flex-direction:column;}
-#page_bench.on{display:flex;}
-#bench_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  background:#fff; overscroll-behavior:contain;}
-.brow{padding:9px 14px; cursor:pointer; white-space:nowrap;
-  overflow:hidden; text-overflow:ellipsis; border-bottom:1px solid #eef1f4;}
-.brow:active{background:#eef4fb;}
-.brow.dir{color:#0d47a1;}
-.brow.file{color:#333;}
-.brow.up{color:var(--gray);}
-.brow.empty{color:#999; cursor:default;}
-.brow .plus{float:right; color:var(--blue); font-weight:bold;}
+/* ── fav 页底栏（沿用原工作台浏览页 #bfoot 样式；浏览功能 2.18 起
+   改由外部公共「本地文件查看器」承担，本端不再内置浏览页）── */
 #bfoot{flex:none; padding:6px 12px;
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
@@ -414,8 +402,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   border:1px solid var(--bd); border-radius:8px; background:#f2f5f9;
   color:var(--blue); font-weight:bold; cursor:pointer;}
 #model_dlg .mdok:active{background:#e3ecf5;}
-/* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
-   bench 覆盖本页，选定后回来）── */
+/* ── 新建任务弹窗页（全屏覆盖，1.08；2.18 起「选目录」改由外部
+   公共文件查看器弹窗完成，选定后回来）── */
 #page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
   display:none; flex-direction:column;}
 #page_taskdlg.on{display:flex;}
@@ -513,7 +501,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <div id="edit_row"><span>✏️ 正在修改队列取回的一条：改好后点「放回」，或</span><button class="ecancel">取消修改（丢弃）</button></div>
 <div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
   <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
-  <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
+  <button id="btn_fvwr" title="打开本地文件查看器，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
   <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
   <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
@@ -548,19 +536,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
 
-<!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
-     1.06：双模式——插入路径 / 选定工作目录新建任务（✅ 头钮） -->
-<div id="page_bench" data-page-node-id="uHDGvgap8UHBowBBpOQDrH">
-  <div class="nhdr" data-page-node-id="L21IuAXdE94HzveZAKp5Z6">
-    <button id="btn_benchback" data-page-node-id="EOwUXuVYMphga9cSkEGX0g">‹ 返回</button>
-    <b id="lbl_bench" data-page-node-id="79NvRM4UbQGSgpsEBxQnL2">📂 工作台</b>
-    <button id="btn_bench_ok" title="选定当前浏览的目录（新建任务）"
-      style="margin-left:auto; min-width:52px; display:none;" data-page-node-id="0ECXrFOWDwaRJM8VQeLt2X">✅</button>
-    <button id="btn_bench_up" style="min-width:52px;" data-page-node-id="xCb5ddevivi6saWjwdt8b1">⬆</button>
-  </div>
-  <div id="bench_list" data-page-node-id="aNDBDnDCbWLXCl2z9LXguS"></div>
-  <div id="bfoot" data-page-node-id="FEpMnO7IgqKtfL6QzKv7zL">📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入</div>
-</div>
+<!-- 2.18：本端 📂 工作台远程浏览页（page_bench）已移除——改引用公共独立
+     服务「本地文件查看器」（window.open 命名窗口 fvwrPick + postMessage 回填）。 -->
 
 <!-- 1.08：新建任务弹窗（对齐服务端 v1.10 TaskDlg）——new_task_dlg
      展开输入区并抓 WorkBuddy 记忆目录（task_dlg 事件预填）；选择/重选=
@@ -727,8 +704,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 竖屏布局：顶栏两行+状态条 / 抽屉式会话与操作 / 底部输入栏
  * （安全区适配 + 16px 输入防 iOS 聚焦放大 + 单按钮三态切换）。
  * v1.01：插话（生成中打字，按钮变橙色「插话」，服务端以 Enter 触发
- * WorkBuddy 官方排队机制，AI 在当前步骤边界消费）+ 📂 工作台远程浏览
- * （bench_ls 全屏页选路径插入输入框）。
+ * WorkBuddy 官方排队机制，AI 在当前步骤边界消费）+ 📂 路径选择。
  * v1.06（对齐服务端 v1.06）：用户消息尾部 ↩回退/🗑删除（快照
  * [rev,del] 标志，仅空闲对话出现，序号=「我」的消息第 N 条）/
  * AI 提问选项卡点选（快照 opts，pick_opt）/ 新任务选工作目录
@@ -1026,8 +1002,7 @@ const S = {
   model_names: new Set(),
   convs_key: null, msgs_key: null,
   thinkOpen: false,          /* 思维块是否展开（默认折叠=截断） */
-  busy: false, gen: false, ready: false, bench: null,
-  bench_mode: 'ins',
+  busy: false, gen: false, ready: false,
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
   /* 1.68：刚点了「新建对话」的时刻——服务端 set_current 内先推新会话快照、
      后广播 switched（同通道保序）。收到 switched 时若本端确实刚发起过新建，
@@ -1118,10 +1093,7 @@ const el = {
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
   diagcopy: $('btn_diagcopy'),
   netclear: $('btn_netclear'), lbl_title: $('lbl_title'), lbl_ver: $('lbl_ver'),
-  bench: $('btn_bench'), benchpage: $('page_bench'),
-  benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
-  benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
-  bench_ok: $('btn_bench_ok'), bfoot: $('bfoot'),
+  fvwr: $('btn_fvwr'),
   taskpage: $('page_taskdlg'), td_none: $('td_none'),
   td_lock: $('td_lock'),
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
@@ -3591,7 +3563,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.93';   /* 1.93：积分显示一律取整（fmtPts 兜底归一，防小数上屏）。
+const VER = '1.94';   /* 1.94：📂 改引用公共独立服务「本地文件查看器」——
+   本端工作台浏览页（page_bench / bench_ls）整体移除；📂 与新建任务「选目录」
+   改用命名窗口打开 viewer，经 postMessage(fvwr_pick) 按 mode 回填
+   （ins=插入输入区 / newdir=回填工作目录）。服务端同步删 cmd_bench_ls。
+   1.93：积分显示一律取整（fmtPts 兜底归一，防小数上屏）。
    1.92：模型收藏「☆」按钮改正方形（36×36，原 min-width:34px 看着
    像长条）；另：顶栏积分由服务端 2.16 起只给整数（网页照显）。
    1.91：顶栏账号下拉再收窄为 60px（＝上一轮 max-width:150px 的
@@ -4542,9 +4518,6 @@ function onEv(kind, v){
         b.classList.remove('picked');
       });
       break;
-    case 'bench_ls':                       // 1.01：📂 目录应答
-      benchRender(v);
-      break;
     case 'msg_act':                        // 1.06：回退/删除完成 (kind, mi)
       flash(v[0] === 'revert'
         ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前（原文已取回输入框）'
@@ -5011,110 +4984,37 @@ el.menu.onclick = drawerOpen;
 el.mask.onclick = drawerClose;
 el.dclose.onclick = drawerClose;
 
-/* —— 1.01：📂 工作台远程浏览（bench_ls 逐级拉目录，服务端强制
-   约束在工作台根内；全屏页，目录单击进入、➕/文件单击插路径）。
-   1.06 双模式：ins=插路径（原行为）/ newdir=选工作目录新建任务
-   （目录行 ✅ 选定子目录；头钮 ✅ 选定当前浏览目录；文件隐藏） —— */
-
-function benchReq(rel){
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
-  el.benchlist.innerHTML = '<div class="brow empty">读取中…</div>';
-  sendJson({t: 'bench_ls', p: rel || ''});
+/* —— 2.18：📂 本地文件查看器（引用已定稿的公共独立服务，不再本端实现
+   浏览页）。协议由公共服务给定：
+     · 打开：<URL>?h=workbuddy&pick=1&mode=<ins|newdir>（命名窗口保留 opener）
+     · 选中后 viewer 执行 window.opener.postMessage(
+         {type:'fvwr_pick', path:'<绝对路径>', mode:'ins|newdir', h:'workbuddy'})
+       随即自动关窗。
+     · 本端仅负责：按 mode 回填——ins=插入输入区 / newdir=回填新建任务工作目录。
+   改一处（公共服务）两端（WB / 其它宿主）同时生效。 —— */
+const FVWR_URL = 'https://foxfyh.github.io/gittest/fileview/index.html';
+function fvwrOpen(mode){                 // 命名窗口打开（不带 noopener，保住 opener）
+  window.open(FVWR_URL + '?h=workbuddy&pick=1&mode=' + (mode || 'ins'),
+              'fvwrPick');
 }
-function benchIns(path){
+function fvwrInsert(path){               // ins：插入输入区（原 benchIns 逻辑）
   const cur = el.ent.value.trim();
   el.ent.value = (cur ? cur + ' ' : '') + path;
-  el.benchpage.classList.remove('on');
-  S.bench = null;
   flash('已插入路径', 'var(--green)');
 }
-function benchModeUI(){                 // 1.06：按模式切换头钮/底栏提示
-  const pick = S.bench_mode === 'newdir';
-  el.bench_ok.style.display = pick ? '' : 'none';
-  el.bfoot.textContent = pick
-    ? '📁 单击进入子目录 · ✅ 选定该目录（新建任务用）'
-    : '📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入';
-}
-function benchPick(path){               // 1.08：选定目录 → 回填弹窗
-  el.benchpage.classList.remove('on');
-  S.bench = null;
-  S.bench_mode = 'ins';
-  benchModeUI();
+function fvwrPickDir(path){              // newdir：回填新建任务工作目录
   S.task_cur = path;                    // 回填（不立即建任务）
   taskDlgRender();
   el.td_stat.textContent = '已选目录，点「创建」开始任务';
   flash('已选工作目录', 'var(--green)');
 }
-function benchRender(v){
-  if (!v || !v.ok){ flash('📂 ' + ((v && v.err) || '读取失败')); return; }
-  S.bench = v;
-  const pick = S.bench_mode === 'newdir';
-  const rel = v.rel || '';
-  el.lbl_bench.textContent = (pick ? '📂 选工作目录 ' : '📂 ')
-                             + (v.root || '工作台')
-                             + (rel ? '\\' + rel : '');
-  const box = el.benchlist;
-  box.innerHTML = '';
-  if (rel){                                 // 根目录不显示上级行
-    const d = document.createElement('div');
-    d.className = 'brow up';
-    d.textContent = '⬙ ..';
-    d.onclick = () => benchReq(v.parent || '');
-    box.appendChild(d);
-  }
-  for (const n of (v.dirs || [])){
-    const sub = rel ? rel + '\\' + n : n;
-    const d = document.createElement('div');
-    d.className = 'brow dir';
-    d.textContent = '📁 ' + n;
-    d.onclick = () => benchReq(sub);       // 目录单击进入（手机无双击）
-    const b = document.createElement('span');
-    if (pick){                              // 1.06：选目录模式 → ✅ 选定
-      b.textContent = '✅';
-      b.title = '选定此目录新建任务';
-      b.onclick = e => { e.stopPropagation(); benchPick(v.path + '\\' + n); };
-    } else {                                // 原模式 → ➕ 插路径
-      b.textContent = '➕';
-      b.title = '插入此目录路径';
-      b.onclick = e => { e.stopPropagation(); benchIns(v.path + '\\' + n); };
-    }
-    b.className = 'plus';
-    d.appendChild(b);
-    box.appendChild(d);
-  }
-  if (!pick){                               // 选目录模式不列文件
-    for (const n of (v.files || [])){
-      const d = document.createElement('div');
-      d.className = 'brow file';
-      d.textContent = '📄 ' + n;
-      d.onclick = () => benchIns(v.path + '\\' + n);
-      box.appendChild(d);
-    }
-  }
-  if (!box.children.length){
-    const d = document.createElement('div');
-    d.className = 'brow empty';
-    d.textContent = '（空目录）';
-    box.appendChild(d);
-  }
-}
-el.bench.onclick = () => {
-  if (!S.onLine){ flash('⚠ 还没连上，无法浏览工作台'); return; }
-  S.bench_mode = 'ins';
-  benchModeUI();
-  el.benchpage.classList.add('on');
-  benchReq('');
-};
-el.benchback.onclick = () => {
-  el.benchpage.classList.remove('on');
-  S.bench_mode = 'ins';                     // 返回即复位（防模式残留）
-  benchModeUI();
-};
-el.bench_up.onclick = () => benchReq((S.bench || {}).parent || '');
-el.bench_ok.onclick = () => {               // 1.06：选定当前浏览目录
-  const b = S.bench;
-  if (b && b.ok) benchPick(b.path);
-};
+window.addEventListener('message', e => {   // viewer 回传路径 → 按 mode 回填
+  const d = e.data || {};
+  if (d.type !== 'fvwr_pick' || !d.path) return;
+  if (d.mode === 'newdir') fvwrPickDir(d.path);
+  else fvwrInsert(d.path);
+});
+el.fvwr.onclick = () => fvwrOpen('ins');
 
 /* —— 1.06 防自动升级开关（新任务部分已由 1.08 弹窗取代） —— */
 
@@ -5160,11 +5060,8 @@ function taskDlgClose(){
   S.task_open = false;
   el.taskpage.classList.remove('on');
 }
-function taskPickDir(){            // 选择/重选 → 📂 浏览页选目录回填
-  S.bench_mode = 'newdir';
-  benchModeUI();
-  el.benchpage.classList.add('on');
-  benchReq('');
+function taskPickDir(){            // 选择/重选 → 本地文件查看器选目录回填
+  fvwrOpen('newdir');
 }
 el.td_none.onclick = () => taskPickDir();
 el.td_re.onclick = () => taskPickDir();
