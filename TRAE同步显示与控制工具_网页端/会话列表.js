@@ -149,7 +149,7 @@ function convMenuOpen(title, sid){
     + '<div class="cmtitle">' + esc(title) + '</div>'
     + '<button data-act="pin">📌 置顶 / 取消置顶</button>'
     + '<button data-act="ren">✎ 重命名</button>'
-    + '<button data-act="del" style="color:var(--red)">🗑 删除</button>'
+    + '<button data-act="del" style="color:var(--red)">🗑 删除此会话</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
     + '</div>';
   ov.onclick = e => { if (e.target === ov) ov.remove(); };

@@ -105,7 +105,7 @@ function 自激活_面板(sid, title){
     sendCmd('sched_ls', sid);
     flash('正在刷新定时任务…', 'var(--blue)');
   }));
-  tail.appendChild(bsBtn('🗑 清空本会话', 'danger', () => {
+  tail.appendChild(bsBtn('🗑 取消本会话全部定时', 'danger', () => {
     if (!confirm('清空本会话的全部定时自我激活任务？')) return;
     if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
     sendCmd('sched_clear', sid);
@@ -137,12 +137,13 @@ function 自激活_渲染列表(list, sid){
     tx.textContent = tj + '  · 每 ' + ev + ' 分钟 · 已发 '
       + (t.done || 0) + '/' + (t.total || 0) + (nx ? ' · 下次 ' + nx : '');
     const del = document.createElement('span');
-    del.textContent = '🗑'; del.style.cssText = 'margin-left:auto;color:#c62828';
+    del.textContent = '取消定时'; del.style.cssText = 'margin-left:auto;color:#c62828';
     del.onclick = e => {
       e.stopPropagation();
+      if (!confirm('取消这条定时自我激活任务？')) return;
       if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
       sendCmd('sched_del', t.id);
-      flash('正在删除定时任务…', 'var(--blue)');
+      flash('正在取消定时…', 'var(--blue)');
     };
     row.appendChild(ic); row.appendChild(tx); row.appendChild(del);
     list.appendChild(row);
