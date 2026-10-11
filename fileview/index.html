@@ -65,14 +65,6 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 // 走 URL 参数 / 本地记忆 / 页面手输——人类只需提供「公共段」，后缀与密钥取内置默认。
 const NS="FVWR";
 const CHANNEL_TAG="FILE";              // 文件查看器专属后缀：真频道 = 公共段 + FILE
-/* 接口密钥不再内置：首次由使用者输入并保存在本机，源码不含密钥 */
-function FOX_API_KEY(){
-  try{
-    var k = localStorage.getItem('fox_ws_api_key');
-    if(!k){ k = (prompt('请输入 PieSocket 接口密钥（源码不含，仅存本机）')||'').trim(); if(k) localStorage.setItem('fox_ws_api_key', k); }
-    return k;
-  }catch(e){ return ''; }
-}
 const DEF_API="";  // 内置接口密钥（可被 URL 参数覆盖）
 const DEF_TOK="fvwr9k2q7x";                                 // 内置口令（轻口径，防串台）
 const _raw=v=>(v&&v.indexOf("__")!==0)?v:"";      // 未注入的占位符 → 空
@@ -86,7 +78,7 @@ function baseChan(v){v=(v||"").trim();return v.slice(-CHANNEL_TAG.length)===CHAN
 function joinChan(base){base=baseChan(base);return base?base+CHANNEL_TAG:"";}
 let CHANNEL_IN=baseChan(_raw("__CHANNEL__"))||_q1("channel")||localStorage.getItem("fvwr_channel")||"";
 let CHANNEL=joinChan(CHANNEL_IN);
-let API_KEY=_raw("__APIKEY__")||_q1("api")||localStorage.getItem("fvwr_api")||DEF_API||FOX_API_KEY();
+let API_KEY=_raw("__APIKEY__")||_q1("api")||localStorage.getItem("fvwr_api")||DEF_API||'ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug';
 let TOKEN=_raw("__TOKEN__")||_q1("tk")||localStorage.getItem("fvwr_token")||DEF_TOK;
 const REQ_PRE="【"+NS+"Q】", REQ_SUF="【/"+NS+"Q】", RESP_PRE="【"+NS+"A】", RESP_SUF="【/"+NS+"A】";
 function wsUrl(){return "wss://free.blr2.piesocket.com/v3/"+CHANNEL+"?api_key="+API_KEY;}
