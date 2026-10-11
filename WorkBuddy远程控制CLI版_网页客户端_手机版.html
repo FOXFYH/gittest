@@ -24,8 +24,7 @@ input,select{font:inherit; border:1px solid var(--bd); border-radius:6px;
   padding:4px 6px; background:#fff; min-height:36px;}
 select{font-size:12px;}
 /* ── 顶栏（两行 + 状态条） ── */
-#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);
-  padding-top:env(safe-area-inset-top);}
+#hdr{flex:none; background:#fff; border-bottom:1px solid var(--bd);}
 .h1row{display:flex; align-items:center; gap:6px; padding:2px 8px;}
 #btn_menu{min-width:42px; font-size:17px; padding:4px 10px;}
 .h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
@@ -38,9 +37,10 @@ select{font-size:12px;}
   text-overflow:ellipsis; cursor:pointer;}
 .h2row{display:flex; align-items:center; gap:5px; padding:0 8px 2px;
   flex-wrap:wrap;}
-#cmb_box{flex:1; max-width:42%; min-width:0;}
-#cmb_model{flex:2; min-width:0;}
-#lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
+#cmb_model{flex:1; min-width:0;}
+#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
+#cmb_acct{flex:0 0 60px; min-width:0; font-size:12px;}
+#btn_acct_scan{flex:none; padding:0 5px; font-size:12px; line-height:1.4;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:1px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -63,7 +63,7 @@ body.fmsg #fexit{display:block;}
 .msg .who{font-weight:bold; font-size:12px;}
 .msg.user .who{color:var(--blue);}
 .msg.agent .who{color:var(--green);}
-.msg .tm{color:var(--gray); font-size:11px; margin-left:6px;}
+.msg .tm{color:var(--gray); font-size:11px; margin-left:6px; white-space:nowrap;}
 .msg .body{margin-top:2px; white-space:pre-wrap; word-break:break-word;}
 .msg .body code{background:rgba(0,0,0,.06); padding:0 4px;
   border-radius:3px; font-family:Consolas,monospace; font-size:12px;}
@@ -81,14 +81,28 @@ body.fmsg #fexit{display:block;}
 .msg.agent .think .thinkh:active{background:rgba(0,0,0,.1);}
 .msg.agent .think .thinkb{font-size:12px; color:#9a9a9a;
   white-space:pre-wrap; word-break:break-word; line-height:1.55;
-  max-height:76px; overflow:hidden;}
-.msg.agent .think.open .thinkb{max-height:none;}
+  max-height:152px; overflow:hidden;}
+/* 1.30：展开后自适应高度（上限 45vh≈半屏，超出可滚动）。
+   服务端 plan 上限 600 字，全展开约 350~410px，不会过长。 */
+.msg.agent .think.open .thinkb{max-height:45vh; overflow-y:auto;}
+/* ── 1.57：按轮折叠中间气泡——历史轮只显示最后一条（=总结）+ 一个「展开气泡」条 ── */
+.foldbar{margin:2px 2px 8px;}
+.foldbtn{font-size:12px; color:#6b6b6b; background:rgba(0,0,0,.05);
+  border:none; border-radius:4px; padding:3px 10px; cursor:pointer;
+  user-select:none; -webkit-tap-highlight-color:transparent;}
+.foldbtn:active{background:rgba(0,0,0,.12);}
+.foldhd{display:flex; align-items:center; justify-content:space-between;
+  font-size:12px; color:var(--gray); margin-bottom:4px;}
+.foldbody{border-left:2px solid rgba(0,0,0,.08); margin:2px 0 4px 4px;
+  padding:2px 0 2px 8px; max-height:45vh; overflow-y:auto;}
+.foldbub{font-size:12px; color:#9a9a9a; white-space:pre-wrap;
+  word-break:break-word; line-height:1.55; margin-bottom:6px;}
 .empty{color:#999; text-align:center; padding:30px 0;}
 /* ── 1.25：会话操作菜单（长按会话行） ── */
 #convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
   display:flex; align-items:flex-end; justify-content:center;}
 .cmsheet{background:#fff; border-radius:14px 14px 0 0; width:100%;
-  max-width:420px; padding:10px 14px calc(14px + env(safe-area-inset-bottom));}
+  max-width:420px; padding:10px 14px 14px;}
 .cmsheet .cmtitle{font-size:13px; color:var(--gray); margin:2px 2px 8px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .cmsheet button{display:block; width:100%; text-align:left; padding:12px 10px;
@@ -97,10 +111,45 @@ body.fmsg #fexit{display:block;}
 .cmsheet button:active{background:#f0f2f5;}
 .cmsheet button.cmcancel{color:var(--gray); text-align:center;}
 .cmsheet button.cmdel{color:var(--red);}   /* 1.4x：删除会话（危险项） */
+/* ── 1.72：定时自我激活（会话行⏰角标 + 设置弹窗） ── */
+.std-sched{flex:none; font-size:12px; line-height:1; margin-left:1px;
+  vertical-align:middle;}
+#scheddlg{position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:95;
+  display:flex; align-items:flex-end; justify-content:center;}
+#scheddlg .sd-sheet{background:#fff; border-radius:14px 14px 0 0; width:100%;
+  max-width:460px; max-height:88vh; overflow-y:auto; padding:12px 14px 16px;}
+#scheddlg .sd-h{font-size:14px; font-weight:bold; color:#222;}
+#scheddlg .sd-sub{font-size:12px; color:var(--gray); margin:2px 0 10px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+#scheddlg .sd-job{border:1px solid #e6e8eb; border-radius:10px; padding:8px 10px;
+  margin-bottom:8px; background:#fafbfc;}
+#scheddlg .sd-job .jt{font-size:13px; color:#222; word-break:break-word;}
+#scheddlg .sd-job .jm{font-size:12px; color:var(--gray); margin-top:3px;}
+#scheddlg .sd-job .ja{margin-top:6px; display:flex; gap:8px;}
+#scheddlg .sd-job .ja button{font-size:13px; padding:3px 12px; border-radius:8px;
+  border:1px solid #d3d7dc; background:#fff; color:#333;}
+#scheddlg .sd-job .ja button.jdel{color:var(--red);}
+#scheddlg .sd-form label{display:block; font-size:13px; color:#444; margin:10px 0 4px;}
+#scheddlg .sd-form input,#scheddlg .sd-form textarea{width:100%; box-sizing:border-box;
+  border:1px solid #d3d7dc; border-radius:8px; padding:9px 10px; font-size:15px;
+  font-family:inherit; background:#fff;}
+#scheddlg .sd-form textarea{min-height:64px; resize:vertical;}
+#scheddlg .sd-row{display:flex; gap:10px;}
+#scheddlg .sd-row > div{flex:1;}
+#scheddlg .sd-tip{font-size:12px; color:var(--gray); margin-top:8px; line-height:1.5;}
+#scheddlg .sd-btns{display:flex; gap:10px; margin-top:14px;}
+#scheddlg .sd-btns button{flex:1; padding:11px 0; border-radius:10px; border:none;
+  font-size:15px;}
+#scheddlg .sd-btns .sd-ok{background:var(--blue); color:#fff;}
+#scheddlg .sd-btns .sd-cancel{background:#eef0f2; color:#555;}
 /* ── 1.06：消息操作（回退/删除）+ AI 选项卡 ── */
 .msg .who{display:flex; align-items:center;}
-.who .mract{margin-left:auto; display:flex; gap:4px;}
-.mact{font-size:11px; min-height:22px; padding:0 8px; border-radius:4px;}
+/* 1.49：4 个操作按钮改「横向长方形」——不换行、不被压缩、字号收小。
+   此前窄屏下按钮文字自动换行，被挤成接近正方形，很占位置（用户 2026-09-29 提出）。 */
+.who .mract{margin-left:auto; display:flex; gap:3px; flex-wrap:nowrap;
+  flex-shrink:0;}
+.mact{font-size:10px; min-height:22px; padding:0 5px; border-radius:4px;
+  white-space:nowrap; flex:0 0 auto;}
 .mact.rev{color:var(--blue);}
 .mact.del{color:var(--red);}
 #opts{margin:0 0 8px; display:flex; flex-direction:column; gap:5px;}
@@ -141,6 +190,49 @@ body.fmsg #fexit{display:block;}
   margin-left:6px; border-radius:50%; background:var(--blue);
   animation:pulse 1s infinite;}
 @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+/* ── 分页窗口：向上补拉老历史时的「加载中」条 ── */
+.loadmore{background:rgba(120,120,120,.08); border:1px dashed
+  rgba(120,120,120,.35); color:var(--gray); font-size:12px;
+  border-radius:8px; padding:6px 10px; margin:0 0 8px; text-align:center;}
+.loadmore::after{content:''; display:inline-block; width:6px; height:6px;
+  margin-left:6px; border-radius:50%; background:var(--gray);
+  animation:pulse 1s infinite;}
+/* ── 1.69：翻页 30s 未回包 → 改显「掉线」红条（撤掉转圈、文案变求助） ── */
+.loadmore.fail{background:rgba(198,40,40,.08); border-color:rgba(198,40,40,.4);
+  color:#c62828;}
+.loadmore.fail::after{display:none;}
+/* ── 1.67：托管排队条（对齐 TRAE 官方排队条样式）——不再悬挂顶栏，
+   改为渲染在聊天记录**末尾**、随聊天一起滚动；每条=左侧两行文字（点一下
+   展开全文）+ 右侧按钮块（上行 ⚡发送，下行 ✎/🗑 并排）。 ── */
+.qpanel{margin:0 0 8px; border:1px dashed #b0bec5; border-radius:10px;
+  background:#fafbfc; padding:6px 8px; display:flex; flex-direction:column;
+  gap:5px;}
+.qhead{font-size:11px; color:var(--gray); padding:0 2px;}
+.qitem{display:flex; align-items:flex-start; gap:6px;}
+.qbtns{flex-shrink:0; display:flex; flex-direction:column; gap:4px;
+  width:68px;}
+.qsub{display:flex; gap:4px;}
+.qbtns button{font-size:11px; min-height:24px; padding:0 4px;
+  border-radius:5px; border:1px solid #c5cbd3; background:#fff;
+  color:#37474f; white-space:nowrap;}
+.qbtns .qsend{width:100%;}
+.qsub button{flex:1 1 0; min-width:0; padding:0;}
+.qbtns button.go{border-color:var(--blue); color:var(--blue);}
+.qbtns button.del{border-color:#e0b4b4; color:var(--red);}
+.qbtns button:disabled{opacity:.45;}
+.qitem .qtxt{flex:1; min-width:0; font-size:13px; color:#263238;
+  line-height:1.45; word-break:break-word; cursor:pointer;
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
+  overflow:hidden;}
+.qitem .qtxt.open{-webkit-line-clamp:unset; display:block;
+  overflow:visible;}
+/* 1.53：队列条目取回修改横幅（原文已从队列撤下、进输入框） */
+#edit_row{display:none; background:rgba(33,150,243,.12); border:1px solid
+  rgba(33,150,243,.45); border-radius:8px; padding:4px 8px; margin:0 6px 4px;
+  font-size:12px; color:var(--blue); align-items:center; gap:6px;}
+#edit_row.on{display:flex;}
+#edit_row .ecancel{margin-left:auto; border:0; background:transparent;
+  color:var(--red); font-size:12px; cursor:pointer;}
 .optbtn.picked{opacity:.55;}
 /* ── 1.06：抽屉 文件夹➕（防升级开关 1.34 移服务端设置页） ── */
 .convo.folder{display:flex; align-items:center;}
@@ -162,17 +254,23 @@ body.fmsg #fexit{display:block;}
 .chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
   padding:0 2px;}
 #input_row{display:flex; gap:6px; align-items:center;
-  padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+  padding:6px 8px;
   background:#fff; border-top:1px solid var(--bd); flex:none;}
-#btn_attach{min-width:46px;}
-#btn_bench{min-width:46px;}
+/* 1.39：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
+#btn_attach,#btn_fvwr,#btn_copy{width:36px; min-width:36px;
+  height:36px; min-height:36px; padding:0; flex:none; font-size:15px;
+  display:inline-flex; align-items:center; justify-content:center;}
+/* 1.40：📋 复制 只在输入框放大态出现，小态隐藏（省地方）。
+   本版不做「取回」⇩ 按钮（用户口径：CLI 版不需要那个按钮）。 */
+#btn_copy{display:none;}
+#input_row.grow #btn_copy{display:inline-flex; order:1;}
 #ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
 #ent.grow{height:255px;}   /* 聚焦增高（约7倍单行高度+随内容自适应），对齐 TRAE 输入空间 */
 #input_row.grow{flex-wrap:wrap;}   /* 对齐 TRAE：聚焦时按钮跳顶行，输入框独占一行更大空间 */
 #input_row.grow #btn_attach,
-#input_row.grow #btn_bench,
+#input_row.grow #btn_fvwr,
 #input_row.grow #btn_send{order:1;}
 #input_row.grow #btn_send{margin-left:auto;}
 #input_row.grow #ent{order:2; flex-basis:100%; margin-top:6px;}
@@ -224,19 +322,19 @@ body.fmsg #fexit{display:block;}
   overflow:hidden; text-overflow:ellipsis; font-size:12px; border-radius:7px;
   background:#f2f5f9;}
 #opgrid .dmi:active{background:#e3ecf5;}
-#lbl_ver{flex:none; padding:8px 12px calc(8px + env(safe-area-inset-bottom));
-  color:var(--gray); font-size:11px; border-top:1px solid var(--bd);
-  background:#fafbfc;}
+/* 1.34：升级简介从左侧抽屉底部挪到「设置」页底部（给会话列表让出高度） */
+#lbl_ver{padding:10px 0 0; margin-top:4px; color:var(--gray);
+  font-size:11px; line-height:1.55; border-top:1px solid var(--bd);}
 /* ── 网络页（全屏覆盖） ── */
 #page_net{position:fixed; inset:0; z-index:40; background:#f2f4f7;
   display:none; flex-direction:column;}
 #page_net.on{display:flex;}
 .nhdr{flex:none; display:flex; align-items:center; gap:8px;
-  padding:6px 10px calc(6px + env(safe-area-inset-top));
+  padding:6px 10px;
   background:#fff; border-bottom:1px solid var(--bd);}
 .nhdr b{color:var(--blue); font-size:15px;}
 .nbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:10px 10px calc(10px + env(safe-area-inset-bottom));}
+  padding:10px;}
 fieldset{border:1px solid var(--bd); border-radius:8px;
   padding:8px 10px; margin-bottom:12px; background:#fff;}
 legend{color:var(--blue); font-weight:bold; padding:0 6px;}
@@ -259,21 +357,9 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .diaglog .bad{color:#c62828;}
 .diaglog .warn{color:#b26a00;}
 .diaglog .dim{color:#888;}
-/* ── 工作台浏览页（全屏覆盖，1.01）── */
-#page_bench{position:fixed; inset:0; z-index:40; background:#f2f4f7;
-  display:none; flex-direction:column;}
-#page_bench.on{display:flex;}
-#bench_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  background:#fff; overscroll-behavior:contain;}
-.brow{padding:9px 14px; cursor:pointer; white-space:nowrap;
-  overflow:hidden; text-overflow:ellipsis; border-bottom:1px solid #eef1f4;}
-.brow:active{background:#eef4fb;}
-.brow.dir{color:#0d47a1;}
-.brow.file{color:#333;}
-.brow.up{color:var(--gray);}
-.brow.empty{color:#999; cursor:default;}
-.brow .plus{float:right; color:var(--blue); font-weight:bold;}
-#bfoot{flex:none; padding:6px 12px calc(6px + env(safe-area-inset-bottom));
+/* ── fav 页底栏（沿用原工作台浏览页 #bfoot 样式；浏览功能 2.18 起
+   改由外部公共「本地文件查看器」承担，本端不再内置浏览页）── */
+#bfoot{flex:none; padding:6px 12px;
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
 /* ── 1.15：模型收藏管理页（全屏覆盖）── */
@@ -294,20 +380,35 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .frow.dead .fmark{flex:none; color:#c62828; font-size:11px;}
 .fhint{padding:10px 14px; color:var(--gray); font-size:12px;
   line-height:1.6;}
-#btn_fav{flex:none; min-width:34px;}
+#btn_fav{flex:none; width:36px; min-width:36px; height:36px; padding:0;}
 /* 1.33：收藏页「刷新模型」按钮——右侧圆角小按钮，配合 nhdr 标题 */
 #page_fav .nhdr b{flex:1; min-width:0;}
 #btn_favrefresh{flex:none; margin-left:auto; font-size:12px;
   padding:4px 10px; border:1px solid var(--bd); border-radius:14px;
   background:#fff; color:var(--blue); cursor:pointer; white-space:nowrap;}
 #btn_favrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
-/* ── 新建任务弹窗页（全屏覆盖，1.08；低于 bench 页层级——选目录时
-   bench 覆盖本页，选定后回来）── */
+/* ── 1.50：模型校验弹窗——「我选的模型」没被真正采用时强提醒（可关闭）── */
+#model_dlg{position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.45);
+  display:none; align-items:center; justify-content:center; padding:22px;}
+#model_dlg.on{display:flex;}
+#model_dlg .mdbox{background:#fff; border-radius:10px;
+  padding:16px 16px 12px; width:100%; max-width:340px;
+  box-shadow:0 6px 24px rgba(0,0,0,.32);}
+#model_dlg .mdtitle{font-weight:bold; font-size:15px; margin-bottom:8px;
+  color:var(--red);}
+#model_dlg .mdbody{font-size:13px; line-height:1.7; color:#333;
+  word-break:break-all;}
+#model_dlg .mdok{margin-top:14px; width:100%; min-height:38px;
+  border:1px solid var(--bd); border-radius:8px; background:#f2f5f9;
+  color:var(--blue); font-weight:bold; cursor:pointer;}
+#model_dlg .mdok:active{background:#e3ecf5;}
+/* ── 新建任务弹窗页（全屏覆盖，1.08；2.18 起「选目录」改由外部
+   公共文件查看器弹窗完成，选定后回来）── */
 #page_taskdlg{position:fixed; inset:0; z-index:30; background:#f2f4f7;
   display:none; flex-direction:column;}
 #page_taskdlg.on{display:flex;}
 .tdbody{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:14px 14px calc(14px + env(safe-area-inset-bottom));}
+  padding:14px;}
 .tdsec{font-size:12px; color:var(--gray); margin:4px 0 8px;}
 .tdpick{background:#fff; border:1px solid var(--bd); border-radius:8px;
   padding:13px 14px; cursor:pointer; color:var(--blue); font-weight:bold;}
@@ -340,18 +441,39 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   margin:4px 0;}
 #chanok{width:100%; padding:11px 0; font-weight:bold; font-size:15px;
   color:#fff; background:var(--blue); border:none; border-radius:8px;}
-/* 1.xx：最大化/全屏预警条（紧贴顶栏下方，置顶警示） */
-#fullswarn{position:fixed; top:0; left:0; right:0; z-index:1200;
-  background:#fff8e1; border-bottom:1px solid #f0c674; color:#7a5b00;
-  font-size:13px; padding:6px 10px 8px; box-shadow:0 2px 6px rgba(0,0,0,.12);}
-#fullswarn .fsw_row{display:flex; align-items:flex-start; gap:6px; line-height:1.4;}
-#fullswarn b{white-space:nowrap; color:#b26a00;}
-#fullswarn .fsw_btns{display:flex; gap:8px; margin-top:6px;}
-#fullswarn .fsw_btns button{flex:1; padding:7px 0; border:none; border-radius:6px;
-  font-size:13px; font-weight:bold; cursor:pointer;}
-#fullswarn .fsw_btns button:first-child{background:#fff3d6; color:#8a5a00;
-  border:1px solid #e6b04a;}
-#fullswarn .fsw_btns button:last-child{background:#b26a00; color:#fff;}
+/* ── 1.69：文本转语音小卡片（(@fox-play1)...(@fox-play2) 包夹段）──
+   1:1 对齐 TRAE同步显示与控制工具 1.90~2.06 的语音卡片：
+   顶部窄横幅（阶段通知）+ 正文全量显示 + ▶/⏸ 圆按钮 */
+.foxplay{display:flex;flex-direction:column;gap:4px;margin:6px 0;
+  padding:6px 10px;border:1px solid rgba(21,101,192,.35);
+  border-radius:8px;background:linear-gradient(135deg,#eef6ff,#f7f0ff);
+  font-size:13px;}
+.foxplay .fprow{display:flex;align-items:flex-start;gap:8px;}
+/* 阶段行＝卡片顶部一条窄横幅（上移到顶端，长文本撑高也不掉出视线），
+   用负外边距撑满卡片内容宽、贴齐左右与顶边；空文本时整条隐藏 */
+.foxplay .fpst{font-size:11px;line-height:1.32;color:var(--gray);
+  margin:-6px -10px 0;padding:2px 10px;
+  background:rgba(21,101,192,.07);border-radius:7px 7px 0 0;
+  overflow-wrap:break-word;}
+.foxplay .fpst:empty{display:none;}
+/* 正文全量显示（音频播不了时也能读全），允许换行、长串强制断行 */
+.foxplay .fptxt{flex:1;min-width:0;color:#333;white-space:pre-wrap;
+  overflow-wrap:break-word;line-height:1.45;}
+.foxplay .fpbtn{flex:none;width:30px;height:30px;border:1px solid var(--bd);
+  border-radius:50%;background:#fff;color:var(--blue);font-size:14px;
+  cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
+.foxplay .fpbtn:active{transform:scale(.92);}
+/* ── 1.70：AI 提问卡（(@fox-ask1)...(@fox-ask2) 包夹段）──
+   与语音卡**同一套机制**（同 .foxplay 类、同 ▶ 播放、同 TTS 通道），
+   仅叠一个 .ask 修饰类做「醒目」：琥珀描边 + 暖底 + 加粗琥珀文字 +
+   左侧粗强调条，让提问在长正文里一眼可见（1:1 对齐 TRAE 2.21）。 */
+.foxplay.ask{border:2px solid rgba(230,81,0,.45);
+  border-left:5px solid rgba(230,81,0,.7);
+  background:linear-gradient(135deg,#fff8e1,#fff3e0);
+  box-shadow:0 1px 6px rgba(230,81,0,.15);}
+.foxplay.ask .fpst{background:rgba(230,81,0,.10);}
+.foxplay.ask .fptxt{color:#8a4b00;font-weight:bold;}
+.foxplay.ask .fpbtn{border-color:rgba(230,81,0,.45);color:#e65100;}
 </style>
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
@@ -364,35 +486,24 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <span id="lbl_rlink" data-page-node-id="ColVG4vU2CcXhK8LtEqlqR">🌐连接中…</span>
   </div>
   <div class="h2row" data-page-node-id="euyPvOhmsEx2BKClFKwgAN">
-    <select id="cmb_box" data-page-node-id="avZdj3ZBchVnC6JODiSw44"></select>
-    <span id="lbl_ports" data-page-node-id="zBgT5txMkCBKKMlkXhsbis">在线 —</span>
+    <select id="cmb_acct" data-page-node-id="zBgT5txMkCBKKMlkXhsbis" title="登录账号（切换后积分 / 签到即按新账号）"></select>
+    <button id="btn_acct_scan" title="重扫本机其它安装（沙盘 / 影子里的 WorkBuddy 分身），把新账号收编进账号库">⟳</button>
     <span id="lbl_points" data-page-node-id="yFYp8ovoyEJEqbf3s1uUjI">积分 —</span>
     <select id="cmb_model" data-page-node-id="QQf0z68kfKCspuI3tgt6mc"></select>
     <button id="btn_fav" title="模型收藏管理" data-page-node-id="QQf0z68kfKCspuI3tgt6md">☆</button>
   </div>
   <div id="statebar" data-page-node-id="CWWwN1Nx4NvBnM1wGfRZ6V">连接中…</div>
-  <div id="qd_row" style="display:none;">插话排队中：<span id="lbl_q" style="color:#c62828;font-weight:bold;">0</span> 条待 AI 处理</div>
-</div>
-
-<!-- 1.xx：最大化/全屏预警条（服务端 fullscreen_warn 事件驱动；另由切换
-     反复失败等兜底触发）。「稍后提醒」=15分钟，「近期不要再提醒」=6小时。 -->
-<div id="fullswarn" style="display:none;">
-  <div class="fsw_row">
-    <b>⚠️ 最大化/全屏预警</b>
-    <span id="fsw_txt"></span>
-  </div>
-  <div class="fsw_btns">
-    <button onclick="fullsLater()">稍后提醒（15分钟）</button>
-    <button onclick="fullsQuiet()">近期不要再提醒（6小时）</button>
-  </div>
 </div>
 
 <div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
 <div id="attach_row" data-page-node-id="0FRu38I2Y9H4SjISPCj3qv"></div>
+<!-- 1.53：队列条目取回修改横幅（原文已从队列撤下、进输入框） -->
+<div id="edit_row"><span>✏️ 正在修改队列取回的一条：改好后点「放回」，或</span><button class="ecancel">取消修改（丢弃）</button></div>
 <div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
   <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
-  <button id="btn_bench" title="浏览服务端工作台，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
-  <textarea id="ent" placeholder="输入消息…" rows="1"></textarea>
+  <button id="btn_fvwr" title="打开本地文件查看器，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
+  <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
+  <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
   <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
@@ -400,6 +511,13 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 <button id="fexit" title="退出历史全屏">↓ 回到最新</button>
 
 <div id="mask" data-page-node-id="I7viH7nT9Joec3kgqGKfLl"></div>
+<div id="model_dlg">
+  <div class="mdbox">
+    <div class="mdtitle" id="md_title"></div>
+    <div class="mdbody" id="md_body"></div>
+    <button id="md_ok" class="mdok">知道了</button>
+  </div>
+</div>
 <aside id="drawer" data-page-node-id="VClCJuexXQ02vBOU4OB5Hp">
   <div class="dhdr" data-page-node-id="UX9xJ7WTICEexReuYMmB1i"><b data-page-node-id="cdqe18BGvfIS49PF4TNU1B">会话与操作</b>
     <button id="btn_dclose" data-page-node-id="bw5XmI4so1On3gY8Lekl62">✕</button></div>
@@ -411,25 +529,15 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_new" title="新建任务" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="拉起（重启当前目标）" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
+    <div class="dmi" id="btn_refresh_srv" title="广播点名，拉起全部服务端应答，刷新在线清单">↻ 刷新服务端</div>
+    <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
-  <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m"></div>
 </aside>
 
-<!-- 1.01：📂 工作台远程浏览页（服务端目录，选中插入路径）。
-     1.06：双模式——插入路径 / 选定工作目录新建任务（✅ 头钮） -->
-<div id="page_bench" data-page-node-id="uHDGvgap8UHBowBBpOQDrH">
-  <div class="nhdr" data-page-node-id="L21IuAXdE94HzveZAKp5Z6">
-    <button id="btn_benchback" data-page-node-id="EOwUXuVYMphga9cSkEGX0g">‹ 返回</button>
-    <b id="lbl_bench" data-page-node-id="79NvRM4UbQGSgpsEBxQnL2">📂 工作台</b>
-    <button id="btn_bench_ok" title="选定当前浏览的目录（新建任务）"
-      style="margin-left:auto; min-width:52px; display:none;" data-page-node-id="0ECXrFOWDwaRJM8VQeLt2X">✅</button>
-    <button id="btn_bench_up" style="min-width:52px;" data-page-node-id="xCb5ddevivi6saWjwdt8b1">⬆</button>
-  </div>
-  <div id="bench_list" data-page-node-id="aNDBDnDCbWLXCl2z9LXguS"></div>
-  <div id="bfoot" data-page-node-id="FEpMnO7IgqKtfL6QzKv7zL">📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入</div>
-</div>
+<!-- 2.18：本端 📂 工作台远程浏览页（page_bench）已移除——改引用公共独立
+     服务「本地文件查看器」（window.open 命名窗口 fvwrPick + postMessage 回填）。 -->
 
 <!-- 1.08：新建任务弹窗（对齐服务端 v1.10 TaskDlg）——new_task_dlg
      展开输入区并抓 WorkBuddy 记忆目录（task_dlg 事件预填）；选择/重选=
@@ -481,6 +589,13 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <b data-page-node-id="sqtAJ2SqjLlJyH6aFUI87l">设置</b>
   </div>
   <div class="nbody" data-page-node-id="OhCDb1ITEEDcDXbAOV076M">
+    <fieldset data-page-node-id="selfid_fs">
+      <legend>本机身份</legend>
+      <div class="row"><span>本机软件号</span><b id="lbl_my_id" class="diagv">—</b></div>
+      <div class="row"><label>昵称</label>
+        <input id="in_nick" maxlength="24" placeholder="留空=用电脑名称"></div>
+      <div class="row"><span class="hint">软件号随本机固定、不可更改；昵称仅作显示，随登录/心跳上报给电脑端。</span></div>
+    </fieldset>
     <fieldset data-page-node-id="diag_fs">
       <legend>连接诊断</legend>
       <div class="row"><span>频道（前缀+密钥）</span><b id="diag_chan" class="diagv">—</b></div>
@@ -496,21 +611,64 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <div class="row" style="gap:8px; margin-top:8px;">
         <button id="btn_netreconn" style="flex:1;">立即重连</button>
         <button id="btn_nettest" style="flex:1;">测电脑端回应（5s）</button>
-        <button id="btn_check_fulls" style="flex:1;">检测最大化</button>
       </div>
       <div class="row" style="gap:8px; margin-top:8px;">
         <button id="btn_diagcopy" style="flex:1;">📋 复制诊断信息</button>
       </div>
-      <div class="row"><span class="hint">检测当前是否有窗口最大化/全屏压制原版渲染</span>
-        <b id="lbl_fulls" class="diagv">—</b></div>
     </fieldset>
     <fieldset data-page-node-id="FFEkTqPDyCvWYOBJYHsezc">
       <legend data-page-node-id="TggOcbniPrNp9E6939AGye">远程连接</legend>
       <div class="row" data-page-node-id="9hVwWcu8YNkCz5rdAMnvvp"><label data-page-node-id="D8uySwO7oYRFYC9lr5RRWQ">频道密钥</label>
         <input id="in_wsurl" data-page-node-id="DVptB7LnQ9GbFJNGjINr6s"></div>
+      <!-- 1.63：账号通道（主A/副B）——电脑端同时挂住两路，这里切一下即刻生效，
+           电脑端无需改动。默认主A（free.blr2）把各项目流量归拢到同一账号看日开销 -->
+      <div class="row"><label>账号通道</label>
+        <select id="sel_chan">
+          <option value="main">主A（free.blr2 · 开销看这里）</option>
+          <option value="backup">副B（s20307.nyc1 · 备用）</option>
+        </select></div>
       <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
         密钥相当于连接密码，由服务端提供（本端只填密钥，前缀自动拼接成
-        完整频道名）。修改后保存并重连生效。</span></div>
+        完整频道名）。修改后保存并重连生效。账号通道切换会立即重连。</span></div>
+    </fieldset>
+    <!-- 1.69：语音播报（TTS）——1:1 移植自 TRAE 网页版。改动立即生效并落盘，
+         不脏化下面「保存」大按钮（那只管频道名与保留天数）。 -->
+    <fieldset>
+      <legend>语音播报（TTS）</legend>
+      <div class="row"><label>音色</label>
+        <select id="sel_tts_voice" style="flex:1; max-width:210px;">
+          <optgroup label="女声">
+            <option value="zh-CN-XiaoxiaoNeural">晓晓（默认·女）</option>
+            <option value="zh-CN-XiaoyiNeural">晓伊（女）</option>
+            <option value="zh-CN-liaoning-XiaobeiNeural">辽宁小北（女·东北）</option>
+            <option value="zh-CN-shaanxi-XiaoniNeural">陕西小妮（女·陕西）</option>
+          </optgroup>
+          <optgroup label="男声">
+            <option value="zh-CN-YunxiNeural">云希（男）</option>
+            <option value="zh-CN-YunyangNeural">云扬（男）</option>
+            <option value="zh-CN-YunjianNeural">云健（男）</option>
+            <option value="zh-CN-YunxiaNeural">云夏（男）</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="row"><label>语速</label>
+        <select id="sel_tts_rate" style="flex:1; max-width:210px;">
+          <option value="-50%">很慢（-50%）</option>
+          <option value="-25%">偏慢（-25%）</option>
+          <option value="-10%">稍慢（-10%）</option>
+          <option value="+0%">正常（0%）</option>
+          <option value="+10%">稍快（+10%）</option>
+          <option value="+25%">偏快（+25%）</option>
+          <option value="+50%">很快（+50%）</option>
+        </select>
+      </div>
+      <div class="row" style="gap:8px;">
+        <button id="btn_tts_preview" style="flex:1;">🔈 试听当前音色</button>
+        <span id="lbl_tts_flash" class="hint"></span>
+      </div>
+      <div class="row"><span class="hint">
+        音色与语速随每次播报一起发给电脑端；本页改动立即生效并保存。
+        试听需电脑端 TTS 服务在运行，且已连上电脑端。</span></div>
     </fieldset>
     <fieldset data-page-node-id="8SKaqjuDG4j8saN4BtSqaW">
       <legend data-page-node-id="bcrQE6cC0XiryhicJJtmZn">流量统计（WebSocket）</legend>
@@ -531,6 +689,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
       <button id="btn_netsave" disabled data-page-node-id="G2KG6btlv2PooEaIfnNKMJ">保存</button>
       <span id="lbl_netflash" data-page-node-id="IJ1J8pTZbXPsxZWok11Svr"></span>
     </div>
+    <!-- 1.34：升级简介（原在左侧抽屉底部，挪来设置页底部给会话列表让高度） -->
+    <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m"></div>
   </div>
 </div>
 
@@ -544,8 +704,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 竖屏布局：顶栏两行+状态条 / 抽屉式会话与操作 / 底部输入栏
  * （安全区适配 + 16px 输入防 iOS 聚焦放大 + 单按钮三态切换）。
  * v1.01：插话（生成中打字，按钮变橙色「插话」，服务端以 Enter 触发
- * WorkBuddy 官方排队机制，AI 在当前步骤边界消费）+ 📂 工作台远程浏览
- * （bench_ls 全屏页选路径插入输入框）。
+ * WorkBuddy 官方排队机制，AI 在当前步骤边界消费）+ 📂 路径选择。
  * v1.06（对齐服务端 v1.06）：用户消息尾部 ↩回退/🗑删除（快照
  * [rev,del] 标志，仅空闲对话出现，序号=「我」的消息第 N 条）/
  * AI 提问选项卡点选（快照 opts，pick_opt）/ 新任务选工作目录
@@ -623,18 +782,41 @@ if (!MY_ID || !/^4\d{9}$/.test(MY_ID)){
   MY_ID = '4' + String(Math.floor(100000000 + Math.random() * 900000000));
   try { localStorage.setItem('wb_cli_uid', MY_ID); } catch(e){}
 }
+/* 13.1：本机昵称（非必填·只给人看）——localStorage 持久，随 login/hb 上报 */
+let MY_NICK = '';
+try { MY_NICK = localStorage.getItem('wb_cli_nick') || ''; } catch(e){}
 const SERVER_ID= '1000000001';
-const WS_URL_TMPL = ('wss://s20307.nyc1.piesocket.com/v3/%s'
+/* 1.63：主/副双账号（对齐 TRAE 主副双通道）——
+   主 A（free.blr2）默认使用：让 ALL 项目流量归拢到 A，便于看每日总开销；
+   副 B（s20307.nyc1）备用：A 额度耗尽时在【诊断页】切过去应急。
+   服务端同时挂着 A/B 两路，所以这里切一下即可，电脑端无需改动。 */
+const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
+                    + '?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
+const WS2_URL_TMPL = ('wss://s20307.nyc1.piesocket.com/v3/%s'
                     + '?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
 /* 1.45：加密频道——完整频道名 = 前缀(TRAECLI) + 客户端填写的密钥。
-   客户端只暴露密钥（如 31415926fF@），前缀由代码自动拼接，真频道名
-   TRAECLI31415926fF@ 不落在客户端任何一处,等于一道密码手段。 */
+   客户端只暴露密钥（用户自填，不落源码），前缀由代码自动拼接，真频道名
+   不落在客户端任何一处,等于一道密码手段。 */
 const CH_PFX = 'TRAECLI';
+function chanUrlTmpl(){
+  /* CFG.chan:'backup'=副B；'main'/空=主A（默认把流量归拢到账号A）。 */
+  return (CFG.chan === 'backup') ? WS2_URL_TMPL : WS_URL_TMPL;
+}
 function channelUrl(){
   const u = new URLSearchParams(location.search).get('ws');
   if (u) return u;                     // ?ws= 高级覆盖（不改持久化）
   const key = (CFG.channel || '').trim();   // 首用须先经 channelPrompt 输密钥
-  return WS_URL_TMPL.replace('%s', CH_PFX + key);
+  return chanUrlTmpl().replace('%s', CH_PFX + key);
+}
+/* 1.83：TTS 直连频道（用户 2026-10-07）——网页端直连 TTS 专属频道，不经本地
+   服务端中转；频道名 = 固定前缀 'TTS' + 同一把密钥（与主频道共用，用户只输
+   一次、自动拼接），故项目复制到任何电脑都能连上「任何一台开着 TTS 的电脑」。 */
+const TTS_PFX = 'TTS';
+function ttsChannelUrl(){
+  const u = new URLSearchParams(location.search).get('tts');
+  if (u) return u;                          // ?tts= 高级覆盖（不改持久化）
+  const key = (CFG.channel || '').trim();
+  return WS_URL_TMPL.replace('%s', TTS_PFX + key);   // TTS 恒挂账号A(free.blr2)
 }
 const KA_SEC = 25;      // 链路保活间隔（秒，防止中继判空闲掐线）
 const RECONNECT = 3;    // 断线重连间隔（秒）
@@ -646,11 +828,19 @@ const FAIL_ALERT = 3;           // 连续 N 次「压根没连上」→ 判为�
 const FOX_HDR = 57;     // 协议头固定字节数
 const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
 const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
+/* 1.82：切换「过程分档」定时器（用户 2026-10-07）——取代 1.62 的 24s 单点超时
+   （旧的单点超时常量已撤，超时统一改由「满 60s 判失败」收口，否则 24s 就先撤条、
+   60s 的「切换失败」永远轮不到）。在途期间每 SWITCH_RESEND_MS 补发一次同一条
+   switch（防丢包/防对面刚上线漏收）；满 SWITCH_FAIL_MS 仍无 switched → 判失败。 */
+const SWITCH_RESEND_MS = 10000;
+const SWITCH_FAIL_MS   = 60000;
 
 /* ================= 配置 / 流量统计（localStorage，按本文件独立） ================= */
 
 const LS_CFG = 'wb_cli_cfg', LS_NET = 'wb_cli_net',
-      LS_TM = 'wb_cli_times', LS_SRV = 'wb_cli_srv';
+      LS_TM = 'wb_cli_times', LS_SRV = 'wb_cli_srv',
+      LS_SRVS = 'wb_cli_srvs';    /* 1.43：多电脑名册落盘（name→最后出现毫秒） */
+const SRV_TTL = 7 * 24 * 60 * 60 * 1000;   /* 1.43：名册保留期（超 7 天未出现即清） */
 
 function cfgGet(){
   try { return JSON.parse(localStorage.getItem(LS_CFG)) || {}; }
@@ -744,24 +934,49 @@ function rnd8(){
 }
 function pad3(n){ return String(n).padStart(3, '0'); }
 
+/* 1.62：连接是否就绪（同步判定，供 cmd 决定「发得出去吗」） */
+function foxReady(){ return !!ws && ws.readyState === 1; }
 async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中继丢弃）
+  if (!foxReady()) return false;   /* 未连接：返回 false——调用方须保留原文，不得静默丢 */
   const parts = foxSplit(text);
   const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
   const mid = ts + rnd8();
   for (let i = 1; i <= parts.length; i++){
+    if (!foxReady()) return false;         /* 中途掉线：如实回报失败 */
     const s = '【FOXID:' + mid + MY_ID + '=cut(' + pad3(i) + '/'
               + pad3(parts.length) + ')】' + parts[i-1];
     ws.send(s);
     statsAdd(0, s.length, 0, 1);
     if (parts.length > 1) await new Promise(r => setTimeout(r, 30));
   }
+  return true;
 }
 function sendJson(d){
-  /* 1.12：报文自动定向到当前操控的服务端（多服务端同频道） */
-  if (S.cur && !d.to) d.to = S.cur;
-  foxSend(JSON.stringify(d));
+  /* 13.1【有则必报】：凡外发 JSON 帧一律附本机昵称——昵称只进载荷可选字段
+     （FOX 帧头 【FOXID:…=cut(…)】 一字不动）；服务端无则回落电脑名。 */
+  if (d && d.nick === undefined) d.nick = MY_NICK;
+  /* 1.60 纯 ID 双寻址·设备层：报文按目标服务端的**稳定 sid**（名册里的
+     s.sid = 服务端 srv_id，改名不影响）定向；名册里没 sid（老服务端）
+     才回落电脑名。此前只发电脑名、且服务端根本不读 to → 同频道内两台
+     服务端把同一条指令各执行一遍。 */
+  if (!d.to){
+    const s = S.cur ? S.servers[S.cur] : null;
+    const dst = (s && s.sid) ? s.sid : (S.cur || '');
+    if (dst) d.to = dst;
+  }
+  return foxSend(JSON.stringify(d));
 }
-function sendCmd(c, a){ sendJson({t:'cmd', c:c, a:a}); }
+function sendCmd(c, a, extra){
+  const d = {t:'cmd', c:c, a:a};          /* 1.63：extra 可带 rid（占位卡随机 ID） */
+  if (extra) for (const k in extra) d[k] = extra[k];
+  /* 1.60 纯 ID 双寻址·会话层：发消息带上目标会话 sid（convs 行 r[1]，
+     显示名会变、sid 不变），服务端据此投递，不再只信它自己记的 current。 */
+  if (c === 'send' && !d.conv){
+    const cid = curConvId();
+    if (cid) d.conv = cid;
+  }
+  return sendJson(d);
+}
 
 /* ================= 状态 ================= */
 
@@ -769,8 +984,17 @@ const S = {
   ws: null, onLine: false, wsOpenAt: 0, lastSrv: 0,
   box: '(未连接)', port: 0, boxes: [], alive: new Set(),
   points: '—', acct: '', qn: 0, snap: {},
+  /* 1.89：登录账号库（服务端 hello/acct_list 下发）——顶部下拉切换账号，
+     acct_asked=已向服务端点过名（只点一次，避免重复请求） */
+  acct_items: [], acct_asked: false,
   attach_pending: null,
   model_map: {}, model_busy: false,
+  /* 1.50 模型校验：
+     verify={sel, n, t}——发消息时记下「所选模型 + 当时回复序号」，回复到达
+       后比对台账里本轮的 requestModelId，不一致弹窗；
+     model_pin——校验失败时钉住「实际跑的模型」，下拉照实显示，直到用户重新
+       选择/重连才撤。 */
+  verify: null, model_pin: null, model_sel: '',
   /* 1.15 模型收藏：favs=收藏的模型真名数组（localStorage 持久）；
      models_full=最近一拍官方模型列表 [name,trail,restricted]；
      fav_invalid=失效收藏名集合（官方改名/下架），warned=已提醒集合 */
@@ -778,19 +1002,30 @@ const S = {
   model_names: new Set(),
   convs_key: null, msgs_key: null,
   thinkOpen: false,          /* 思维块是否展开（默认折叠=截断） */
-  busy: false, gen: false, ready: false, bench: null,
-  bench_mode: 'ins',
+  busy: false, gen: false, ready: false,
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
+  /* 1.68：刚点了「新建对话」的时刻——服务端 set_current 内先推新会话快照、
+     后广播 switched（同通道保序）。收到 switched 时若本端确实刚发起过新建，
+     就保留刚到手的新快照，别清成 {} 误闪「界面未就绪」 */
+  new_conv_pend: 0,
   /* 1.08 新建任务弹窗 / 1.11 task_lock=锁定文件夹 */
-  /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡，
-     服务端阶段事件推进状态，快照里出现同文本用户消息即撤下 */
-  pending: [], pend_seq: 0, pend_claims: [], pend_conv: '',
-  pend_seen: {},                     /* 1.22：用户消息首见时刻 */
-  pend_head: 100,                    /* 1.23：确认匹配字数（hello/pendcfg 同步） */
-  pend_age: 30000,                   /* 1.24：消息出现时限毫秒（30 秒） */
+  /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡；
+     1.63：撤卡**只认 rid**（出现在托管队列 / 快照 acks 即撤），不再比对文本 */
+  pending: [], pend_seq: 0,
+  /* 1.57：按轮气泡折叠——foldOpen=展开中的轮（键=该轮保留条的 seq）；
+     foldData=已按需拉回的中间气泡缓存；foldWait=正在拉取。切会话即清空
+     （自动收回），符合「切到别的对话自动又折叠」。 */
+  foldOpen: {}, foldData: {}, foldWait: {},
+  qopen: {},                         /* 1.67：托管排队条「展开全文」态（键=条目 id） */
+  pend_head: 100,                    /* 1.23 遗留：确认匹配字数（1.63 起已不再用于比对，
+                                       仅保留字段兼容 hello/pendcfg 握手） */
+  pend_age: 30000,                   /* 1.24 遗留：消息出现时限毫秒（同上，仅兼容） */
   pend_send: 30000,                  /* 1.32：发送确认超时毫秒（默认 30 秒，
                                         pendcfg 同步；超时才显示改写/丢弃/重发） */
   switch_pend: null,
+  /* 1.82：切换成功闪现——switched 到达即写 {disp}，状态栏显示「切换成功」
+     2 秒后自动交回普通状态灯（空闲/生成中）；不常驻（用户 2026-10-07）。 */
+  switch_ok: null,
   /* 1.28：切换目标备忘——点击/pend 时记录 {title, ts}。服务端
      set_current 内先 refresh_snap 推快照、后广播 switched（同通道保序），
      快照常先于 switched 到达并把 switch_pend 撤掉；switched 到达时
@@ -803,63 +1038,74 @@ const S = {
   /* F7：切换失败观察——超时兜底重拉 hello 后，下一拍仍未激活目标
      会话时轻提示「切换未完成」（一次性，消费即清） */
   _swFail: null,
-  /* 1.xx：最大化/全屏预警——fulls_snooze=静默截止时刻（毫秒时间戳，
-     稍后提醒15分钟 / 近期不再提醒6小时）；falls_fail=切换连续失败计数
-     （兜底触发预警用，成功到达归零） */
-  fulls_snooze: 0, falls_fail: 0,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
-     conn,ts}）+ 当前操控的服务端名（localStorage 记忆） */
+     conn,ts,seen}）+ 当前操控的服务端名（localStorage 记忆）
+     1.43：seen=最后出现毫秒（落盘 LS_SRVS）*/
   servers: {},
   cur: null,
   /* 1.25：顶栏判活辅助——failStreak=连续「连都没连上」次数（连上即清零）；
      dropByHide=断线那一瞬页面是否不可见（切后台被系统掐断 → 不报红） */
   failStreak: 0, dropByHide: false,
-  /* ===== 1.33 全新架构：请求-响应 + 本地缓存（骨架/历史，双版本号键） ===== */
+  /* ===== 分页窗口：服务端快照只带最近 3 组，更老的向上滚动按需翻 ===== */
   srvVer: '0',          /* 服务端版本号（hello 的 d.ver），拼缓存键用 */
-  histConv: '',         /* 当前已拉取历史的会话 sid（防重复发 req） */
-  histMsgs: null,       /* 本地缓存渲染数组 ['u'|'a',文本,tm,rev,del] */
-  histRaw: [],          /* 账本原始记录 [{seq,role,text,tm,can_rev,can_del}] */
-  histVer: 0, histHave: 0,   /* 游标：会话版本号 + 已存到的 seq */
-  histLoadingPrev: false,    /* 向上补拉老历史防重入 */
+  histConv: '',         /* 当前窗口所属会话 sid（切会话即重置翻页） */
+  older: [],            /* 已翻出的更老消息（账本记录，正序，旧在前） */
+  pageGroups: 0,        /* 已额外翻出多少组（0=只显示窗口那 3 组） */
+  headSeq: 0,           /* 当前 older 以哪个窗口游标翻出（窗口推进时重锚） */
+  winHeadSeq: 0,        /* 当前快照窗口首条的账本游标（服务端随快照给） */
+  winUserOff: 0,        /* 窗口之前有多少条「我」的消息（回退/删除全局下标基准） */
+  more: false,          /* 更老方向是否还有（可继续向上翻） */
+  prevBusy: false,      /* 翻页请求在途（防重入） */
+  loadingMore: false,   /* 是否显示「正在加载更早的消息…」 */
+  loadMoreFail: false,  /* 1.69：翻页请求超 30s 没回包 → 横幅改口报「掉线」 */
+  recall: null,         /* 1.53：队列取回修改态 {id,pred}——服务端已把该条撤下，
+                           原文已进输入框；发送走 queue_restore 放回原位 */
 };
+/* 1.69：翻页看护计时器（撞顶→亮横幅→30s 未回包改口报掉线）。全局一个即可，
+   切会话/回包/重置分页都会清掉它。 */
+let loadMoreTimer = null;
 
 /* ================= DOM 快捷 ================= */
 
 const $ = id => document.getElementById(id);
 const el = {
-  menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
+  menu: $('btn_menu'), rlink: $('lbl_rlink'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
   ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
+  acct_sel: $('cmb_acct'), acct_scan: $('btn_acct_scan'),   /* 1.89：登录账号切换 */
   acct: $('lbl_acct'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
+  edit_row: $('edit_row'),                    /* 1.53：队列取回修改横幅 */
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
+  copy: $('btn_copy'),                       /* 1.40：复制输入框内容（放大态） */
   input_row: $('input_row'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
   launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
-  nflash: $('lbl_netflash'),
+  nflash: $('lbl_netflash'), sel_chan: $('sel_chan'),
+  my_id: $('lbl_my_id'), in_nick: $('in_nick'),
+  sel_tts_voice: $('sel_tts_voice'), sel_tts_rate: $('sel_tts_rate'),
+  btn_tts_preview: $('btn_tts_preview'), lbl_tts_flash: $('lbl_tts_flash'),
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
   diagcopy: $('btn_diagcopy'),
-  check_fulls: $('btn_check_fulls'), lbl_fulls: $('lbl_fulls'),
   netclear: $('btn_netclear'), lbl_title: $('lbl_title'), lbl_ver: $('lbl_ver'),
-  bench: $('btn_bench'), benchpage: $('page_bench'),
-  benchback: $('btn_benchback'), lbl_bench: $('lbl_bench'),
-  benchlist: $('bench_list'), bench_up: $('btn_bench_up'),
-  bench_ok: $('btn_bench_ok'), bfoot: $('bfoot'),
+  fvwr: $('btn_fvwr'),
   taskpage: $('page_taskdlg'), td_none: $('td_none'),
   td_lock: $('td_lock'),
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
-  td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'),
+  td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'), refresh_srv: $('btn_refresh_srv'),
+  checkin: $('btn_checkin'),
   fexit: $('fexit'),
-  fsw: $('fullswarn'), fsw_txt: $('fsw_txt'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
   favlist: $('fav_list'),
+  md: $('model_dlg'), md_title: $('md_title'), md_body: $('md_body'),
+  md_ok: $('md_ok'),
 };
 
 let flashTimer = null;
@@ -937,6 +1183,462 @@ function mdHtml(text){
   return html;
 }
 
+/* ================= 1.69：文本转语音小卡片 =================
+   AI 消息末尾的大白话总结用 (@fox-play1)…(@fox-play2) 包夹，本端识别该段 →
+   渲染成可点 ▶ 的语音卡片。1.84 起走**通道分层**（见下方「TTS 直连通道」）：
+   默认直连 TTS 频道（本端自己连上『TTS+密钥』频道，用 FOX 2.0 帧提需求，TTS
+   服务切片回音频，本端拼回后缓存播放，同段只合成一次）；直连走不通才回落
+   服务端本机中转（备用兜底）。★ 同一 id 只发一次请求，杜绝两份相同语音。 */
+
+/* 识别标志正则（用户规定）：(@fox-play1) 开头、(@fox-play2) 结尾包夹。
+   容错识别——采集到的正文尾巴偶尔会缺（如截成「…(@fox」），原正则要求两端
+   都完整会整段认不出；改为「有头就认」：结尾要么是完整的 (@fox-play2)，要么
+   就到消息末尾；末尾那截残缺标记（(@ / (@fox）剪掉，不混进卡片正文。 */
+const FPC_REG = /\(@fox-play1\s*\)([\s\S]*?)(?:\(@fox-play2\s*\)|$)/g;
+function foxPlayCards(txt, out){
+  return String(txt || '').replace(FPC_REG, (m, p1) => {
+    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
+    if (!seg) return '';
+    out.push(seg);
+    return '@@FPC' + (out.length - 1) + '@@';
+  });
+}
+/* ── 1.70：AI 提问卡（1:1 对齐 TRAE 2.21）——
+   (@fox-ask1) 开头、(@fox-ask2) 结尾包夹段 → 渲染成**醒目的琥珀色提问卡**
+   （比正文抢眼、一眼可见），复用语音卡同一套 ▶ 播放/TTS 通道，可直接听题。
+   与 foxPlayCards 同构：有头就认（结尾可缺、可到消息末尾），末尾残标剪掉。 */
+const FAC_REG = /\(@fox-ask1\s*\)([\s\S]*?)(?:\(@fox-ask2\s*\)|$)/g;
+function foxAskCards(txt, out){
+  return String(txt || '').replace(FAC_REG, (m, p1) => {
+    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
+    if (!seg) return '';
+    out.push(seg);
+    return '@@FAC' + (out.length - 1) + '@@';
+  });
+}
+/* 音色/语速：默认**女声晓晓**（用户 2026-09-30 明确不喜欢原先写死的男声云希）。
+   由「设置→语音播报」改，随每次播报一起发给服务端。 */
+if (!CFG.tts_voice) CFG.tts_voice = 'zh-CN-XiaoxiaoNeural';
+if (!CFG.tts_rate)  CFG.tts_rate  = '+0%';
+function ttsVoice(){ return CFG.tts_voice || 'zh-CN-XiaoxiaoNeural'; }
+function ttsRate(){ return CFG.tts_rate || '+0%'; }
+/* 每段语音的会话内状态（阶段文案 + 颜色 + 已生成音频 BlobURL）。
+   键＝正文文本本身：同一段文字只合成一次，再点 ▶ 直接重播（不重复生成）。 */
+const _tts_state = {};
+function ttsGet(seg){
+  return _tts_state[seg] || (_tts_state[seg] = {st: '', cl: '', url: null});
+}
+function ttsClearCache(){
+  /* 换了音色/语速后，旧的缓存音频（按文本存）必须作废，否则重播还是旧嗓子 */
+  try { Object.keys(_tts_state).forEach(k => { _tts_state[k].url = null; }); } catch(e){}
+}
+function ttsStage(seg, st, cl){
+  /* 阶段通知：先写进状态（快照重渲染卡片时沿用、阶段不丢），
+     再就地更新当前已渲染的那张卡片的 .fpst 行 */
+  const o = ttsGet(seg);
+  o.st = st || ''; o.cl = cl || '';
+  document.querySelectorAll('.foxplay').forEach(c => {
+    if (c.getAttribute('data-seg') !== seg) return;
+    const s = c.querySelector('.fpst');
+    if (s){ s.textContent = o.st; s.style.color = o.cl || 'var(--gray)'; }
+  });
+}
+function foxCardHtml(seg, ask){
+  /* 阶段横幅 .fpst 必须排在最前（长文本撑高也不掉出视线）；空文本时 :empty
+     整条隐藏。按钮图标随播放态出——正在出声的那段显示 ⏸，其余 ▶。
+     1.70：ask=true 时叠 .ask 修饰类（琥珀色提问卡）+ 前置「❓ AI 提问：」标签。 */
+  const o = _tts_state[seg];
+  const st = o ? o.st : '', cl = o ? o.cl : '';
+  const on = _foxOn(seg);
+  return '<div class="foxplay' + (ask ? ' ask' : '') + '" data-seg="' + esc(seg) + '">'
+       + '<div class="fpst"' + (cl ? ' style="color:' + cl + '"' : '')
+       + '>' + esc(st) + '</div>'
+       + '<div class="fprow"><span class="fptxt">'
+       + (ask ? '❓ AI 提问：' : '🔈 ') + esc(seg) + '</span>'
+       + '<button class="fpbtn" title="' + (on ? '暂停' : '播放语音') + '">'
+       + (on ? '⏸' : '▶') + '</button></div>'
+       + '</div>';
+}
+/* 一段 0.2 秒静音 WAV 的 base64（8000Hz/16bit/单声道）——用途：用户点 ▶ 的
+   那一次手指手势里拿它当占位，把音频通道解锁；循环播放（loop）当「一直在播的
+   假音频」占住已解锁的播放态，真音频到了只换源接着播。不这样做，云端音频
+   数秒后才回来，早已脱离手势，play() 必被系统拦。 */
+const FOX_SILENT = 'data:audio/wav;base64,UklGRqQMAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YYAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+let foxA = null;                 // 当前播放中的 Audio（新播放前停旧的）
+let foxSeg = null;               // 当前正在播（或已暂停）的那段语音文本；null＝没在播
+let foxPrimed = false;           // 音频通道是否已借用户手势解锁过（只解锁一次）
+const _tts_pend = {};            // 在途请求：id → {ts, seg, text}
+function foxUnlock(){
+  /* 解锁音频通道，必须在**用户手势那一拍**里调用（foxPlay 开头）。
+     复用同一个 audio 元素：手势里把 foxA 建出来、循环播 FOX_SILENT，元素就
+     带着「已解锁、正在播放」的状态一直挂着；真音频到了只把这个元素的 src 换掉
+     接着播，浏览器认的是这个元素已经开播过，不再当新的一次自动播放来拦。 */
+  if (foxPrimed) return;
+  foxPrimed = true;
+  try {
+    foxA = new Audio(FOX_SILENT);
+    foxA.onended = null; foxA.onerror = null;
+    foxA.loop = true;
+    const p = foxA.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch(e){ foxA = null; }
+}
+function _foxOn(seg){
+  /* 这段语音此刻是否「正在出声」＝按钮该显示 ⏸ 的条件。只看我们自己记的
+     foxSeg：foxUnlock 的静音占位元素一直在循环播，不能拿 foxA.paused 当依据。 */
+  return !!(seg && seg === foxSeg && foxA && !foxA.paused);
+}
+function foxSyncBtn(){
+  /* 就地刷新已渲染卡片的按钮图标（卡片是快照重渲染的，两处判定保持一致）。 */
+  document.querySelectorAll('.foxplay').forEach(c => {
+    const b = c.querySelector('.fpbtn');
+    if (!b) return;
+    const on = _foxOn(c.getAttribute('data-seg'));
+    b.textContent = on ? '⏸' : '▶';
+    b.title = on ? '暂停' : '播放语音';
+  });
+}
+function foxPause(seg){
+  try { if (foxA) foxA.pause(); } catch(e){}
+  ttsStage(seg || foxSeg, '已暂停，再点 ▶ 继续', 'var(--gray)');
+  foxSyncBtn();
+}
+function foxStop(){
+  /* 免打扰——切到别的会话/别的服务端目标时，立刻把正在播的语音停掉。
+     只暂停 + 清 foxSeg（按钮随之刷回 ▶），不写阶段文案。 */
+  try { if (foxA) foxA.pause(); } catch(e){}
+  foxSeg = null;
+  foxSyncBtn();
+}
+function fpPlay(seg, url){
+  /* 真正出声：音频已缓存，直连本地 blob 播放（不再走服务端）。
+     换源前先摘掉旧元素的两个回调（旧 audio 的 onerror/onended 闭包指向同一个
+     seg，清 src 会让旧元素触发 error，把横幅改写成「播放失败」并弹红条，而新
+     音频其实正在正常播放）。复用 foxUnlock 建好的元素换源接着播，必须
+     loop=false，否则占位用的循环会把真音频念成死循环。 */
+  foxA = foxA || new Audio();
+  const a = foxA;
+  a.onended = null; a.onerror = null;
+  try { a.pause(); } catch(e){}
+  a.loop = false;
+  a.src = url;
+  foxSeg = seg;
+  a.onended = () => {
+    foxSeg = null; foxSyncBtn();
+    ttsStage(seg, '播放完毕，点 ▶ 可重播', 'var(--gray)');
+  };
+  a.onerror = () => {
+    foxSeg = null; foxSyncBtn();
+    ttsStage(seg, '🔇 音频播放失败', 'var(--red)');
+    flash('🔇 音频播放失败', 'var(--red)');
+  };
+  const p = a.play();
+  foxSyncBtn();
+  if (p && p.catch) p.catch(() => {
+    foxSeg = null; foxSyncBtn();
+    ttsStage(seg, '🔇 浏览器拦截播放，请再点 ▶', 'var(--orange)');
+    flash('🔇 浏览器拦截自动播放，请再点 ▶', 'var(--orange)');
+  });
+  if (p && p.then) p.then(() => foxSyncBtn());
+}
+function foxPlay(seg){
+  if (!seg) return;
+  foxUnlock();                 // 就在这一次点 ▶ 的手势里解锁音频通道
+  const o = ttsGet(seg);
+  /* 同一张卡片再点一下＝暂停/继续：正在出声→暂停；暂停中→从原处续播；已播完
+     （foxSeg 已清）→ 往下走重播/重新合成流程。 */
+  if (_foxOn(seg)){ foxPause(seg); return; }
+  if (o.url && seg === foxSeg && foxA && foxA.paused){
+    const rp = foxA.play();
+    if (rp && rp.catch) rp.catch(() => {});
+    if (rp && rp.then) rp.then(() => foxSyncBtn());
+    ttsStage(seg, '正在播放…', 'var(--blue)');
+    foxSyncBtn();
+    return;
+  }
+  if (o.url){ ttsStage(seg, '正在播放…', 'var(--blue)'); fpPlay(seg, o.url); return; }
+  const id = rid10();
+  _tts_pend[id] = {ts: Date.now(), seg: seg};
+  ttsStage(seg, '正在连接 TTS…', 'var(--gray)');
+  /* 1.84：统一走 ttsRoute——直连为默认；直连未就绪则由路由起连接 + TTS_GRACE
+     宽限，宽限内直连就绪即改走直连，否则回落服务端中转（备用兜底）。 */
+  const payload = {t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()};
+  if (ttsRoute(id, seg, payload)){
+    ttsStage(seg, '任务已提交', 'var(--blue)');
+    flash('🔈 任务已提交，等 TTS 接收…', 'var(--blue)');
+  } else {
+    flash('🔈 直连未就绪，' + (TTS_GRACE/1000) + ' 秒内未连通将自动回落服务端…',
+          'var(--orange)');
+  }
+}
+function ttsFlushWait(){
+  /* TTS 直连一通：把仍在等待窗口、还没真正发出的请求立即改走直连
+     （★ 铁律：同一 id 只发一次——改走直连即清掉兜底定时器，不再回落服务端） */
+  Object.keys(_tts_fb).forEach(id => {
+    const f = _tts_fb[id];
+    if (!f || f.used || !f.tm) return;      // 已用兜底 / 已发出 → 不动
+    if (!_tts_pend[id]){ clearTimeout(f.tm); delete _tts_fb[id]; return; }
+    if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
+      clearTimeout(f.tm); f.tm = null;
+      ttsStage(_tts_pend[id].seg, '任务已提交', 'var(--blue)');
+    }
+  });
+}
+function onTtsAck(d){
+  /* TTS 阶段回执——recv=已收到并受理、conv=引擎已开始合成 */
+  const j = _tts_pend[d.id];
+  if (!j) return;
+  const conv = (d.st === 'conv');
+  const txt = conv ? 'TTS 引擎正在转换…' : 'TTS 已收到，引擎正在转换…';
+  ttsStage(j.seg, txt, 'var(--blue)');
+  flash('🔈 ' + txt, 'var(--blue)');
+}
+function onTtsErr(id, msg){
+  /* TTS 合成失败（直连 tts_error / 服务端中转 tts_resp 带 err） */
+  const j = _tts_pend[id];
+  if (!j) return;
+  ttsClear(id);
+  const t = msg || 'TTS 合成失败';
+  ttsStage(j.seg, '🔇 ' + t, 'var(--red)');
+  flash('🔇 ' + t, 'var(--red)');
+}
+function onTtsResp(d){
+  /* 1.84：备用通道（服务端本机中转）回包——整段 b64 或 err。
+     仅在 _tts_pend[id] 还在时交付：先到先得，天然去重（与直连交付同一落点）。 */
+  const j = _tts_pend[d.id];
+  if (!j) return;
+  if (d.err){ onTtsErr(d.id, d.err); return; }
+  ttsDeliver(d.id, atob(d.b64 || ''));
+}
+function ttsDeliver(id, binStr){
+  /* 音频分片全部收齐 → 拼成 mp3 Blob → 缓存 + 播放（同段只合成一次） */
+  const j = _tts_pend[id];
+  if (!j) return;
+  ttsClear(id);
+  const seg = j.seg;
+  if (!binStr){ ttsStage(seg, '🔇 空音频', 'var(--red)'); return; }
+  try {
+    const ab = new Uint8Array(binStr.length);
+    for (let i = 0; i < binStr.length; i++) ab[i] = binStr.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([ab], {type: 'audio/mpeg'}));
+    const o = ttsGet(seg);
+    if (o.url){ try { URL.revokeObjectURL(o.url); } catch(e){} }
+    o.url = url;                 // 存起来：下次点 ▶ 直接重播，不重复生成
+    /* 自动播放：点 ▶ 那一拍 foxUnlock() 已借用户手势解锁音频通道，这里直接播。
+       万一仍被系统拦，fpPlay 的 catch 会把横幅改成「请再点 ▶」——音频已缓存，
+       再点一次必定出声。 */
+    ttsStage(seg, '正在播放…', 'var(--blue)');
+    fpPlay(seg, url);
+  } catch(e){
+    ttsStage(seg, '🔇 音频解码失败', 'var(--red)');
+  }
+}
+/* 设置页「语音播报（TTS）」的小提示条 + 试听（对齐 TRAE 2.02）。
+   1.84：试听与语音卡片**同一条路由**（直连默认 + 服务端兜底），用一个没有
+   对应卡片的假 seg（ttsStage 对它自然 no-op），音频回来经 ttsDeliver → fpPlay 播放。 */
+function ttsFlash(t, c){
+  if (!el.lbl_tts_flash) return;
+  el.lbl_tts_flash.textContent = t;
+  el.lbl_tts_flash.style.color = c || 'var(--green)';
+  setTimeout(() => {
+    if (el.lbl_tts_flash.textContent === t) el.lbl_tts_flash.textContent = '';
+  }, 3000);
+}
+const TTS_PREVIEW_TXT = '你好，这是当前音色的试听。如果音色和语速听着合适，就这样用。';
+function ttsPreview(){
+  foxUnlock();                       // 借「试听」这次点击的手势解锁音频通道
+  const id = rid10(), seg = '__tts_preview__';
+  _tts_pend[id] = {ts: Date.now(), seg: seg};
+  ttsFlash('正在合成试听…', 'var(--blue)');
+  /* 1.84：与语音卡片同一条路由（直连默认 + 服务端兜底） */
+  const payload = {t:'tts', id:id, text:TTS_PREVIEW_TXT,
+                   voice:ttsVoice(), rate:ttsRate()};
+  if (!ttsRoute(id, seg, payload))
+    ttsFlash('直连未就绪，' + (TTS_GRACE/1000) + ' 秒内未连通将自动回落服务端…',
+             'var(--orange)');
+}
+/* 在途 tts 请求超时兜底：60 秒没回就清掉（防 _tts_pend 泄漏） */
+setInterval(() => {
+  const now = Date.now();
+  Object.keys(_tts_pend).forEach(id => {
+    if (now - _tts_pend[id].ts > 60000){
+      const seg = _tts_pend[id].seg;
+      ttsClear(id);
+      const o = _tts_state[seg];
+      if (o && !o.url) ttsStage(seg, '⚠ TTS 60 秒未回，可重试', 'var(--orange)');
+    }
+  });
+}, 20000);
+
+/* ================= 1.84：TTS 直连通道（FOX 2.0 · 全程静默） =================
+   网页有播报需求时，自己连上 TTS 专属频道（'TTS'+密钥，与主频道共用同一把
+   密钥、自动拼接，用户只输一次）提需求、自己取回音频；**直连为默认通道**，
+   故项目复制到任何电脑都能连上「任何一台开着 TTS 的电脑」。遵守
+   《13_软件外连联网如WebSocket等规范》：
+   · 免心跳：连上后不发 ping / 不 hello / 不 login，全程静默（省流省电）；
+   · 有工作在喊：只在点 ▶ / 试听时才发 FOX 帧，音频回完即归静默；
+   · 限次限频：断线按 2/4/8 秒退避重连，≤3 次且累计 60 秒硬时限，用尽即
+     宣告失败、绝不死磕（13.3）；
+   · FOX 2.0：请求与回执一律带 57 字节 FOX 头；本链路消息恒为单段
+     （音频按 ≤10KB 应用层切片、每片仍单段），不触发分批/补发路径。
+
+   ★ 服务端「本机 TTS 中转」保留为**备用兜底通道**（用户 2026-10-07）：仅在
+   直连走不通时才回落（经主频道发 t=='tts'，由服务端 tts_api 调本机 edge-tts）。
+   ★ 铁律：同一个 id 只允许真正发出一次请求（直连 或 服务端 二选一），绝不两边
+   同发 → 不会出现两份相同语音。默认直连；TTS_GRACE 毫秒内直连未连通才回落；
+   直连一回 tts_error 允许一次服务端兜底；直连一连通即把仍在等待的请求改走直连、
+   不再回落。 */
+const TTS_GRACE = 2500;                      // 直连等待窗口（毫秒），超时回落服务端
+let ttsWs = null, ttsOnLine = false, ttsReconnectTimer = null;
+let ttsFailStreak = 0, ttsDeadline = 0;
+const TTS_BACKOFF = [2000, 4000, 8000];      // 逐次退避（13.3）
+const TTS_DEADLINE = 60000;                  // 单链路总时限（13.3）
+const _tts_parts = {};                       // id → 音频分片累加器 {n,total,bin}
+const _tts_fb = {};                          // id → 兜底状态 {tm:定时器|null, used:bool}
+
+function ttsPayload(id){
+  /* 由在途请求那段的文本重建一条 tts 请求（回落服务端时用同一条 payload） */
+  const j = _tts_pend[id];
+  return {t: 'tts', id: id, text: (j && (j.text || j.seg)) || '',
+          voice: ttsVoice(), rate: ttsRate()};
+}
+function ttsClear(id){
+  /* 任一路交付/失败/超时的统一落点：三处状态一并清干净（防泄漏/防重交付） */
+  delete _tts_pend[id];
+  delete _tts_parts[id];
+  const f = _tts_fb[id];
+  if (f && f.tm) clearTimeout(f.tm);
+  delete _tts_fb[id];
+}
+function ttsRoute(id, seg, payload){
+  /* 统一发送路由（外部唯一入口）：直连为默认，直连不通才在 TTS_GRACE 后回落
+     服务端本机中转（备用兜底）。返回 true = 已由直连真正发出。 */
+  const j0 = _tts_pend[id];
+  if (j0) j0.text = payload.text;  // 试听 seg 是占位串，兜底重建 payload 要用真文本
+  if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(payload)){
+    return true;                            // 只走直连，绝不再碰服务端
+  }
+  ttsEnsure();                              // 直连没就绪：立刻起一次连接
+  _tts_fb[id] = {tm: setTimeout(() => ttsFallback(id), TTS_GRACE), used: false};
+  return false;
+}
+function ttsFallback(id){
+  /* TTS_GRACE 到点：直连仍不通才走服务端；若已被某路交付则什么都不做。 */
+  const f = _tts_fb[id];
+  if (!_tts_pend[id]){ if (f) delete _tts_fb[id]; return; }
+  if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
+    if (f) f.tm = null;                     // 直连赶上了：改走直连
+    return;
+  }
+  if (f) f.used = true;                     // 标记本 id 兜底已用（同 id 最多一次）
+  try { sendJson(ttsPayload(id)); } catch(e){}   // 备用：经主频道发服务端中转
+}
+function ttsErrorFallback(id){
+  /* 直连回 tts_error：允许一次服务端兜底。返回 true = 已发起兜底。 */
+  const f = _tts_fb[id];
+  if (f && f.tm){ clearTimeout(f.tm); f.tm = null; }
+  if (f && f.used) return false;            // 已用过兜底 → 不再重试
+  if (f) f.used = true; else _tts_fb[id] = {tm: null, used: true};
+  try { sendJson(ttsPayload(id)); return true; } catch(e){ return false; }
+}
+
+function ttsFoxSend(obj){
+  /* 把一条 JSON 按 FOX 帧发到 TTS 频道（本链路恒单段，超 64KB 才分段） */
+  if (!ttsOnLine || !ttsWs || ttsWs.readyState !== 1) return false;
+  const parts = foxSplit(JSON.stringify(obj));
+  const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  const mid = ts + rnd8();
+  try {
+    for (let i = 1; i <= parts.length; i++){
+      ttsWs.send('【FOXID:' + mid + MY_ID + '=cut(' + pad3(i) + '/'
+                 + pad3(parts.length) + ')】' + parts[i-1]);
+    }
+  } catch(e){ return false; }
+  return true;
+}
+function ttsConnect(){
+  /* 建 TTS 直连（静默：无 ping/无 hello/无 login）。 */
+  if (ttsWs){ try { ttsWs.onopen = ttsWs.onmessage = ttsWs.onclose = ttsWs.onerror = null; ttsWs.close(); } catch(e){} }
+  clearTimeout(ttsReconnectTimer); ttsReconnectTimer = null;
+  if (!(CFG.channel || '').trim()){ ttsWs = null; return; }   // 无密钥：等填完再连
+  try { ttsWs = new WebSocket(ttsChannelUrl()); } catch(e){ ttsWs = null; return; }
+  const w = ttsWs;
+  w.onopen = () => {
+    ttsOnLine = true; ttsFailStreak = 0; ttsDeadline = 0;
+    diagLog('TTS 直连频道已就绪（静默待命）', 'ok');
+    ttsFlushWait();                    // 连上即把仍在等待的请求改走直连（不再回落）
+  };
+  w.onmessage = ev => ttsOnMsg(ev.data);
+  w.onerror = () => { /* 统一交给 onclose 走退避重连 */ };
+  w.onclose = () => {
+    ttsOnLine = false;
+    if (!ttsDeadline) ttsDeadline = Date.now() + TTS_DEADLINE;
+    if (ttsFailStreak >= TTS_BACKOFF.length || Date.now() > ttsDeadline){
+      diagLog('TTS 直连不可达（重连 ' + ttsFailStreak + ' 次用尽），已停手', 'bad');
+      ttsFailStreak = 0; ttsDeadline = 0;
+      return;
+    }
+    ttsReconnectTimer = setTimeout(ttsConnect, TTS_BACKOFF[ttsFailStreak++]);
+  };
+}
+function ttsEnsure(){
+  /* 需要播报时确保链路就绪：已就绪→true；否则立刻起一次连接并返回 false */
+  if (ttsOnLine && ttsWs && ttsWs.readyState === 1) return true;
+  ttsFailStreak = 0; ttsDeadline = 0;   // 用户主动要播报 → 重开一次重连窗口
+  ttsConnect();
+  return false;
+}
+const FoxInTts = {                       // TTS 通道 FOX 拼装器（60s 残包超时）
+  buf: {},
+  feed(msg){
+    const m = FOX_RE.exec(msg);
+    if (!m) return null;
+    const [, ts, rnd, sender, idx, total] = m;
+    const body = msg.slice(msg.indexOf('】') + 1);
+    if (parseInt(total) <= 1) return [sender, body];
+    const mid = ts + rnd, t = Date.now();
+    const d = this.buf[mid] || (this.buf[mid] = {n: parseInt(total), p: {}, at: t});
+    d.p[parseInt(idx)] = body; d.at = t;
+    if (Object.keys(d.p).length < d.n){
+      for (const k in this.buf)
+        if (t - this.buf[k].at > 60000) delete this.buf[k];
+      return null;
+    }
+    let full = '';
+    for (let i = 1; i <= d.n; i++) full += (d.p[i] || '');
+    delete this.buf[mid];
+    return [sender, full];
+  }
+};
+function ttsOnMsg(msg){
+  /* TTS 通道收帧：FOX 拼装 → JSON → 分流（tts_ack / tts_audio / tts_error） */
+  statsAdd(msg.length, 0, 1, 0);
+  const r = FoxInTts.feed(msg);
+  if (!r) return;                        // 残余段 / 中继系统消息
+  const [sender, body] = r;
+  if (sender[0] !== '1') return;         // 只认 TTS 服务端（'1' 开头）
+  let d; try { d = JSON.parse(body); } catch(e){ return; }
+  if (!d || typeof d !== 'object') return;
+  if (d.t === 'tts_ack'){ onTtsAck(d); return; }
+  if (d.t === 'tts_error'){              // 1.84：直连失败 → 允许一次服务端兜底
+    if (!ttsErrorFallback(d.id)) onTtsErr(d.id, d.error);
+    return;
+  }
+  if (d.t !== 'tts_audio') return;
+  const j = _tts_pend[d.id];
+  if (!j) return;                        // 过期/不匹配（多端）忽略
+  const a = _tts_parts[d.id] || (_tts_parts[d.id] = {n: 0, total: 0, bin: ''});
+  a.total = parseInt(d.total) || 1;
+  if (d.b64){ a.n++; a.bin += atob(d.b64); }   // 分片按**字节**拼，不能拼 base64
+  if (a.n >= a.total){
+    const bin = a.bin;
+    delete _tts_parts[d.id];
+    ttsDeliver(d.id, bin);
+  } else {
+    ttsStage(j.seg, '正在接收音频 ' + a.n + '/' + a.total + '…', 'var(--blue)');
+  }
+}
+
 /* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
 
 function djb2(s){
@@ -967,28 +1669,54 @@ function timesFlush(){
   try { localStorage.setItem(LS_TM, JSON.stringify(_tmCache)); } catch(e){}
 }
 window.addEventListener('pagehide', () => timesFlush());   // 离开前兜底落盘
-function fmtTime(iso){                    // 今天 HH:MM，往日 MM-DD HH:MM（本地时区）
-  if (!iso) return '';
-  const t = new Date(iso);                // toISOString 的 UTC 串 -> 按本机时区解析
-  if (isNaN(t)) return iso.slice(11,16);  // 兜底：解析失败按原样（UTC 片段）
-  const p2 = n => (n < 10 ? '0' : '') + n;
-  const hm = p2(t.getHours()) + ':' + p2(t.getMinutes());
-  const now = new Date();
-  const sameDay = t.getFullYear() === now.getFullYear()
-    && t.getMonth() === now.getMonth() && t.getDate() === now.getDate();
-  return sameDay ? hm : p2(t.getMonth() + 1) + '-' + p2(t.getDate()) + ' ' + hm;
+/* 1.36：时间统一为「北京时间(UTC+8) 精确到秒」。
+   服务端两路时间(快照 msgs[2] / 历史增量 tm)都是 jsonl timestamp，
+   毫秒或秒级原样透传；tsParse 统一转 Date，再按 UTC+8 显示。 */
+function tsParse(v){
+  if (v === null || v === undefined || v === '') return null;
+  let d;
+  const sv = String(v).trim();
+  if (typeof v === 'number' || /^\d+$/.test(sv)){
+    let n = (typeof v === 'number') ? v : parseInt(sv, 10);
+    if (n < 1e11) n *= 1000;              // 秒级时间戳 → 毫秒
+    d = new Date(n);
+  } else {
+    d = new Date(sv);
+  }
+  return isNaN(d.getTime()) ? null : d;
+}
+function bjParts(d){                       // UTC+8 平移后取 UTC 各值=北京时区值
+  const b = new Date(d.getTime() + 8 * 3600 * 1000);
+  return {y:b.getUTCFullYear(), mo:b.getUTCMonth(), dd:b.getUTCDate(),
+          h:b.getUTCHours(), mi:b.getUTCMinutes(), s:b.getUTCSeconds()};
+}
+function fmtTime(v){                       // 北京时间 年月日+时分秒（始终带日期）
+  const d = tsParse(v);
+  if (!d) return '';
+  const b = bjParts(d);
+  const p2 = x => (x < 10 ? '0' : '') + x;
+  return b.y + '-' + p2(b.mo + 1) + '-' + p2(b.dd) + ' '
+       + p2(b.h) + ':' + p2(b.mi) + ':' + p2(b.s);
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
   let lastU = '';
   for (const m of msgs){
-    if (m[0] === 'u' || m[0] === 'user'){
+    const isU = (m[0] === 'u' || m[0] === 'user');
+    const sv = tsParse(m[2]);              // 服务端真实时间优先
+    if (sv){
+      const s = fmtTime(sv);
+      if (isU) lastU = s;
+      out.push(s);
+      continue;
+    }
+    if (isU){
       const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
       if (!cache[k]) { cache[k] = new Date().toISOString().slice(0,19); timesDirty(); }
       lastU = cache[k];
       out.push(fmtTime(cache[k]));
     } else {
-      out.push(fmtTime(lastU));           // AI 消息沿用其提问时间
+      out.push(fmtTime(lastU));            // 无服务端时间时，AI 沿用其提问时间
     }
   }
   return out;
@@ -1019,24 +1747,21 @@ function curConvId(){
   return '';
 }
 
-/* ===== 1.33 全新架构：本地缓存（骨架+历史）+ 双版本号失效 + 请求式历史 =====
-   骨架：localStorage 秒出会话列表；历史：localStorage 秒出当前会话消息。
-   双版本号键 = '网页VER|服务端VER'（hello.d.ver），任一变化即清空重下。
-   请求式历史：发 {t:'req',id,c:'hist'|'hist_prev',...} → {t:'res',id,k,v}。
-   直播仍走快照（snap 每拍全文），缓存只在快照未到达前兜底秒显。 */
+/* ===== 分页窗口 + 骨架缓存（双版本号失效） =====
+   进会话只渲染「最近 3 组」（服务端快照自带窗口）；向上滚动再按组向前翻
+   （{t:'req',c:'hist_prev'} → {t:'res',k:'hist_prev',v:{msgs,more}}）。
+   骨架缓存：localStorage 秒出会话列表，免等连上。 */
 const LS_SKEL = 'wb_cli_skel';           /* 骨架缓存（会话列表） */
-const LS_HIST = 'wb_cli_hist';           /* 历史消息缓存（按会话） */
 let cacheKey = null, reqSeq = 0, skelLastSave = 0;
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
 const LS_SRVV = 'wb_cli_srvver';         /* 服务端版本号持久化（供冷启动拼键） */
 function checkVerBump(){
-  /* 首次定键 / 版本变化 → 清空本地骨架与历史缓存（改版重下） */
+  /* 首次定键 / 版本变化 → 清空本地骨架缓存并重置翻页（改版重下） */
   const k = cacheKeyNow();
   if (cacheKey !== null && cacheKey !== k){
-    try { localStorage.removeItem(LS_SKEL);
-          localStorage.removeItem(LS_HIST); } catch(e){}
-    S.histConv = ''; S.histMsgs = null; S.histRaw = [];
+    try { localStorage.removeItem(LS_SKEL); } catch(e){}
+    resetPaging();
   }
   cacheKey = k;
   /* 持久化服务端版本号：冷启动时先按上次的键读骨架缓存秒显，等 hello
@@ -1062,105 +1787,122 @@ function skelCacheLoad(){
     return o;
   } catch(e){ return null; }
 }
-/* —— 历史缓存：按 (端口|会话sid) 存账本记录 + 游标 —— */
-function histCacheRead(conv){
-  try {
-    const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
-    if (!o || o.key !== cacheKeyNow()) return null;
-    const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
-    if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
-    return e;
-  } catch(e){ return null; }
-}
-function histCacheWrite(conv, ver, have_seq, msgs){
-  try {
-    let o = null;
-    try { o = JSON.parse(localStorage.getItem(LS_HIST) || 'null'); } catch(e){}
-    if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow(), convs: {}};
-    if (!o.convs) o.convs = {};
-    o.convs['p' + S.port + '|' + (conv || '')] =
-      {ver: ver | 0, have_seq: have_seq | 0, msgs: msgs};
-    localStorage.setItem(LS_HIST, JSON.stringify(o));
-  } catch(e){}
-}
 function ledToArr(r){
+  /* 1.57：补第 6 元 seq（第 7 元折叠标记 {f:N}）——账本翻页记录与快照窗口
+     走同一套折叠渲染；展开气泡要靠 seq 去账本按需取回中间气泡。 */
   return [r.role === 'u' ? 'u' : 'a', r.text || '', r.tm || '',
-          r.can_rev ? 1 : 0, r.can_del ? 1 : 0];
+          r.can_rev ? 1 : 0, r.can_del ? 1 : 0,
+          r.seq | 0, (r.f ? {f: r.f} : '')];
 }
-/* —— 请求式历史 —— */
-function reqHist(conv, have_seq, ver){
-  const id = ++reqSeq;
-  S_reqs[id] = {conv: conv || '', ts: Date.now()};
-  sendJson({t: 'req', id: id, c: 'hist', conv: conv || '',
-            have_seq: have_seq | 0, ver: ver | 0});
+/* —— 分页窗口：重置 / 请求 / 落地 —— */
+function resetPaging(){
+  clearLoadMoreWatch();                        /* 1.69：切会话/重置即撤看护 */
+  S.older = []; S.pageGroups = 0; S.headSeq = 0;
+  S.more = false; S.prevBusy = false; S.loadingMore = false;
+  /* 1.57：切会话/换轮即收回已展开的气泡（符合「切到别的对话自动又折叠」） */
+  S.foldOpen = {}; S.foldData = {}; S.foldWait = {};
 }
-function reqHistPrev(conv, from_seq, count){
+function reqHistPrev(conv, from_seq, groups){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
   sendJson({t: 'req', id: id, c: 'hist_prev', conv: conv || '',
-            from_seq: from_seq | 0, count: count | 30});
+            from_seq: from_seq | 0, groups: groups | 0});
+}
+/* 1.69：翻页看护。撞顶即亮「正在加载更早的消息…」；30 秒还没等到回包
+   （网络差/中继抖/服务端断）就把横幅改口成「掉线，请刷新网络」。此前
+   撞顶分支卡着 S.onLine——网络一断连横幅都不亮，用户看着像撞墙无反应，
+   误以为「功能没做」。现在离线也照样亮，只是等了 30s 后如实报掉线。 */
+const LOADMORE_TIMEOUT = 30000;
+const LOADMORE_FAIL_TXT = '网络掉线，无法拉取历史记录，请刷新网络';
+function startLoadMoreWatch(){
+  if (loadMoreTimer) clearTimeout(loadMoreTimer);
+  loadMoreTimer = setTimeout(() => {
+    loadMoreTimer = null;
+    if (!S.loadingMore) return;        /* 已回包/已撤下：无事发生 */
+    S.loadMoreFail = true;
+    S.prevBusy = false;                /* 放开防重入，网络恢复后可再滑重试 */
+    const div = el.msgs.querySelector('.loadmore');
+    if (div){                          /* 原位改口，不整屏重画（免得拽动滚动位置） */
+      div.classList.add('fail');
+      div.textContent = LOADMORE_FAIL_TXT;
+    } else {
+      renderAll();
+    }
+  }, LOADMORE_TIMEOUT);
+}
+function clearLoadMoreWatch(){
+  if (loadMoreTimer){ clearTimeout(loadMoreTimer); loadMoreTimer = null; }
+  S.loadMoreFail = false;
+}
+/* 1.57：点「展开气泡」→ 按需去账本取该轮被折叠的中间气泡（省广播字节） */
+function reqBubbles(sk, seq){
+  const id = ++reqSeq;
+  const conv = curConvId();
+  S_reqs[id] = {conv: conv, ts: Date.now(), sk: sk};
+  S.foldWait[sk] = 1;
+  sendJson({t: 'req', id: id, c: 'bubbles', conv: conv, seq: seq | 0});
 }
 function onRes(id, k, v){
   const rq = S_reqs[id];
   if (rq) delete S_reqs[id];
   if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
-  if (k === 'hist') applyHist(rq ? rq.conv : '', v);
-  else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || []);
-}
-function applyHist(conv, v){
-  if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
-  const inc = v.msgs || [];
-  if (v.rebuild){                              /* 版本不符：整体重建 */
-    S.histRaw = inc.slice();
-    S.histMsgs = inc.map(ledToArr);
-    S.histVer = v.ver | 0;
-  } else {                                     /* 游标增量：只补新段 */
-    if (!Array.isArray(S.histRaw)) S.histRaw = [];
-    if (!Array.isArray(S.histMsgs)) S.histMsgs = [];
-    for (const r of inc){
-      if (S.histRaw.some(x => x.seq === r.seq)) continue;
-      S.histRaw.push(r);
-      S.histMsgs.push(ledToArr(r));
-    }
-    S.histVer = v.ver | 0;
+  if (k === 'hist_prev') applyPrev(rq ? rq.conv : '', v.msgs || [], !!v.more);
+  else if (k === 'bubbles'){
+    const sk = (rq && rq.sk) || '';
+    if (!sk) return;
+    delete S.foldWait[sk];
+    if (!rq || rq.conv !== S.histConv) return;   /* 已切会话：丢弃过期回包 */
+    S.foldData[sk] = v.bubbles || [];
+    S.foldOpen[sk] = 1;
+    renderAll();
   }
-  S.histHave = S.histRaw.length
-    ? S.histRaw[S.histRaw.length - 1].seq : 0;
-  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
-  renderAll();
 }
-function prependHist(conv, older){
-  S.histLoadingPrev = false;
-  if (conv !== S.histConv) return;
-  if (!Array.isArray(older) || !older.length) return;
-  const h = el.msgs.scrollHeight;              /* 保阅读位置 */
-  S.histRaw = older.concat(S.histRaw || []);
-  S.histMsgs = S.histRaw.map(ledToArr);
-  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
+function applyPrev(conv, older, more){
+  clearLoadMoreWatch();                        /* 1.69：回包到达，撤掉看护 */
+  S.prevBusy = false; S.loadingMore = false;
+  if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
+  if (!Array.isArray(older) || !older.length){ /* 到底了：撤掉「加载中」 */
+    /* 记下本次重锚基准，否则 ensureHist 会因「窗口游标≠已翻基准」反复重取 */
+    S.more = false; S.headSeq = S.winHeadSeq;
+    renderAll(); return;
+  }
+  const h0 = el.msgs.scrollHeight, t0 = el.msgs.scrollTop;   /* 保阅读位置 */
+  S.older = older;
+  S.headSeq = S.winHeadSeq;
+  S.more = more;
   renderAll();
-  el.msgs.scrollTop = el.msgs.scrollHeight - h;
+  /* 新内容插在上方：按「增高量」下移视口，原来读的那一条留在原地 */
+  el.msgs.scrollTop = t0 + (el.msgs.scrollHeight - h0);
 }
-/* —— 会话历史打开：秒显本地 + 发请求式增量 —— */
+/* —— 会话历史打开：换会话即重置翻页；窗口推进时重锚已翻出的老历史 —— */
 function ensureHist(){
   if (S.switch_pend) return;                   /* 切换在途：等快照定论 */
   const conv = curConvId();
-  if (!conv || conv === S.histConv) return;
-  S.histConv = conv;
-  S.histMsgs = null; S.histRaw = []; S.histVer = 0; S.histHave = 0;
-  S.histLoadingPrev = false;
-  const c = histCacheRead(conv);
-  if (c){                                       /* 本地秒显历史 */
-    S.histRaw = c.msgs.slice();
-    S.histMsgs = c.msgs.map(ledToArr);
-    S.histVer = c.ver | 0; S.histHave = c.have_seq | 0;
+  if (!conv) return;
+  if (conv !== S.histConv){
+    S.histConv = conv;
+    resetPaging();
+    /* 换会话后按当前快照重同步窗口元数据（快照可能先于本函数到达，
+       而 onEv 里只在「未翻页」时更新 more，这里补齐） */
+    const sn = S.snap || {};
+    S.winHeadSeq = sn.msgs_head_seq | 0;
+    S.winUserOff = sn.msgs_useroff | 0;
+    S.more = !!sn.msgs_more;
+    return;
   }
-  renderAll();                                  /* 秒显（快照未到达前） */
-  if (S.onLine) reqHist(conv, S.histHave, S.histVer);  /* 游标增量补新/重建 */
+  /* 窗口推进（有新消息进窗口）→ 以新游标重取同一批老历史。
+     不重锚会断层：从窗口滑出去的那一组既不在 older 里、也没了。 */
+  if (S.pageGroups > 0 && S.winHeadSeq && S.winHeadSeq !== S.headSeq
+      && !S.prevBusy && S.onLine){
+    S.prevBusy = true;
+    reqHistPrev(conv, S.winHeadSeq, S.pageGroups);
+  }
 }
 function curMsgs(){
-  /* 直播权威=快照（每拍全文）；缓存只在快照尚无 msgs 时兜底秒显 */
-  if (S.snap && Array.isArray(S.snap.msgs)) return S.snap.msgs;
-  return (S.histMsgs && S.histMsgs.length) ? S.histMsgs : [];
+  /* 显示 = 已翻出的老历史（账本记录） + 服务端窗口（最近 3 组） */
+  const win = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : [];
+  const old = (S.older && S.older.length) ? S.older.map(ledToArr) : [];
+  return old.concat(win);
 }
 
 /* ================= 渲染 ================= */
@@ -1187,6 +1929,9 @@ function renderAll(){
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
   renderAcct();
+  renderEditRow();                     /* 1.53：队列取回修改横幅 */
+  /* 1.72：定时设置弹窗开着时，随快照刷新任务清单（表单输入值不被覆盖） */
+  if ($('scheddlg')) schedDlgRender();
 }
 
 /* F4：renderAll 合并节流——snap 连续到达（每 2s 一拍）合并进 rAF 一帧
@@ -1213,17 +1958,111 @@ function renderAcct(){                     // 1.33：登录账号名（hello/acc
   if (el.acct) el.acct.textContent = S.acct || '—';
 }
 
+/* 1.89：顶部「登录账号」切换下拉——选项＝账号库（acct_list 下发）+ 本机现用账号；
+   当前账号打勾并 selected。选中即发 acct_switch 切 WorkBuddy 登录态。 */
+function renderAcctSel(){
+  if (!el.acct_sel) return;
+  const items = S.acct_items || [];
+  if (!items.length){ el.acct_sel.innerHTML = '<option value="">（无账号）</option>'; return; }
+  el.acct_sel.innerHTML = items.map(it =>
+    '<option value="' + esc(it.key) + '"' + (it.cur ? ' selected' : '') + '>'
+    + (it.cur ? '✓ ' : '') + esc(it.name || '未命名')
+    + (it.uin ? '（' + esc(it.uin) + '）' : '') + '</option>').join('');
+}
+
+/* 1.67：托管排队条——AI 忙时发出的消息挂在这里（不打断它），本轮跑完由服务端
+   逐条自动送出。**完全对齐 TRAE 官方排队条**：挂在聊天记录**末尾**、随聊天一起
+   滚动（不再悬挂顶栏遮挡）；每条＝左侧两行文字（点一下展开全文）+ 右侧按钮块
+   （上行 ⚡发送，下行 ✎取回 / 🗑删除）。只显示当前会话的队列（快照 snap.queue）。
+   注：点「停止」**不冻结**队列——本轮一停即自动放行下一条。 */
+function renderQueue(){
+  const q = (S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue : [];
+  if (!q.length) return;
+  const qp = document.createElement('div');
+  qp.className = 'qpanel';
+  let qh = '<div class="qhead">⏳ 托管排队条</div>';
+  qopenPrune(q);                     /* 清掉已不在队列里的「展开」标记 */
+  q.forEach((it, i) => {
+    const o = (it && typeof it === 'object') ? it : {text: it, id: ''};
+    const id = String(o.id || '');
+    qh += '<div class="qitem">'
+       + '<div class="qtxt' + (S.qopen[id] ? ' open' : '') + '"'
+       + ' data-qt="' + i + '" title="点一下展开/收起全文">'
+       + esc(o.text || '') + '</div>'
+       + '<div class="qbtns">'
+       + '<button class="go qsend" data-qid="' + esc(id) + '">⚡发送</button>'
+       + '<div class="qsub">'
+       + '<button data-qk="edit" data-qid="' + esc(id) + '">✎</button>'
+       + '<button class="del" data-qk="del" data-qid="' + esc(id) + '">🗑</button>'
+       + '</div></div></div>';
+  });
+  qp.innerHTML = qh;
+  /* 点左侧文字区＝展开/收起全文（标记记在 S.qopen，快照重绘后保持） */
+  qp.querySelectorAll('.qtxt').forEach(t2 => {
+    t2.onclick = () => {
+      const one = q[parseInt(t2.dataset.qt)];
+      const id = one ? String(one.id || '') : '';
+      if (id) S.qopen[id] = !S.qopen[id];
+      t2.classList.toggle('open');
+    };
+  });
+  qp.querySelectorAll('.qbtns button').forEach(b => {
+    b.onclick = () => {
+      if (b.disabled) return;
+      const id = b.getAttribute('data-qid');
+      const k = b.dataset.qk;
+      if (k === 'del'){
+        const one = q.find(x => String(((x || {}).id) || '') === id) || {};
+        if (!confirm('删除排队消息「' + String(one.text || '').slice(0, 40)
+            + '」？\n删除后不会发送。')) return;
+        b.disabled = true;
+        flash('已删除排队消息…', 'var(--blue)');
+        cmd('queue_del', id);
+      } else if (k === 'edit'){
+        b.disabled = true;
+        flash('正在取出到输入框…', 'var(--blue)');
+        cmd('queue_recall', id);
+      } else {
+        b.disabled = true;
+        flash('⚡ 正在立即发送（会打断当前生成）…', 'var(--blue)');
+        cmd('queue_sendnow', id);
+      }
+    };
+  });
+  el.msgs.appendChild(qp);
+}
+
+/* 1.67：清掉 S.qopen 里已不在队列（已放行/删除）的「展开」标记，防越攒越多。 */
+function qopenPrune(q){
+  const live = new Set(q.map(it => String(((it && typeof it === 'object')
+    ? it.id : '') || '')));
+  Object.keys(S.qopen).forEach(k => { if (!live.has(k)) delete S.qopen[k]; });
+}
+
+/* 1.53：取回修改横幅——S.recall 有值即显示（该条已从队列撤下、原文在输入框）。 */
+function renderEditRow(){
+  if (!el.edit_row) return;
+  el.edit_row.classList.toggle('on', !!S.recall);
+}
+
 function drawerOpen(){
   el.drawer.classList.add('on'); el.mask.classList.add('on');
 }
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
 function renderConvs(rows, conv_unread){
-  /* v1.49：conv_unread=服务端快照顶层可选字段「完成-未查看」标题列表。
-     旧服务端/无该字段时回退旧行为。清单参与指纹——unread 变化也要重绘。 */
+  /* v1.50：conv_unread=服务端快照顶层可选字段「完成-未查看」的**会话 sid 列表**
+     （v1.50 起服务端改发 sid；旧服务端发展示名，下面的判定两者都认）。
+     无该字段/空 → 不亮橙灯（安全回退）。清单参与指纹——unread 变化也要重绘。 */
   const ur = new Set(Array.isArray(conv_unread) ? conv_unread : []);
+  /* 1.72：有定时任务的会话 sid 集合（身份 key=sid，与展示名解耦——改名不影响）。
+     参与 fingerprint：设置/取消定时后角标要立即增删。 */
+  const schedSids = new Set(((S.snap && Array.isArray(S.snap.sched))
+                            ? S.snap.sched : [])
+                            .map(j => j && j.sid).filter(Boolean));
   const key = rows.map(r => r.join('|')).join('#')
-    + '#ur:' + Array.from(ur).sort().join('|');
+    + '#ur:' + Array.from(ur).sort().join('|')
+    + '#sc:' + Array.from(schedSids).sort().join('|');
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
@@ -1265,13 +2104,27 @@ function renderConvs(rows, conv_unread){
       d.className = 'convo item' + (flag ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       /* 1.31：对齐原版状态灯口径——只在这几种显示灯：
-         run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且展示名(disp||title)
-         在 conv_unread → 橙「完成未查看」灯；done 已读 → 无灯（移除原绿点）。 */
-      const uread = (st === 'done') && ur.has(disp || title);
+         run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且该会话在 conv_unread
+         → 橙「完成未查看」灯；done 已读 → 无灯（移除原绿点）。
+         1.50：身份 key 改用 sid（title=r[1]），与展示名彻底解耦——会话改名/同名
+         都不再影响灯；ur 里若仍是旧服务端发的展示名，再按名字兜一次。 */
+      /* 1.64：本对话（flag=当前）**也能**亮橙灯——不再无脑屏蔽。亮不亮由
+         服务端按「人为操作」判定：你在操作（触摸/输入/滚动/切会话）就清灯
+         且不亮；你离开了（无操作超时 / 切后台）而它跑完了 → 亮橙灯提醒。 */
+      const uread = (st === 'done')
+                    && (ur.has(title) || ur.has(disp || title));
       if (st === 'run' || st === 'fail' || st === 'stop' || uread){
         const dot = document.createElement('span');
         dot.className = 'stdot ' + (uread ? 'stdot-uread' : 'stdot-' + st);
         d.appendChild(dot);
+      }
+      /* 1.72：该会话有定时自我激活任务 → 行首闹钟角标（身份 key=sid） */
+      if (schedSids.has(title)){
+        const ck = document.createElement('span');
+        ck.className = 'std-sched';
+        ck.textContent = '⏰';
+        ck.title = '已设置定时自我激活';
+        d.appendChild(ck);
       }
       const tspan = document.createElement('span');
       tspan.textContent = disp || title;
@@ -1295,11 +2148,9 @@ function renderConvs(rows, conv_unread){
       d.onclick = () => {
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
         if (!flag){
-          pendSwitchSet(title, disp); /* 1.09：切换在途提示（0.8~6s）
-                                         1.32：传展示名，提示不再显示原始 sid */
-          flash('正在切换到「'
-            + (disp && disp !== title ? disp : '新会话') + '」…',
-            'var(--blue)');
+          pendSwitchSet(title, disp, true); /* 1.82：本地发起（分档 + 10s补发/60s超时）
+                                               1.32：传展示名，提示不再显示原始 sid */
+          flash(switchTipTxt(S.switch_pend), switchTipCol(S.switch_pend));
           sendCmd('switch', title);    /* 1.29：传 sid(即 title) 根治索引错位，
                                          不再传索引 i（会话增删会整体偏移） */
           drawerClose();
@@ -1313,19 +2164,27 @@ function renderConvs(rows, conv_unread){
 
 /* 1.25：会话操作菜单（长按会话行弹出）。本期实现「重命名」——
    走服务端 conv_display_name（右键会话行 → 上下文菜单「重命名」→
-   内联编辑框写入 → Enter）；1.4x 新增「删除任务」（走 conv_del）。
+   内联编辑框写入 → Enter）；1.4x 新增「删除此会话」（走 conv_del）。
+   1.88：菜单项「🗑 删除任务」→「🗑 删除此会话」——旧文案「任务」易被误当
+     成「定时任务」；用户曾误以为在取消定时，实际却删了会话。会话行的删除
+     一律明说「此会话」，「定时」二字只归定时相关操作。
    1.24：菜单里凡是「给人看」的名字一律用显示名 disp||title；title(r[1])
    只是会话ID(身份key)，仅用于 conv_del/conv_display_name 传参。 */
 function convMenuOpen(title, disp){
   const view = disp || title;                 /* 展示名，与列表一致 */
+  /* 1.72：该会话已有定时任务数（身份 key=sid），决定菜单项是否带「（N）」 */
+  const nSched = ((S.snap && Array.isArray(S.snap.sched)) ? S.snap.sched : [])
+                 .filter(j => j && j.sid === title).length;
   const old = $('convmenu');
   if (old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'convmenu';
   ov.innerHTML = '<div class="cmsheet">'
     + '<div class="cmtitle">' + esc(view) + '</div>'
+    + '<button data-act="sched">⏰ 定时自我激活'
+    + (nSched ? '（' + nSched + '）' : '') + '</button>'
     + '<button data-act="ren">✎ 重命名</button>'
-    + '<button class="cmdel" data-act="del">🗑 删除任务</button>'
+    + '<button class="cmdel" data-act="del">🗑 删除此会话</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
     + '</div>';
   ov.onclick = e => { if (e.target === ov) ov.remove(); };
@@ -1333,6 +2192,7 @@ function convMenuOpen(title, disp){
     b.onclick = e => {
       e.stopPropagation();
       ov.remove();
+      if (b.dataset.act === 'sched'){ schedDlgOpen(title, view); return; }
       if (b.dataset.act !== 'ren' && b.dataset.act !== 'del') return;
       // 1.4x：删除走二次确认（本地 confirm），避免误触
       if (b.dataset.act === 'del'){
@@ -1353,6 +2213,114 @@ function convMenuOpen(title, disp){
   document.body.appendChild(ov);
 }
 
+/* ============ 1.72：定时自我激活设置弹窗 ============
+   入口：会话行右键菜单「⏰ 定时自我激活」。身份 key=sid，会话改名不影响。
+   新建→sched_add；编辑→sched_set（改后进度归零、重排）；取消→sched_del。
+   任务清单来自 S.snap.sched（服务端全量），命令执行后服务端 refresh_snap 把新
+   清单推回，本弹窗在 renderAll 里随之重绘（表单输入值保留，不被覆盖）。 */
+function schedMinStr(sec){                 /* 秒 → 分钟显示（去无谓小数） */
+  const m = (Number(sec) || 0) / 60;
+  return String(Math.round(m * 100) / 100);
+}
+function schedJobsOf(sid){
+  const arr = (S.snap && Array.isArray(S.snap.sched)) ? S.snap.sched : [];
+  return arr.filter(j => j && j.sid === sid);
+}
+function schedDlgOpen(sid, view){
+  const old = $('scheddlg');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'scheddlg';
+  ov.innerHTML = '<div class="sd-sheet">'
+    + '<div class="sd-h">⏰ 定时自我激活</div>'
+    + '<div class="sd-sub">' + esc(view) + '</div>'
+    + '<div id="sd_list"></div>'
+    + '<div class="sd-form">'
+    +   '<label>唤起内容（到点发给这个对话的话）</label>'
+    +   '<textarea id="sd_text" placeholder="例如：继续把剩下的做完"></textarea>'
+    +   '<div class="sd-row">'
+    +     '<div><label>每隔（分钟）</label><input id="sd_every" type="number"'
+    +          ' min="0.5" step="0.5" value="5"></div>'
+    +     '<div><label>总共（次）</label><input id="sd_total" type="number"'
+    +          ' min="1" step="1" value="1"></div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="sd-tip" id="sd_tip">到点服务端自动把内容排进托管队列，AI 忙完'
+    +   '即放行唤起。首次触发=保存后满一个间隔。</div>'
+    + '<div class="sd-btns">'
+    +   '<button class="sd-cancel" id="sd_cancel">关闭</button>'
+    +   '<button class="sd-ok" id="sd_ok">新建</button>'
+    + '</div>'
+    + '</div>';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  ov._sid = sid; ov._edit = null;
+  $('sd_cancel').onclick = () => ov.remove();
+  $('sd_ok').onclick = () => schedDlgSubmit();
+  schedDlgRender();
+}
+function schedDlgRender(){
+  const ov = $('scheddlg'); if (!ov) return;
+  const box = $('sd_list'); if (!box) return;
+  const jobs = schedJobsOf(ov._sid);
+  box.innerHTML = '';
+  if (!jobs.length){
+    box.innerHTML = '<div class="sd-tip">这个对话还没有定时任务。</div>';
+    return;
+  }
+  jobs.forEach(j => {
+    const card = document.createElement('div');
+    card.className = 'sd-job';
+    card.innerHTML = '<div class="jt">' + esc(j.text || '') + '</div>'
+      + '<div class="jm">每 ' + schedMinStr(j.every) + ' 分 · 共 '
+      + (j.total | 0) + ' 次 · 已 ' + (j.done | 0) + ' 次</div>';
+    const ja = document.createElement('div');
+    ja.className = 'ja';
+    const bE = document.createElement('button'); bE.textContent = '编辑';
+    const bD = document.createElement('button');
+    bD.className = 'jdel'; bD.textContent = '取消定时';
+    bE.onclick = () => {                    /* 编辑 = 表单回填 + 切「保存修改」 */
+      ov._edit = j;
+      $('sd_text').value = j.text || '';
+      $('sd_every').value = schedMinStr(j.every);
+      $('sd_total').value = j.total | 0;
+      $('sd_ok').textContent = '保存修改';
+      $('sd_tip').textContent = '保存后按新参数重跑一轮（进度归零）。';
+    };
+    bD.onclick = () => {
+      if (!confirm('取消这个对话的定时任务？')) return;
+      if (!S.onLine){ flash('⚠ 还没连上，稍后再试', 'var(--red)'); return; }
+      sendCmd('sched_del', j.id);
+      flash('已取消定时…', 'var(--blue)');
+      if (ov._edit && ov._edit.id === j.id){
+        ov._edit = null; $('sd_ok').textContent = '新建';
+      }
+    };
+    ja.appendChild(bE); ja.appendChild(bD);
+    card.appendChild(ja);
+    box.appendChild(card);
+  });
+}
+function schedDlgSubmit(){
+  const ov = $('scheddlg'); if (!ov) return;
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试', 'var(--red)'); return; }
+  const text = ($('sd_text').value || '').trim();
+  const every = parseFloat($('sd_every').value);
+  const total = parseInt($('sd_total').value, 10);
+  if (!(every > 0)){ flash('「每隔」要填正数（分钟）', 'var(--red)'); return; }
+  if (!(total >= 1)){ flash('「总共」要填 ≥1 的整数', 'var(--red)'); return; }
+  if (ov._edit){                            /* 编辑：改后重排 */
+    sendCmd('sched_set', [ov._edit.id, text, every, total]);
+    flash('正在保存定时修改…', 'var(--blue)');
+    ov._edit = null; $('sd_ok').textContent = '新建';
+  } else {                                  /* 新建 */
+    if (!text){ flash('请先填「唤起内容」', 'var(--red)'); return; }
+    sendCmd('sched_add', [ov._sid, text, every, total]);
+    flash('正在新建定时…', 'var(--blue)');
+  }
+  $('sd_text').value = '';
+}
+
 /* ============ 1.09：待确认项（空窗期反馈） ============
    点「发送」后要等服务端把文字注入 WorkBuddy 输入框、点发送、WorkBuddy 渲染、
    0.8s 轮询取快照、再经中继回传——实测 3~6s 才看得到自己那条。
@@ -1366,34 +2334,131 @@ function pendSig(){
   return S.pending.map(p => p.id + ':' + p.state).join(',');
 }
 
-function pendAdd(kind, text){
+/* 1.62：本地待发箱落盘——「发出了但没收到服务端确认」的消息，刷新/断网
+   也不丢，回来还能复制/改写/重发（用户 09-29：网络没收到确认就丢了）。
+   单一 localStorage 键存 S.pending（switch 类不入箱）。 */
+const LS_PEND = 'wb_cli_pendbox';
+function punchPend(){
+  try {
+    localStorage.setItem(LS_PEND, JSON.stringify(
+      S.pending.filter(p => p && p.kind !== 'switch')));
+  } catch(e){}
+}
+function pendRestore(){
+  try {
+    const arr = JSON.parse(localStorage.getItem(LS_PEND) || '[]');
+    if (!Array.isArray(arr) || !arr.length) return;
+    const now = Date.now();
+    arr.forEach(p => {
+      if (!p || !p.text) return;
+      S.pend_seq++;
+      S.pending.push({
+        id: S.pend_seq, rid: p.rid || rid10(), kind: p.kind || 'send',
+        text: p.text,
+        convSid: p.convSid || '',   /* 1.66：绑定的会话一并恢复（旧卡无此字段=空，照常显示） */
+        /* 旧于确认时限的（多半真没送出去）直接标「未确认」，立刻就出重发按钮 */
+        state: (now - (p.ts || 0) > S.pend_send) ? 'timeout' : 'sending',
+        ts: p.ts || now});
+    });
+  } catch(e){}
+}
+
+/* 1.63：占位卡自带 10 位随机 ID（rid）——只用来核对「服务端已收到」
+   （进了托管队列 / 在对话记录里落地），据此撤卡。不再靠文本匹配
+   （用户 09-29 定：文本格式 / 掐头去尾常导致误判，只认 ID 最稳）。
+   ID 仅用于核对，过后不保存。字母表去掉易混字符 0/O/1/I。 */
+const RID_AB = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function rid10(){
+  let s = '';
+  for (let i = 0; i < 10; i++)
+    s += RID_AB[Math.floor(Math.random() * RID_AB.length)];
+  return s;
+}
+
+/* 1.93：积分显示一律取整——显示层兜底归一（服务端 2.16 起本就只发整数，
+   这里再 Math.round 挡一道，避免旧缓存 / 异常值把小数带上屏）。 */
+function fmtPts(v){
+  const n = Number(v);
+  return isFinite(n) ? String(Math.round(n)) : String(v == null ? '—' : v);
+}
+
+function pendAdd(kind, text, rid, convSid){
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
   const same = S.pending.find(p => p.text === text);
   if (same) return same;               // 同文本已在册（服务端 pend 回显）
   S.pend_seq++;
-  const p = {id: S.pend_seq, kind: kind, text: text,
+  /* 1.66：占位卡绑定「发送那一刻」的目标会话稳定 sid（convs 行 r[1]），
+     切会话/刷新/重试都不串台。锁定的 sid（重发/重试复用）优先，
+     否则取当前会话；取不到时留空（旧卡兼容：无 convSid 一律照常显示）。 */
+  const p = {id: S.pend_seq, rid: rid || rid10(), kind: kind, text: text,
+             convSid: convSid || curConvId() || '',
              state: 'sending', ts: Date.now()};
   S.pending.push(p);
   return p;
 }
 
+/* 1.63：WS 失联自动重发——每 10 秒重试一次，最多 6 次（用户 09-29 定）。 */
+const WS_RETRY_MS = 10000, WS_RETRY_MAX = 6;
+
+/* 1.63：WS 不可用时把这条消息挂成「重试中」并起定时器：
+   每 WS_RETRY_MS 试发一次；WS 一恢复真的发出去 → 回默认态（已发送，等回应）；
+   满 WS_RETRY_MAX 次仍发不出 → 转「未确认」（可改写/丢弃/重发）。
+   回调里先查卡片是否还在册——已被快照确认/用户撤下的旧定时器自然失效，无需逐一清。 */
+function wsRetry(p, c, a, n){
+  p.state = 'wsretry';
+  p.wsTry = n;
+  try { clearTimeout(p.wsTimer); } catch(e){}
+  renderAll();
+  p.wsTimer = setTimeout(async () => {
+    if (!p || S.pending.indexOf(p) < 0) return;      /* 已被撤下/替换 */
+    if (foxReady() && S.onLine){
+      /* 1.66：重试发生在 10 秒后，若期间用户切了会话，绝不能投到「现在选中」
+         的那条——用占位卡里**锁定**的会话 sid（发送那一刻记下的）外带过去，
+         sendCmd 已有 `!d.conv` 保护，传了就不会被现取的覆盖。 */
+      const ex = {};
+      if (p.rid) ex.rid = p.rid;
+      if (p.convSid) ex.conv = p.convSid;
+      const ok = await sendCmd(c, a, (ex.rid || ex.conv) ? ex : null);
+      if (ok !== false){
+        p.state = 'sending';                          /* 已发出，等服务器回应 */
+        p.wsTry = 0;
+        p.ts = Date.now();   /* 1.63：重置计时——重试可能已耗 60s，别被 30s 兜底秒判超时 */
+        renderAll();
+        return;
+      }
+    }
+    if (n >= WS_RETRY_MAX){ p.state = 'timeout'; renderAll(); return; }
+    wsRetry(p, c, a, n + 1);
+  }, WS_RETRY_MS);
+}
+
 function pendStat(p){
   if (p.state === 'typed')   return ['已输入 WorkBuddy…', ''];
+  if (p.state === 'wsretry') return ['WS 失联重试中（' + (p.wsTry || 1)
+                                    + '/' + WS_RETRY_MAX + '）', 'bad'];
   if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
   if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
   /* 1.32：超时（默认 30 秒）仍未确认才标「未确认」，此时给出
      改写/丢弃/重发；正常瞬发直接就撤下卡片了 */
   if (p.state === 'timeout') return ['⚠ 未确认（可丢弃/改写/重发）', 'bad'];
-  return [p.kind === 'interject' ? '排队中…' : '发送中…', ''];
+  /* 1.63：直发默认态——单条消息发出去后先看传输层，显示「已发送，正等待
+     服务器回应」，不再误写成「已排队，等待 AI 处理…」（用户 09-29 定）。 */
+  return ['已发送，正等待服务器回应', 'ok'];
 }
 
 function renderPending(){
+  punchPend();     /* 1.62：待发箱任何变化都落盘（含清空），刷新/断网不丢 */
   const old = $('pendbox');
   if (old) old.remove();
   if (!S.pending.length) return;
+  /* 1.66：只渲染**属于当前会话**的占位卡（convSid 与当前会话 sid 相等）。
+     切到别的会话时，在途卡不再串台显示；切回来照旧。向后兼容：旧卡
+     （无 convSid，含 localStorage 恢复的旧待发箱）或当前无会话时照常显示。 */
+  const curSid = curConvId();
   const wrap = document.createElement('div');
   wrap.id = 'pendbox';
   S.pending.forEach(p => {
+    if (p.convSid && curSid && p.convSid !== curSid) return;
     const st = pendStat(p);
     const d = document.createElement('div');
     d.className = 'msg user pend ' + st[1];
@@ -1445,103 +2510,53 @@ function renderPending(){
       const p = S.pending.find(x => x.id === gi);
       if (!p) return;
       S.pending = S.pending.filter(x => x.id !== gi);
-      cmd(p.kind, p.text);           // 重发（cmd 内会重新登记占位）
+      /* 1.66：手动重发同样带上**锁定**的会话 sid（发送那一刻记下的），
+         即便此刻已切到别的会话，也投回原会话；旧卡无锁定值则维持原行为。 */
+      cmd(p.kind, p.text, p.convSid);      // 重发（cmd 内会重新登记占位）
     };
   });
   el.msgs.appendChild(wrap);
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
 
-/* 1.24：文本规范化去污染——WorkBuddy 渲染会吃掉 markdown 记号/空白
-   （**加粗** 变粗体、段落成块级元素），快照文本与发送原文在字符
-   层面对不上 → 明明已出现却判「未确认」。比较前双方统一：去全部
-   空白与零宽字符、去 markdown 修饰符（* ` _ ~ > #）、转小写。 */
-function normTxt(s){
-  return String(s || '')
-    .replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, '')
-    .replace(/[`*_~>#]/g, '')
-    .toLowerCase();
-}
+/* 1.63：旧版「靠文本匹配撤占位卡」的一套已**整体删除**（文本规范化 + 「前 N 字
+   比对」 + 「包含匹配」兜底，以及配套的认领表状态）——用户 09-29 定：文本格式 /
+   掐头去尾常导致误判，改为**只认随机 ID**。撤卡逻辑见下方 pendReconcile。 */
 
-/* 1.22：发送确认匹配——「前 N 字相同」即可（N=服务端设置页
-   「确认匹配字数」，默认 100；长消息 WorkBuddy 会折叠显示，全文比对
-   必然失败）。一侧不足 N 字按前缀算（折叠截断可能不到 N 字）；
-   任一侧短于 12 字则要求全等（防超短文本误配）。
-   1.24：比对前先 normTxt 规范化（格式污染不再导致误判）。 */
-function pendHead100(sent, shown, n){
-  const a = normTxt(sent).slice(0, n || 100);
-  const b = normTxt(shown).slice(0, n || 100);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  if (Math.min(a.length, b.length) >= 12)
-    return a.startsWith(b) || b.startsWith(a);
-  return false;
-}
-
-/* 1.39：包含匹配兜底——占位撤下只认「前 N 字相同」时，WorkBuddy 把
-   用户消息包装/改写（如「已收到，正在处理…原话」、任务归纳成标题）会
-   导致前缀对不上 → 明明文字已出现在对话里，占位框却挂到超时才撤。
-   此处兜底：发送文本(norm)足够长（≥15）且是渲染文本(norm)的子串，
-   即认作已落地。短文本不做包含判定（防「你好」等通用词误配）。 */
-function pendContains(sent, shown_){
-  if (!sent || shown_ === undefined) return false;
-  if (sent.length < 15) return false;
-  return shown_.indexOf(sent) >= 0;
-}
-
-/* 快照到达：同文本用户消息出现 → 该占位已落地，撤下它。
-   用 pend_claims 记住已被认领的消息下标（连发相同文本也不会误判）；
-   换会话则清空认领记录。返回 true 表示待确认集有变化需重画。
-   1.22：只认 60 秒内新出现的消息（首见时刻表 pend_seen），
-   防止与历史里同开头的老消息误配。 */
-function pendReconcile(msgs){
+/* 1.80：撤占位卡——口径改为「**这条在网页上看得见了就撤**」，两个完成点任一命中：
+     ① 该 rid 出现在快照 queue 里 → 这条已画进「⏳ 托管排队条」（renderQueue 与撤卡
+        同帧重画，且排队条无条件列出全部条目）＝用户已看得见；
+     ② 该 rid 命中本拍**带正文 msgs** 的快照 acks → 已落进对话记录并画进气泡。
+   1.78 的教训仍要守住：**没 msgs 的骨架快照一律不撤**（那只是服务端重放框架，
+   web 侧拿上一拍旧正文兜底，此时撤卡＝「卡先没了、消息还没画出来」的空档）；
+   1.79 前把「进队列」也一并冻结是过头了——排队条本身就是显示，故 1.80 恢复为撤。
+   仍保留 30 秒兜底：始终无任何回执（且非 queued/wsretry）才标「未确认」。
+   返回 true 表示待确认集有变化需重画。 */
+function pendReconcile(msgs, hasMsgs){
   if (!S.pending.length) return false;
-  /* 当前会话标识（快照无 title 字段，取 convs 里的当前行） */
-  const cv0 = (S.snap && S.snap.convs) || [];
-  const act0 = cv0.find(r => r[0] === 'c' && r[2]);
-  const conv = act0 ? act0[1] : '';
-  if (conv !== S.pend_conv){
-    S.pend_conv = conv;
-    S.pend_claims = [];
-    S.pend_seen = {};
-  }
+  const acks = (S.snap && Array.isArray(S.snap.acks)) ? S.snap.acks : [];
+  const ackSet = new Set(acks.map(String));
+  const qids = new Set(((S.snap && S.snap.queue) || [])
+                       .map(it => it && it.id).filter(Boolean).map(String));
   const now = Date.now();
-  const users = [];
-  (msgs || []).forEach(m => {
-    if (m && (m[0] === 'u' || m[0] === 'user')){
-      const ut = normTxt(m[1]);          /* 1.24：规范化后再登记/比对 */
-      if (ut && !(ut in S.pend_seen)) S.pend_seen[ut] = now;
-      users.push(ut);
-    }
-  });
   let changed = false;
   const keep = [];
-  S.pending.forEach((p, pi) => {
-    if (p.kind === 'switch'){          /* 1.10：切换占位不进气泡，
-        旧版误入的残留直接清掉（会话标题不会出现在消息区，按文本
-        匹配永远失败 → 挂满 15s 变「未确认」，完全不真实） */
+  S.pending.forEach(p => {
+    if (p.kind === 'switch'){          /* 1.10：切换占位不进气泡，残留直接清掉 */
       changed = true;
       return;
     }
-    const t = normTxt(p.text);         /* 1.24：规范化后再比对 */
-    let idx = -1;
-    for (let i = users.length - 1; i >= 0; i--){
-      if (S.pend_claims.indexOf(i) >= 0) continue;
-      const ts0 = S.pend_seen[users[i]];   /* 时限内新消息才认 */
-      if (ts0 === undefined || now - ts0 > S.pend_age) continue;
-      if (pendHead100(t, users[i], S.pend_head)
-          || pendContains(t, users[i])){ idx = i; break; }
-    }
-    if (idx >= 0){
-      S.pend_claims.push(idx);
-      changed = true;
-      return;
-    }
-    /* 1.32：发送确认超时——占位挂够 S.pend_send（默认 30 秒）仍未被
-       快照确认（没出现在对话记录里），判定为「真没发出去」，才进入
-       timeout 态、显示改写/丢弃/重发。正常发送该确认几乎瞬时完成，
-       卡片一闪而过，操作按钮不该打扰，直到真超时才出现。 */
-    if (p.state !== 'timeout' && now - p.ts > S.pend_send){
+    const r = p.rid ? String(p.rid) : '';
+    /* 1.80：已进「⏳ 托管排队条」＝这条已在网页上显示（排队条与撤卡同帧重画）→ 撤卡 */
+    if (r && qids.has(r)){ changed = true; return; }
+    /* 1.78：已落地 + 本拍带正文 → 与画进对话气泡同一帧撤卡，绝不留空档 */
+    if (hasMsgs && r && ackSet.has(r)){ changed = true; return; }
+    /* 1.32：发送确认超时——占位挂够 S.pend_send（默认 30 秒）仍无任何回执
+       才判「未确认」，给出改写/丢弃/重发。
+       1.62：`queued`=已挂入托管队列（服务端已确认收到），AI 忙多久都正常，
+       绝不能在挂队期间判超时；1.63：wsretry（WS 重试中）同理由自己收尾。 */
+    if (p.state !== 'timeout' && p.state !== 'queued'
+        && p.state !== 'wsretry' && now - p.ts > S.pend_send){
       p.state = 'timeout';
       changed = true;
     }
@@ -1560,7 +2575,62 @@ function msgsFp(msgs){
   return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
     + (m[3] || 0) + (m[4] || 0)).join('#');
 }
-function pendSwitchSet(title, disp){
+/* 1.82：切换「过程分档」文案/颜色（用户 2026-10-07）——
+   connecting=WS 没连上；waiting=已发出、等服务器回应；
+   switching=服务端已回执、正在切换；fail=满 60s 未成功。 */
+function switchTipTxt(p){
+  const d = (p && p.disp) || '新会话';
+  switch (p && p.phase){
+    case 'connecting': return '正在连接 WS…';
+    case 'waiting':    return '等待服务器回应…';
+    case 'switching':  return '正在切换中「' + d + '」…';
+    case 'fail':       return '⚠ 切换失败';
+    default:           return '正在切换到「' + d + '」…';
+  }
+}
+function switchTipCol(p){
+  const ph = p && p.phase;
+  if (ph === 'connecting') return 'var(--orange)';
+  if (ph === 'fail') return 'var(--red)';
+  return 'var(--blue)';
+}
+/* 1.82：在途定时器（仅本地发起启用）——每 10s 补发一次同一条 switch；
+   满 60s 仍无 switched → 判「切换失败」。 */
+let _swResendT = 0, _swTmoT = 0, _swFailT = 0, _swOkT = 0;
+function switchDisarm(){
+  if (_swResendT){ clearInterval(_swResendT); _swResendT = 0; }
+  if (_swTmoT){ clearTimeout(_swTmoT); _swTmoT = 0; }
+}
+function switchArm(p){
+  switchDisarm();
+  _swResendT = setInterval(() => {
+    if (S.switch_pend !== p){ switchDisarm(); return; }
+    if (p.phase === 'fail'){ switchDisarm(); return; }
+    if (!S.onLine || !foxReady()){        /* 断线：退回「连接 WS」档，连上再补发 */
+      if (p.phase !== 'connecting'){ p.phase = 'connecting'; renderAll(); }
+      return;
+    }
+    sendCmd('switch', p.title);           /* 补发同一条切换命令 */
+  }, SWITCH_RESEND_MS);
+  _swTmoT = setTimeout(() => {
+    if (S.switch_pend !== p) return;
+    p.phase = 'fail';
+    switchDisarm();
+    renderAll();
+    _swFailT = setTimeout(() => { if (S.switch_pend === p) switchEnd(); }, 4000);
+  }, SWITCH_FAIL_MS);
+}
+function switchEnd(){          /* 结束一次切换（成功/失败/换目标）：连带清定时器 */
+  switchDisarm();
+  if (_swFailT){ clearTimeout(_swFailT); _swFailT = 0; }
+  S.switch_pend = null;
+}
+function switchOk(disp){       /* 1.82：闪现「切换成功」2 秒后交回状态灯 */
+  S.switch_ok = {disp: disp || '新会话'};
+  if (_swOkT) clearTimeout(_swOkT);
+  _swOkT = setTimeout(() => { S.switch_ok = null; renderAll(); }, 2000);
+}
+function pendSwitchSet(title, disp, local){
   title = title || '';
   disp = disp || '';
   /* 1.32：展示名口径——优先调用方给的 disp（renderConvs 的真名）；
@@ -1573,104 +2643,44 @@ function pendSwitchSet(title, disp){
     if (row) disp = row[3] || '';
   }
   const view = (disp && disp !== title) ? disp : '新会话';
+  /* 1.82：本地发起 → 按「连上没」定首档（connecting/waiting）；
+     他端（PC 面板）广播来的 → 服务端已在切，直接 switching，不补发 */
+  const phase0 = local ? ((S.onLine && foxReady()) ? 'waiting' : 'connecting')
+                       : 'switching';
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
      不重复渲染） */
   if (S.switch_pend && S.switch_pend.title === title){
     S.switch_pend.ts = Date.now();
     S.switch_pend.disp = view;
+    /* 1.82：被动→主动升级（他端广播先到、本端随后又点了同一目标）→ 补挂定时器 */
+    if (local && !S.switch_pend.local){
+      S.switch_pend.local = true;
+      S.switch_pend.phase = phase0;
+      switchArm(S.switch_pend);
+    }
     S.switch_target = {title: title, ts: Date.now(), disp: view};   /* 1.28 备忘刷新 */
     /* 1.28：幂等点击只在占位仍在时刷新计时，内容已到（占位已清）不
        重复置位，避免真内容渲染后再闪「加载」占位 */
     if (S.loadingConv) S.loadingConv = {title: title, ts: Date.now(), disp: view};
-    fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
     return;
   }
+  switchEnd();                        /* 1.82：换目标先清旧在途（含定时器） */
   S.switch_pend = {title: title, ts: Date.now(),
-                   fp0: msgsFp(S.snap.msgs), disp: view};
+                   fp0: msgsFp(S.snap.msgs), disp: view,
+                   phase: phase0, local: !!local};
   S.switch_target = {title: title, ts: Date.now(), disp: view};     /* 1.28 目标备忘 */
   /* 1.28：点击即置位加载占位——指标「点击→UI 响应」≈0ms 稳定过；
      渲染层 else-if 与 switch_pend 互斥：在途条优先，占位在 switched
      到达、switch_pend 清掉后自然接上，视觉无双条 */
   S.loadingConv = {title: title, ts: Date.now(), disp: view};
   S._swFail = null;                    /* F7：新切换开始，撤销旧失败观察 */
-  fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
+  if (local) switchArm(S.switch_pend); /* 1.82：本地发起才补发/超时 */
   renderAll();
-}
-/* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中(state 未
-   落地且消息区空)且联网正常，弹确认框问是否查询最大化压制；用户确认
-   才发 check_fulls（每切换只问一次，不自动查）。 */
-const FULLS_CHECK_DELAY = 15000;
-function fullsCheckRearm(title){
-  clearTimeout(S._fullsCheckTimer);
-  S._fullsCheckTimer = setTimeout(() => fullsCheckFire(title),
-                                  FULLS_CHECK_DELAY);
-}
-function fullsCheckFire(title){
-  if (!S.switch_pend || S.switch_pend.title !== title) return;  // 已落地/已切换
-  const empty = !(S.snap.msgs || []).length
-    && !(el.msgs && el.msgs.querySelector('.msg'));
-  if (!empty) return;                    // 内容已到，不打扰
-  if (!S.onLine) return;                 // 仅 WS 连通时才问（网络正常前提）
-  confirmFulls(
-    '切换对话超过 15 秒仍未载入内容，是否查询是否有窗口最大化/全屏压制原版渲染？',
-    () => sendCmd('check_fulls'));
 }
 function pendSwitchClear(){
   if (!S.switch_pend) return false;
-  S.switch_pend = null;
+  switchEnd();
   return true;
-}
-
-/* ========== 1.xx：最大化/全屏预警条 ========== */
-const FULLS_LATER = 15 * 60 * 1000;    // 稍后提醒：15 分钟后再提醒
-const FULLS_QUIET = 6 * 60 * 60 * 1000; // 近期不要再提醒：6 小时内不再提醒
-function fullsShow(msg){
-  if (Date.now() < S.fulls_snooze) return;   // 静默期内忽略新预警
-  S.fulls_show = true;
-  el.fsw_txt.textContent = msg || '';
-  el.fsw.style.display = 'flex';
-}
-function fullsHide(){
-  S.fulls_show = false;
-  el.fsw.style.display = 'none';
-}
-function fullsLater(){                     // 稍后提醒：静默 15 分钟
-  S.fulls_snooze = Date.now() + FULLS_LATER;
-  fullsHide();
-}
-function fullsQuiet(){                     // 近期不再提醒：静默 6 小时
-  S.fulls_snooze = Date.now() + FULLS_QUIET;
-  fullsHide();
-}
-/* 1.xx：通用确认弹窗（轻量覆盖层）——onOk 为空安全。 */
-function confirmFulls(msg, onOk){
-  const old = $('fconfirm');
-  if (old) old.remove();
-  const ov = document.createElement('div');
-  ov.id = 'fconfirm';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:95;background:'
-    + 'rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;';
-  const box = document.createElement('div');
-  box.style.cssText = 'background:#fff;border-radius:12px;max-width:320px;'
-    + 'width:88%;padding:16px 16px calc(14px);box-sizing:border-box;';
-  const txt = document.createElement('div');
-  txt.style.cssText = 'font-size:14px;line-height:1.6;color:#222;margin-bottom:14px;';
-  txt.textContent = msg;
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
-  const mk = (label, cls, fn) => {
-    const b = document.createElement('button');
-    b.textContent = label;
-    b.style.cssText = 'min-height:36px;padding:4px 14px;border-radius:8px;'
-      + (cls ? 'border-color:var(--blue);background:var(--blue);color:#fff;'
-             : 'color:var(--gray);');
-    b.onclick = () => { ov.remove(); if (fn) fn(); };
-    return b;
-  };
-  row.appendChild(mk('取消', '', null));
-  row.appendChild(mk('查询', 'primary', onOk));
-  box.appendChild(txt); box.appendChild(row); ov.appendChild(box);
-  document.body.appendChild(ov);
 }
 
 /* F1：单条消息指纹——m[1] 只取 len+首尾各 24 字符做 djb2（生成中文本
@@ -1698,7 +2708,16 @@ function renderMsgs(msgs, finish, opts, ask){
   key += '#pend:' + pendSig()
        + (S.switch_pend ? '#sw:' + S.switch_pend.title : '')
        + (S.loadingConv ? '#ld:' + S.loadingConv.title : '')
-       + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80);
+       + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80)
+       + '#more:' + (S.loadingMore ? 1 : 0)
+       + '#moref:' + (S.loadMoreFail ? 1 : 0)    /* 1.69：报掉线时也要重画横幅 */
+       /* 1.57：折叠条展开/收起参与指纹（否则展开后不重画） */
+       + '#fold:' + Object.keys(S.foldOpen).filter(k => S.foldOpen[k]).join(',')
+       /* 1.67：托管排队条也画在本函数里（挂在聊天记录末尾），队列的增删/改序/
+          取回必须参与指纹，否则「只队列变了」时会被上面的早退跳过、不重画。 */
+       + '#q:' + ((S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue
+           .map(x => ((x && x.id) || '') + ':' + String((x && x.text) || '').length)
+           .join(',') : '');
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -1719,7 +2738,7 @@ function renderMsgs(msgs, finish, opts, ask){
   if (S.switch_pend){                    // 1.09：切换在途提示条
     const sw = document.createElement('div');
     sw.className = 'switching';
-    sw.textContent = '正在切换到「' + (S.switch_pend.disp || '新会话') + '」…';
+    sw.textContent = switchTipTxt(S.switch_pend);   /* 1.82：分档文案 */
     el.msgs.appendChild(sw);
   } else if (S.loadingConv){             // 1.28：switched 已确认、snap 未到
     const ld = document.createElement('div');
@@ -1727,12 +2746,25 @@ function renderMsgs(msgs, finish, opts, ask){
     ld.textContent = '正在加载「' + (S.loadingConv.disp || '新会话') + '」…';
     el.msgs.appendChild(ld);
   }
+  if (S.loadingMore){                    // 分页窗口：向上补拉老历史在途
+    const lmdiv = document.createElement('div');
+    lmdiv.className = 'loadmore' + (S.loadMoreFail ? ' fail' : '');
+    lmdiv.textContent = S.loadMoreFail
+      ? LOADMORE_FAIL_TXT : '正在加载更早的消息…';   /* 1.69：30s 未回包改口报掉线 */
+    el.msgs.appendChild(lmdiv);
+  }
   if (empty){ renderPending(); return; }
   const times = resolveTimes(msgs);
   let lastAgent = -1;
   for (let i = msgs.length - 1; i >= 0; i--)
     if (msgs[i][0] !== 'u' && msgs[i][0] !== 'user'){ lastAgent = i; break; }
-  let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
+  /* 分页窗口：窗口之前还有 winUserOff 条「我」的提问；已翻出的老历史里的
+     提问也要减掉，剩下的才是当前显示区首条「我」在全量会话里的真实下标
+     （rewind/del_msg 的 mi 要的是全局下标）。 */
+  let uoff = (S.winUserOff | 0);
+  for (const r of (S.older || [])) if (r.role === 'u') uoff--;
+  if (uoff < 0) uoff = 0;
+  let ui = -1;                       // 「我」的消息序号（显示区内，0 起）
   msgs.forEach((m, i) => {
     const user = m[0] === 'u' || m[0] === 'user';
     let acts = '';
@@ -1746,9 +2778,9 @@ function renderMsgs(msgs, finish, opts, ask){
       acts += '<button class="mact ed" data-k="edit" data-i="' + i
             + '">✎ 重编</button>';
       if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
-                      + ui + '">↩ 回退</button>';
+                      + (uoff + ui) + '">↩ 回退</button>';
       if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
-                      + ui + '">🗑 删除</button>';
+                      + (uoff + ui) + '">🗑 删除</button>';
     }
     const d = document.createElement('div');
     d.className = 'msg ' + (user ? 'user' : 'agent');
@@ -1763,12 +2795,38 @@ function renderMsgs(msgs, finish, opts, ask){
             + (S.thinkOpen ? '▾' : '▸') + '</span></div>'
             + '<div class="thinkb">' + esc(S.snap.plan) + '</div></div>';
     }
+    /* 1.69：AI 消息正文识别 (@fox-play1)…(@fox-play2) 包夹段 → 渲染成语音
+       小卡片（占位符先过 mdHtml，再替换成卡片 HTML）。「我」的消息不处理。 */
+    let bodyHtml;
+    if (user){
+      bodyHtml = esc(m[1]);
+    } else {
+      const fsegs = [], asegs = [];
+      /* 1.70：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）互不冲突，
+         先摘语音、后摘提问，再各自回填卡片（提问卡叠 .ask 琥珀色）。 */
+      bodyHtml = mdHtml(foxAskCards(foxPlayCards(m[1], fsegs), asegs));
+      fsegs.forEach((ft, n) => {
+        bodyHtml = bodyHtml.replace('@@FPC' + n + '@@', foxCardHtml(ft));
+      });
+      asegs.forEach((at, n) => {
+        bodyHtml = bodyHtml.replace('@@FAC' + n + '@@', foxCardHtml(at, true));
+      });
+    }
     let h = '<div class="who">' + (user ? '我' : 'WorkBuddy')
           + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
           + '</div>' + think + '<div class="body">'
-          + (user ? esc(m[1]) : mdHtml(m[1])) + '</div>';
+          + bodyHtml + '</div>';
     d.innerHTML = h;
+    /* 1.69：语音卡片 ▶ 播放绑定——必须用 closest('.foxplay') 取段文本
+       （▶ 的父节点是 .fprow、不是卡片本身，取 parentElement 会拿到 null）。 */
+    d.querySelectorAll('.foxplay .fpbtn').forEach(b => {
+      b.onclick = e => {
+        e.stopPropagation();
+        const card = b.closest('.foxplay');
+        foxPlay(card ? (card.getAttribute('data-seg') || '') : '');
+      };
+    });
     /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
        1.24：复制/重编（本地即时完成，不涉服务端） */
     d.querySelectorAll('.mact').forEach(b => {
@@ -1788,14 +2846,28 @@ function renderMsgs(msgs, finish, opts, ask){
           return;
         }
         if (k === 'rewind'){
+          /* 1.79：回退＝撤回「我」的这一问——截断后续之外，把该条原文取回输入框
+             （用户 2026-10-06 定：「回退应该把文本取回，输入框重新编辑」）。 */
+          const it = msgs[parseInt(b.dataset.i)];
+          const back = it ? (it[1] || '') : '';
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
-            + '其后全部对话（含 AI 回复）将一并移除。')) return;
-          flash('正在回退…', 'var(--blue)');
-        } else {
-          if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
-            + '其对应的 AI 回复会一并删除。')) return;
-          flash('正在删除…', 'var(--blue)');
+            + '其后全部对话（含 AI 回复）将一并移除。\n'
+            + '（这条原文会取回输入框，可改完再发）')) return;
+          if (back && el.ent.value.trim()
+              && !confirm('输入框里还有没发的内容，回退后会用它覆盖，继续？')) return;
+          if (back){
+            el.ent.value = back; entFit(); refreshSendBtn();
+            try { el.ent.focus(); } catch(e2){}
+            flash('↩ 已回退：原文已取回输入框，可改完重发', 'var(--blue)');
+          } else {
+            flash('正在回退…', 'var(--blue)');
+          }
+          sendCmd(k, mi);
+          return;
         }
+        if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
+          + '其对应的 AI 回复会一并删除。')) return;
+        flash('正在删除…', 'var(--blue)');
         sendCmd(k, mi);
       };
     });
@@ -1807,6 +2879,38 @@ function renderMsgs(msgs, finish, opts, ask){
       const cp = thinkH.querySelector('.caret');
       if (cp) cp.textContent = S.thinkOpen ? '▾' : '▸';
     };
+    /* 1.57：该轮被折叠的中间过程气泡——在总结气泡前渲染「展开气泡」条。
+       默认只显示最后一条（=总结），点展开才 req/bubbles 按需取回中间气泡；
+       展开态存 S.foldOpen（键=该轮最后一条的 seq），切会话自动收回。 */
+    if (!user && m[6] && m[6].f){
+      const sk = 'sq' + (m[5] || i);
+      const seqAttr = m[5] | 0;
+      const fb = document.createElement('div');
+      fb.className = 'foldbar';
+      if (S.foldOpen[sk]){
+        const arr = S.foldData[sk] || [];
+        let bh = '<div class="foldbody">';
+        arr.forEach(t => { bh += '<div class="foldbub">' + mdHtml(t) + '</div>'; });
+        bh += '</div>';
+        fb.innerHTML = '<div class="foldhd"><span>🗂 中间气泡 ' + m[6].f
+          + ' 条</span><button class="foldbtn" data-sk="' + sk
+          + '" data-seq="' + seqAttr + '">收起 ▴</button></div>' + bh;
+      } else {
+        fb.innerHTML = '<button class="foldbtn" data-sk="' + sk
+          + '" data-seq="' + seqAttr + '">🗂 展开气泡（' + m[6].f + '）</button>';
+      }
+      const fbBtn = fb.querySelector('.foldbtn');
+      if (fbBtn) fbBtn.onclick = e => {
+        e.stopPropagation();
+        const k2 = fbBtn.dataset.sk, sq = parseInt(fbBtn.dataset.seq) || 0;
+        if (S.foldOpen[k2]){ S.foldOpen[k2] = 0; renderAll(); return; }
+        if (S.foldData[k2]){ S.foldOpen[k2] = 1; renderAll(); return; }
+        if (S.foldWait[k2]) return;              /* 正在拉取，防重复 */
+        flash('正在取回中间气泡…', 'var(--blue)');
+        reqBubbles(k2, sq);
+      };
+      el.msgs.appendChild(fb);
+    }
     el.msgs.appendChild(d);
   });
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 WorkBuddy
@@ -1904,6 +3008,7 @@ function renderMsgs(msgs, finish, opts, ask){
     d.innerHTML = h;
     el.msgs.appendChild(d);
   }
+  renderQueue();                    // 1.67：托管排队条（挂在聊天记录末尾）
   renderPending();                  // 1.09：占位气泡永远排在末尾
   if (inF){
     el.msgs.scrollTop = savedTop;   /* 1.20：全屏内只保位置，
@@ -1952,24 +3057,37 @@ function enterFmsg(){
   flash('已进入历史全屏（点「↓ 回到最新」返回）', 'var(--blue)');
 }
 function exitFmsg(){
-  if (!document.body.classList.contains('fmsg')) return;
+  /* 「回到最新」= 丢弃已翻出的老历史，回到「最近 3 组」的窗口形态
+     （翻页只为读历史；读完回底就卸掉，免得长期挂着大段 DOM）。 */
+  if (!document.body.classList.contains('fmsg')){
+    if (S.pageGroups > 0){ resetPaging(); renderAll(); }
+    return;
+  }
   document.body.classList.remove('fmsg');
-  requestAnimationFrame(() => fprog(el.msgs.scrollHeight));
+  if (S.pageGroups > 0) resetPaging();
+  requestAnimationFrame(() => { fprog(el.msgs.scrollHeight); renderAll(); });
 }
 el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
   if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
+  cliTouch();                               // 1.64：翻对话记录＝人工操作（续登录+上报）
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
-  /* 1.33 全新架构：接近顶部且本地缓存还有更老 → 从账本向前补拉 */
-  if (m.scrollTop < 60 && !S.histLoadingPrev
-      && S.histRaw && S.histRaw.length && S.onLine){
-    const first = S.histRaw[0];
-    if (first && first.seq > 0){
-      S.histLoadingPrev = true;
-      reqHistPrev(S.histConv, first.seq, 30);
+  /* 分页窗口：滑到顶且更老方向还有 → 再往前翻 3 组（先亮「加载中」）。
+     1.69：不再卡 S.onLine——网络断时也要亮横幅，由 30s 看护如实改口报掉线；
+     离线阶段只亮条、不推进游标也不发请求（免得重连后一次拉过头）。 */
+  if (m.scrollTop < 60 && !S.prevBusy && S.more
+      && S.histConv && S.histConv === curConvId() && S.winHeadSeq){
+    S.prevBusy = true;
+    S.loadingMore = true;
+    S.loadMoreFail = false;
+    renderAll();
+    if (S.onLine){
+      S.pageGroups += 3;
+      reqHistPrev(S.histConv, S.winHeadSeq, S.pageGroups);
     }
+    startLoadMoreWatch();
   }
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到
      最新」、切换会话。手指怎么滑都不退（鬼打墙根因）。
@@ -2014,45 +3132,74 @@ el.msgs.addEventListener('wheel', e => {
   }
 }, {passive: true});
 
-function setSendBtn(stop, enabled){       // 单按钮：发送 ⇄ 停止
-  el.send.textContent = stop ? '停止' : '发送';
-  el.send.classList.toggle('stopmode', stop);
+function setSendBtn(mode, enabled){       // 单按钮：发送 ⇄ 停止 ⇄ 排队 ⇄ 放回
+  el.send.textContent = (mode === 'stop') ? '停止'
+                  : (mode === 'queue') ? '排队'
+                  : (mode === 'restore') ? '放回' : '发送';
+  el.send.classList.toggle('stopmode', mode === 'stop');
+  el.send.classList.toggle('intermode', mode === 'queue' || mode === 'restore');
   el.send.disabled = !enabled;
 }
 /* F5：发送钮状态守卫——只在「停止/可发/置灰」三态翻转时才刷 DOM
    （textContent/class/disabled 共 4 处），同态直接跳过，不再每帧
    无条件赋值。 */
 let _sbKey = '';
-function refreshSendBtn(){               // 1.30：两态——有本地字=发送；生成中无字=停止
-  el.send.classList.remove('intermode');
+function refreshSendBtn(){               // 1.30/1.52/1.53：发送 ⇄ 停止 ⇄ 排队 ⇄ 放回
   /* 1.35：按钮可用性只看本地文字——不再因「界面未就绪」误判置灰；
      任何情况只要有本地文字就能点发送（服务端会在界面跑起来后执行） */
-  let stop, enabled;
+  let mode, enabled;
   if (el.ent.value.trim()){
-    /* 1.30：有本地字就显示「发送」——无论空闲还是生成中。生成中点发送
-       由服务端先暂停本轮生成（点停止键→等空闲）再正常发送。 */
-    stop = false; enabled = true;
+    /* 1.52：生成中还有本地字 → 显示「排队」——点它不打断 AI，消息挂进托管
+       队列，等本轮跑完由服务端逐条自动送出（见 host._drain_queues）。
+       1.53：若正处「队列取回修改态」(S.recall) → 显示「放回」——发送即按
+       原位置放回队列（走 queue_restore，而非新开一条）。 */
+    mode = S.recall ? 'restore' : (S.gen ? 'queue' : 'send');
+    enabled = true;
   } else if (S.gen){
-    stop = true; enabled = true;           // 生成中、无本地字 → 停止钮
+    mode = 'stop'; enabled = true;         // 生成中、无本地字 → 停止钮
   } else {
     /* 1.46：空闲灰=需填写文本——本地 #ent 为空则发送钮灰（disabled） */
-    stop = false; enabled = false;
+    mode = 'send'; enabled = false;
   }
-  const key = (stop ? 'S' : 's') + (enabled ? '1' : '0');
+  const key = mode + (enabled ? '1' : '0');
   if (key === _sbKey) return;              // F5：状态没翻转，跳过赋值
   _sbKey = key;
-  setSendBtn(stop, enabled);
+  setSendBtn(mode, enabled);
 }
 
+/* 1.xx：未就绪态分级——用户 2026-10-07：「对面服务器不在线的时候，横幅只会
+   显示『WorkBuddy 界面未就绪』，不够准确」（TRAE 远程控制 2.0 同款修正）。
+   原实现只要 snap.online 为假就一律写这一句，把「服务端（电脑上的程序）没在
+   跑」也归成了「界面未就绪」。现按真实原因分三档：
+     · 本端连不上中转频道 → 说频道问题（与本机网络/中继有关，与服务端无关）；
+     · 选中的服务端最近无任何来向消息（> SRV_DEAD_MS，或名册里从没听过它）
+       → 判定「服务端不在线」；
+     · 服务端消息新鲜（在跑）但 WorkBuddy 没连上 → 才是「界面未就绪」。
+   判据 S.servers[cur].ts＝该服务端最后一次来向消息时刻（regSrv 每收必刷）。 */
+function notReadyState(){
+  if (!S.onLine)
+    return {txt: '未连上中转频道，正在重连…', col: 'var(--orange)'};
+  if (!S.cur)
+    return {txt: '未选择服务端（请打开左侧抽屉选一台）', col: 'var(--gray)'};
+  const s = S.servers[S.cur];
+  const ts = (s && s.ts) || 0;
+  if (!ts || Date.now() - ts > SRV_DEAD_MS)
+    return {txt: '服务端「' + S.cur + '」不在线（无响应）', col: 'var(--red)'};
+  return {txt: 'WorkBuddy 界面未就绪', col: 'var(--red)'};
+}
+let _nrTxt = '';            /* 最近一次写入的「未就绪」文案（防抢一次性提示） */
 function renderState(snap){
   S.gen = false;
   S.ready = !!(snap && snap.online);
   if (!S.ready){
-    el.state.textContent = 'WorkBuddy 界面未就绪';
-    el.state.style.color = 'var(--red)';
+    const nr = notReadyState();
+    _nrTxt = nr.txt;
+    el.state.textContent = nr.txt;
+    el.state.style.color = nr.col;
     refreshSendBtn();                        // 1.35：未就绪也可发，按钮只看本地文字
     return;
   }
+  _nrTxt = '';
   const idle = snap.sendIdle, inp = snap.inputText || '',
         tail = snap.tail;
   if (!idle){                                // 生成中（含远端残留）→ 停止/插话
@@ -2079,17 +3226,31 @@ function renderState(snap){
     el.state.style.color = 'var(--green)';
     refreshSendBtn();                  // 1.46：空闲灰=本地无文字；填完激活
   }
-  /* 1.16：切换在途期间状态栏一律显示「正在切换」——正文没到达前
-     不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容） */
+  /* 1.16：切换在途期间状态栏一律显示在途分档文案——正文没到达前
+     不提前放行成「空闲」（跑太快让人以为切好了其实还是旧内容）。
+     1.82：分档（连接WS/等待回应/正在切换/失败）取代原一句「正在切换」。 */
   if (S.switch_pend){
-    el.state.textContent = '正在切换「' + (S.switch_pend.disp || '新会话') + '」…';
-    el.state.style.color = 'var(--blue)';
+    el.state.textContent = switchTipTxt(S.switch_pend);
+    el.state.style.color = switchTipCol(S.switch_pend);
+  }
+  else if (S.switch_ok){                 // 1.82：切换成功闪现 2 秒后交回状态灯
+    el.state.textContent = '切换成功';
+    el.state.style.color = 'var(--green)';
   }
   else if (S.loadingConv){               // 1.28：snap 未到 → 加载占位
     el.state.textContent = '正在加载「' + (S.loadingConv.disp || '新会话') + '」…';
     el.state.style.color = 'var(--blue)';
   }
 }
+/* 1.xx：未就绪文案定期复核——服务端静默/离线时没有快照驱动 renderState，
+   横幅会一直停在旧文字（如刚切到离线服务端时的「界面未就绪」，或反之服务端
+   已掉线却仍写着「未就绪」）。每 5 秒重算一次：仅当「仍未就绪」且「当前横幅
+   正是我们刚写的未就绪文案」（＝没有别的一次性提示/错误在显示）时才刷新。 */
+setInterval(() => {
+  if (S.ready) return;
+  if (!_nrTxt || el.state.textContent !== _nrTxt) return;
+  renderState(S.snap);
+}, 5000);
 
 function renderAttach(items){
   const row = el.attach_row;
@@ -2234,6 +3395,9 @@ function renderFavPage(){
 const MODEL_UNK = '（模型未知）';   // 1.18：模型读不到时的占位显示
 function syncModel(cur){
   if (S.model_busy) return;
+  /* 1.50：校验失败后钉住「实际跑的模型」——下拉要照实显示，不能被
+     快照里的「所选」反复拨回去；用户重新选择/重连即撤。 */
+  if (S.model_pin) cur = S.model_pin;
   const ph = el.model.querySelector('option[data-unk]');
   if (!cur){
     /* 1.18: 冻结/未就绪时 snap.model 为空——原实现直接早退，浏览器
@@ -2259,6 +3423,65 @@ function syncModel(cur){
     el.model.appendChild(o);
     el.model.value = cur;
     S.model_map[cur] = cur;
+  }
+}
+
+/* ===== 1.50：模型校验——「我选的」必须真的被跑，否则弹窗 =====
+
+   用户要求：下拉里指定了模型，就要用它跑；跑起来后要核对「实际就是它」，
+   不是就提醒。三道关各堵一处：
+   ① 选中即校验（el.model.onchange）：官方清单已加载却没有这个模型 →
+      当场拒绝 + 弹窗（可能已下架/改名）；
+   ② 服务端校验（cmd_switch_model，暖缓存）：非法 → model_reject 回投；
+   ③ 跑完校验（verifyRun）：发消息时记下「所选 + 回复序号」，新回复到达后
+      用台账里本轮 requestModelId（= 派活 --model 的原样回声）比对；不一致
+      → 弹窗，并把下拉钉到「实际跑的模型」（照实显示）。 */
+
+function showModelDlg(title, body){
+  /* 非阻塞弹窗：强提醒但不打断操作，点「知道了」关闭 */
+  el.md_title.textContent = title;
+  el.md_body.textContent = body;
+  el.md.classList.add('on');
+}
+
+function verifyRun(snap){
+  /* 服务端「所选」为准，同步本端意图（切模型中/钉住实际模型时不覆盖） */
+  if (!S.model_busy && !S.model_pin) S.model_sel = snap.model || S.model_sel;
+  const v = S.verify;
+  if (!v) return;
+  /* 1.68：快照不是这条消息所在的会话 → 不评判。发送可带 conv 定向到某会话，
+     而快照恒为服务端「当前」会话，二者可能不同；不核对就不会误报「没产出回复」 */
+  if (v.conv && snap.title && String(snap.title) !== String(v.conv)) return;
+  const reqN = snap.model_req_n || 0, aN = snap.assist_n || 0;
+  const base = v.n || 0;
+  const baseA = (v.aN === undefined) ? base : v.aN;   /* 1.68：assist_n 自记基线 */
+  if (reqN > base){                        // 新回复带了模型信息 → 真校验
+    S.verify = null;
+    const run = snap.model_run || '', act = snap.model_act || '';
+    if (run === v.sel) return;             // 所选被采纳 → 正常，放行
+    S.model_pin = run || act || '';        // 照实显示实际模型（钉住）
+    syncModel(S.snap.model || '');
+    showModelDlg('⚠ 模型没按所选运行',
+      '你在下拉里选的是「' + v.sel + '」，但本轮实际用的是「'
+      + (run || '未知') + '」'
+      + (act && act !== run ? '（被解析为 ' + act + '）' : '') + '。'
+      + '已把下拉切到实际模型；如要强制「' + v.sel
+      + '」，请重新在下拉中选择（可能该模型已下架/受限，建议先点'
+      + ' ☆ 收藏管理里的「↻ 刷新模型」）。');
+    return;
+  }
+  if (aN > baseA){                         // 有新回复但没带模型信息 → 无从核对
+    S.verify = null;
+    return;
+  }
+  /* 1.68：只有「直发（未走托管队列）」才敢判「没产出回复」——走队列的那条
+     还没轮到发，15 秒内本就不会有回复，判它「模型不出话」属误报。 */
+  if (!v.queued && snap.sendIdle && Date.now() - v.t > 15000){
+    /* 本轮已结束但仍没产出任何回复：所选模型很可能压根跑不起来 */
+    S.verify = null;
+    showModelDlg('⚠ 本轮没有产生回复',
+      '你选的模型「' + v.sel + '」本轮没有产出任何回复，可能该模型不存在、'
+      + '已下架或无权限。请在下拉里换一个模型再试。');
   }
 }
 
@@ -2291,8 +3514,9 @@ function diagTest(){                        // 测电脑端回应：发 hello，
 function diagRender(){
   if (!el.diag_ws) return;
   /* 频道 */
-  el.diag_chan.textContent = CFG && CFG.channel
-    ? (CH_PFX || '') + '•••' + String(CFG.channel).slice(-2) : '未设置';
+  el.diag_chan.textContent = (CFG && CFG.channel
+    ? (CH_PFX || '') + '•••' + String(CFG.channel).slice(-2) : '未设置')
+    + ' · ' + (CFG && CFG.chan === 'backup' ? '副B' : '主A');
   /* 本端连上中转 */
   if (S.onLine){ el.diag_ws.textContent = '✅ 已连上中转';
     el.diag_ws.style.color = '#1a7f37'; }
@@ -2337,15 +3561,122 @@ function diagRender(){
 setInterval(diagRender, 1000);
 
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
-   说明行同步更新（APP_NAME / VER / VER_DESC） ========== */
+   说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.33';
-const VER_DESC = '全新架构：本地缓存秒开（骨架/历史双版本号键）+请求式历史增量补拉/向上翻页；收藏页加「↻ 刷新模型」';
+const VER = '1.95';   /* 1.94：📂 改引用公共独立服务「本地文件查看器」——
+   本端工作台浏览页（page_bench / bench_ls）整体移除；📂 与新建任务「选目录」
+   改用命名窗口打开 viewer，经 postMessage(fvwr_pick) 按 mode 回填
+   （ins=插入输入区 / newdir=回填工作目录）。服务端同步删 cmd_bench_ls。
+   1.93：积分显示一律取整（fmtPts 兜底归一，防小数上屏）。
+   1.92：模型收藏「☆」按钮改正方形（36×36，原 min-width:34px 看着
+   像长条）；另：顶栏积分由服务端 2.16 起只给整数（网页照显）。
+   1.91：顶栏账号下拉再收窄为 60px（＝上一轮 max-width:150px 的
+   40%，用户口径「减到上一轮的 40%」）；#cmb_acct 改 flex:0 0 60px。
+   1.90：顶栏账号下拉改定宽——余下空间全留给模型下拉
+   （模型选择更重要）；先误按屏宽 40% 实现（flex:0 0 40%），1.91 已纠正。
+   1.89：顶部「在线 x/y」撤下，改为「登录账号」切换下拉——
+   选项＝账号库+本机现用账号，选中即切 WorkBuddy 登录态（积分/签到随即按新账号）；
+   旁边「⟳」重扫本机其它安装（沙盘/影子里的分身），把新账号收编进账号库。
+   在线端计数移入设置页诊断。
+   1.88：会话右键菜单「🗑 删除任务」→「🗑 删除此会话」——
+   明确是删会话、不是取消定时（用户 2026-10-11 曾误认）。
+   1.87：升级即清缓存——VER 变化时清掉不重要的本地缓存（流量统计/消息时间/骨架/服务端版本号），
+   保留密钥等要项不动，再带 ?v=VER 重载；修「旧浏览器刷新不出来（残留缓存卡住）」
+   1.86：服务端改名跟随（按稳定 sid 认人）——同一 srv_id 换了显示名，
+   自动把「当前操控/记忆」迁到新名，修「改了设备名→网页端失联（收得到却不渲染）」
+   1.85：抽屉「操作」增「↻ 刷新服务端」——广播点名 who（不带 to、全员应答）
+   刷新在线名册（配合服务端 2.01 全程静默）
+   1.84：TTS 通道分层（用户 2026-10-07）——WS 直连为**默认**，
+                         服务端「本机 TTS 中转」保留为**备用兜底**，仅在直连走不通时回落。
+                         ★ 铁律：同一 id 只真正发出一次请求（直连 or 服务端二选一），
+                         杜绝「两边同时提需求→回两份相同语音」；直连未就绪起连接并给
+                         2.5s 宽限，宽限内直连就绪即改走直连，否则回落；直连回 tts_error
+                         允许一次服务端兜底；直连一连通即把仍等待的改走直连。直连全程静默
+                         （无 ping/hello），断线 ≤3 次退避 + 60s 硬时限。
+                         1.83：TTS 直连（用户 2026-10-07）——网页端播报不再经本地服务端
+                         中转，改为自己连上「TTS+密钥」专属频道（与主频道共用同一把密钥、
+                         自动拼接，用户只输一次），用 FOX 2.0 数据帧提需求、取回音频分片后
+                         本地拼回播放；全程静默（无 ping/hello），只在点 ▶/试听时才说话；
+                         断线按「≤3 次退避 + 60s 硬时限」重连、用尽宣告失败，绝不死磕；
+                         项目复制到任何电脑都能连上任何一台开着 TTS 的电脑。
+                         1.82：切换过程分档状态机（用户 2026-10-07，与 TRAE 2.0 同款）——
+                         原「正在切换到「X」…」一句话从头挂到尾，看不出是没连上、没回音
+                         还是真在切。现拆五档：connecting「正在连接 WS…」→ waiting「等待
+                         服务器回应…」→（服务端回 switch_ack）switching「正在切换中「X」…」
+                         →（switched）ok「切换成功」闪现 2 秒后交回状态灯 → 满 60s 判 fail
+                         「⚠ 切换失败」。在途每 10s 补发一次同一条 switch；WS 掉线退回
+                         connecting、连上即补发。服务端配合新增 switch_ack 回执 + 目标已
+                         是当前会话则智能跳过（直接宣布成功）。
+                         1.81：未就绪态分级——横幅不再一律写「WorkBuddy 界面未就绪」
+                         （用户 2026-10-07 反馈：对面服务器不在线时也写这句，不准确；
+                         与 TRAE 远程控制 2.0 同款修正）。renderState 的未就绪分支改调
+                         notReadyState() 按真实原因分档：连不上中转→说频道；没选服务端→
+                         说未选择；选中服务端近期无来向消息（> SRV_DEAD_MS）→「服务端「X」
+                         不在线（无响应）」；服务端在跑但 WorkBuddy 未连上→才是「界面未就绪」。
+                         另加 5 秒定期复核（仅在仍写未就绪文案、且没有别的一次性提示在显示时）。
+                         1.80：占位卡「看得见就撤」——补回「已进 ⏳ 托管排队条 ⇒ 撤卡」
+                         （用户 2026-10-06 定：消息已经进排队条了，卡还没撤）。1.78 只留
+                         「带正文快照 + rid 命中 acks」一个撤卡点，把「进队列」也冻住了，
+                         但那过头了——排队条本身就是「这条已显示」；骨架快照仍一律不撤。
+                         1.79：↩回退「把文本取回输入框」（用户 2026-10-06 定）——
+                         回退（撤回「我」的这一问）除截断后续外，把该条原文回填输入框，
+                         可改完重发；输入框已有草稿时先确认再覆盖。
+                         1.78：占位卡只在「消息真显示进对话」后才撤（用户 2026-10-06 定）——
+                         ① pendReconcile 撤卡只认「带正文快照 + rid 命中 acks」，
+                         骨架快照（无 msgs，用旧正文兜底）一律不撤，杜绝「卡先没了、
+                         消息还没画出来」的空档；② 进托管队列（rid 命中 snap.queue）
+                         **不再撤卡**，改标「已排队」留着顶到真显示；③ 队列条目被
+                         ✎取回（queue_recall_ok）或 🗑删除（queue_del_done，新增处理）
+                         时按 rid 撤对应占位卡，避免卡白留。
+                         1.77：昵称「能报就报·能显示就显示」——所有外发 JSON 帧附 nick、操控对象名显示昵称；
+                         1.76：设置页新增「本机身份」卡——只读软件号 + 昵称输入
+                         （昵称存 wb_cli_nick，随 login/hb 上报为可选字段 nick）；
+                         1.75：翻页撞顶离线也亮横幅，30s 未回包改口报「掉线，请刷新网络」。
+                         1.74：输入框「公私隔离」——修「别人来输入把我清空」。
+                         case 'sent'(3774) 无条件清 #ent 改为「仅本机自己发的这条
+                         (p.rid===rid) 才清」；别端/AI 的 sent 广播不再清掉本机草稿
+                         （Py 公用 / 网页私用）。本机自发早在 cmd() 清过，此处对本地幂等。
+                         1.73：占位卡「无 rid 不建」——修「小卡片永不消除」。
+                         queued(3791)/pend(3839) 各加 rid 非空门槛：无 rid 的对端
+                         /AI 来件不再冒名建「我方待确认卡」（本地随机 rid 永不命中
+                         snap.acks，卡永驻）。自己发送必带 rid、多端同看别端卡自
+                         带 rid，均不受影响。
+                         1.72：定时自我激活上网页端——会话行右键菜单「⏰ 定时自我激活」
+                         （新建/编辑/取消），有任务的会话行显闹钟角标；走服务端
+                         sched_add/sched_set/sched_del，清单随快照 S.snap.sched 下发。
+                         1.71：去掉无主的「默认服务端」幻影条目（用户 2026-10-03）——
+                         ① handleBody 取消「无 srv → 默认服务端」兜底，无 srv 报文一律
+                         丢弃；② loadSrvs 把历史遗留的「默认服务端」从内存与落盘
+                         （localStorage wb_cli_srvs）一并剔除。左侧菜单只列真实电脑名。
+                         1.70：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
+                         渲染成醒目琥珀色提问卡（左粗条+暖底+加粗），复用语音卡
+                         同一套 ▶ 播放/TTS 通道，可直接听题（1:1 对齐 TRAE 2.21）。
+                         用途：AI 向用户/其他 AI 提问时醒目可见、便于及时作答。 */
+/* 1.45 版本自愈 + 1.87 升级即清缓存：
+   ① GitHub Pages 会缓存旧 html（约10分钟），升级后旧浏览器可能一直空白 →
+      发现「上次见过的版本」与本次不同就带 ?v=VER 重载一次绕开 HTML 缓存；
+   ② 1.87（用户 2026-10-09）：光重载不够——旧浏览器常因残留 localStorage
+      缓存卡住、刷新不出来。故版本变化时先把「不重要的本地缓存」清掉：
+      流量统计 / 消息时间 / 骨架缓存 / 服务端版本号；
+      **保留要项不动**：频道密钥（含在 wb_cli_cfg）/ 昵称 / 软件号 / 模型收藏 /
+      待发箱 / 操控对象记忆。清完再重载。 */
+try {
+  const _VK = 'wb_cli_ver_seen', _pv = localStorage.getItem(_VK);
+  if (_pv !== null && _pv !== VER){
+    /* 1.87：升级清缓存（只清不重要项，密钥等要项保留） */
+    ['wb_cli_net', 'wb_cli_times', 'wb_cli_skel', 'wb_cli_srvver']
+      .forEach(function(k){ try { localStorage.removeItem(k); } catch(e){} });
+    localStorage.setItem(_VK, VER);
+    location.replace(location.href.split('?')[0] + '?v=' + VER);
+  } else {
+    localStorage.setItem(_VK, VER);
+  }
+} catch(e){}
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
     const vm = APP_NAME + ' v' + VER;
-    const vd = 'v' + VER + ' · ' + VER_DESC;
+    const vd = 'v' + VER;
     document.title = APP_NAME + tag;      /* 地址栏/标签标题不带版本号 */
     if (el.lbl_title) el.lbl_title.textContent = vm;
     if (el.lbl_ver) el.lbl_ver.textContent = vd;
@@ -2426,11 +3757,12 @@ function connect(){
    一下线反而要整包重放更费流量，回前台还得干等重连。 */
 let cliHbTimer = null, cliLoggedIn = false, cliIdleAt = Date.now();
 let cliLastBeat = 0;           /* 1.25：最后一次成功发出登录心跳的时刻 */
+let cliActSent = 0;            /* 1.64：最后一次上报「人工活动」的时刻（节流用） */
 function doLogin(){
   cliIdleAt = Date.now();
   if (!cliLoggedIn){
     cliLoggedIn = true;
-    try { sendJson({t: 'login', fg: !document.hidden}); } catch(e){}
+    try { sendJson({t: 'login', fg: !document.hidden, nick: MY_NICK}); } catch(e){}
   }
   cliLastBeat = Date.now();
 }
@@ -2445,12 +3777,28 @@ function startCliHb(){
   cliHbTimer = setInterval(() => {
     if (!S.onLine || !cliLoggedIn) return;
     /* 1.25：后台也照发（保活）——发得出去就发，被系统冻结也无害 */
-    try { sendJson({t: 'hb', fg: !document.hidden}); cliLastBeat = Date.now(); } catch(e){}
+    try { sendJson({t: 'hb', fg: !document.hidden, nick: MY_NICK}); cliLastBeat = Date.now(); } catch(e){}
   }, HB_SEC * 1000);
 }
 function cliTouch(){                       // 任意操作 = 在线（续登录）
   cliIdleAt = Date.now();
   if (!cliLoggedIn) doLogin();             // 有操作且未登录 → 自动登录
+  cliActPing();                            // 1.64：把「人在操作」告诉服务端
+}
+/* 1.64：人工活动上报——服务端据此判定「你正看着本对话」：本对话跑完也不
+   吵你；你离开（无操作超时 / 页面切后台）才亮橙灯提醒。高频事件，故节流
+   10 秒最多发一条；纯信号、无回执、不落日志。 */
+const ACT_MIN = 10000;
+function cliActPing(force){
+  if (!S.onLine) return;
+  const now = Date.now();
+  if (!force && now - cliActSent < ACT_MIN) return;
+  cliActSent = now;
+  try { sendCmd('act', ''); } catch(e){}
+}
+function cliActAway(){
+  if (!S.onLine) return;
+  try { sendCmd('away', ''); } catch(e){}   // 人走了：本对话跑完即可亮橙灯
 }
 setInterval(() => {                        // 1.25：仅「前台且闲置」才退登停播
   if (!document.hidden && cliLoggedIn && Date.now() - cliIdleAt > IDLE_MS)
@@ -2459,6 +3807,7 @@ setInterval(() => {                        // 1.25：仅「前台且闲置」才
 /* 1.25：回前台/回页面 —— 能省则省地续上（不无脑整包重放） */
 function cliResume(){
   cliIdleAt = Date.now();                  // 回前台视为一次操作
+  cliActPing(true);                        // 1.64：回前台＝人在看（立即上报，免节流）
   if (!ws || ws.readyState !== 1){         // 链路已断 → 立刻重连（不等 3 秒）
     ensureConnect();
     return;
@@ -2466,7 +3815,7 @@ function cliResume(){
   const stale = !cliLastBeat || (Date.now() - cliLastBeat > 120000);
   if (cliLoggedIn && !stale){
     /* 没断线、心跳也新鲜 → 只补一个心跳，秒续，免重放 */
-    try { sendJson({t: 'hb', fg: true}); cliLastBeat = Date.now(); } catch(e){}
+    try { sendJson({t: 'hb', fg: true, nick: MY_NICK}); cliLastBeat = Date.now(); } catch(e){}
   } else {
     /* 服务端可能已按「150 秒无心跳」把我们判下线 → 重新登录（整包重放） */
     cliLoggedIn = false;
@@ -2478,9 +3827,10 @@ function ensureConnect(){
   clearTimeout(reconnectTimer);
   connect();
 }
-/* 1.25：切后台/锁屏不再主动下线；回前台自动续上 */
+/* 1.25：切后台/锁屏不再主动下线；回前台自动续上
+   1.64：切后台/锁屏也算「人走了」——上报 away，本对话跑完即可亮橙灯。 */
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) return;             // 只是切走，什么都不做
+  if (document.hidden){ cliActAway(); return; }
   cliResume();
 });
 window.addEventListener('pageshow', () => {  // 从浏览器缓存(bfcache)返回
@@ -2524,9 +3874,13 @@ function handleBody(body){
   try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
   /* 1.12 多服务端：报文按 'srv' 源头名归册；只渲染当前操控服务端
-     的内容（hello/srv 心跳同时维护名册）。旧版服务端无 'srv' 字段
-     → 归入「默认服务端」兼容单机场景。 */
-  const nm = d.srv || '默认服务端';
+     的内容（hello/srv 心跳同时维护名册）。
+     1.71（用户 2026-10-03）：**取消**旧「无 srv → 默认服务端」兜底——本机
+     服务端恒带 srv（电脑名称恒非空，见 host.srv_name 回退计算机名），该兜底
+     只会凭空造出一条无主的「默认服务端」幻影条目。无 srv 的报文一律丢弃、
+     不注册名册。 */
+  const nm = (d.srv || '').trim();
+  if (!nm) return;
   regSrv(nm, d);
   if (d.t === 'srv'){
     if (nm === S.cur && d.alive){ S.alive = new Set(d.alive); renderPorts(); }
@@ -2546,16 +3900,59 @@ function handleBody(body){
   /* 1.33 全新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
   if (d.t === 'hello') onHello(d);
+  /* 1.84：主频道承载**备用兜底**的 TTS 回包——直连走不通时经服务端本机中转，
+     回 tts_ack（阶段回执）+ tts_resp（整段 b64 / err）。 */
+  if (d.t === 'tts_ack') { onTtsAck(d); return; }
+  if (d.t === 'tts_resp'){ onTtsResp(d); return; }
 }
 
-/* ============ 1.12 多服务端名册 ============ */
+/* ============ 1.12 多服务端名册（1.43：落盘 + 只认名称） ============ */
+
+/* 1.43：名册落盘——网页端只认「电脑名称」（随机 ID/sid 只在后台识别用，
+   界面一律不显示）。名称＋最后出现时间存 LS_SRVS，刷新/重开页面立即恢复
+   清单（离线的也留一行 ○）；超 SRV_TTL(7 天) 未再出现的名称自动清理。 */
+let _srv_dirty = false, _srv_save_tm = 0;
+function loadSrvs(){
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(LS_SRVS)); } catch(e){}
+  if (!raw || typeof raw !== 'object') return;
+  const now = Date.now();
+  /* 1.71（用户 2026-10-03）：清掉历史遗留的「默认服务端」僵尸条目——它没有
+     真实来源（本机服务端恒带 srv），只是旧版落盘名册反复恢复出来的幻影；
+     内存与落盘一起剔除。 */
+  if (S.servers['默认服务端']) delete S.servers['默认服务端'];
+  let 有残留 = false;
+  for (const nm of Object.keys(raw)){
+    if (nm === '默认服务端'){ 有残留 = true; continue; }
+    const seen = Number(raw[nm]) || 0;   /* 毫秒时间戳超 32 位，|0 会截断成负数致名册恒被清空 */
+    if (!nm || !seen || now - seen > SRV_TTL) continue;    /* 超期不恢复 */
+    const s = S.servers[nm];
+    if (!s) S.servers[nm] = {name: nm, ts: 0, seen: seen, conn: false};
+    else s.seen = Math.max(s.seen || 0, seen);
+  }
+  if (有残留) saveSrvs();                /* 把残留从落盘里一并剔掉 */
+  renderSrvList();
+}
+function saveSrvs(){
+  const o = {};
+  for (const nm of Object.keys(S.servers)) o[nm] = S.servers[nm].seen || 0;
+  try { localStorage.setItem(LS_SRVS, JSON.stringify(o)); } catch(e){}
+}
+function touchSrvSeen(s){
+  s.seen = Date.now(); _srv_dirty = true;
+  const now = Date.now();
+  if (now - _srv_save_tm >= 3000){ _srv_save_tm = now; _srv_dirty = false; saveSrvs(); }
+}
 
 function regSrv(nm, d){
   let s = S.servers[nm];
-  if (!s) s = S.servers[nm] = {name: nm, ts: 0};
+  if (!s) s = S.servers[nm] = {name: nm, ts: 0, seen: 0, conn: false};
   s.ts = Date.now();
+  touchSrvSeen(s);                            /* 1.43：记最后出现时间（落盘） */
   if (d.sid) s.sid = d.sid;
+  if (d.sid) followRename(nm, d.sid);         /* 1.86：改名跟随（按稳定 sid 认人） */
   if (d.v) s.v = d.v;
+  if (d.nick !== undefined) s.nick = d.nick;   /* 13.1：记住对方昵称（能显示就显示） */
   if (d.t === 'hello' || d.t === 'srv'){
     if (d.boxes) s.boxes = d.boxes;
     if (d.alive) s.alive = d.alive;
@@ -2569,21 +3966,60 @@ function regSrv(nm, d){
   pickCur();
   renderTop();
 }
+/* 1.86：服务端改名跟随（按稳定 sid 认人，不认显示名）——同一台服务端改了
+   显示名后，旧名仍留在本地名册/记忆里，网页端会一直盯着旧名（S.cur），把新名
+   广播全当「非当前操控对象」拦掉，表现为失联（收得到消息、界面却全空）。
+   这里以 srv_id 为锚：发现名册里另有同 sid 的旧名条目，即把「当前选中/记忆」与
+   在线时间迁到新名，并清掉旧名条目。 */
+function followRename(nm, sid){
+  if (!sid) return;
+  const olds = Object.keys(S.servers).filter(
+    k => k !== nm && S.servers[k] && S.servers[k].sid === sid);
+  if (!olds.length) return;
+  const ns = S.servers[nm];
+  let want = null; try { want = localStorage.getItem(LS_SRV); } catch(e){}
+  for (const k of olds){
+    const o = S.servers[k];
+    if (!ns.ts && o.ts) ns.ts = o.ts;         /* 保留「曾上线」新鲜度，免被当没上线 */
+    if (!ns.seen && o.seen) ns.seen = o.seen;
+    delete S.servers[k];
+    if (S.cur === k) S.cur = nm;
+    if (want === k) want = nm;
+  }
+  if (S.cur === nm) want = nm;
+  try { if (want) localStorage.setItem(LS_SRV, want); } catch(e){}
+  saveSrvs();
+}
 function pickCur(){
-  if (S.cur && S.servers[S.cur]) return;      // 现选仍在线
-  const names = Object.keys(S.servers);
-  if (!names.length){ setCur(null); return; }
-  // 优先恢复 localStorage 记忆，否则第一个在线者
+  if (S.cur && S.servers[S.cur]) return;      /* 已选定且仍在名册：不动（离线也保持） */
+  if (S.cur) setCur(null);
+  /* 1.43：只认 localStorage 里记着的那台，绝不按在线/新鲜度替用户挑：
+     记着的那台没上线就什么都不选（等它上来再自动接管）。 */
   let want = null;
   try { want = localStorage.getItem(LS_SRV); } catch(e){}
-  if (want && S.servers[want]) setCur(want);
-  else setCur(names[0]);
-  if (S.cur){
-    flash('已连接服务端 [' + S.cur + ']', 'var(--blue)');
-    applySrvEntry();                           // 载入其缓存状态
-    sendJson({t: 'hello'});                    // 拉即时全量
-    helloWatch();                              // 1.14：快照看门狗
+  /* 1.44：记忆名若连名册里都没有（旧版遗留名/服务端改过名），这条记忆
+     已彻底作废——若不清理，S.cur 会恒为 null，服务端所有 ev（快照/积分/
+     账号/模型）都被「非当前操控对象」拦掉、界面全空。清掉它，退回下面
+     的「名册里只有一台广播过就自动接管」。 */
+  if (want && !S.servers[want]){ want = null; setCur(null); }
+  if (want){
+    /* 1.48（用户规定）：有记忆就「打开即选中」——不再要求本会话收到过它的
+       广播（ts>0），它没在线也保持选中（启动时 loadSrvs 已把它灌回名册）。 */
+    if (S.servers[want]){ setCur(want); enterCur(); }
+    return;
   }
+  /* 1.46（按用户规定细化，2026-09-28）：
+     · 有记忆 → 只认上次那台；它没上线就什么都不选、等用户手动切（不替选）；
+     · 无记忆（首次使用 / 记忆已作废）→ 名册里有在线的就自动接管第一台
+       （帮用户选好，不再出现「连接成功却会话全空」）。 */
+  const heard = Object.keys(S.servers).filter(n => S.servers[n].ts);
+  if (heard.length){ setCur(heard[0]); enterCur(); }
+}
+function enterCur(){
+  flash('已选择服务端 [' + S.cur + ']', 'var(--blue)');
+  applySrvEntry();                           // 载入其缓存状态
+  sendJson({t: 'hello'});                    // 拉即时全量
+  helloWatch();                              // 1.14：快照看门狗
 }
 function setCur(nm){
   S.cur = nm;
@@ -2616,16 +4052,16 @@ function switchSrv(nm){
   setCur(nm);
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
-  S.pending = []; S.switch_pend = null; S._swFail = null;
+  S.pending = []; switchEnd(); S._swFail = null;   /* 1.82：连带清在途定时器 */
+  S.recall = null; renderEditRow();   /* 1.53：换服务端，取回修改态作废 */
   S.loadingConv = null;               /* 1.28：换服务端，加载占位作废 */
   S.switch_target = null;             /* 1.28：目标备忘作废 */
-  S.pend_claims = []; S.pend_conv = '';
   S.busy = false; S.model_busy = false;
+  S.model_pin = null; S.verify = null; S.model_sel = '';   /* 1.50：模型校验态作废 */
   S.points = '—'; el.points.textContent = '积分 —';
   S.acct = ''; renderAcct();
   S.alive = new Set(); S.boxes = [];
   el.model.innerHTML = ''; S.model_map = {};
-  el.box.innerHTML = '';
   S.box = '(未连接)'; S.port = 0;
   el.convs.innerHTML = '';
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
@@ -2641,15 +4077,9 @@ function applySrvEntry(){
   /* 用名册缓存恢复当前服务端的基础状态（hello 应答再补全） */
   const s = S.servers[S.cur];
   if (!s) return;
-  if (s.boxes && s.boxes.length){
-    S.boxes = s.boxes;
-    el.box.innerHTML = '';
-    for (const b of s.boxes){
-      const o = document.createElement('option');
-      o.value = b; o.textContent = b;
-      el.box.appendChild(o);
-    }
-  }
+  /* 1.38：第二行「目标框」下拉已删（本部署只有单个框，无切换需求）——
+     名册里仍记 boxes 供「在线 x/y」计数，只不再渲染下拉。 */
+  if (s.boxes && s.boxes.length) S.boxes = s.boxes;
   if (s.alive){ S.alive = new Set(s.alive); renderPorts(); }
   if (s.box && s.port && s.box !== S.box) applySwitch(s.box, s.port);
 }
@@ -2657,16 +4087,18 @@ function pruneSrv(){
   const now = Date.now();
   let changed = false;
   for (const nm of Object.keys(S.servers)){
-    if (now - S.servers[nm].ts > 75000){
-      delete S.servers[nm]; changed = true;
+    const s = S.servers[nm];
+    if (now - (s.seen || 0) > SRV_TTL){          /* 1.43：超 7 天未出现→清名册 */
+      delete S.servers[nm]; changed = true; continue;
+    }
+    if (s.ts && now - s.ts > 75000 && s.conn !== false){
+      s.conn = false; changed = true;            /* 1.43：无心跳→标离线，名册保留 */
     }
   }
+  if (_srv_dirty){ _srv_dirty = false; _srv_save_tm = now; saveSrvs(); }
   if (changed){
-    if (!S.cur || !S.servers[S.cur]){
-      pickCur();
-      if (S.cur) { applySrvEntry(); sendJson({t: 'hello'}); }
-    }
-    renderSrvList();
+    if (!S.cur || !S.servers[S.cur]) pickCur();
+    renderSrvList(); renderTop();
   }
 }
 setInterval(pruneSrv, 5000);
@@ -2678,7 +4110,8 @@ setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
 function renderTop(){
   const s = S.servers[S.cur];
   const on = s && s.conn;
-  el.srv.textContent = '操控:' + (S.cur || '—') + (on ? ' ●' : ' ○');
+  const _nk = (s && s.nick && s.nick !== S.cur) ? '（' + s.nick + '）' : '';
+  el.srv.textContent = '操控:' + (S.cur || '—') + _nk + (on ? ' ●' : ' ○');
   el.srv.style.color = on ? 'var(--green)' : 'var(--gray)';
 }
 function renderSrvList(){
@@ -2687,25 +4120,62 @@ function renderSrvList(){
   if (!names.length){
     const d = document.createElement('div');
     d.className = 'dmi';
-    d.textContent = '（暂无在线服务端）';
+    d.textContent = '（暂无服务端，等待上线…）';
     d.style.color = 'var(--gray)';
     el.srvlist.appendChild(d);
     return;
   }
+  let remembered = '';
+  try { remembered = localStorage.getItem(LS_SRV) || ''; } catch(e){}
   for (const nm of names){
     const s = S.servers[nm];
     const d = document.createElement('div');
-    d.className = 'dmi' + (nm === S.cur ? ' on' : '');
+    const isCur = nm === S.cur;
+    const isRem = !S.cur && nm === remembered;   /* 1.43：标出上次选中的那台 */
+    d.className = 'dmi' + (isCur ? ' on' : '');
+    /* 1.47：每台左侧紧凑删除按钮（✕，黑白灰）——只删本地落盘与内存；该
+       服务端若仍在广播，下次心跳会重新被发现并再次自动落盘（专治僵尸服务器）。 */
+    const del = document.createElement('span');
+    del.textContent = '✕';
+    del.style.cssText = 'display:inline-block;width:18px;height:18px;line-height:16px;'
+      + 'text-align:center;font-size:12px;color:var(--gray);border:1px solid var(--gray);'
+      + 'border-radius:4px;margin-right:6px;cursor:pointer;vertical-align:middle;'
+      + 'opacity:.75;user-select:none;';
+    del.onclick = (ev) => { ev.stopPropagation(); delSrv(nm); };
+    d.appendChild(del);
+    /* 1.47：当前默认操控的那台（S.cur）在条目上打 ⭐（表示默认/常用，用户规定） */
+    if (isCur){
+      const st = document.createElement('span');
+      st.textContent = '⭐';
+      st.style.cssText = 'font-size:13px;margin-right:3px;vertical-align:middle;';
+      d.appendChild(st);
+    }
     const na = (s.alive || []).length,
           nb = (s.boxes || []).length;
-    d.textContent = (s.conn ? '● ' : '○ ') + nm
+    const tx = document.createElement('span');
+    tx.textContent = (s.conn ? '● ' : '○ ') + nm
+                  + (s.nick && s.nick !== nm ? '（' + s.nick + '）' : '')
                   + (nb ? '（在线 ' + na + '/' + nb + '）' : '')
+                  + (isRem ? '（上次）' : '')
                   + (s.lock && s.lock.mine === false
                      ? ' 🔒' + (s.lock.id || '被占用') : '');
-    if (nm === S.cur) d.style.color = 'var(--blue)';
+    d.appendChild(tx);
+    if (isCur) d.style.color = 'var(--blue)';
     d.onclick = () => { drawerClose(); switchSrv(nm); };
     el.srvlist.appendChild(d);
   }
+}
+/* 1.47：删除名册条目（✕ 按钮）——只删本地落盘与内存；若服务端仍在广播，
+   下次心跳会重新被发现并再次自动落盘（期望行为）。删的正是当前默认操控的
+   那台就清掉记忆（setCur(null)）并重新走 pickCur：无记忆则自动接管第一台
+   在线，无在线则什么都不选。 */
+function delSrv(nm){
+  if (!S.servers[nm]) return;
+  delete S.servers[nm];
+  saveSrvs();
+  if (S.cur === nm) setCur(null);
+  if (!S.cur || !S.servers[S.cur]) pickCur();
+  renderSrvList(); renderTop();
 }
 el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
 
@@ -2718,12 +4188,22 @@ function onEv(kind, v){
       return;
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
+      /* 1.78：本拍是否真带正文——撤占位卡只认「带正文且已落地」的快照
+         （见 pendReconcile；骨架快照无 msgs，不可据此撤卡）。 */
+      const hasMsgs = ('msgs' in v);
       /* 1.xx：骨架快照（登录连上先发框架、无 msgs）→ 用旧正文兜底，
          不闪空；带 msgs 的下一拍正常快照到达后自然补齐。 */
-      if (!('msgs' in v) && S.snap && Array.isArray(S.snap.msgs))
+      if (!hasMsgs && S.snap && Array.isArray(S.snap.msgs))
         v.msgs = S.snap.msgs;
       S.snap = v;
-      pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
+      /* 分页窗口元数据随快照更新：游标（翻页基准）、窗口前的「我」条数
+         （回退/删除全局下标）、能否再翻。窗口推进触发的重锚在 renderAll
+         →ensureHist 里做（那时会话 sid 已对齐）。 */
+      S.winHeadSeq = v.msgs_head_seq | 0;
+      S.winUserOff = v.msgs_useroff | 0;
+      if (S.pageGroups <= 0) S.more = !!v.msgs_more;
+      verifyRun(v);                          // 1.50：核对本轮实际跑的模型
+      pendReconcile(v.msgs || [], hasMsgs);  // 1.78：只在带正文落地时撤占位
       if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
         const cv = v.convs || [];
         const act = cv.find(r => r[0] === 'c' && r[2]);
@@ -2731,24 +4211,19 @@ function onEv(kind, v){
         /* 1.16：到达确认——标题激活还不够（WorkBuddy 先亮标题后加载
            正文），消息指纹与切换前不同才说明正文真的换过来了 */
         const arrived = msgsFp(v.msgs) !== S.switch_pend.fp0;
-        const timedout = Date.now() - S.switch_pend.ts > 12000;
-        if ((act && act[1] === S.switch_pend.title && arrived) || !has
-            || timedout){
-          /* 1.xx：切换结束判定——成功到达(内容有变)归零失败计数；失败/
-             超时不再自动弹横幅，改由 fullsCheckFire 在 15s 判空后弹确认
-             框问是否查询最大化（被动，经确认才查）。 */
-          if (act && act[1] === S.switch_pend.title && arrived){
-            S.falls_fail = 0;
-          }
-          /* 1.xx：超时/迟到（目标快照没按时到）→ 主动拉即时全量，
-             避免界面停留在旧内容/「未就绪」观感等 12s 才缓过来 */
-          if (timedout && !arrived){
-            /* F7：记录待观察目标——下一拍渲染后若仍未激活该会话
-               （switch_pend 已清、act 未到目标），轻提示「切换未完成」 */
+        const arrivedOk = !!act && act[1] === S.switch_pend.title && arrived;
+        /* 1.82：超时不再由这里判——改由 switchArm 的 60s 定时器统一收口
+           （否则 24s 就想撤条，「切换失败」永远轮不到）。这里只管两种
+           确定结论：正文真到了、或带正文快照里目标已不在列表；
+           骨架快照（hasMsgs=false）不作数，免得误撤在途条。 */
+        if (arrivedOk || (hasMsgs && !has)){
+          if (!arrivedOk){
+            /* F7：目标已不在列表——下一拍渲染后轻提示「切换未完成」，
+               并主动拉即时全量对齐 */
             S._swFail = {title: S.switch_pend.title};
             try { sendJson({t: 'hello'}); } catch(e){}
           }
-          S.switch_pend = null;              // 超时兜底，别一直挂着
+          switchEnd();                       /* 结束在途（连带清 10s/60s 定时器） */
         }
       }
       S.loadingConv = null;                   // 1.28：snap 到达，撤加载占位
@@ -2758,6 +4233,7 @@ function onEv(kind, v){
     case 'dead':
       flash('✘ 未连接（' + v + '）', 'var(--red)');
       S.snap = {};
+      S.histConv = ''; resetPaging();         /* 断线：翻页窗口一并作废 */
       S.loadingConv = null;                   // 1.28：断了还挂占位没意义
       renderState({});
       S.attach_pending = null;
@@ -2774,27 +4250,84 @@ function onEv(kind, v){
     case 'sent': {                           /* 1.09：服务端阶段回报
         （typed 已进 WorkBuddy 输入框 / clicked 已点发送 / queued 已排队；
         旧版服务端发纯文本也兼容——只当 unknown 状态处理） */
-      let stage = '', text = '';
+      let stage = '', text = '', rid = '';
       if (v && typeof v === 'object'){
-        stage = v.stage || ''; text = v.text || '';
+        stage = v.stage || ''; text = v.text || ''; rid = v.rid || '';
       } else if (typeof v === 'string') text = v;
-      const p = S.pending.find(x => (!text || x.text === text)
+      /* 1.63：优先按 rid 定位占位卡（只认 ID）；老服务端无 rid 时退回按文本。 */
+      const p = S.pending.find(x => (rid ? x.rid === rid
+                                        : (!text || x.text === text))
                                     && x.state !== 'timeout');
       if (p){
-        if (stage === 'queued') p.state = 'queued';
-        else if (stage === 'clicked') p.state = 'sent';
+        /* 1.63：stage='queued'=直发已受理——保持默认态「已发送，正等待服务器
+           回应」，不再误标成「已排队，等待 AI 处理」（用户 09-29 定：
+           单条消息先关心 WS/传输层，排队态只留给真·托管入队）。 */
+        if (stage === 'clicked') p.state = 'sent';
         else if (stage === 'typed') p.state = 'typed';
       }
       S.msgs_key = null;
-      el.ent.value = '';
+      /* 1.74：只在「本机自己发的这条」回执时清输入框（p 是按 rid 命中的我方占位卡）。
+         别端/AI 的 sent 广播不得清掉本机正在打的草稿（用户 2026-10-04 定：
+         Py 版输入框=公用，网页版=私用，操作公用不得波及网页私用草稿）。
+         本机自发早在 cmd() 里清过 → 此处对本地幂等；取消/附件的清空走各自本地路径。 */
+      if (p && rid && p.rid === rid) el.ent.value = '';
       refreshSendBtn();
       renderAll();
       break;
     }
-    case 'fullscreen_warn':                  /* 1.xx：最大化检测结果（前端主动查出） */
-      if (el.lbl_fulls) el.lbl_fulls.textContent = (v && v.msg) || '—';
-      if (v && v.on) fullsShow(v.msg);   /* 有压制时仍横幅提醒 */
-      else fullsHide();
+    case 'queued': {                         /* 1.62：托管队列回执——
+        stage='wait' 已挂入队列（服务端已确认收到）/ stage='sent' 队首已放行 */
+      const qt = (v && v.text) || '';
+      const qstage = (v && v.stage) || 'wait';
+      const qrid = (v && v.rid) || '';
+      /* 1.63：优先按 rid 定位占位卡（只认 ID）；老服务端无 rid 退回按文本。 */
+      const qp = S.pending.find(x => (qrid ? x.rid === qrid
+                                           : (!qt || x.text === qt))
+                                     && x.state !== 'timeout');
+      if (qp) qp.state = (qstage === 'sent') ? 'sent' : 'queued';
+      /* 1.73：建卡必须有 rid——能撤的卡才建；无 rid 的 queued（对端/AI 来件）
+         一律不冒名建「我方待确认卡」，否则本地随机 rid 永远撤不掉、卡永驻。 */
+      if (qstage === 'wait' && qt && qrid
+          && !S.pending.some(x => x.text === qt)) pendAdd('send', qt, qrid);
+      flash(qstage === 'sent' ? '▶ 托管队列已放行发出 1 条'
+                              : '🕘 已挂入托管队列（服务端已确认收到）',
+            qstage === 'sent' ? 'var(--green)' : 'var(--orange)');
+      S.msgs_key = null;
+      renderAll();
+      break;
+    }
+    /* ── 1.53：托管队列「真取回修改」事件 ── */
+    case 'queue_recall_ok':                  /* 取回成功：该条已从队列撤下（真撤下），
+                                                原文交回前端进输入框改 */
+      S.recall = {id: (v && v.id) || '', pred: (v && v.pred) || ''};
+      /* 1.78：这条已真取回（离开队列、不会再落地）→ 撤下对应占位卡（按 rid） */
+      if (v && v.id) S.pending = S.pending.filter(x => String(x.rid || '') !== String(v.id));
+      el.ent.value = (v && v.text) || '';
+      entFit();
+      renderEditRow(); refreshSendBtn(); renderAll();
+      flash('已取回队列中的一条：改好后点「放回」（回原位），或取消', 'var(--blue)');
+      break;
+    case 'queue_recall_fail':                /* 取回失败：该条已被放行 */
+      S.recall = null;
+      renderEditRow(); refreshSendBtn();
+      flash('⚠ 这一条已经发出去了，来不及取回', 'var(--orange)');
+      break;
+    case 'queue_del_done':                   /* 1.78：队列里这条已被删除（不会发出去）
+                                                → 撤下对应占位卡（按 rid），免得卡白留 */
+      if (v) S.pending = S.pending.filter(x => String(x.rid || '') !== String(v));
+      renderAll();
+      break;
+    case 'queue_restore_done':               /* 放回成功 */
+      S.recall = null;
+      renderEditRow(); refreshSendBtn();
+      flash('↩ 已放回托管队列', 'var(--green)');
+      break;
+    case 'queue_sendnow_done':               /* 1.69：⚡立即发送已受理——服务端已
+        中止当前轮并放行这条（真·立即）。撤掉该条禁用的按钮态，等快照刷新 */
+      flash('⚡ 已立刻发送这条（当前生成已中止）', 'var(--blue)');
+      break;
+    case 'queue_sendnow_fail':               /* 1.67：⚡立即发送失败——该条已被放行 */
+      flash('⚠ 这一条已经发出去了，来不及立即发', 'var(--orange)');
       break;
     case 'pend': {                           /* 1.10：命令受理广播——
         别的端（PC 面板）发出的消息也在本机回显占位，多端同看。
@@ -2802,36 +4335,105 @@ function onEv(kind, v){
         目标激活即撤、8s 兜底），此前误入气泡会挂 15s 变「未确认」 */
       const pk = (v && v[0]) || 'send';
       const pt = (v && v[1]) || '';
+      const pr = (v && v[2]) || '';      /* 1.63：多端同看时也用同一条目 rid */
       if (pk === 'switch'){
         pendSwitchSet(pt);
         renderAll();
         break;
       }
-      if (pt && !S.pending.some(x => x.text === pt)){
-        pendAdd(pk, pt);
+      /* 1.73：同上——无 rid 的 pend（别端/AI 受理广播）不建「我方占位卡」 */
+      if (pt && pr && !S.pending.some(x => x.text === pt)){
+        pendAdd(pk, pt, pr);
         renderAll();
       }
       break;
     }
     case 'points':
       if (v && v !== '读取失败') S.points = v;
-      el.points.textContent = '积分 ' + v;
+      el.points.textContent = '积分 ' + fmtPts(v);
       break;
+    case 'checkin': {
+      /* 1.59：今日签到结果。成功→提示 +N 并把积分即时加进显示；
+         其余状态如实提示、不刷积分。 */
+      S.checkin_busy = false;
+      const st = (v && v.status) || 'err';
+      if (v && v.ok){
+        const credit = Number(v.credit) || 0;
+        if (credit){
+          S.points = (Number(S.points) || 0) + credit;
+          el.points.textContent = '积分 ' + fmtPts(S.points);
+        }
+        flash('✅ 签到成功' + (credit ? ' +' + credit + ' 积分' : '') +
+              (v.streak_days ? '（连续 ' + v.streak_days + ' 天）' : ''),
+              'var(--green)');
+      } else if (st === 'already'){
+        flash('今天已经签过啦', 'var(--orange)');
+      } else if (st === 'not_eligible'){
+        flash('当前账号不符合签到资格', 'var(--orange)');
+      } else if (st === 'ended'){
+        flash('签到活动已结束', 'var(--orange)');
+      } else {
+        flash('签到失败：' + ((v && v.err) || '未知错误'), 'var(--red)');
+      }
+      break;
+    }
     case 'account':                        /* 1.33：登录账号名（读积分时带回） */
       S.acct = String(v || '');
       renderAcct();
+      break;
+    case 'acct_list':                      /* 1.89：账号库（切账号下拉的数据源） */
+      S.acct_items = (v && v.items) || [];
+      renderAcctSel();
+      if (v && v.new) flash('已收编 ' + v.new + ' 个新账号', 'var(--green)');
+      break;
+    case 'acct_switched':                  /* 1.89：切账号结果 */
+      if (v && v.ok){
+        if (v.account){ S.acct = String(v.account); renderAcct(); }
+        flash('✅ 已切换账号：' + (v.account || ''), 'var(--green)');
+      } else {
+        flash('账号切换失败：' + ((v && v.msg) || '未知错误'), 'var(--red)');
+        sendCmd('acct_list', null);
+      }
       break;
     case 'models':
       S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
       rebuildModelOptions();
       checkFavInvalid();
       break;
-    case 'model_set':
+    case 'model_set': {
+      /* 1.50：口径 [请求的, 实际生效]。相同=绿字；不同=没生效 → 红字 + 弹窗 */
       S.model_busy = false;
-      flash(v[0] === v[1] ? '模型已切换：' + v[1]
+      const ok = v[0] === v[1];
+      flash(ok ? '模型已切换：' + v[1]
         : '「' + v[0] + '」未生效（当前 ' + (v[1] || '未知') + '）',
-        v[0] === v[1] ? 'var(--green)' : 'var(--red)');
+        ok ? 'var(--green)' : 'var(--red)');
+      S.model_pin = null;                 // 服务端已按「实际」收敛，撤钉
+      S.model_sel = v[1] || S.model_sel;
+      if (!ok)
+        showModelDlg('⚠ 模型未生效',
+          '你选的「' + v[0] + '」没有生效，当前仍是「' + (v[1] || '未知')
+          + '」。请换一个模型，或到 ☆ 收藏管理点「↻ 刷新模型」后重选。');
       syncModel(v[1]);
+      break;
+    }
+    case 'model_reject':
+      /* 1.50：服务端按官方清单拒绝了非法模型名（未落盘、保持原模型） */
+      S.model_busy = false;
+      S.model_pin = null;
+      S.model_sel = v[1] || S.model_sel;   // 未生效 → 意图回退到当前模型
+      showModelDlg('⚠ 模型不可用，未切换',
+        '「' + v[0] + '」不在当前官方模型清单里（可能已下架或改名），'
+        + '已保持当前模型「' + (v[1] || '未知') + '」。建议到 ☆ 收藏管理点'
+        + '「↻ 刷新模型」，或换一个模型再选。');
+      syncModel(v[1]);
+      break;
+    case 'switch_ack':                   /* 1.82：服务端已收到切换命令（命令入
+        受理即回执）→ 由「等待服务器回应」转「正在切换中」 */
+      if (S.switch_pend && (S.switch_pend.phase === 'connecting'
+          || S.switch_pend.phase === 'waiting')){
+        S.switch_pend.phase = 'switching';
+        renderAll();
+      }
       break;
     case 'switched': {
       /* 1.28：切换即时反馈——服务端 set_current 完成即确认切换：
@@ -2839,6 +4441,13 @@ function onEv(kind, v){
          上「正在加载」占位，不等 snap（1.2s±抖）才动 */
       const swT = (S.switch_pend && S.switch_pend.title)
                || (S.switch_target && S.switch_target.title) || '';
+      /* 1.82：展示名（原代码引用了从未定义的 swD —— 会 ReferenceError；
+         现按 switch_pend/switch_target 的 disp 兜底，并供「切换成功」档用） */
+      const swD = (S.switch_pend && S.switch_pend.disp)
+               || (S.switch_target && S.switch_target.disp) || '';
+      /* 1.82：本次是否真有一次在途切换——boot/跨机/新建也会发 switched，
+         那种情况不该闪「切换成功」 */
+      const hadPend = !!(S.switch_pend || S.switch_target);
       /* snap 先于 switched 到达（快照已是新目标）→ 保留快照直接渲染，
          不重复占位。判定用 snap.title===目标标题 为主信号（快照顶层
          title=当前会话 sid，比 convs 的 act 标记更快就位、更可靠）；
@@ -2848,9 +4457,18 @@ function onEv(kind, v){
         && (String(S.snap.title || '') === swT
             || (S.snap.convs || []).some(r => r[0] === 'c' && r[2]
                  && ((r[3] || r[1]) === swT))));
-      applySwitch(v[0], v[1], hasTarget);
+      /* 1.68：本端刚发起「新建对话」——服务端 set_current 先推新会话快照再发
+         switched，但新建没有具名目标（swT 为空），照旧会 keepSnap=false 把刚到
+         的新快照清成 {} → 前端误闪「界面未就绪」。此处对「本端发起的新建」
+         保留新快照（其它具名切换逻辑不变）。 */
+      const freshNew = !swT && S.new_conv_pend
+        && (Date.now() - S.new_conv_pend < 8000)
+        && !!(S.snap && S.snap._port === v[1] && S.snap.online);
+      S.new_conv_pend = 0;             /* 消费即清 */
+      applySwitch(v[0], v[1], hasTarget || freshNew);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now(), disp: swD} : null;
+      if (hadPend) switchOk(swD || swT);   /* 1.82：闪现「切换成功」2s 后交回状态灯 */
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
       scheduleRenderAll();
       break;
@@ -2892,7 +4510,7 @@ function onEv(kind, v){
         renderAll();
       }
       if (S.switch_pend || S.loadingConv){
-        S.switch_pend = null; S.loadingConv = null;
+        switchEnd(); S.loadingConv = null;      /* 1.82：连同在途定时器一起清 */
         S.switch_target = null; renderAll();
       }
       document.querySelectorAll('.optbtn.picked').forEach(b => {
@@ -2900,12 +4518,9 @@ function onEv(kind, v){
         b.classList.remove('picked');
       });
       break;
-    case 'bench_ls':                       // 1.01：📂 目录应答
-      benchRender(v);
-      break;
     case 'msg_act':                        // 1.06：回退/删除完成 (kind, mi)
       flash(v[0] === 'revert'
-        ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
+        ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前（原文已取回输入框）'
         : '已删除第 ' + (v[1] + 1) + ' 条「我」的消息', 'var(--green)');
       break;
     case 'task_dlg':                        // 1.08：记忆目录抓取结果（预填）
@@ -2928,6 +4543,17 @@ function onEv(kind, v){
 function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
   diagLog('收到服务器 hello 回应 ✓', 'ok');
+  /* 1.63：账号通道——本地没选过（新装/清缓存）时采纳电脑端下发的默认通道，
+     与电脑端保持一致（电脑端默认主A，各项目流量归拢到同一账号看日开销）。
+     采纳副B需重连一次才真正切过去；采纳主A则当前就是，无需重连。 */
+  if (d.chan && !CFG.chan){
+    CFG.chan = (d.chan === 'backup') ? 'backup' : 'main';
+    cfgSave();
+    if (el.sel_chan) el.sel_chan.value = CFG.chan;
+    diagLog('未选过通道，按电脑端默认连 ' + (CFG.chan === 'backup' ? '副B'
+                                                          : '主A'), 'ok');
+    if (CFG.chan === 'backup'){ connect(); return; }
+  }
   /* 1.33 全新架构：服务端版本号 → 双版本号缓存键，任一变化清本地缓存 */
   if (d.ver !== undefined){ S.srvVer = String(d.ver || '0'); checkVerBump(); }
   if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;
@@ -2946,28 +4572,22 @@ function onHello(d){
     renderSrvList();          // 清单同步显示 🔒 标记
   }
   const boxes = (d.boxes || []).filter(Boolean);
-  if (boxes.length && JSON.stringify(boxes) !== JSON.stringify(S.boxes)){
+  /* 1.38：只更新计数源，不再重建下拉（元素已删） */
+  if (boxes.length && JSON.stringify(boxes) !== JSON.stringify(S.boxes))
     S.boxes = boxes;
-    el.box.innerHTML = '';
-    for (const b of boxes){
-      const o = document.createElement('option');
-      o.value = b; o.textContent = b;
-      el.box.appendChild(o);
-    }
-  }
   S.alive = new Set(d.alive || []);
   renderPorts();
   if (d.points && d.points !== '—'){
     S.points = d.points;
-    el.points.textContent = '积分 ' + d.points;
+    el.points.textContent = '积分 ' + fmtPts(d.points);
   }
   if (d.acct !== undefined){                       /* 1.33：登录账号名随 hello */
     S.acct = String(d.acct || '');
     renderAcct();
   }
-  if (d.q !== undefined){                          /* 1.36：插话排队计数随 hello */
-    S.qn = d.q;
-    renderQueue();
+  if (d.accts !== undefined){                      /* 1.89：账号库随 hello 下发 */
+    if (d.accts){ S.acct_items = d.accts.items || []; renderAcctSel(); }
+    if (!S.acct_asked){ S.acct_asked = true; try{ sendCmd('acct_list', null); }catch(e){} }
   }
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
@@ -2978,20 +4598,21 @@ function onHello(d){
 
 function applySwitch(box, port, keepSnap){
   S.box = box; S.port = port;
+  foxStop();                   /* 1.69：换目标先停掉正在播的语音（免打扰） */
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   /* 1.28：keepSnap=true（snap 先于 switched 到达、内容已是新目标）时
      保留现有快照直接渲染，避免旧内容被清后白等下一拍 */
   S.snap = keepSnap ? S.snap : {};
   S.convs_key = null; S.msgs_key = null;
-  S.attach_pending = null; S.model_busy = false;
-  /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
-  S.pending = []; S.switch_pend = null;
+  S.attach_pending = null; S.model_busy = false; S.verify = null;
+  S.histConv = ''; resetPaging();           /* 换目标：分页窗口作废重来 */
+  /* 1.09：换目标——待确认项/切换在途条随旧目标作废（1.82：连同定时器一起清） */
+  S.pending = []; switchEnd();
+  S.recall = null; renderEditRow();         /* 1.53：换会话，取回修改态作废 */
   S.loadingConv = null;                     /* 1.28：换目标，旧占位作废 */
   S.switch_target = null;                   /* 1.28：目标备忘随切换消费/作废 */
-  S.pend_claims = []; S.pend_conv = '';
   S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
                        // 原不重置，boot 一次 S.busy 永卡 true 锁死目标切换
-  el.box.value = box;
   el.convs.innerHTML = '';
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
                      + ' …）</div>';
@@ -3002,7 +4623,27 @@ function applySwitch(box, port, keepSnap){
 
 function setOnLine(b){
   S.onLine = b;
-  if (b){ S.wsOpenAt = Date.now(); S.dropByHide = false; }  // 1.25：连上即清断线标记
+  if (b){
+    S.wsOpenAt = Date.now(); S.dropByHide = false;   // 1.25：连上即清断线标记
+    /* 1.82：切换中掉线（卡在「正在连接 WS」档）→ 连上即转「等待服务器回应」
+       并立刻补发一次 switch（不必干等下一个 10s 周期） */
+    if (S.switch_pend && S.switch_pend.phase === 'connecting'){
+      S.switch_pend.phase = 'waiting';
+      sendCmd('switch', S.switch_pend.title);
+      renderAll();
+    }
+  }
+  /* 1.69：网络恢复 → 自动把「掉线时撞顶没拉成」的历史补回来，
+     省得用户先看到「请刷新网络」还得自己再滑一次。 */
+  if (b && S.loadingMore && S.loadMoreFail && S.more
+      && S.histConv && S.histConv === curConvId() && S.winHeadSeq){
+    S.loadMoreFail = false;
+    S.prevBusy = true;
+    S.pageGroups += 3;
+    renderAll();
+    reqHistPrev(S.histConv, S.winHeadSeq, S.pageGroups);
+    startLoadMoreWatch();
+  }
   renderLink();
 }
 
@@ -3062,39 +4703,109 @@ function srvSeen(){                    // 服务端来向消息：判活 + 即�
 setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
 
 function renderPorts(){
+  /* 1.89：顶栏「在线 x/y」已撤下，改为登录账号切换下拉；元素不存在时直接跳过。 */
+  if (!el.ports) return;
   el.ports.textContent = '在线 ' + S.alive.size + '/' + S.boxes.length;
 }
 
 /* ================= 命令 ================= */
 
-function cmd(c, a){
-  if (!S.onLine){ flash('⚠ 还没连上，命令未发出'); return; }
-  /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
-     清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
+function cmd(c, a, lockConv){
+  /* 1.63：WS 不可用——发消息不再直接拒发（此前只提示「文字已保留」）：
+     挂占位卡并每 10 秒重试一次（共 6 次），卡面显示「WS 失联重试中」；
+     非消息命令（切换/停止等）仍如实告知未发出。
+     （用户 09-29 定：单条消息发出去后，首先关心的是 WS 通不通。）
+     1.66：lockConv=调用方锁定的目标会话 sid（手动重发复用占位卡上的锁定值）；
+     不传（undefined）则维持原行为＝取当前选中会话。 */
+  const isMsg = (c === 'send' || c === 'interject')
+             && typeof a === 'string' && !!a.trim();
+  if (!S.onLine || !foxReady()){
+    if (isMsg){
+      const p = pendAdd(c, a, null, lockConv);
+      if (p) wsRetry(p, c, a, 1);
+      flash('⚠ WS 失联，正在重试发送…', 'var(--orange)');
+      el.ent.value = '';
+      renderAll();
+      return;
+    }
+    flash('⚠ 未连接/连接已断，命令未发出');
+    renderAll();
+    return;
+  }
+  const gen = (c === 'send') && S.gen;      /* 1.52：AI 忙 → 这条走托管队列 */
+  /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡。
+     1.62：**不管忙不忙都先挂占位**——忙时（走托管队列）也要本地留底，
+     没收到服务端回执就能复制/改写/重发；此前忙时只弹提示、不留底，
+     网络一抖就什么都不剩（用户 09-29 报）。 */
+  let rid = '';
+  let pendConv = '';                  /* 1.66：本条占位卡锁定的会话 sid（发送那一刻） */
   if ((c === 'send' || c === 'interject') && typeof a === 'string'
       && a.trim()){
-    pendAdd(c, a);
-    if (c === 'send') flash('⏳ 正在发送…（已回显，等待 WorkBuddy 同步）',
-                            'var(--blue)');
+    const p = pendAdd(c, a, null, lockConv);
+    if (p){ rid = p.rid || '';         /* 1.63：占位卡的随机 ID，随命令带给服务端核对 */
+            pendConv = p.convSid || ''; }
+    if (c === 'send'){
+      /* 1.50：记下本轮「所选模型 + 当前回复序号」——回复到达后核对是否
+         真的用了它（比对台账 requestModelId），不一致弹窗。
+         1.68：一并记 conv（本条落到哪个会话）、aN（assist_n 基线）、
+         queued（是否走托管队列）——verifyRun 据此避免「没产出回复」误报。 */
+      S.verify = {sel: S.model_sel || S.snap.model || '',
+                  n: S.snap.model_req_n || 0,
+                  aN: S.snap.assist_n || 0,
+                  conv: pendConv || curConvId() || '',
+                  queued: !!gen,
+                  t: Date.now()};
+    }
   }
-  sendCmd(c, a);
+  /* 1.66：把占位卡锁定的会话 sid 显式外带（sendCmd 内 `!d.conv` 不会被覆盖），
+     发送那一刻就已定死目标，后续重发/重试不投到切换后的当前会话。 */
+  const cex = {};
+  if (rid) cex.rid = rid;
+  if (pendConv) cex.conv = pendConv;
+  sendCmd(c, a, (cex.rid || cex.conv) ? cex : null);
   if (c === 'send' || c === 'interject'){
+    if (gen) flash('🕘 已加入托管队列，本轮结束后自动发送（若久无回执可重发）',
+                   'var(--orange)');
+    else if (c === 'send') flash('⏳ 正在发送…（已回显，等待 WorkBuddy 同步）',
+                                 'var(--blue)');
     el.ent.value = '';
     renderAll();
   }
 }
 
-el.send.onclick = () => {        // 1.30：有字=发送；生成中无字=停止
+el.send.onclick = () => {   // 1.30/1.52/1.53：有字=发送（忙=排队/取回态=放回）；生成中无字=停止
   const t = el.ent.value.trim();
-  if (t){                        /* 1.30：生成中点发送=「暂停后发送」——
-       服务端收到 send 若在生成中，会先点停止暂停本轮再正常发送 */
-    if (S.gen) flash('⏸ 先暂停本轮，随后发送…', 'var(--blue)');
+  if (t){
+    if (S.recall){               /* 1.53：队列取回修改态——按原位置放回队列。
+        该条在「取回」时已由服务端**真实撤下**（不在网页端改空气），此处
+        只负责把改好的文本送回并尽量恢复原顺序（见 queue_restore）。 */
+      if (!S.onLine){ flash('⚠ 还没连上，放回失败（原文仍在输入框）'); return; }
+      const rc = S.recall;
+      S.recall = null;
+      sendCmd('queue_restore', [t, rc.pred || '']);
+      el.ent.value = ''; entFit();
+      renderEditRow(); refreshSendBtn(); renderAll();
+      flash('↩ 已放回托管队列（尽量回原位置）', 'var(--green)');
+      return;
+    }
+    /* 1.52：生成中点它不打断 AI —— cmd 内转为「加入托管队列」，本轮流完由
+       服务端自动送出 */
     cmd('send', t);
   } else if (S.gen){
+    S.verify = null;      // 1.50：主动停止→本轮状态作废，别误报「没产出回复」
     flash('⏳ 已请求停止生成…', 'var(--blue)');   // 1.09：空白期反馈
     cmd('stop_gen', null);
   }
 };
+/* 1.53：取回修改横幅的「取消修改」——该条在取回时已从队列撤下，取消即丢弃。 */
+if (el.edit_row){
+  el.edit_row.querySelector('.ecancel').onclick = () => {
+    S.recall = null;
+    el.ent.value = ''; entFit();
+    renderEditRow(); refreshSendBtn(); renderAll();
+    flash('已取消修改（该条已丢弃）', 'var(--gray)');
+  };
+}
 /* 聚焦增高输入框（约7倍单行高度），失焦缩回单行，随内容自动扩展（对齐 TRAE） */
 const ENT_GROW = 255, ENT_MAX = 390;
 function entFit(){
@@ -3103,28 +4814,104 @@ function entFit(){
                       (el.ent.value || '') ? ENT_GROW : 34);
   el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
 }
+/* 1.40：打开大输入框即在正文后铺 3 个空行（对齐 TRAE 1.82）——
+   输入法弹出会盖住大框（255px≈9 行）最下面约 3 行，正文一长就被吞掉、
+   又滚不出来（下面没内容可滚）。预留 3 个空行后，被盖住的是空行，正文
+   往上滚就能看全；正文仍从第一行起写、光标落正文末尾（＝空行之前）。
+   只补末尾、不动正文里用户自己敲的空行；不足 3 行才补、已够不动（幂等）。
+   ⚠ 空行是**内容**，故发送与空值判断一律走 value.trim()——空行不会
+   被当正文发出去，也不会点亮发送按钮；发送后 value='' 连空行一起清掉。 */
+const ENT_PAD = 3;                       /* 底部预留空行数 */
+function entPadOpen(){
+  try{
+    const v = el.ent.value || '';
+    const real = v.replace(/\n+$/, '').length;  /* 正文实际长度（末尾空行不算） */
+    el.ent.value = v.slice(0, real) + '\n'.repeat(ENT_PAD);
+    el.ent.setSelectionRange(real, real);       /* 光标落正文末尾＝第一行起写 */
+  }catch(e){}
+}
+/* 1.40：大小框分工（对齐 TRAE 1.79/1.80）——放大态（grow）视线钉底、
+   看得到最后一个字；收起态（单行小框）回到开头、看得到第一个字，一前一后
+   凑出前后概况（1.39 是两态都钉底，小框只看得见尾巴）。 */
+function entPin(){
+  const grow = el.ent.classList.contains('grow');
+  const pin = () => { try { el.ent.scrollTop = grow ? el.ent.scrollHeight : 0; }
+                      catch(e){} };
+  pin();
+  requestAnimationFrame(pin);
+  setTimeout(pin, 130);   /* 等输入法收起动画结束再钉一次 */
+}
+if (window.visualViewport){   /* 输入法弹出/收起都会动视口尺寸 */
+  window.visualViewport.addEventListener('resize', () => {
+    if (document.activeElement === el.ent) entPin();
+  });
+}
 el.ent.addEventListener('focus', () => {
   el.ent.classList.add('grow'); el.input_row.classList.add('grow');   /* 按钮跳顶行 */
-  entFit();
+  entPadOpen();          /* 1.40：铺 3 个空行 + 光标落正文末尾 */
+  entFit(); entPin();
 });
 el.ent.addEventListener('blur', () => {
   el.ent.classList.remove('grow'); el.input_row.classList.remove('grow');
   el.ent.style.height = '34px';
+  entPin();           /* 1.40：缩回单行 → 停在开头，看得到第一个字 */
 });
-el.ent.addEventListener('input', () => { refreshSendBtn(); entFit(); });
+el.ent.addEventListener('input', () => { refreshSendBtn(); entFit();
+  entPin(); });
+el.ent.addEventListener('compositionstart', entPin);   /* 输入法起笔钉底 */
+el.ent.addEventListener('compositionend', entPin);     /* 输入法落字钉底 */
+/* 1.40：输入法的「换行」键不再被当成「发送」（对齐 TRAE 1.81）——
+   软键盘那个换行键发出来的就是一个普通 Enter，且收到时组字早已结束
+   （isComposing 已是 false），旧的 !e.isComposing 挡不住 → 被
+   preventDefault 掐掉换行、直接发了消息。故按输入方式分流：触摸设备
+   Enter 一律放行去换行（发送只走右侧发送按钮，与输入法「换行」字样
+   一致）；桌面硬件键盘保留 Enter 发送。e.shiftKey 恒换行；keyCode 229
+   为安卓中文输入法组字中的「处理中」标记，一并放行。 */
+const _softKb = window.matchMedia
+  ? window.matchMedia('(pointer: coarse)').matches
+  : ('ontouchstart' in window);
 el.ent.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.isComposing){
-    e.preventDefault(); el.send.click();
-  }
+  const isEnter = (e.key === 'Enter' || e.keyCode === 13);
+  if (!isEnter) return;
+  if (e.isComposing || e.keyCode === 229 || e.shiftKey) return;
+  if (_softKb) return;       /* 软键盘的换行键 → 换行，不抢去发送 */
+  e.preventDefault(); el.send.click();
 });
-el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并入）
-  drawerClose();
+/* 1.41：📋 复制按钮在手机上点不动 —— 根治（同 TRAE 1.83）。
+   病根：本按钮只在「放大态」可见（#input_row.grow #btn_copy{display:
+   inline-flex}），而点它的**第一件事就是让输入框失焦**：blur 处理器摘掉
+   grow → 按钮当场 display:none；等浏览器真去派发 click 时它已不在渲染树，
+   click 永远到不了 onclick（用户原话"我点了，没效果"）。
+   对策：改在 pointerdown（早于失焦）动手，并 preventDefault 保住焦点 ——
+   输入框不收起、按钮不消失；click 留作无 PointerEvent 老环境/键盘的兜底，
+   400ms 内去重防重复触发。 */
+function bindGrowBtn(btn, run){
+  let last = 0;
+  const fire = () => {
+    const now = Date.now();
+    if (now - last < 400) return;      /* pointerdown 与后续 click 去重 */
+    last = now;
+    run();
+  };
+  if (window.PointerEvent){
+    btn.addEventListener('pointerdown', e => { e.preventDefault(); fire(); });
+  }
+  btn.addEventListener('click', fire);
+}
+bindGrowBtn(el.copy, () => {     // 1.40：一键复制输入框内容（放大态小工具）
+  const t = el.ent.value;
+  /* 判空必须走 trim —— 框内恒有 3 个空行，`!t` 会假报"已复制" */
+  if (!t.trim()){ flash('输入框是空的，没东西可复制'); return; }
+  copyText(t);                   // 复用 1.24 的 copyText（含非安全上下文兜底）
+});
+el.new.onclick = () => {         // 1.68：CLI 无目录可选、无输入区要「展开」——
+  drawerClose();                 // 直接建新会话，不再绕「新建任务」弹窗页（少一页）
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   if (!S.snap || !S.snap.online){ flash('⚠ WorkBuddy 未在线'); return; }
-  if (S.task_open) return;
-  taskDlgOpen();
-  flash('正在展开新建任务…', 'var(--blue)');
-  sendCmd('new_task_dlg', null);
+  S.verify = null;               // 新建即放弃上一轮的模型校验态
+  S.new_conv_pend = Date.now();  // 供 switched 判断「刚发起的新建」，保住新快照
+  flash('正在新建对话…', 'var(--blue)');
+  sendCmd('new_task_in', null);
 };
 el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 boot
   drawerClose();                  // 本就先杀再拉——原在线时本地拦下，
@@ -3141,25 +4928,11 @@ el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 b
                : '正在请求服务端拉起 ' + S.box + '…', 'var(--blue)');
   sendJson({t: 'boot', box: S.box});
 };
-el.box.onchange = () => {                 // 切换目标：在线直接切/离线确认拉起
-  const box = el.box.value;
-  if (box === S.box || S.busy){ el.box.value = S.box; return; }
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); el.box.value = S.box; return; }
-  if (S.alive.has(box)){
-    flash('正在切换到 ' + box + '…', 'var(--blue)');
-    sendJson({t: 'switch_box', box: box});
-  } else {
-    if (!confirm('[' + box + '] 在服务端未带调试端口运行。\n\n'
-      + '要请求服务端重启该 WorkBuddy 并带端口吗？\n'
-      + '（服务端正在运行的该 WorkBuddy 会先关闭）')){
-      el.box.value = S.box; return;
-    }
-    S.busy = true;
-    flash('正在请求服务端拉起 ' + box + '…', 'var(--blue)');
-    sendJson({t: 'boot', box: box});
-  }
-};
+/* 1.38：删除「目标框下拉 + onchange 切换」——本部署服务端只注册单个框，
+   下拉永远只有一项、无切换价值，占位还挤掉模型下拉的宽度。S.box 仍由
+   服务端 hello 下发（见 applySwitch / onEv），拉起与重启继续用它。 */
 el.model.onchange = () => {
+  S.model_pin = null;      // 1.50：用户重新选择 → 撤下「实际模型」钉住
   const name = S.model_map[el.model.value];
   if (!name || S.model_busy) return;
   if (S.fav_invalid && S.fav_invalid.includes(name)){
@@ -3169,10 +4942,27 @@ el.model.onchange = () => {
     syncModel(S.snap.model || '');
     return;
   }
+  /* 1.50：选中即预检——官方清单已加载却没有这个模型 → 当场拒绝 + 弹窗，
+     不发切换命令（避免「以为选了、其实跑不了」）。当前模型与 auto 豁免。 */
+  if (name !== 'auto' && name !== S.snap.model
+      && S.model_names && S.model_names.size
+      && !S.model_names.has(name)){
+    showModelDlg('⚠ 模型不在官方清单',
+      '「' + name + '」不在当前官方模型清单里（可能已下架或改名），'
+      + '无法选择。请到 ☆ 收藏管理点「↻ 刷新模型」后再选，'
+      + '或换用清单里的其它模型。');
+    syncModel(S.snap.model || '');
+    return;
+  }
   S.model_busy = true;
+  S.model_sel = name;      // 1.50：记下意图（发送时按它核对实际模型）
   flash('正在切换模型 ' + name + '…', 'var(--blue)');
   cmd('switch_model', name);
 };
+
+/* 1.50：模型校验弹窗关闭 */
+el.md_ok.onclick = () => el.md.classList.remove('on');
+el.md.onclick = (e) => { if (e.target === el.md) el.md.classList.remove('on'); };
 
 /* —— 1.15：模型收藏管理页 —— */
 
@@ -3194,110 +4984,37 @@ el.menu.onclick = drawerOpen;
 el.mask.onclick = drawerClose;
 el.dclose.onclick = drawerClose;
 
-/* —— 1.01：📂 工作台远程浏览（bench_ls 逐级拉目录，服务端强制
-   约束在工作台根内；全屏页，目录单击进入、➕/文件单击插路径）。
-   1.06 双模式：ins=插路径（原行为）/ newdir=选工作目录新建任务
-   （目录行 ✅ 选定子目录；头钮 ✅ 选定当前浏览目录；文件隐藏） —— */
-
-function benchReq(rel){
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
-  el.benchlist.innerHTML = '<div class="brow empty">读取中…</div>';
-  sendJson({t: 'bench_ls', p: rel || ''});
+/* —— 2.18：📂 本地文件查看器（引用已定稿的公共独立服务，不再本端实现
+   浏览页）。协议由公共服务给定：
+     · 打开：<URL>?h=workbuddy&pick=1&mode=<ins|newdir>（命名窗口保留 opener）
+     · 选中后 viewer 执行 window.opener.postMessage(
+         {type:'fvwr_pick', path:'<绝对路径>', mode:'ins|newdir', h:'workbuddy'})
+       随即自动关窗。
+     · 本端仅负责：按 mode 回填——ins=插入输入区 / newdir=回填新建任务工作目录。
+   改一处（公共服务）两端（WB / 其它宿主）同时生效。 —— */
+const FVWR_URL = 'https://foxfyh.github.io/gittest/fileview/index.html';
+function fvwrOpen(mode){                 // 命名窗口打开（不带 noopener，保住 opener）
+  window.open(FVWR_URL + '?h=workbuddy&pick=1&mode=' + (mode || 'ins'),
+              'fvwrPick');
 }
-function benchIns(path){
+function fvwrInsert(path){               // ins：插入输入区（原 benchIns 逻辑）
   const cur = el.ent.value.trim();
   el.ent.value = (cur ? cur + ' ' : '') + path;
-  el.benchpage.classList.remove('on');
-  S.bench = null;
   flash('已插入路径', 'var(--green)');
 }
-function benchModeUI(){                 // 1.06：按模式切换头钮/底栏提示
-  const pick = S.bench_mode === 'newdir';
-  el.bench_ok.style.display = pick ? '' : 'none';
-  el.bfoot.textContent = pick
-    ? '📁 单击进入子目录 · ✅ 选定该目录（新建任务用）'
-    : '📁 目录单击进入 · ➕ 插入目录路径 · 📄 文件单击插入';
-}
-function benchPick(path){               // 1.08：选定目录 → 回填弹窗
-  el.benchpage.classList.remove('on');
-  S.bench = null;
-  S.bench_mode = 'ins';
-  benchModeUI();
+function fvwrPickDir(path){              // newdir：回填新建任务工作目录
   S.task_cur = path;                    // 回填（不立即建任务）
   taskDlgRender();
   el.td_stat.textContent = '已选目录，点「创建」开始任务';
   flash('已选工作目录', 'var(--green)');
 }
-function benchRender(v){
-  if (!v || !v.ok){ flash('📂 ' + ((v && v.err) || '读取失败')); return; }
-  S.bench = v;
-  const pick = S.bench_mode === 'newdir';
-  const rel = v.rel || '';
-  el.lbl_bench.textContent = (pick ? '📂 选工作目录 ' : '📂 ')
-                             + (v.root || '工作台')
-                             + (rel ? '\\' + rel : '');
-  const box = el.benchlist;
-  box.innerHTML = '';
-  if (rel){                                 // 根目录不显示上级行
-    const d = document.createElement('div');
-    d.className = 'brow up';
-    d.textContent = '⬙ ..';
-    d.onclick = () => benchReq(v.parent || '');
-    box.appendChild(d);
-  }
-  for (const n of (v.dirs || [])){
-    const sub = rel ? rel + '\\' + n : n;
-    const d = document.createElement('div');
-    d.className = 'brow dir';
-    d.textContent = '📁 ' + n;
-    d.onclick = () => benchReq(sub);       // 目录单击进入（手机无双击）
-    const b = document.createElement('span');
-    if (pick){                              // 1.06：选目录模式 → ✅ 选定
-      b.textContent = '✅';
-      b.title = '选定此目录新建任务';
-      b.onclick = e => { e.stopPropagation(); benchPick(v.path + '\\' + n); };
-    } else {                                // 原模式 → ➕ 插路径
-      b.textContent = '➕';
-      b.title = '插入此目录路径';
-      b.onclick = e => { e.stopPropagation(); benchIns(v.path + '\\' + n); };
-    }
-    b.className = 'plus';
-    d.appendChild(b);
-    box.appendChild(d);
-  }
-  if (!pick){                               // 选目录模式不列文件
-    for (const n of (v.files || [])){
-      const d = document.createElement('div');
-      d.className = 'brow file';
-      d.textContent = '📄 ' + n;
-      d.onclick = () => benchIns(v.path + '\\' + n);
-      box.appendChild(d);
-    }
-  }
-  if (!box.children.length){
-    const d = document.createElement('div');
-    d.className = 'brow empty';
-    d.textContent = '（空目录）';
-    box.appendChild(d);
-  }
-}
-el.bench.onclick = () => {
-  if (!S.onLine){ flash('⚠ 还没连上，无法浏览工作台'); return; }
-  S.bench_mode = 'ins';
-  benchModeUI();
-  el.benchpage.classList.add('on');
-  benchReq('');
-};
-el.benchback.onclick = () => {
-  el.benchpage.classList.remove('on');
-  S.bench_mode = 'ins';                     // 返回即复位（防模式残留）
-  benchModeUI();
-};
-el.bench_up.onclick = () => benchReq((S.bench || {}).parent || '');
-el.bench_ok.onclick = () => {               // 1.06：选定当前浏览目录
-  const b = S.bench;
-  if (b && b.ok) benchPick(b.path);
-};
+window.addEventListener('message', e => {   // viewer 回传路径 → 按 mode 回填
+  const d = e.data || {};
+  if (d.type !== 'fvwr_pick' || !d.path) return;
+  if (d.mode === 'newdir') fvwrPickDir(d.path);
+  else fvwrInsert(d.path);
+});
+el.fvwr.onclick = () => fvwrOpen('ins');
 
 /* —— 1.06 防自动升级开关（新任务部分已由 1.08 弹窗取代） —— */
 
@@ -3343,11 +5060,8 @@ function taskDlgClose(){
   S.task_open = false;
   el.taskpage.classList.remove('on');
 }
-function taskPickDir(){            // 选择/重选 → 📂 浏览页选目录回填
-  S.bench_mode = 'newdir';
-  benchModeUI();
-  el.benchpage.classList.add('on');
-  benchReq('');
+function taskPickDir(){            // 选择/重选 → 本地文件查看器选目录回填
+  fvwrOpen('newdir');
 }
 el.td_none.onclick = () => taskPickDir();
 el.td_re.onclick = () => taskPickDir();
@@ -3355,6 +5069,7 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
   与记忆有变化才设置 */
   if (S.task_lock){
     taskDlgClose();
+    S.new_conv_pend = Date.now();     // 1.68：标记本端发起的新建（保住新快照）
     flash('正在文件夹「' + S.task_lock + '」内新建对话…', 'var(--blue)');
     sendCmd('new_task_in', S.task_lock);
     return;
@@ -3367,6 +5082,7 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
   /* 1.31：CLI 的「新建」= 真正创建新会话（原普通模式只闪"就绪"零操作，
      导致第二个新建起不来——目录分支保留 task_dir_set 后再创建） */
   taskDlgClose();
+  S.new_conv_pend = Date.now();       // 1.68：标记本端发起的新建（保住新快照）
   flash('正在新建对话…', 'var(--blue)');
   sendCmd('new_task_in', null);
 };
@@ -3380,6 +5096,33 @@ el.refresh_pts.onclick = () => {         /* 1.34：刷新积分（防升级移�
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   flash('正在刷新积分…', 'var(--blue)');
   sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
+};
+el.acct_sel.onchange = () => {           /* 1.89：切 WorkBuddy 登录账号 */
+  const k = el.acct_sel.value;
+  const it = (S.acct_items || []).find(x => x.key === k);
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); renderAcctSel(); return; }
+  if (it && it.cur) return;
+  flash('正在切换账号：' + ((it && it.name) || k) + '…', 'var(--blue)');
+  sendCmd('acct_switch', k);
+};
+el.acct_scan.onclick = () => {           /* 1.89：重扫本机其它安装，收编新账号 */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  flash('正在扫描本机其它安装…', 'var(--blue)');
+  sendCmd('acct_scan', null);
+};
+el.refresh_srv.onclick = () => {         /* 1.85：刷新服务端名册——广播点名 */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  flash('正在刷新服务端…', 'var(--blue)');
+  /* 不带 to：广播 who，频道内全部服务端各自应答一帧 srv（服务端 2.01 起） */
+  try { foxSend(JSON.stringify({t: 'who', nick: MY_NICK})).catch(() => {}); }
+  catch(e){}
+};
+el.checkin.onclick = () => {             /* 1.59：今日签到（领积分） */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (S.checkin_busy){ flash('签到处理中，请稍候…', 'var(--orange)'); return; }
+  S.checkin_busy = true;
+  flash('正在签到…', 'var(--blue)');
+  sendCmd('checkin', null);             // 服务端 cmd_checkin → checkin 事件回
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
@@ -3420,6 +5163,8 @@ el.file.onchange = async () => {
 function openDiagPage(){
   drawerClose();
   renderToday(); renderNetHist();
+  if (el.my_id) el.my_id.textContent = MY_ID;
+  if (el.in_nick) el.in_nick.value = MY_NICK;
   el.netpage.classList.add('on');
 }
 el.net.onclick = openDiagPage;
@@ -3464,11 +5209,6 @@ el.diagcopy.onclick = () => {
     out.push(new Date(l.t).toLocaleTimeString() + '  ' + l.txt));
   copyText(out.join('\n'));
 };
-/* 1.xx：被动查询最大化/全屏——前端发起，服务端即时检测回投一次结果 */
-el.check_fulls.onclick = () => {
-  el.lbl_fulls.textContent = '查询中…';
-  sendCmd('check_fulls');
-};
 // 1.xx：保存原有打开逻辑，追加诊断刷新（打开瞬间刷一次当前状态）
 const _old_on_net_click = el.net.onclick;
 el.net.onclick = (ev) => {
@@ -3478,6 +5218,20 @@ el.net.onclick = (ev) => {
 
 el.wsurl.value = CFG.channel || '';
 el.keep.value = CFG.stats_keep;
+/* 1.63：账号通道下拉——默认主A；切副B后本地记事（cfgSave），此后一直连 B，
+   直到手动切回 A。切换即刻重连（对齐 TRAE 主副切换手感）。 */
+el.sel_chan.value = (CFG.chan === 'backup') ? 'backup' : 'main';
+el.sel_chan.onchange = () => {
+  CFG.chan = (el.sel_chan.value === 'backup') ? 'backup' : 'main';
+  cfgSave();
+  diagLog('账号通道切到 ' + (CFG.chan === 'backup' ? '副B s20307.nyc1'
+                                                  : '主A free.blr2'), 'ok');
+  if (!CFG.channel){ flash('请先填频道密钥'); channelPrompt(); return; }
+  connect();                                  // 立即重连生效
+  ttsConnect();                               // 1.83：TTS 直连同步重连
+  flash('已切到 ' + (CFG.chan === 'backup' ? '副B（备用）' : '主A（开销看这里）'),
+        'var(--green)');
+};
 
 function netDirty(){ el.nsave.disabled = false; }
 el.wsurl.oninput = netDirty;
@@ -3495,7 +5249,37 @@ el.nsave.onclick = () => {
   el.nflash.style.color = 'var(--green)';
   setTimeout(() => el.nflash.textContent = '', 3000);
   connect();                                  // 重连生效
+  ttsConnect();                               // 1.83：TTS 直连同步重连
 };
+
+/* 1.69：语音播报音色/语速（改动立即生效、独立落盘，不脏化上面「保存」大按钮） */
+if (el.sel_tts_voice) el.sel_tts_voice.value = ttsVoice();
+if (el.sel_tts_rate)  el.sel_tts_rate.value  = ttsRate();
+if (el.sel_tts_voice) el.sel_tts_voice.onchange = () => {
+  CFG.tts_voice = el.sel_tts_voice.value;
+  cfgSave(); ttsClearCache();
+  const op = el.sel_tts_voice.options[el.sel_tts_voice.selectedIndex];
+  ttsFlash('已保存：' + (op ? op.textContent : CFG.tts_voice));
+};
+if (el.sel_tts_rate) el.sel_tts_rate.onchange = () => {
+  CFG.tts_rate = el.sel_tts_rate.value;
+  cfgSave(); ttsClearCache();
+  ttsFlash('已保存：语速 ' + CFG.tts_rate);
+};
+if (el.btn_tts_preview) el.btn_tts_preview.onclick = ttsPreview;
+
+/* 13.1：本机身份——软件号只读展示、昵称改动立即落盘并即时上报 */
+if (el.my_id) el.my_id.textContent = MY_ID;
+if (el.in_nick){
+  el.in_nick.value = MY_NICK;
+  el.in_nick.oninput = () => {
+    MY_NICK = (el.in_nick.value || '').trim();
+    try { localStorage.setItem('wb_cli_nick', MY_NICK); } catch(e){}
+    if (S.onLine && cliLoggedIn){
+      try { sendJson({t: 'hb', fg: !document.hidden, nick: MY_NICK}); } catch(e){}
+    }
+  };
+}
 
 function renderToday(){
   const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
@@ -3520,7 +5304,7 @@ function renderNetHist(){
 }
 setInterval(renderToday, 2000);
 setInterval(statsFlush, 30000);
-window.addEventListener('beforeunload', statsFlush);
+window.addEventListener('beforeunload', () => { statsFlush(); saveSrvs(); });
 
 /* 1.45：加密频道密钥输入弹窗（对齐 TRAE，只输密钥，前缀自动拼）。
    首次使用（本地无记录）弹全屏输入层，输对才能连上服务端。 */
@@ -3552,6 +5336,7 @@ function channelPrompt(){
     ov.remove();
     flash('频道密钥已保存，正在连接…', 'var(--blue)');
     connect();
+    ttsConnect();                             // 1.83：TTS 直连同步启动
   };
   $('chanok').onclick = go;
   inp.onkeydown = e => {
@@ -3571,10 +5356,15 @@ checkVerBump();
   const sk = skelCacheLoad();
   if (sk && sk.convs && sk.convs.length) renderConvs(sk.convs, sk.conv_unread);
 }
+/* 1.62：恢复本地待发箱——上次「发出但没收到服务端确认」的消息，刷新后
+   仍挂在对话区，可复制/改写/重发（连上后快照里若有同文本会自动撤下）。 */
+pendRestore();
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
 renderAcct();                                    /* 1.33：账号行首显 — */
-if (wsOV || CFG.channel) connect(); else channelPrompt();
+loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
+pickCur(); renderSrvList(); renderTop();         /* 1.48：打开即渲染名册 + 直接选中上次那台 */
+if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
 </script>
 </body>
 </html>
