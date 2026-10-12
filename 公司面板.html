@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI公司 · 网页遥控面板</title>
+<style>
+/* ============================================================
+   AI公司 · 网页遥控面板（公司面板.html）  版本 0.04  日期 2026-10-12
+   v0.03（遥控型对齐 W3）：信箱动词口径与 下级模块\邮箱分页.py / CLI工具\公司CLI.py
+   对齐——统一 mail_inbox / mail_show / mail_read / mail_reply / mail_send，
+   参数 to/target/dev/soft/id/text/sender；信箱页补「写新信（mail_send）」。
+   单文件 · 无外部 CDN · 手机端优先 · 原生 JS。
+   面板只发「公司命令」帧、收「公司回执」帧；干活的是电脑上的
+   公司主界面（网页服务.py 代跑 公司CLI.py）。零特权、免心跳。
+   用户须填「频道」（完整＝密码段@PANEL，密码段由本人输入）；连上即自动发
+   「公司发现」帧认领电脑身份（实例号 / 昵称 / 是否需口令）。
+   ============================================================ */
+:root{
+  --bg:#f2f3f5; --card:#ffffff; --fg:#222222; --dim:#666666; --mut:#999999;
+  --bd:#e3e6ea; --blue:#1565c0; --blue-bg:#e8f0fe; --ok:#1b8a3a; --ok-bg:#e6f4ea;
+  --bad:#c62828; --bad-bg:#fdecea; --amber:#e65100; --amber-bg:#fff8e1;
+  --r:10px;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{margin:0; padding:0; background:var(--bg); color:var(--fg);
+  font:15px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+body{padding-bottom:calc(56px + env(safe-area-inset-bottom));}
+.hd{position:sticky; top:0; z-index:20; background:var(--card);
+  border-bottom:1px solid var(--bd); padding:8px 12px calc(8px + env(safe-area-inset-top));
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.hd .ttl{font-weight:700; font-size:16px;}
+.dot{width:10px; height:10px; border-radius:50%; background:var(--mut); flex:none;}
+.dot.on{background:var(--ok); box-shadow:0 0 0 3px rgba(27,138,58,.15);}
+.dot.off{background:var(--bad);}
+.st{font-size:12px; color:var(--dim);}
+.st b{color:var(--fg);}
+.spacer{flex:1;}
+.wrap{padding:10px 12px; max-width:760px; margin:0 auto;}
+.card{background:var(--card); border:1px solid var(--bd); border-radius:var(--r);
+  padding:12px; margin:0 0 10px;}
+.card h3{margin:0 0 8px; font-size:14px; color:var(--fg);}
+.row{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:6px 0;}
+.row label{font-size:13px; color:var(--dim); min-width:76px;}
+input,select,textarea{font:inherit; color:var(--fg); background:#fbfcfd;
+  border:1px solid var(--bd); border-radius:8px; padding:8px 10px; min-width:0;}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--blue-bg); border-color:var(--blue);}
+.grow{flex:1;}
+textarea{width:100%; min-height:80px; resize:vertical;}
+button{font:inherit; font-weight:600; color:#fff; background:var(--blue);
+  border:0; border-radius:8px; padding:9px 14px; cursor:pointer;}
+button:active{transform:scale(.97);}
+button.ghost{background:#eef1f5; color:var(--blue);}
+button.ghost:active{background:#e2e7ee;}
+button.warn{background:var(--amber);}
+button:disabled{opacity:.5; cursor:default;}
+.btns{display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 2px;}
+.tabs{display:flex; gap:6px; overflow-x:auto; padding:0 12px; margin:4px 0 6px;
+  -webkit-overflow-scrolling:touch;}
+.tabs button{flex:none; background:#eef1f5; color:var(--dim); padding:8px 12px; font-size:13px;}
+.tabs button.on{background:var(--blue); color:#fff;}
+.pane{display:none;} .pane.on{display:block;}
+table{width:100%; border-collapse:collapse; font-size:13px;}
+th,td{border-bottom:1px solid var(--bd); padding:7px 6px; text-align:left; vertical-align:top;}
+th{color:var(--dim); font-weight:600; background:#fafbfc;}
+tr.sel td{background:var(--blue-bg);}
+.hint{font-size:12px; color:var(--mut);}
+.out{background:#fafbfc; border:1px solid var(--bd); border-radius:8px; padding:8px;
+  font:12px/1.5 ui-monospace,Consolas,monospace; white-space:pre-wrap; word-break:break-all;
+  max-height:40vh; overflow:auto;}
+.tag{display:inline-block; font-size:12px; border-radius:6px; padding:1px 7px; margin-left:6px;}
+.tag.ok{background:var(--ok-bg); color:var(--ok);}
+.tag.bad{background:var(--bad-bg); color:var(--bad);}
+/* FOX 卡（@fox-play / @fox-ask）：醒目程度对齐 TRAE 网页端 */
+.foxplay{display:flex; gap:8px; align-items:flex-start; margin:6px 0; padding:8px 10px;
+  border:1px solid rgba(21,101,192,.35); border-radius:8px;
+  background:linear-gradient(135deg,#eef6ff,#f7f0ff); font-size:13px;}
+.foxplay .fptxt{flex:1; white-space:pre-wrap; word-break:break-word; color:#333;}
+.foxplay .fpbtn{flex:none; width:30px; height:30px; border-radius:50%; border:1px solid var(--bd);
+  background:#fff; color:var(--blue); font-size:14px; padding:0;}
+.foxplay.ask{border:2px solid rgba(230,81,0,.45); border-left:5px solid rgba(230,81,0,.7);
+  background:linear-gradient(135deg,#fff8e1,#fff3e0);}
+.foxplay.ask .fptxt{color:#8a4b00; font-weight:700;}
+.log{position:fixed; left:0; right:0; bottom:0; z-index:30; background:var(--card);
+  border-top:1px solid var(--bd); padding:6px 12px calc(6px + env(safe-area-inset-bottom));}
+.log .bar{display:flex; align-items:center; gap:8px;}
+.log .bar .t{font-size:13px; font-weight:700; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.log pre{margin:6px 0 0; max-height:34vh; overflow:auto; font:12px/1.45 ui-monospace,Consolas,monospace;
+  white-space:pre-wrap; word-break:break-all; display:none;}
+.log.open pre{display:block;}
+.chips{display:flex; gap:6px; flex-wrap:wrap;}
+.chips button{background:#eef1f5; color:var(--blue); font-size:12px; padding:6px 10px;}
+</style>
+</head>
+<body>
+
+<div class="hd">
+  <span class="dot off" id="dot"></span>
+  <span class="ttl">AI公司 · 网页遥控面板</span>
+  <span class="st" id="hdst">未连接</span>
+  <span class="spacer"></span>
+  <button class="ghost" id="btnConn" style="padding:6px 10px; font-size:13px;">连接</button>
+</div>
+
+<div class="wrap">
+
+  <!-- ============ 连接设置 ============ -->
+  <div class="card">
+    <h3>连接设置</h3>
+    <div class="row"><label>频道</label>
+      <input class="grow" id="ch" value="" autocomplete="off" autocapitalize="off"
+             placeholder="输入完整频道：密码段@PANEL"></div>
+    <div class="row"><label>目标公司</label>
+      <input class="grow" id="target" autocomplete="off" placeholder="留空即可——连上后自动填（电脑实例号/昵称）"></div>
+    <div class="row"><label>本面板标识</label>
+      <input class="grow" id="myid" autocomplete="off" placeholder="本面板的实例号（自动生成，回执靠它识别）"></div>
+    <div class="row" id="rowCode" style="display:none"><label>口令</label>
+      <input class="grow" id="code" autocomplete="off" placeholder="电脑端设了口令才需填，否则留空"></div>
+    <div class="btns">
+      <button id="btnSave">保存并连接</button>
+      <button class="ghost" id="btnPing">喊一声（ping）</button>
+    </div>
+    <div class="hint" id="idinfo">电脑身份：<b>未发现</b></div>
+    <div class="hint">「频道」请填 密码段@PANEL（<b>密码段由你本人掌握，网页源码不含</b>；只填密码段自动补 @PANEL）；
+      连上后自动发现电脑身份，目标公司 / 口令全程不用手填。</div>
+  </div>
+
+  <!-- ============ 标签页 ============ -->
+  <div class="tabs" id="tabs"></div>
+
+  <div class="pane on" id="p_home">
+    <div class="card">
+      <h3>公司信息 / 主页</h3>
+      <div class="btns">
+        <button data-cmd="company_info">公司信息</button>
+        <button class="ghost" data-cmd="company_name_get">看公司名</button>
+        <button class="ghost" data-cmd="company_scope">看人力资源范围</button>
+      </div>
+      <div class="out" id="o_home">（点上方按钮拉取）</div>
+    </div>
+  </div>
+
+  <div class="pane" id="p_build">
+    <div class="card">
+      <h3>建公司向导</h3>
+      <div class="row"><label>公司名称</label><input class="grow" id="b_name" placeholder="1~20 字，如：旭日公司"></div>
+      <div class="row"><label>设备名</label><input class="grow" id="b_host" placeholder="恰 2 个字母，如 SS" value="SS"></div>
+      <div class="row"><label>产品名①</label><input class="grow" id="b_tr" placeholder="TRAE 的 2 字符，如 TR" value="TR"></div>
+      <div class="row"><label>产品名②</label><input class="grow" id="b_wb" placeholder="WorkBuddy 的 2 字符，如 WB" value="WB"></div>
+      <div class="row"><label>人力范围</label>
+        <label style="min-width:auto"><input type="checkbox" id="b_s1" checked> TRAE远程控制2.0</label>
+        <label style="min-width:auto"><input type="checkbox" id="b_s2" checked> WorkBuddy远程控制CLI版</label>
+      </div>
+      <div class="btns"><button id="btnBuild">成立公司（company_setup＋company_scope）</button></div>
+      <div class="out" id="o_build">（公司未成立时才需填；已成立可只改公司名/设备名）</div>
+    </div>
+  </div>
+
+  <div class="pane" id="p_cli">
+    <div class="card">
+      <h3>CLI 资产 · 工具执行</h3>
+      <div class="row"><label>动词</label>
+        <input class="grow" id="c_verb" list="verbList" placeholder="如 whoami / conv_list / staff_list / mail_inbox">
+        <datalist id="verbList"></datalist>
+      </div>
+      <div id="paramRows"></div>
+      <div class="btns">
+        <button class="ghost" id="btnAddP">＋ 加参数</button>
+        <button id="btnRun">▶ 执行</button>
+      </div>
+      <div class="chips" id="quick"></div>
+      <div class="out" id="o_cli">（选动词、填参数、执行；回执原样显示）</div>
+    </div>
+  </div>
+
+  <div class="pane" id="p_hire">
+    <div class="card">
+      <h3>入职台</h3>
+      <div class="row"><label>目标会话</label><input class="grow" id="h_conv" list="convList" placeholder="会话名"><datalist id="convList"></datalist></div>
+      <div class="row"><label>花名</label><input class="grow" id="h_code" placeholder="恰 2 汉字"></div>
+      <div class="row"><label>岗位</label><input class="grow" id="h_post" list="postList" placeholder="岗位名"><datalist id="postList"></datalist></div>
+      <div class="row"><label>工牌</label><input class="grow" id="h_sender" placeholder="（可选）办理人的花名"></div>
+      <div class="btns">
+        <button id="btnHire">办理入职</button>
+        <button class="ghost" id="btnLc">列出会话</button>
+        <button class="ghost" id="btnLp">列出岗位</button>
+        <button class="ghost" id="btnPick">随机取花名</button>
+      </div>
+      <div class="out" id="o_hire">（选会话 → 取花名 → 填岗位 → 办理入职）</div>
+    </div>
+  </div>
+
+  <div class="pane" id="p_roster">
+    <div class="card">
+      <h3>花名册</h3>
+      <div class="btns"><button id="btnRoster">更新花名册</button></div>
+      <div id="rosterBox"><div class="hint">（点「更新花名册」拉取在册员工）</div></div>
+    </div>
+  </div>
+
+  <div class="pane" id="p_post">
+    <div class="card">
+      <h3>岗位墙</h3>
+      <div class="row"><label>岗位</label><input class="grow" id="p_postname" list="postList" placeholder="岗位名（看岗位夹/经验用）"></div>
+      <div class="btns">
+        <button id="btnPostList">列岗位</button>
+        <button class="ghost" id="btnPostDir">看岗位夹</button>
+        <button class="ghost" id="btnPostNote">看上岗经验</button>
+      </div>
+      <div class="out" id="o_post">（列岗位 / 看岗位夹 / 看上岗经验）</div>
+    </div>
+  </div>
+
+  <div class="pane" id="p_mail">
+    <div class="card">
+      <h3>信箱</h3>
+      <div class="row"><label>收件人</label><input class="grow" id="m_who" list="staffList" placeholder="花名 / 通讯名"><datalist id="staffList"></datalist></div>
+      <div class="row"><label>实例号</label><input class="grow" id="m_dev" placeholder="（跨机可选）目标实例号"></div>
+      <div class="row"><label>软件</label><input class="grow" id="m_soft" placeholder="（可选）TRAE远程控制2.0 / WorkBuddy远程控制CLI版"></div>
+      <div class="btns">
+        <button id="btnMail">查看收件箱</button>
+        <button class="ghost" id="btnStaff">拉花名册</button>
+      </div>
+      <div id="mailBox"></div>
+      <div class="row" style="margin-top:10px;"><label style="align-self:flex-start">回信正文</label>
+        <textarea id="m_text" placeholder="选中一封信后可回信"></textarea></div>
+      <div class="btns">
+        <button id="btnMailRead">标为已读</button>
+        <button class="warn" id="btnMailReply">回信</button>
+      </div>
+      <div class="out" id="o_mail">（查看收件箱 → 点一封信 → 读/已读/回信）</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============ 底部日志 ============ -->
+<div class="log" id="log">
+  <div class="bar">
+    <span class="t" id="logt">就绪</span>
+    <button class="ghost" id="btnLogToggle" style="padding:5px 10px; font-size:12px;">展开</button>
+  </div>
+  <pre id="logp"></pre>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   AI公司 · 网页遥控面板 脚本    版本 0.02
+   帧：面板→公司 {t:'公司命令',to,口令,动词,参数,请求id,实例号}
+       公司→面板 {t:'公司回执',to,请求id,结果,原因码,数据}
+       面板→公司 {t:'公司发现',实例号,请求id,to(可空=广播)}
+       公司→面板 {t:'公司身份',to,请求id,实例号,昵称,软件,需要口令,版本}
+   免心跳；断线逐次退避（3,6,12,24,48,60s）；连上即自动发现电脑身份。
+   用户须填「频道」——密码段@PANEL，密码段由用户输入。
+   ===================================================================== */
+
+
+var WS_TMPL = 'wss://free.blr2.piesocket.com/v3/%s?api_key=' + 'ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug';
+var WS_TMPL2 = 'wss://s20307.nyc1.piesocket.com/v3/%s?api_key=' + 'IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL';
+var BACKOFF = [3,6,12,24,48,60], RECONNECT_MAX = 8, RTO = 30000;
+var LS = {ch:'co_panel_ch', target:'co_panel_target', myid:'co_panel_myid', code:'co_panel_code'};
+
+/* ---------- 频道归一化：用户填密码段（可选 @PANEL），自动补后缀（源码不含密码） ---------- */
+var CH_SUFFIX = 'PANEL';                        // 本面板用途后缀（非密码）
+var CH_FULL = '';                               // 无内置频道：密码段由用户输入，源码不含
+/* 安全：不再内置频道密码段，改由用户在「频道」里填；
+   用户填「密码段@PANEL」或只填「密码段」（自动补 @PANEL）。 */
+function 规范频道(raw){
+  var s = String(raw==null ? '' : raw).trim();
+  if(!s) return '';                              // 空 → 由用户填写
+  var i = s.indexOf('@');
+  if(i < 0) return s + '@' + CH_SUFFIX;          // 只填密码段 → 补 @PANEL
+  if(!s.slice(i+1).trim()) return s.slice(0,i) + '@' + CH_SUFFIX;  // 密码段@ → 补 PANEL
+  return s;                                      // 已完整 → 原样
+}
+
+var S = {
+  ch: CH_FULL, target:'', myid:'', code:'',
+  ws:null, on:false, tries:0, back:0, timer:null, rid:0, pending:{}, tab:'home',
+  disc:null, haveId:false
+};
+
+var COMMON_VERBS = ['whoami','conv_list','staff_list','staff_onboard','staff_recode',
+  'post_list','post_dir','post_note_ls','mail_inbox','mail_show','mail_read','mail_reply',
+  'hint_get','hint_set','selfact_ls','mem_cfg_get','arch_get','ping',
+  'company_info','company_name_get','company_name_set','company_host_set',
+  'company_product_set','company_scope','company_takeover','staff_pick_name','company_setup'];
+
+/* ---------- 工具 ---------- */
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s==null?'':s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function lsGet(k,d){ try{ return localStorage.getItem(k)||d; }catch(e){ return d; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function nowStr(){ var d=new Date(),p=n=>(n<10?'0':'')+n;
+  return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); }
+function randId(){ return 'P'+String(Math.floor(100000+Math.random()*900000)); }
+
+/* ---------- 日志 ---------- */
+function logit(t){ $('logt').textContent = t; }
+function logMore(txt){
+  var p=$('logp'); p.textContent = (p.textContent ? p.textContent+'\n' : '') + txt;
+  p.scrollTop = p.scrollHeight;
+}
+
+/* ---------- 连接状态 ---------- */
+function setOn(on, txt){
+  S.on = !!on;
+  $('dot').className = 'dot ' + (on ? 'on' : 'off');
+  $('hdst').textContent = txt || (on ? '已连接（静默待命）' : '未连接');
+}
+
+/* ---------- WS 连接 / 重连 ---------- */
+function teardown(){
+  try{ if(S.ws){ S.ws.onopen=S.ws.onmessage=S.ws.onclose=S.ws.onerror=null; S.ws.close(); } }catch(e){}
+  clearTimeout(S.timer);
+}
+function chanDefault(){ return 规范频道(lsGet(LS.ch, CH_FULL)); }
+function connect(){
+  teardown();
+  setOn(false,'连接中…');
+  var ch = 规范频道($('ch').value || chanDefault());  // 前缀 / 后缀自动拼接
+  $('ch').value = ch;                                 // 回显最终频道，让用户看到
+  S.ch = ch; lsSet(LS.ch, ch);
+  var url = WS_TMPL.replace('%s', ch);
+  var opened = false;
+  try{ S.ws = new WebSocket(url); }catch(e){ setOn(false,'地址无效'); return; }
+  S.ws.onopen = function(){
+    opened = true; S.tries = 0; S.back = 0; setOn(true);
+    logit('已连上频道 ' + ch);
+    sendDiscovery();                                  // 连上即自动发现电脑身份
+  };
+  S.ws.onmessage = function(ev){ onMsg(ev.data); };
+  S.ws.onclose = function(){
+    setOn(false,'连接已断开');
+    if(!opened){ S.tries++; }
+    scheduleReconnect();
+  };
+  S.ws.onerror = function(){ /* 交给 onclose 处理 */ };
+}
+
+/* ---------- 发现 / 握手：自动认领电脑身份，省掉手填目标 / 口令 ---------- */
+function sendDiscovery(){
+  var rid = 'd' + (++S.rid) + '-' + Date.now();
+  var frame = {t:'公司发现', 实例号:(S.myid||''), 请求id:rid};
+  var 喊 = (S.target||'').trim();
+  if(喊) frame.to = 喊;                 // 已知目标 → 定向；否则空 to＝广播探测
+  S.disc = rid;
+  if(sendRaw(frame)) logit('已发「公司发现」，等电脑身份…');
+}
+function onIdentity(d){
+  var id = String(d.实例号||'').trim(), nick = String(d.昵称||'').trim();
+  var 需 = !!d.需要口令;
+  if(id){ S.target = id; $('target').value = id; lsSet(LS.target, id); }
+  S.haveId = true;
+  $('rowCode').style.display = 需 ? '' : 'none';      // 电脑端没口令 → 完全不提示
+  if(!需){ S.code=''; $('code').value=''; lsSet(LS.code,''); }
+  $('idinfo').innerHTML = '电脑身份：<b>' + esc(nick || id || '—') + '</b>'
+    + '　实例号 <b>' + esc(id || '—') + '</b>'
+    + '　频道 <b>' + esc(S.ch) + '</b>'
+    + '　' + (需 ? '需要口令' : '免口令')
+    + '　<span class="st">v' + esc(String(d.版本||'')) + '</span>';
+  logit('已发现电脑：' + (nick||'—') + ' / ' + (id||'—') + (需 ? '（需要口令，请填写）' : '（免口令）'));
+}
+function scheduleReconnect(){
+  if(S.tries >= RECONNECT_MAX){
+    setOn(false,'连不上频道，已停止自动重连');
+    logit('已达重连上限，点「连接」手动重试');
+    return;
+  }
+  var n = Math.min(S.back, BACKOFF.length-1), d = BACKOFF[n];
+  S.back++;
+  logit(d + ' 秒后重连（第 ' + (S.tries+1) + ' 次）');
+  S.timer = setTimeout(connect, d*1000);
+}
+
+/* ---------- 收发 ---------- */
+function sendRaw(o){
+  if(!S.ws || S.ws.readyState !== 1){ logit('未连接，发送失败'); return false; }
+  try{ S.ws.send(JSON.stringify(o)); return true; }catch(e){ logit('发送异常：'+e); return false; }
+}
+function sendCmd(动词, 参数, 完成){
+  参数 = 参数 || {};
+  var rid = 'r' + (++S.rid) + '-' + Date.now();
+  var frame = {t:'公司命令', to:(S.target||'').trim(), 口令:(S.code||''),
+               动词:动词, 参数:参数, 请求id:rid, 实例号:(S.myid||'')};
+  if(!frame.to){ logit(S.on ? '还没发现电脑身份，稍候再试（或点「保存并连接」重发发现）' : '未连接，发送失败'); return false; }
+  if(!sendRaw(frame)){ if(完成) 完成({结果:'FAIL',原因码:'no_ws',数据:{说明:'面板未连接'}}); return false; }
+  S.pending[rid] = {动词:动词, 参数:参数, 完成:完成, ts:Date.now()};
+  logit('已发「' + 动词 + '」，等回执…');
+  logMore('$ ' + 动词 + '  ' + JSON.stringify(参数));
+  setTimeout(function(){
+    var p = S.pending[rid];
+    if(p){ delete S.pending[rid];
+      if(p.完成) p.完成({结果:'FAIL',原因码:'timeout',数据:{说明:'30 秒未收到回执'}}); }
+  }, RTO);
+  return true;
+}
+function onMsg(txt){
+  var d; try{ d = JSON.parse(txt); }catch(e){ return; }
+  if(!d || typeof d !== 'object') return;
+  var t = String(d.t||'');
+  if(t === '公司身份'){ onIdentity(d); return; }   // 自动发现回执 → 认领电脑身份
+  if(t === 'pong'){ logit('电脑端在线（pong）'); return; }
+  if(t !== '公司回执') return;
+  var p = S.pending[d.请求id];
+  if(p) delete S.pending[d.请求id];
+  render回执(d);
+  if(p && p.完成) p.完成(d);
+}
+function render回执(d){
+  var ok = (d.结果 === 'OK');
+  logit((ok?'✔ ':'✘ ') + (d.原因码 ? ('原因码 '+d.原因码) : '完成'));
+  var 文 = ok ? '' : ('原因码：' + (d.原因码||'') + '\n');
+  var 数 = d.数据;
+  if(数 && typeof 数 === 'object'){
+    文 += (数.文本 ? 数.文本 + '\n' : '');
+    var 副本 = JSON.parse(JSON.stringify(数));
+    try{ delete 副本.文本; }catch(e){}
+    if(Object.keys(副本).length){ 文 += JSON.stringify(副本, null, 2); }
+  } else if(typeof 数 === 'string'){ 文 += 数; }
+  logMore('% ' + (ok?'OK':('FAIL ' + (d.原因码||''))) + '\n' + 文);
+}
+
+/* ---------- FOX 卡渲染（@fox-play / @fox-ask，预留钩子） ---------- */
+var RE_PLAY = /\(@fox-play1\s*\)([\s\S]*?)(?:\(@fox-play2\s*\)|$)/g;
+var RE_ASK = /\(@fox-ask1\s*\)([\s\S]*?)(?:\(@fox-ask2\s*\)|$)/g;
+function foxTxt(p){ return String(p||'').replace(/\(@[^)]*$/,'').trim(); }
+function foxCard(seg, ask){
+  return '<div class="foxplay' + (ask?' ask':'') + '" data-seg="' + esc(seg) + '">'
+       + '<div class="fptxt">' + (ask?'❓ AI 提问：':'🔈 ') + esc(seg) + '</div>'
+       + '<button class="fpbtn" title="播放语音">▶</button></div>';
+}
+function renderFox(txt){
+  return String(txt||'')
+    .replace(RE_PLAY, function(m,p1){ var s=foxTxt(p1); return s?foxCard(s,false):''; })
+    .replace(RE_ASK,  function(m,p1){ var s=foxTxt(p1); return s?foxCard(s,true):''; });
+}
+/* 预留钩子：点 ▶ 用浏览器自带 TTS 念一段（无 CDN；失败静默） */
+function foxPlay(seg){
+  try{
+    var u = new SpeechSynthesisUtterance(seg); u.lang = 'zh-CN';
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  }catch(e){ logit('本机不支持语音播报'); }
+}
+document.addEventListener('click', function(e){
+  var b = e.target.closest ? e.target.closest('.fpbtn') : null;
+  if(!b) return;
+  var c = b.closest('.foxplay'); if(!c) return;
+  foxPlay(c.getAttribute('data-seg')||'');
+});
+
+/* ---------- 通用输出 ---------- */
+function out(id, txt){ $(id).textContent = txt; }
+
+/* ---------- 数据解析（兼容结构化 + 文本兜底） ---------- */
+function jd(d){ return (d && typeof d.数据 === 'object') ? d.数据 : {}; }
+function 文本(d){ var o=jd(d); return String(o.文本||o.输出||''); }
+function 析会话(d){
+  var a=[], o=jd(d);
+  (o.convs||[]).forEach(function(c){ var t=(c&&(c.title||c.名称))||''; if(t)a.push(t); });
+  if(!a.length){ 文本(d).split('\n').forEach(function(行){
+    var m=行.match(/^\s*\[\d+\]\s+(.+?)\s+·\s/); if(m) a.push(m[1].trim()); }); }
+  return a;
+}
+function 析岗位(d){
+  var a=[], o=jd(d);
+  (o.条目||[]).forEach(function(x){ var n=(x&&x.名)||x||''; if(n)a.push(String(n).trim()); });
+  if(!a.length){ 文本(d).split('\n').forEach(function(行){
+    var m=行.match(/^\s{2}(\S+)\s{2,}\d+\s*项/); if(m) a.push(m[1]); }); }
+  return a;
+}
+function 析信件(d){
+  var o=jd(d);
+  if(Array.isArray(o.letters)) return o.letters;
+  var a=[];
+  文本(d).split('\n').forEach(function(行){
+    var m=行.match(/^\s*\[(.+?)\]\s+(\d\d-\d\d \d\d:\d\d)\s+发件:(.*?)\s+(已读|未读)/);
+    if(m) a.push({id:m[1].trim(),'ts':m[2],发件:m[3].trim(),已读:(m[4]==='已读')}); });
+  return a;
+}
+function 成员们(d){ var o=jd(d); return Array.isArray(o.成员)?o.成员:[]; }
+
+/* =====================================================================
+   标签页
+   ===================================================================== */
+var TABS = [['home','主页'],['build','建公司'],['cli','CLI资产'],['hire','入职台'],
+            ['roster','花名册'],['post','岗位墙'],['mail','信箱']];
+function buildTabs(){
+  var box = $('tabs'); box.innerHTML = '';
+  TABS.forEach(function(t){
+    var b = document.createElement('button');
+    b.textContent = t[1]; b.dataset.tab = t[0];
+    b.onclick = function(){ showTab(t[0]); };
+    box.appendChild(b);
+  });
+  showTab('home');
+}
+function showTab(name){
+  S.tab = name;
+  TABS.forEach(function(t){
+    $('p_'+t[0]).className = 'pane' + (t[0]===name?' on':'');
+  });
+  Array.prototype.forEach.call($('tabs').children, function(b){
+    b.className = (b.dataset.tab===name) ? 'on' : '';
+  });
+}
+
+/* =====================================================================
+   主页 / 公司信息
+   ===================================================================== */
+Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function(b){
+  b.onclick = function(){
+    b.disabled = true;
+    sendCmd(b.dataset.cmd, {}, function(d){
+      b.disabled = false;
+      out('o_home', 文本(d) || JSON.stringify(jd(d), null, 2));
+    });
+  };
+});
+
+/* =====================================================================
+   建公司向导
+   ===================================================================== */
+$('btnBuild').onclick = function(){
+  var 名=$('b_name').value.trim(), 机=$('b_host').value.trim(),
+      产1=$('b_tr').value.trim(), 产2=$('b_wb').value.trim();
+  if(!名){ out('o_build','公司名称不能为空'); return; }
+  this.disabled = true; var self=this;
+  sendCmd('company_setup', {name:名, host:机, tr:产1, wb:产2}, function(d1){
+    if(d1.结果 !== 'OK'){ self.disabled=false; out('o_build', 文本(d1)||JSON.stringify(jd(d1))); return; }
+    var 范围=[]; if($('b_s1').checked)范围.push('TRAE远程控制2.0');
+    if($('b_s2').checked)范围.push('WorkBuddy远程控制CLI版');
+    sendCmd('company_scope', {soft:范围.join(',')}, function(d2){
+      self.disabled=false;
+      out('o_build', (文本(d1)||'') + '\n\n— 人力资源范围 —\n' + (文本(d2)||JSON.stringify(jd(d2))));
+    });
+  });
+};
+
+/* =====================================================================
+   CLI 资产 · 工具执行
+   ===================================================================== */
+(function initVerbs(){
+  var dl = $('verbList'); COMMON_VERBS.forEach(function(v){
+    var o=document.createElement('option'); o.value=v; dl.appendChild(o); });
+  var q = $('quick');
+  ['whoami','conv_list','staff_list','post_list','mail_inbox','company_info'].forEach(function(v){
+    var b=document.createElement('button'); b.textContent=v;
+    b.onclick=function(){ $('c_verb').value=v; 执行CLI(); };
+    q.appendChild(b);
+  });
+})();
+function addParam(k, v){
+  var row = document.createElement('div'); row.className='row';
+  row.innerHTML = '<input class="grow pk" placeholder="参数名" value="'+esc(k||'')+'">'
+                + '<input class="grow pv" placeholder="值" value="'+esc(v||'')+'">'
+                + '<button class="ghost" style="padding:8px 12px">✕</button>';
+  row.querySelector('button').onclick = function(){ row.remove(); };
+  $('paramRows').appendChild(row);
+}
+$('btnAddP').onclick = function(){ addParam('',''); };
+function collectParams(){
+  var 参={};
+  Array.prototype.forEach.call(document.querySelectorAll('#paramRows .row'), function(row){
+    var k=row.querySelector('.pk').value.trim(), v=row.querySelector('.pv').value.trim();
+    if(k) 参[k]=v;
+  });
+  return 参;
+}
+function 执行CLI(){
+  var 动词=$('c_verb').value.trim();
+  if(!动词){ out('o_cli','先填动词'); return; }
+  $('btnRun').disabled = true;
+  sendCmd(动词, collectParams(), function(d){
+    $('btnRun').disabled = false;
+    var 体 = 文本(d) || JSON.stringify(jd(d), null, 2);
+    out('o_cli', 体);
+  });
+}
+$('btnRun').onclick = 执行CLI;
+
+/* =====================================================================
+   入职台
+   ===================================================================== */
+$('btnLc').onclick = function(){
+  sendCmd('conv_list', {}, function(d){
+    var a=析会话(d), dl=$('convList'); dl.innerHTML='';
+    a.forEach(function(t){ var o=document.createElement('option'); o.value=t; dl.appendChild(o); });
+    out('o_hire','会话 '+a.length+' 个\n'+(文本(d)||''));
+  });
+};
+$('btnLp').onclick = function(){
+  sendCmd('post_list', {}, function(d){
+    var a=析岗位(d), dl=$('postList'); dl.innerHTML='';
+    a.forEach(function(t){ var o=document.createElement('option'); o.value=t; dl.appendChild(o); });
+    out('o_hire','岗位 '+a.length+' 个\n'+(文本(d)||''));
+  });
+};
+$('btnPick').onclick = function(){
+  sendCmd('staff_pick_name', {}, function(d){
+    var o=jd(d); if(o.花名){ $('h_code').value=o.花名; }
+    out('o_hire', o.花名 ? ('随机花名：'+o.花名) : (文本(d)||JSON.stringify(o)));
+  });
+};
+$('btnHire').onclick = function(){
+  var 会=$('h_conv').value.trim(), 码=$('h_code').value.trim(),
+      岗=$('h_post').value.trim(), 工=$('h_sender').value.trim();
+  if(!会){ out('o_hire','先填目标会话'); return; }
+  if(!码){ out('o_hire','花名不能为空（可点「随机取花名」）'); return; }
+  var 参={target:会, code:码}; if(岗)参['post']=岗; if(工)参['sender']=工;
+  $('btnHire').disabled=true; var self=this;
+  sendCmd('staff_onboard', 参, function(d){
+    self.disabled=false; out('o_hire', 文本(d)||JSON.stringify(jd(d),null,2));
+  });
+};
+
+/* =====================================================================
+   花名册
+   ===================================================================== */
+$('btnRoster').onclick = function(){
+  $('btnRoster').disabled=true; var self=this;
+  sendCmd('staff_list', {}, function(d){
+    self.disabled=false;
+    var ms=成员们(d), dl=$('staffList'); dl.innerHTML='';
+    if(!ms.length){ $('rosterBox').innerHTML = '<div class="hint">（无在册员工，或回执无结构化数据）</div>'; return; }
+    var h='<table><tr><th>花名</th><th>岗位</th><th>名</th><th>实例号</th><th>软件</th></tr>';
+    ms.forEach(function(m){
+      var 岗 = Array.isArray(m.岗位) ? m.岗位.join('、') : (m.岗位||'');
+      h += '<tr><td>'+esc(m.花名||'')+'</td><td>'+esc(岗)+'</td><td>'+esc(m.名||'')+'</td><td>'
+         + esc(m.实例号||'')+'</td><td>'+esc(m.软件||'')+'</td></tr>';
+      var o=document.createElement('option'); o.value=(m.花名||''); dl.appendChild(o);
+    });
+    h += '</table>';
+    $('rosterBox').innerHTML = h;
+  });
+};
+
+/* =====================================================================
+   岗位墙
+   ===================================================================== */
+$('btnPostList').onclick = function(){ postCmd('post_list', false); };
+$('btnPostDir').onclick  = function(){ postCmd('post_dir', true); };
+$('btnPostNote').onclick = function(){ postCmd('post_note_ls', true); };
+function postCmd(动词, 用岗位){
+  var 参={}; var 岗=$('p_postname').value.trim();
+  if(用岗位 && 岗) 参['post']=岗;
+  sendCmd(动词, 参, function(d){ out('o_post', 文本(d)||JSON.stringify(jd(d),null,2)); });
+}
+
+/* =====================================================================
+   信箱
+   ===================================================================== */
+var LETTERS = {}, 选中信 = null;
+function 路由参(){
+  var 参={}; var 人=$('m_who').value.trim();
+  if(人){ 参['to']=人; 参['target']=人; }
+  var dev=$('m_dev').value.trim(); if(dev)参['dev']=dev;
+  var soft=$('m_soft').value.trim(); if(soft)参['soft']=soft;
+  return 参;
+}
+$('btnMail').onclick = function(){
+  var 参=路由参();
+  sendCmd('mail_inbox', 参, function(d){
+    var ls=析信件(d); LETTERS={}; 选中信=null;
+    var h='';
+    if(!ls.length){ h='<div class="hint">（无信件，或回执无结构化数据）</div>'; }
+    else{
+      h='<table><tr><th>状态</th><th>发件</th><th>时间</th><th>ID</th></tr>';
+      ls.forEach(function(L){
+        var id=String(L.id||''); if(!id)return; LETTERS[id]=L;
+        h+='<tr data-id="'+esc(id)+'"><td>'+(L.已读?'已读':'未读')+'</td><td>'
+         + esc(L.发件||'—')+'</td><td>'+esc(L.ts||'')+'</td><td>'+esc(id)+'</td></tr>';
+      });
+      h+='</table>';
+    }
+    $('mailBox').innerHTML=h;
+    Array.prototype.forEach.call($('mailBox').querySelectorAll('tr[data-id]'), function(tr){
+      tr.onclick = function(){
+        Array.prototype.forEach.call($('mailBox').querySelectorAll('tr'), function(x){ x.className=''; });
+        tr.className='sel'; 选中信 = tr.dataset.id;
+        sendCmd('mail_show', Object.assign(路由参(), {id:选中信}), function(d){
+          out('o_mail', 文本(d)||JSON.stringify(jd(d),null,2));
+        });
+      };
+    });
+    out('o_mail','共 '+Object.keys(LETTERS).length+' 封信（点一行看全文）');
+  });
+};
+$('btnStaff').onclick = function(){
+  sendCmd('staff_list', {}, function(d){
+    var dl=$('staffList'); dl.innerHTML='';
+    成员们(d).forEach(function(m){ if(m.花名){ var o=document.createElement('option'); o.value=m.花名; dl.appendChild(o); } });
+    out('o_mail','已拉花名册（供收件人选择）');
+  });
+};
+$('btnMailRead').onclick = function(){
+  if(!选中信){ out('o_mail','先在列表点一封信'); return; }
+  sendCmd('mail_read', Object.assign(路由参(false),{id:选中信}), function(d){
+    out('o_mail', 文本(d)||JSON.stringify(jd(d),null,2)); });
+};
+$('btnMailReply').onclick = function(){
+  if(!选中信){ out('o_mail','先在列表点一封信'); return; }
+  var 文=$('m_text').value.trim(); if(!文){ out('o_mail','回信正文不能为空'); return; }
+  sendCmd('mail_reply', Object.assign(路由参(),{id:选中信, text:文}), function(d){
+    out('o_mail', 文本(d)||JSON.stringify(jd(d),null,2)); });
+};
+
+/* =====================================================================
+   连接设置 / 顶栏
+   ===================================================================== */
+function loadCfg(){
+  S.ch = 规范频道(lsGet(LS.ch, CH_FULL));
+  S.target = lsGet(LS.target,'');
+  S.myid = lsGet(LS.myid,'') || randId();
+  S.code = lsGet(LS.code,'');
+  lsSet(LS.myid, S.myid);
+  $('ch').value=S.ch; $('target').value=S.target;
+  $('myid').value=S.myid; $('code').value=S.code;
+}
+function saveCfg(){
+  S.ch = 规范频道($('ch').value);        // 只填前缀 / 留空都自动拼成完整频道
+  $('ch').value = S.ch;                  // 回显最终频道
+  S.target=$('target').value.trim();
+  S.myid=$('myid').value.trim()||randId();
+  S.code=$('code').value;
+  lsSet(LS.ch,S.ch); lsSet(LS.target,S.target);
+  lsSet(LS.myid,S.myid); lsSet(LS.code,S.code);
+}
+$('btnSave').onclick = function(){ saveCfg(); connect(); };
+$('btnConn').onclick = function(){ saveCfg(); connect(); };
+$('btnPing').onclick = function(){
+  if(!S.on){ logit('未连接，喊不动'); return; }
+  if(!(S.target||'').trim()){ sendDiscovery(); return; }   // 还没认领目标 → 先发现
+  if(!sendRaw({t:'ping', to:(S.target||'').trim(), 实例号:(S.myid||'')})){ logit('发送失败'); return; }
+  logit('已喊一声（ping）…');
+};
+$('btnLogToggle').onclick = function(){
+  var lg=$('log'); lg.classList.toggle('open');
+  this.textContent = lg.classList.contains('open') ? '收起' : '展开';
+};
+
+/* ---------- 启动：只填频道即可，其余自动同步 ---------- */
+loadCfg();
+buildTabs();
+logit('正在连接 ' + S.ch + ' …（前缀自动拼接、电脑身份自动发现）');
+connect();   // 打开即连；连上自动发「公司发现」认领电脑身份（目标 / 口令无需手填）
+</script>
+</body>
+</html>
