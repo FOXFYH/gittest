@@ -17,6 +17,11 @@
     display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
   }
   header h1 { font-size: 16px; font-weight: 600; }
+  header h1 .ver {
+    display: inline-block; margin-left: 6px; padding: 1px 7px;
+    font-size: 11px; font-weight: 600; vertical-align: middle;
+    color: #eee; background: #444; border: 1px solid #5a5a5a; border-radius: 999px;
+  }
   header a { color: #bbb; font-size: 12px; text-decoration: none; }
   header a:hover { color: #fff; }
   .group { margin-bottom: 20px; }
@@ -40,7 +45,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>FYH 工具导航</h1>
+    <h1>FYH 工具导航 <span class="ver">v1.00</span></h1>
     <a href="https://github.com/FOXFYH" target="_blank" rel="noopener">GitHub 主页</a>
   </header>
 
