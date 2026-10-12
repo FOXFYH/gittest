@@ -6,7 +6,7 @@
 <title>AI公司 · 网页遥控面板</title>
 <style>
 /* ============================================================
-   AI公司 · 网页遥控面板（公司面板.html）  版本 0.04  日期 2026-10-12
+   AI公司 · 网页遥控面板（公司面板.html）  版本 0.05  日期 2026-10-12
    v0.03（遥控型对齐 W3）：信箱动词口径与 下级模块\邮箱分页.py / CLI工具\公司CLI.py
    对齐——统一 mail_inbox / mail_show / mail_read / mail_reply / mail_send，
    参数 to/target/dev/soft/id/text/sender；信箱页补「写新信（mail_send）」。
@@ -30,6 +30,8 @@ body{padding-bottom:calc(56px + env(safe-area-inset-bottom));}
   border-bottom:1px solid var(--bd); padding:8px 12px calc(8px + env(safe-area-inset-top));
   display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
 .hd .ttl{font-weight:700; font-size:16px;}
+.hd .ver{font-size:12px; font-weight:700; color:var(--blue); background:var(--blue-bg);
+  border:1px solid rgba(21,101,192,.35); border-radius:6px; padding:1px 7px;}
 .dot{width:10px; height:10px; border-radius:50%; background:var(--mut); flex:none;}
 .dot.on{background:var(--ok); box-shadow:0 0 0 3px rgba(27,138,58,.15);}
 .dot.off{background:var(--bad);}
@@ -97,6 +99,7 @@ tr.sel td{background:var(--blue-bg);}
 <div class="hd">
   <span class="dot off" id="dot"></span>
   <span class="ttl">AI公司 · 网页遥控面板</span>
+  <span class="ver" id="ver">v0.05</span>
   <span class="st" id="hdst">未连接</span>
   <span class="spacer"></span>
   <button class="ghost" id="btnConn" style="padding:6px 10px; font-size:13px;">连接</button>
@@ -246,7 +249,7 @@ tr.sel td{background:var(--blue-bg);}
 <script>
 'use strict';
 /* =====================================================================
-   AI公司 · 网页遥控面板 脚本    版本 0.02
+   AI公司 · 网页遥控面板 脚本    版本 0.05
    帧：面板→公司 {t:'公司命令',to,口令,动词,参数,请求id,实例号}
        公司→面板 {t:'公司回执',to,请求id,结果,原因码,数据}
        面板→公司 {t:'公司发现',实例号,请求id,to(可空=广播)}
