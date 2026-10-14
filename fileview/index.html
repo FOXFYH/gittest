@@ -79,7 +79,7 @@ const _raw=v=>(v&&v.indexOf("__")!==0)?v:"";      // 未注入的占位符 → �
 const _q=new URLSearchParams(location.search);
 const _q1=k=>_q.get(k)||"";
 const HOST=_raw("__HOST__")||_q1("h")||_q1("host")||"standalone";  // 宿主角色：?h=trae / ?h=workbuddy
-const ROLE_ID=_raw("__ROLEID__");
+const SRV_ID=_raw("__ROLEID__")||_q1("id")||"";   // 只认这台服务器的应答（本机页注入；线上页可用 ?id= 指定）
 const PICK=_q1("pick")==="1";          // 选路径模式：由宿主网页打开，选中后把路径回传
 const PICK_MODE=_q1("mode")||"ins";    // 回传用途：ins=插入输入框 / newdir=回填工作目录
 function baseChan(v){v=(v||"").trim();return v.slice(-CHANNEL_TAG.length)===CHANNEL_TAG?v.slice(0,-CHANNEL_TAG.length):v;}
@@ -140,6 +140,8 @@ function onMessage(raw){
   }
   if(payload.startsWith(RESP_PRE)&&payload.endsWith(RESP_SUF)){
     let obj;try{obj=JSON.parse(payload.slice(RESP_PRE.length,payload.length-RESP_SUF.length));}catch(e){return;}
+    if(!obj.sid)return;                     // 无 sid = 旧版/他机应答（同一频道可能有别的实例在跑）：丢弃，防顶包
+    if(SRV_ID&&obj.sid!==SRV_ID)return;     // 有 sid 但不是本机服务器：丢弃
     const p=pending[obj.rid];
     if(!p)return;
     clearTimeout(p.timer);delete pending[obj.rid];p.resolve(obj);
@@ -340,7 +342,7 @@ el("btnFont").onclick=()=>{
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.10");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.11");
 document.getElementById("stHost").textContent=HOST||"standalone";
 if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
 function showSetup(){
