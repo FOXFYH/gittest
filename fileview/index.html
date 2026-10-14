@@ -24,6 +24,9 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 .row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .meta{flex:none;font-size:12px;color:var(--sub)}
 .row.dir .nm{font-weight:600}
+.sec{padding:15px 12px 6px;font-size:12px;color:var(--sub);letter-spacing:.5px}
+.row.sub{padding-left:34px}
+.row.pc .meta{font-size:13px;color:var(--sub)}
 #reader{display:none;padding:0 0 60px}
 #text{margin:0;padding:14px 14px 60px;white-space:pre-wrap;word-break:break-word;
       font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
@@ -177,11 +180,42 @@ function initLoc(){
 
 function renderRoots(r){
   showBrowse(); curPath=null;
-  el("title").textContent="此电脑";
+  el("title").textContent="主页";
   el("crumbs").innerHTML="";
   const box=el("list");box.innerHTML="";
-  (r.shortcuts||[]).forEach(s=>box.appendChild(rowEl(s.n,true,s.p,0,0)));
-  (r.drives||[]).forEach(d=>box.appendChild(rowEl("盘符 "+d,true,d,0,0)));
+  if(r.base){BASE=r.base; box.appendChild(rowEl("🏠 工作台",true,r.base,0,0));}
+  renderMyPC(box,r);               // 我的电脑（默认折叠，点开才出现）
+  renderRecent(box,r.recent||[]);  // 最近打开（最多 10 个文档）
+}
+// 「我的电脑」：桌面/文档/下载/用户目录 + 盘符，收起为一行，点开才展开。
+function renderMyPC(box,r){
+  const head=document.createElement("div");
+  head.className="row dir pc";
+  head.innerHTML='<span class="ic">🖥</span><span class="nm">我的电脑</span><span class="meta">▸</span>';
+  const sub=document.createElement("div");
+  sub.style.display="none";
+  let open=false;
+  head.onclick=()=>{open=!open;sub.style.display=open?"block":"none";head.querySelector(".meta").textContent=open?"▾":"▸";};
+  box.appendChild(head);
+  (r.quick||[]).forEach(s=>{const e=rowEl(s.n,true,s.p,0,0);e.classList.add("sub");sub.appendChild(e);});
+  (r.drives||[]).forEach(d=>{const e=rowEl("盘符 "+d,true,d,0,0);e.classList.add("sub");sub.appendChild(e);});
+  box.appendChild(sub);
+}
+// 「最近打开」：列出最近打开过的文档，点一行即回到该文件。
+function renderRecent(box,list){
+  const h=document.createElement("div");h.className="sec";h.textContent="最近打开";box.appendChild(h);
+  if(!list.length){
+    const e=document.createElement("div");
+    e.style.cssText="padding:14px 12px;color:var(--sub);font-size:14px";
+    e.textContent="暂无记录";
+    box.appendChild(e);
+    return;
+  }
+  list.forEach(f=>{
+    const e=rowEl(f.n,false,f.p,0,0);
+    e.querySelector(".meta").textContent=fmtTime(f.m);
+    box.appendChild(e);
+  });
 }
 function rowEl(name,isDir,path,size,mtime){
   const d=document.createElement("div");
@@ -270,7 +304,7 @@ function goUp(){
   if(inReader){ goBack(); return; }
   goBack();
 }
-function goHome(){ if(inReader){reading=null;} if(BASE){ openDir(BASE); } else { initLoc(); } }
+function goHome(){ if(inReader)reading=null; probe(); }
 
 // ============ 选路径（pick）============
 // 宿主网页以 ?pick=1 打开本页；选中文件/文件夹后，把路径 postMessage 回宿主页，
@@ -295,7 +329,7 @@ el("btnFont").onclick=()=>{
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.07");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.08");
 document.getElementById("stHost").textContent=HOST||"standalone";
 if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
 function showSetup(){
