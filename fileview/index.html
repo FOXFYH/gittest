@@ -65,7 +65,7 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 // 走 URL 参数 / 本地记忆 / 页面手输——人类只需提供「公共段」，后缀与密钥取内置默认。
 const NS="FVWR";
 const CHANNEL_TAG="FILE";              // 文件查看器专属后缀：真频道 = 公共段 + FILE
-const DEF_API="";  // 内置接口密钥（可被 URL 参数覆盖）
+const DEF_API="ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";  // 内置接口密钥（可被 URL 参数覆盖）
 const DEF_TOK="fvwr9k2q7x";                                 // 内置口令（轻口径，防串台）
 const _raw=v=>(v&&v.indexOf("__")!==0)?v:"";      // 未注入的占位符 → 空
 const _q=new URLSearchParams(location.search);
@@ -78,7 +78,7 @@ function baseChan(v){v=(v||"").trim();return v.slice(-CHANNEL_TAG.length)===CHAN
 function joinChan(base){base=baseChan(base);return base?base+CHANNEL_TAG:"";}
 let CHANNEL_IN=baseChan(_raw("__CHANNEL__"))||_q1("channel")||localStorage.getItem("fvwr_channel")||"";
 let CHANNEL=joinChan(CHANNEL_IN);
-let API_KEY=_raw("__APIKEY__")||_q1("api")||localStorage.getItem("fvwr_api")||DEF_API||'ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug';
+let API_KEY=_raw("__APIKEY__")||_q1("api")||localStorage.getItem("fvwr_api")||DEF_API;
 let TOKEN=_raw("__TOKEN__")||_q1("tk")||localStorage.getItem("fvwr_token")||DEF_TOK;
 const REQ_PRE="【"+NS+"Q】", REQ_SUF="【/"+NS+"Q】", RESP_PRE="【"+NS+"A】", RESP_SUF="【/"+NS+"A】";
 function wsUrl(){return "wss://free.blr2.piesocket.com/v3/"+CHANNEL+"?api_key="+API_KEY;}
@@ -108,7 +108,7 @@ function setStatus(cls,txt){document.getElementById("dot").className="dot "+cls;
 function connect(){
   setStatus("","连接中…");
   try{ws=new WebSocket(wsUrl());}catch(e){setStatus("off","连接失败");return;}
-  ws.onopen=()=>{connected=true;setStatus("on","已连接");probe();};
+  ws.onopen=()=>{connected=true;setStatus("on","已连接");initLoc();};
   ws.onclose=()=>{connected=false;setStatus("off","离线，重连中…");setTimeout(connect,5000);};
   ws.onerror=()=>{setStatus("off","连接异常");};
   ws.onmessage=(ev)=>onMessage(ev.data);
@@ -159,6 +159,21 @@ function showBrowse(){inReader=false;el("reader").style.display="none";el("list"
 function showReader(){inReader=true;el("list").style.display="none";el("crumbs").style.display="none";el("reader").style.display="block";}
 
 function probe(){ req("roots").then(r=>{ if(r.ok){ renderRoots(r); } else { el("note").textContent=r.err||"连接失败"; } }); }
+
+// ============ 上次位置（跨次保留）============
+// 打开时先问服务端「本宿主上次停在哪个目录」：有记忆→直接回到原处；
+// 无记忆→落到起始根（工作台）；都不行才退回「此电脑」。避免每次都从最外层重来。
+let BASE="";                     // 起始根（工作台；由服务端下发）
+function initLoc(){
+  req("last").then(r=>{
+    if(r&&r.ok){
+      if(r.base)BASE=r.base;
+      if(r.path) openDir(r.path);        // 有记忆：回到上次浏览的目录
+      else if(BASE) openDir(BASE);       // 无记忆：落到起始根（工作台）
+      else probe();
+    } else { probe(); }
+  });
+}
 
 function renderRoots(r){
   showBrowse(); curPath=null;
@@ -255,7 +270,7 @@ function goUp(){
   if(inReader){ goBack(); return; }
   goBack();
 }
-function goHome(){ if(inReader){reading=null;} showBrowse(); probe(); }
+function goHome(){ if(inReader){reading=null;} if(BASE){ openDir(BASE); } else { initLoc(); } }
 
 // ============ 选路径（pick）============
 // 宿主网页以 ?pick=1 打开本页；选中文件/文件夹后，把路径 postMessage 回宿主页，
@@ -280,7 +295,7 @@ el("btnFont").onclick=()=>{
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.06");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.07");
 document.getElementById("stHost").textContent=HOST||"standalone";
 if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
 function showSetup(){
