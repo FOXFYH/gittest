@@ -44,6 +44,14 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#bbb;margin-right:5px;vertical-align:middle}
 .dot.on{background:#3aa655}.dot.off{background:#c0392b}
 .row .pk{flex:none;width:34px;text-align:center;font-size:16px;color:var(--acc);border-left:1px solid var(--line)}
+#shade{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;display:none}
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--bg);border-top:1px solid var(--line);
+       border-radius:14px 14px 0 0;padding:6px 0 10px;display:none;box-shadow:0 -6px 24px rgba(0,0,0,.18)}
+.sh-item{padding:14px 20px;font-size:16px;border-bottom:1px solid var(--line);cursor:pointer}
+.sh-item:last-child{border-bottom:0;text-align:center;color:var(--sub)}
+.sh-item.off{color:var(--sub);opacity:.5}
+#toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);z-index:60;background:rgba(0,0,0,.78);
+       color:#fff;font-size:13px;padding:9px 14px;border-radius:8px;max-width:82%;display:none;text-align:center}
 </style>
 </head>
 <body>
@@ -54,11 +62,24 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
   <button id="btnUp">↑</button>
   <button id="btnFont">A</button>
   <button id="btnPick" title="选定当前文件夹（把路径回传给宿主页）" style="display:none">✅</button>
+  <button id="btnMore" title="更多操作（新建/复制/剪切/粘贴/重命名/删除）" style="display:none">⋮</button>
+  <button id="btnNew" title="新建文件夹" style="display:none">＋</button>
 </div>
 <div id="crumbs"></div>
 <div id="list"></div>
 <div id="reader"><pre id="text"></pre><button id="more" style="display:none"></button><div id="note"></div></div>
 <div id="status"><span id="stLeft"><span class="dot" id="dot"></span><span id="stTxt">连接中…</span></span><span id="stVer"></span></div>
+<div id="shade"></div>
+<div id="sheet">
+  <div class="sh-item" data-a="new">📁 新建文件夹</div>
+  <div class="sh-item" data-a="copy">📋 复制</div>
+  <div class="sh-item" data-a="cut">✂️ 剪切</div>
+  <div class="sh-item" data-a="paste">📥 粘贴</div>
+  <div class="sh-item" data-a="rename">✏️ 重命名</div>
+  <div class="sh-item" data-a="del">🗑 删除</div>
+  <div class="sh-item" data-a="cancel">取消</div>
+</div>
+<div id="toast"></div>
 <div id="setup" style="display:none;position:fixed;inset:0;z-index:50;background:var(--bg);color:var(--fg);padding:22px">
   <h3 style="margin:8px 0 10px">连接设置</h3>
   <p style="color:var(--sub);font-size:13px;line-height:1.6">这是线上公共页。只需填写「频道公共段」——即本人掌握的那段口令，本页会自动拼上文件专属后缀并记住；接口密钥与口令已内置默认值，无需填写。<br>宿主身份：<b id="stHost"></b></p>
@@ -165,8 +186,8 @@ let inReader=false;
 let reading=null;     // 当前阅读中的文件 {path,off,size}
 let fontSize=16;
 function el(id){return document.getElementById(id);}
-function showBrowse(){inReader=false;el("reader").style.display="none";el("list").style.display="block";el("crumbs").style.display="flex";}
-function showReader(){inReader=true;el("list").style.display="none";el("crumbs").style.display="none";el("reader").style.display="block";}
+function showBrowse(){inReader=false;el("reader").style.display="none";el("list").style.display="block";el("crumbs").style.display="flex";updateToolbar();}
+function showReader(){inReader=true;el("list").style.display="none";el("crumbs").style.display="none";el("reader").style.display="block";updateToolbar();}
 
 function probe(){ req("roots").then(r=>{ if(r.ok){ renderRoots(r); } else { el("note").textContent=r.err||"连接失败"; } }); }
 
@@ -236,7 +257,7 @@ function rowEl(name,isDir,path,size,mtime){
   d.innerHTML='<span class="ic">'+(isDir?"📁":"📄")+'</span><span class="nm"></span><span class="meta"></span>';
   d.querySelector(".nm").textContent=name;
   d.querySelector(".meta").textContent=isDir?"":fmtSize(size);
-  d.onclick=()=>{ if(isDir) openDir(path); else openFile(path); };
+  d.onclick=()=>{ if(selMode){ applyOp(path,name,isDir); } else if(isDir) openDir(path); else openFile(path); };
   if(PICK){                       // 选路径模式：行尾 ➕ 直接把该路径回传宿主页
     const b=document.createElement("span");
     b.className="pk"; b.textContent="➕"; b.title="选中此项（回传路径给宿主页）";
@@ -304,6 +325,7 @@ function pullChunk(){
   });
 }
 function goBack(){
+  if(selMode){ selMode=null; if(curPath)openDir(curPath); else probe(); return; }
   if(inReader){ reading=null; showBrowse(); if(curPath)openDir(curPath); else probe(); return; }
   if(curPath){
     const parts=curPath.split(/[\\/]/).filter(x=>x!=="");
@@ -329,6 +351,55 @@ function pickBack(path){
   setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);
 }
 
+// ============ 文件操作（⋮ 更多 / ＋ 新建）============
+// 复制/剪切先存入剪贴板 → 进入目标文件夹后「粘贴」；重命名/删除进入选择模式后点选一项。
+let clip=null;                 // {op:'copy'|'cut', src, name}：待粘贴项
+let selMode=null;              // '复制'|'剪切'|'重命名'|'删除'：等待用户点选某一项
+let _toastT=null;
+function toast(m){const t=el("toast");t.textContent=m;t.style.display="block";
+  clearTimeout(_toastT);_toastT=setTimeout(()=>{t.style.display="none";},2600);}
+function updateToolbar(){const on=(!inReader)&&!!curPath;
+  el("btnMore").style.display=on?"":"none";el("btnNew").style.display=on?"":"none";}
+function openSheet(){const s=el("sheet");const p=s.querySelector('[data-a="paste"]');
+  if(clip){p.classList.remove("off");p.textContent="📥 粘贴（"+clip.name+"）";}
+  else{p.classList.add("off");p.textContent="📥 粘贴";}
+  s.style.display="block";el("shade").style.display="block";}
+function closeSheet(){el("sheet").style.display="none";el("shade").style.display="none";}
+function enterSel(kind){selMode=kind;el("title").textContent="点选要"+kind+"的项目（点 ← 取消）";}
+function handleAction(a){
+  if(a==="cancel")return;
+  if(!curPath){alert("请先进入一个文件夹");return;}
+  if(a==="new")return newFolder();
+  if(a==="paste")return doPaste();
+  if(a==="copy")return enterSel("复制");
+  if(a==="cut")return enterSel("剪切");
+  if(a==="rename")return enterSel("重命名");
+  if(a==="del")return enterSel("删除");
+}
+function newFolder(){const name=prompt("新建文件夹名称：","新建文件夹");
+  if(!name)return;
+  req("mkdir",{path:curPath,name:name}).then(r=>{
+    if(!r||!r.ok){alert((r&&r.err)||"新建失败");return;}
+    toast("已新建："+name);openDir(curPath);});}
+function doPaste(){if(!clip){alert("剪贴板为空：请先「复制」或「剪切」一项");return;}
+  const c=clip;
+  req("copy",{src:c.src,dst:curPath,move:c.op==="cut"}).then(r=>{
+    if(!r||!r.ok){alert((r&&r.err)||"粘贴失败");return;}
+    clip=null;toast(c.op==="cut"?"已移动到此处":"已复制到此处");openDir(curPath);});}
+function applyOp(path,name,isDir){
+  const k=selMode;selMode=null;
+  if(k==="复制"||k==="剪切"){clip={op:(k==="复制"?"copy":"cut"),src:path,name:name};
+    toast("已"+k+"："+name+"。请进入目标文件夹后点 ⋮→粘贴");openDir(curPath);return;}
+  if(k==="重命名"){const nn=prompt("重命名为：",name);
+    if(!nn||nn===name){openDir(curPath);return;}
+    req("rename",{path:path,name:nn}).then(r=>{
+      if(!r||!r.ok){alert((r&&r.err)||"重命名失败");}else{toast("已重命名为："+nn);}
+      openDir(curPath);});return;}
+  if(k==="删除"){if(!confirm("确定删除「"+name+"」？"+(isDir?"（该文件夹及其全部内容）":""))){openDir(curPath);return;}
+    req("del",{path:path}).then(r=>{
+      if(!r||!r.ok){alert((r&&r.err)||"删除失败");}else{toast("已删除："+name);}
+      openDir(curPath);});return;}
+}
 // ============ 事件 ============
 el("btnBack").onclick=goBack;
 el("btnUp").onclick=goUp;
@@ -339,10 +410,14 @@ el("btnFont").onclick=()=>{
   el("text").style.fontSize=fontSize+"px";
   el("btnFont").textContent="A"+fontSize;
 };
+el("btnMore").onclick=()=>{ if(!curPath){alert("请先进入一个文件夹");return;} openSheet(); };
+el("btnNew").onclick=()=>{ if(!curPath){alert("请先进入一个文件夹");return;} newFolder(); };
+el("shade").onclick=closeSheet;
+el("sheet").querySelectorAll(".sh-item").forEach(it=>it.onclick=()=>{const a=it.dataset.a;closeSheet();handleAction(a);});
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.11");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.12");
 document.getElementById("stHost").textContent=HOST||"standalone";
 if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
 function showSetup(){
