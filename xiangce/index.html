@@ -913,7 +913,7 @@ document.getElementById('r重置').onclick = function () {
 // ---------- 保存：把"怎么做"打包成一小段命令交给壳，壳用原生 Bitmap 出图 ----------
 function 复原保存钮() {
   var b = document.getElementById('esave');
-  b.disabled = false; b.textContent = 替换原图 ? '替换' : '保存';
+  b.disabled = false; b.textContent = '保存';   // v0.17：按钮就叫「保存」，勾了替换就覆盖原图
 }
 function 保存编辑() {
   if (!编 || 等待壳) return;
