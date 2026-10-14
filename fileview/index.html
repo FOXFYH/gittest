@@ -340,7 +340,7 @@ el("btnFont").onclick=()=>{
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.09");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.10");
 document.getElementById("stHost").textContent=HOST||"standalone";
 if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
 function showSetup(){
