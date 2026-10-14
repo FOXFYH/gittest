@@ -6,7 +6,7 @@
 <title>看图</title>
 <!--
   ============================================================
-  看图软件 · 相册网页（"脸"）  v0.16
+  看图软件 · 相册网页（"脸"）  v0.17
   ------------------------------------------------------------
   本页是纯前端，**不碰手机文件**；它的图来自"壳"：
     壳（有权限）扫目录 → wv.evaluateJavascript 把名单灌进来 → 本页画出来。
@@ -193,7 +193,7 @@
 
 <header>
   <h1>看图</h1>
-  <span class="ver" id="ver">v0.15</span>
+  <span class="ver" id="ver">v0.16</span>
   <span class="cnt" id="cnt">等待壳送数据…</span>
   <span class="sp"></span>
   <button id="setbtn" title="设置">⚙</button>
@@ -598,7 +598,7 @@ setTimeout(function () {
           <button data-r="1.7778">16:9</button>
           <button data-r="0.5625">9:16</button>
         </div>
-        <div class="chips"><button id="r全">整图</button></div>
+        <div class="chips"><button id="r全">整图</button><button id="r确认">确认截图</button></div>
       </div>
       <div class="pane" data-p="调整">
         <div class="row"><label>亮度</label><input id="a亮" type="range" min="50" max="150" value="100"><span class="v" id="v亮">100</span></div>
@@ -674,9 +674,74 @@ function 开编辑() {
 function 关编辑() {
   document.getElementById('edit').classList.remove('on');
   编图.removeAttribute('src');
+  编图.style.clipPath = ''; 编图.style.webkitClipPath = '';
+  编图.style.marginLeft = ''; 编图.style.marginTop = '';
   编 = null;
   提示('');
 }
+
+// ---------- 确认截图 / 保存（v0.17 新增：先确认，再保存覆盖）----------
+//   「确认截图」＝把裁剪框定格，预览里只留框内那块（其余压黑），
+//     让你先看到"裁出来是什么样"——这一步不保存、不动原图。
+//   「保存」＝按定格的范围出图并覆盖原图（设置里「保存时替换原图」默认开）。
+function 反变换点(X, Y, 角, fx, fy) {          // 显示坐标 → 元素本地坐标（相对元素中心）
+  var sx, sy;
+  if (角 === 90)       { sx = Y;  sy = -X; }
+  else if (角 === 180) { sx = -X; sy = -Y; }
+  else if (角 === 270) { sx = -Y; sy = X; }
+  else                 { sx = X;  sy = Y; }
+  return [sx / fx, sy / fy];
+}
+function 裁框本地像素() {                       // 编.裁（显示空间归一化）→ #eimg 的本地像素框
+  var SW = 编台.clientWidth, SH = 编台.clientHeight;
+  var bw = parseFloat(编图.style.width) || 0, bh = parseFloat(编图.style.height) || 0;
+  if (!bw || !bh) return null;
+  var c = [[编.裁.l, 编.裁.t], [编.裁.r, 编.裁.t], [编.裁.r, 编.裁.b], [编.裁.l, 编.裁.b]];
+  var xs = [], ys = [];
+  for (var i = 0; i < 4; i++) {
+    var gx = 编.盒左 + c[i][0] * 编.显宽, gy = 编.盒上 + c[i][1] * 编.显高;
+    var r = 反变换点(gx - SW / 2, gy - SH / 2, 编.角度, 编.翻X, 编.翻Y);
+    xs.push(r[0] + bw / 2); ys.push(r[1] + bh / 2);
+  }
+  return { x0: Math.min.apply(null, xs), x1: Math.max.apply(null, xs),
+           y0: Math.min.apply(null, ys), y1: Math.max.apply(null, ys),
+           bw: bw, bh: bh, SW: SW, SH: SH };
+}
+function 已裁像素尺寸() {
+  var 转了 = (编.角度 % 180) !== 0;
+  var cw = 编.裁.r - 编.裁.l, ch = 编.裁.b - 编.裁.t;
+  var W = Math.round((转了 ? 编.原高 : 编.原宽) * cw);
+  var H = Math.round((转了 ? 编.原宽 : 编.原高) * ch);
+  return W + '×' + H;
+}
+function 确认截图() {
+  if (!编) return;
+  var 钮 = document.getElementById('r确认');
+  if (编.已确认) {                              // 再点一次 = 重新裁剪
+    编.已确认 = false;
+    编图.style.clipPath = ''; 编图.style.webkitClipPath = '';
+    摆图(); 选页('裁剪'); 画裁框();
+    钮.textContent = '确认截图';
+    提示('拖动四个角重新框选');
+    return;
+  }
+  if ((编.裁.r - 编.裁.l) >= 0.999 && (编.裁.b - 编.裁.t) >= 0.999) {
+    提示('先在图上拖出要保留的范围'); return;
+  }
+  var p = 裁框本地像素();
+  if (!p) { 提示('图还没准备好'); return; }
+  编.已确认 = true;
+  编图.style.clipPath = 'inset(' + Math.max(0, p.y0).toFixed(1) + 'px ' + Math.max(0, p.bw - p.x1).toFixed(1) + 'px '
+                      + Math.max(0, p.bh - p.y1).toFixed(1) + 'px ' + Math.max(0, p.x0).toFixed(1) + 'px)';
+  编图.style.webkitClipPath = 编图.style.clipPath;
+  var cx = (编.裁.l + 编.裁.r) / 2, cy = (编.裁.t + 编.裁.b) / 2;   // 把裁出来那块摆到舞台正中
+  编图.style.marginLeft = (-p.bw / 2 + (p.SW / 2 - (编.盒左 + cx * 编.显宽))) + 'px';
+  编图.style.marginTop  = (-p.bh / 2 + (p.SH / 2 - (编.盒上 + cy * 编.显高))) + 'px';
+  编裁.classList.remove('on');                  // 框收起来，画面干净
+  钮.textContent = '重新裁剪';
+  提示('已截图 ' + 已裁像素尺寸() + '，点右上「保存」覆盖原图');
+}
+document.getElementById('r确认').onclick = 确认截图;
 
 // ---------- 摆图：算出"转/翻之后"的显示尺寸，再把元素盒子摆到舞台正中 ----------
 function 摆图() {
@@ -777,7 +842,7 @@ function 选页(名) {
   Array.prototype.forEach.call(document.querySelectorAll('#epanes .pane'), function (p) {
     p.classList.toggle('on', p.getAttribute('data-p') === 名);
   });
-  编裁.classList.toggle('on', 名 === '裁剪');
+  编裁.classList.toggle('on', 名 === '裁剪' && !(编 && 编.已确认));
   if (名 === '裁剪') 画裁框();
 }
 Array.prototype.forEach.call(document.querySelectorAll('#etabs button'), function (b) {
@@ -857,7 +922,7 @@ function 保存编辑() {
              br: 编.亮, ct: 编.对, sa: 编.饱, rp: 替换原图 ? 1 : 0 };
   等待壳 = true;
   document.getElementById('esave').disabled = true;
-  document.getElementById('esave').textContent = 替换原图 ? '替换中…' : '导出中…';
+  document.getElementById('esave').textContent = '保存中…';
   提示(替换原图 ? '正在覆盖原图…' : '正在出图…');
   try { location.href = 'autox://导出?cmd=' + encodeURIComponent(JSON.stringify(项)); }
   catch (e) { 等待壳 = false; 复原保存钮(); 提示('这页没跑在《相册壳》里，存不了'); return; }
