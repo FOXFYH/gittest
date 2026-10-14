@@ -25,8 +25,13 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 .row .meta{flex:none;font-size:12px;color:var(--sub)}
 .row.dir .nm{font-weight:600}
 .sec{padding:15px 12px 6px;font-size:12px;color:var(--sub);letter-spacing:.5px}
-.row.sub{padding-left:34px}
-.row.pc .meta{font-size:13px;color:var(--sub)}
+.duo{display:flex;gap:10px;padding:12px 12px 8px}
+.tile{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 8px;
+      border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer}
+.tile:active{background:var(--line)}
+.tile .ti{font-size:26px;line-height:1.1}
+.tile .tn{font-size:15px;font-weight:600}
+.tile .ts{font-size:11px;color:var(--sub)}
 #reader{display:none;padding:0 0 60px}
 #text{margin:0;padding:14px 14px 60px;white-space:pre-wrap;word-break:break-word;
       font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
@@ -183,23 +188,29 @@ function renderRoots(r){
   el("title").textContent="主页";
   el("crumbs").innerHTML="";
   const box=el("list");box.innerHTML="";
-  if(r.base){BASE=r.base; box.appendChild(rowEl("🏠 工作台",true,r.base,0,0));}
-  renderMyPC(box,r);               // 我的电脑（默认折叠，点开才出现）
+  if(r.base)BASE=r.base;
+  renderTop(box,r);                // 顶部并列两块：工作台 / 我的电脑
   renderRecent(box,r.recent||[]);  // 最近打开（最多 10 个文档）
 }
-// 「我的电脑」：桌面/文档/下载/用户目录 + 盘符，收起为一行，点开才展开。
-function renderMyPC(box,r){
-  const head=document.createElement("div");
-  head.className="row dir pc";
-  head.innerHTML='<span class="ic">🖥</span><span class="nm">我的电脑</span><span class="meta">▸</span>';
-  const sub=document.createElement("div");
-  sub.style.display="none";
-  let open=false;
-  head.onclick=()=>{open=!open;sub.style.display=open?"block":"none";head.querySelector(".meta").textContent=open?"▾":"▸";};
-  box.appendChild(head);
-  (r.quick||[]).forEach(s=>{const e=rowEl(s.n,true,s.p,0,0);e.classList.add("sub");sub.appendChild(e);});
-  (r.drives||[]).forEach(d=>{const e=rowEl("盘符 "+d,true,d,0,0);e.classList.add("sub");sub.appendChild(e);});
+// 顶部并列两块：「工作台」（根目录·一键直达）与「我的电脑」（点开才向下展开）。
+function renderTop(box,r){
+  const duo=document.createElement("div");duo.className="duo";
+  // 左：工作台（根目录）
+  const t1=document.createElement("div");t1.className="tile";
+  t1.innerHTML='<span class="ti">🏠</span><span class="tn">工作台</span><span class="ts">根目录 · 一键直达</span>';
+  t1.onclick=()=>{ if(r.base) openDir(r.base); };
+  duo.appendChild(t1);
+  // 右：我的电脑（折叠展开）
+  const t2=document.createElement("div");t2.className="tile";
+  t2.innerHTML='<span class="ti">🖥</span><span class="tn">我的电脑</span><span class="ts">展开▾</span>';
+  duo.appendChild(t2);
+  box.appendChild(duo);
+  const sub=document.createElement("div");sub.style.display="none";
+  (r.quick||[]).forEach(s=>sub.appendChild(rowEl(s.n,true,s.p,0,0)));
+  (r.drives||[]).forEach(d=>sub.appendChild(rowEl("盘符 "+d,true,d,0,0)));
   box.appendChild(sub);
+  let open=false;
+  t2.onclick=()=>{open=!open;sub.style.display=open?"block":"none";t2.querySelector(".ts").textContent=open?"收起▴":"展开▾";};
 }
 // 「最近打开」：列出最近打开过的文档，点一行即回到该文件。
 function renderRecent(box,list){
@@ -329,7 +340,7 @@ el("btnFont").onclick=()=>{
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.08");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.09");
 document.getElementById("stHost").textContent=HOST||"standalone";
 if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
 function showSetup(){
