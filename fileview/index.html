@@ -9,7 +9,7 @@
 @media(prefers-color-scheme:dark){:root{--bg:#161616;--fg:#ddd;--sub:#888;--line:#2c2c2c;--card:#1e1e1e;--acc:#ccc}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;height:100%}
-body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;line-height:1.5;touch-action:manipulation}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.5;touch-action:manipulation}
 #bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--line)}
 #bar button{flex:none;width:36px;height:36px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;font-size:16px;padding:0}
 #bar button:active{background:var(--line)}
@@ -18,12 +18,13 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 #crumbs span{cursor:pointer;color:var(--sub)}
 #crumbs span b{color:var(--fg);font-weight:600}
 #list{padding:2px 0 40px}
-.row{display:flex;align-items:center;gap:10px;padding:12px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.row{display:flex;align-items:center;gap:10px;padding:6px 10px;min-height:48px;border-bottom:1px solid var(--line);cursor:pointer}
 .row:active{background:var(--card)}
 .row .ic{flex:none;width:22px;text-align:center;font-size:17px}
-.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row .meta{flex:none;font-size:12px;color:var(--sub)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all;font-size:13.5px;line-height:1.3}
+.row .meta{flex:none;font-size:11px;color:var(--sub)}
 .row.dir .nm{font-weight:600}
+.row .op{flex:none;width:30px;text-align:center;font-size:16px;color:var(--sub);border-left:1px solid var(--line)}
 .sec{padding:15px 12px 6px;font-size:12px;color:var(--sub);letter-spacing:.5px}
 .duo{display:flex;gap:10px;padding:12px 12px 8px}
 .tile{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 8px;
@@ -59,10 +60,9 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
   <button id="btnBack">←</button>
   <div id="title">加载中…</div>
   <button id="btnHome">⌂</button>
-  <button id="btnUp">↑</button>
   <button id="btnFont">A</button>
   <button id="btnPick" title="选定当前文件夹（把路径回传给宿主页）" style="display:none">✅</button>
-  <button id="btnMore" title="更多操作（新建/复制/剪切/粘贴/重命名/删除）" style="display:none">⋮</button>
+  <button id="btnMore" title="文件夹操作（新建文件夹 / 新建TXT / 粘贴）" style="display:none">⋮</button>
   <button id="btnNew" title="新建文件夹" style="display:none">＋</button>
 </div>
 <div id="crumbs"></div>
@@ -70,15 +70,7 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 <div id="reader"><pre id="text"></pre><button id="more" style="display:none"></button><div id="note"></div></div>
 <div id="status"><span id="stLeft"><span class="dot" id="dot"></span><span id="stTxt">连接中…</span></span><span id="stVer"></span></div>
 <div id="shade"></div>
-<div id="sheet">
-  <div class="sh-item" data-a="new">📁 新建文件夹</div>
-  <div class="sh-item" data-a="copy">📋 复制</div>
-  <div class="sh-item" data-a="cut">✂️ 剪切</div>
-  <div class="sh-item" data-a="paste">📥 粘贴</div>
-  <div class="sh-item" data-a="rename">✏️ 重命名</div>
-  <div class="sh-item" data-a="del">🗑 删除</div>
-  <div class="sh-item" data-a="cancel">取消</div>
-</div>
+<div id="sheet"></div>
 <div id="toast"></div>
 <div id="setup" style="display:none;position:fixed;inset:0;z-index:50;background:var(--bg);color:var(--fg);padding:22px">
   <h3 style="margin:8px 0 10px">连接设置</h3>
@@ -257,7 +249,12 @@ function rowEl(name,isDir,path,size,mtime){
   d.innerHTML='<span class="ic">'+(isDir?"📁":"📄")+'</span><span class="nm"></span><span class="meta"></span>';
   d.querySelector(".nm").textContent=name;
   d.querySelector(".meta").textContent=isDir?"":fmtSize(size);
-  d.onclick=()=>{ if(selMode){ applyOp(path,name,isDir); } else if(isDir) openDir(path); else openFile(path); };
+  d.onclick=()=>{ if(isDir) openDir(path); else openFile(path); };
+  // 条目自带「⋮」操作按钮：直接对本条目执行（详细信息 / 复制 / 剪切 / 重命名 / 删除）
+  const op=document.createElement("span");
+  op.className="op"; op.textContent="⋮"; op.title="此文件/文件夹的操作";
+  op.onclick=ev=>{ ev.stopPropagation(); openItemSheet({name:name,isDir:isDir,path:path,size:size,mtime:mtime}); };
+  d.appendChild(op);
   if(PICK){                       // 选路径模式：行尾 ➕ 直接把该路径回传宿主页
     const b=document.createElement("span");
     b.className="pk"; b.textContent="➕"; b.title="选中此项（回传路径给宿主页）";
@@ -325,7 +322,6 @@ function pullChunk(){
   });
 }
 function goBack(){
-  if(selMode){ selMode=null; if(curPath)openDir(curPath); else probe(); return; }
   if(inReader){ reading=null; showBrowse(); if(curPath)openDir(curPath); else probe(); return; }
   if(curPath){
     const parts=curPath.split(/[\\/]/).filter(x=>x!=="");
@@ -334,10 +330,6 @@ function goBack(){
     let p=parts[0]+"\\"; if(parts.length>1) p=parts[0]+"\\"+parts.slice(1).join("\\");
     openDir(p);
   }
-}
-function goUp(){
-  if(inReader){ goBack(); return; }
-  goBack();
 }
 function goHome(){ if(inReader)reading=null; probe(); }
 
@@ -351,58 +343,84 @@ function pickBack(path){
   setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);
 }
 
-// ============ 文件操作（⋮ 更多 / ＋ 新建）============
-// 复制/剪切先存入剪贴板 → 进入目标文件夹后「粘贴」；重命名/删除进入选择模式后点选一项。
+// ============ 文件操作 ============
+// 顶部 ⋮ ＝ 文件夹级操作（新建文件夹 / 新建TXT / 粘贴）；
+// 每个条目右侧 ⋮ ＝ 条目级操作（详细信息 / 复制 / 剪切 / 重命名 / 删除），直接对目标执行。
 let clip=null;                 // {op:'copy'|'cut', src, name}：待粘贴项
-let selMode=null;              // '复制'|'剪切'|'重命名'|'删除'：等待用户点选某一项
 let _toastT=null;
 function toast(m){const t=el("toast");t.textContent=m;t.style.display="block";
   clearTimeout(_toastT);_toastT=setTimeout(()=>{t.style.display="none";},2600);}
 function updateToolbar(){const on=(!inReader)&&!!curPath;
   el("btnMore").style.display=on?"":"none";el("btnNew").style.display=on?"":"none";}
-function openSheet(){const s=el("sheet");const p=s.querySelector('[data-a="paste"]');
-  if(clip){p.classList.remove("off");p.textContent="📥 粘贴（"+clip.name+"）";}
-  else{p.classList.add("off");p.textContent="📥 粘贴";}
-  s.style.display="block";el("shade").style.display="block";}
-function closeSheet(){el("sheet").style.display="none";el("shade").style.display="none";}
-function enterSel(kind){selMode=kind;el("title").textContent="点选要"+kind+"的项目（点 ← 取消）";}
-function handleAction(a){
-  if(a==="cancel")return;
-  if(!curPath){alert("请先进入一个文件夹");return;}
-  if(a==="new")return newFolder();
-  if(a==="paste")return doPaste();
-  if(a==="copy")return enterSel("复制");
-  if(a==="cut")return enterSel("剪切");
-  if(a==="rename")return enterSel("重命名");
-  if(a==="del")return enterSel("删除");
+// 打开底部操作面板：items=[{label,cls?,act}]，末尾恒追加「取消」
+function showSheet(items){
+  const s=el("sheet");s.innerHTML="";
+  items.forEach(it=>{
+    const d=document.createElement("div");
+    d.className="sh-item"+(it.cls?" "+it.cls:"");
+    d.textContent=it.label;
+    d.onclick=()=>{ closeSheet(); it.act(); };
+    s.appendChild(d);
+  });
+  const c=document.createElement("div");c.className="sh-item";c.textContent="取消";
+  c.onclick=closeSheet;s.appendChild(c);
+  s.style.display="block";el("shade").style.display="block";
 }
+function closeSheet(){el("sheet").style.display="none";el("shade").style.display="none";}
+// 文件夹级操作面板（顶部 ⋮ / ＋）
+function openFolderSheet(){
+  if(!curPath){alert("请先进入一个文件夹");return;}
+  showSheet([
+    {label:"📁 新建文件夹", act:newFolder},
+    {label:"📄 新建 TXT 文件", act:newTxt},
+    {label:clip?"📥 粘贴（"+clip.name+"）":"📥 粘贴（剪贴板为空）", cls:clip?"":"off", act:doPaste},
+  ]);
+}
+// 条目级操作面板（每个条目右侧 ⋮）
+function openItemSheet(it){
+  showSheet([
+    {label:"ℹ️ 详细信息", act:()=>showInfo(it)},
+    {label:"📋 复制", act:()=>setClip("copy",it)},
+    {label:"✂️ 剪切", act:()=>setClip("cut",it)},
+    {label:"✏️ 重命名", act:()=>renameItem(it)},
+    {label:"🗑 删除", act:()=>delItem(it)},
+  ]);
+}
+function showInfo(it){
+  const t=["名称："+it.name,"类型："+(it.isDir?"文件夹":"文件")];
+  if(!it.isDir)t.push("大小："+fmtSize(it.size||0));
+  if(it.mtime)t.push("修改时间："+fmtTime(it.mtime));
+  t.push("完整路径："+it.path);
+  alert(t.join("\n"));
+}
+function setClip(op,it){clip={op:op,src:it.path,name:it.name};
+  toast((op==="cut"?"已剪切：":"已复制：")+it.name+"。进入目标文件夹后点顶部 ⋮→粘贴");}
 function newFolder(){const name=prompt("新建文件夹名称：","新建文件夹");
   if(!name)return;
   req("mkdir",{path:curPath,name:name}).then(r=>{
     if(!r||!r.ok){alert((r&&r.err)||"新建失败");return;}
     toast("已新建："+name);openDir(curPath);});}
-function doPaste(){if(!clip){alert("剪贴板为空：请先「复制」或「剪切」一项");return;}
+function newTxt(){const name=prompt("新建 TXT 文件名：","新建文本文档.txt");
+  if(!name)return;
+  req("mkfile",{path:curPath,name:name}).then(r=>{
+    if(!r||!r.ok){alert((r&&r.err)||"新建失败");return;}
+    toast("已新建："+name);openDir(curPath);});}
+function doPaste(){if(!clip){alert("剪贴板为空：请先在某个条目上点 ⋮→复制/剪切");return;}
   const c=clip;
   req("copy",{src:c.src,dst:curPath,move:c.op==="cut"}).then(r=>{
     if(!r||!r.ok){alert((r&&r.err)||"粘贴失败");return;}
     clip=null;toast(c.op==="cut"?"已移动到此处":"已复制到此处");openDir(curPath);});}
-function applyOp(path,name,isDir){
-  const k=selMode;selMode=null;
-  if(k==="复制"||k==="剪切"){clip={op:(k==="复制"?"copy":"cut"),src:path,name:name};
-    toast("已"+k+"："+name+"。请进入目标文件夹后点 ⋮→粘贴");openDir(curPath);return;}
-  if(k==="重命名"){const nn=prompt("重命名为：",name);
-    if(!nn||nn===name){openDir(curPath);return;}
-    req("rename",{path:path,name:nn}).then(r=>{
-      if(!r||!r.ok){alert((r&&r.err)||"重命名失败");}else{toast("已重命名为："+nn);}
-      openDir(curPath);});return;}
-  if(k==="删除"){if(!confirm("确定删除「"+name+"」？"+(isDir?"（该文件夹及其全部内容）":""))){openDir(curPath);return;}
-    req("del",{path:path}).then(r=>{
-      if(!r||!r.ok){alert((r&&r.err)||"删除失败");}else{toast("已删除："+name);}
-      openDir(curPath);});return;}
-}
+function renameItem(it){const nn=prompt("重命名为：",it.name);
+  if(!nn||nn===it.name)return;
+  req("rename",{path:it.path,name:nn}).then(r=>{
+    if(!r||!r.ok){alert((r&&r.err)||"重命名失败");}else{toast("已重命名为："+nn);}
+    openDir(curPath);});}
+function delItem(it){if(!confirm("确定删除「"+it.name+"」？"+(it.isDir?"（该文件夹及其全部内容）":"")))return;
+  req("del",{path:it.path}).then(r=>{
+    if(!r||!r.ok){alert((r&&r.err)||"删除失败");}else{toast("已删除："+it.name);}
+    openDir(curPath);});}
 // ============ 事件 ============
 el("btnBack").onclick=goBack;
-el("btnUp").onclick=goUp;
 el("btnHome").onclick=goHome;
 el("btnPick").onclick=()=>pickBack(curPath);
 el("btnFont").onclick=()=>{
@@ -410,14 +428,13 @@ el("btnFont").onclick=()=>{
   el("text").style.fontSize=fontSize+"px";
   el("btnFont").textContent="A"+fontSize;
 };
-el("btnMore").onclick=()=>{ if(!curPath){alert("请先进入一个文件夹");return;} openSheet(); };
+el("btnMore").onclick=openFolderSheet;
 el("btnNew").onclick=()=>{ if(!curPath){alert("请先进入一个文件夹");return;} newFolder(); };
 el("shade").onclick=closeSheet;
-el("sheet").querySelectorAll(".sh-item").forEach(it=>it.onclick=()=>{const a=it.dataset.a;closeSheet();handleAction(a);});
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.12");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.13");
 document.getElementById("stHost").textContent=HOST||"standalone";
 if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
 function showSetup(){
