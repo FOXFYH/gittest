@@ -536,7 +536,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_refresh_srv" title="广播点名，拉起全部服务端应答，刷新在线清单">↻ 刷新服务端</div>
     <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
-    <div class="dmi" id="btn_archmaint" title="一键维护本实例的会话档案">🛠️ 维护档案</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
@@ -1106,7 +1105,7 @@ const el = {
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'), refresh_srv: $('btn_refresh_srv'),
-  checkin: $('btn_checkin'), archmaint: $('btn_archmaint'),
+  checkin: $('btn_checkin'),
   fexit: $('fexit'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
@@ -3620,7 +3619,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.97';   /* 1.97：部署缓存破坏对齐 TRAE——入口 URL（gui.py `_WEB_URL`）改为带 ?v=VER
+const VER = '1.98';   /* 1.98：删网页端抽屉「操作」里残留的「🛠️ 维护档案」按钮——
+                         T19 桌面端已删、网页端未同步（本轮对齐，无其它行为改动）。
+   1.97：部署缓存破坏对齐 TRAE——入口 URL（gui.py `_WEB_URL`）改为带 ?v=VER
    拼串，浏览器因 URL 变化重新拉取，根治「改了但手机端仍是旧缓存」；并确立「网页端版本号
    单源＝本处 const VER，服务端声明 wb_cli\__init__.py WEB_VERSION 与之恒等（自检卡口）」口径。
    本版无行为改动。
@@ -5196,11 +5197,6 @@ el.checkin.onclick = () => {             /* 1.59：今日签到（领积分） *
   S.checkin_busy = true;
   flash('正在签到…', 'var(--blue)');
   sendCmd('checkin', null);             // 服务端 cmd_checkin → checkin 事件回
-};
-el.archmaint.onclick = () => {           /* 一键维护本实例会话档案 */
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
-  flash('正在维护会话档案…', 'var(--blue)');
-  sendCmd('arch_maint', null);          // 服务端 cmd_arch_maint → notice 事件回
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
