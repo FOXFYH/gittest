@@ -201,6 +201,10 @@ body.fmsg #fexit{display:block;}
 .loadmore.fail{background:rgba(198,40,40,.08); border-color:rgba(198,40,40,.4);
   color:#c62828;}
 .loadmore.fail::after{display:none;}
+/* ── 1.96：翻到最早 → 绿条「没有更早的历史了」（如实收口，不再静默） ── */
+.loadmore.end{background:rgba(46,125,50,.08); border-color:rgba(46,125,50,.4);
+  color:#2e7d32;}
+.loadmore.end::after{display:none;}
 /* ── 1.67：托管排队条（对齐 TRAE 官方排队条样式）——不再悬挂顶栏，
    改为渲染在聊天记录**末尾**、随聊天一起滚动；每条=左侧两行文字（点一下
    展开全文）+ 右侧按钮块（上行 ⚡发送，下行 ✎/🗑 并排）。 ── */
@@ -532,6 +536,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_refresh_srv" title="广播点名，拉起全部服务端应答，刷新在线清单">↻ 刷新服务端</div>
     <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
+    <div class="dmi" id="btn_archmaint" title="一键维护本实例的会话档案">🛠️ 维护档案</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
@@ -1059,6 +1064,7 @@ const S = {
   prevBusy: false,      /* 翻页请求在途（防重入） */
   loadingMore: false,   /* 是否显示「正在加载更早的消息…」 */
   loadMoreFail: false,  /* 1.69：翻页请求超 30s 没回包 → 横幅改口报「掉线」 */
+  moreEnd: false,       /* 1.96：本会话已如实报到「没有更早」，防反复亮条骚扰 */
   recall: null,         /* 1.53：队列取回修改态 {id,pred}——服务端已把该条撤下，
                            原文已进输入框；发送走 queue_restore 放回原位 */
 };
@@ -1100,7 +1106,7 @@ const el = {
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'), refresh_srv: $('btn_refresh_srv'),
-  checkin: $('btn_checkin'),
+  checkin: $('btn_checkin'), archmaint: $('btn_archmaint'),
   fexit: $('fexit'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
@@ -1800,6 +1806,7 @@ function resetPaging(){
   clearLoadMoreWatch();                        /* 1.69：切会话/重置即撤看护 */
   S.older = []; S.pageGroups = 0; S.headSeq = 0;
   S.more = false; S.prevBusy = false; S.loadingMore = false;
+  S.moreEnd = false;                           /* 1.96：换会话/重置即收回「到头」标记 */
   /* 1.57：切会话/换轮即收回已展开的气泡（符合「切到别的对话自动又折叠」） */
   S.foldOpen = {}; S.foldData = {}; S.foldWait = {};
 }
@@ -1848,6 +1855,7 @@ function onRes(id, k, v){
   if (rq) delete S_reqs[id];
   if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
   if (k === 'hist_prev') applyPrev(rq ? rq.conv : '', v.msgs || [], !!v.more);
+  else if (k === 'hist_probe') applyProbeEnd(rq ? rq.conv : '', !!v.has);   /* 1.96 */
   else if (k === 'bubbles'){
     const sk = (rq && rq.sk) || '';
     if (!sk) return;
@@ -1862,10 +1870,10 @@ function applyPrev(conv, older, more){
   clearLoadMoreWatch();                        /* 1.69：回包到达，撤掉看护 */
   S.prevBusy = false; S.loadingMore = false;
   if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
-  if (!Array.isArray(older) || !older.length){ /* 到底了：撤掉「加载中」 */
+  if (!Array.isArray(older) || !older.length){ /* 到底了：如实亮「没有更早」 */
     /* 记下本次重锚基准，否则 ensureHist 会因「窗口游标≠已翻基准」反复重取 */
-    S.more = false; S.headSeq = S.winHeadSeq;
-    renderAll(); return;
+    S.more = false; S.headSeq = S.winHeadSeq; S.moreEnd = true;
+    showLoadMoreEnd(); return;
   }
   const h0 = el.msgs.scrollHeight, t0 = el.msgs.scrollTop;   /* 保阅读位置 */
   S.older = older;
@@ -1874,6 +1882,41 @@ function applyPrev(conv, older, more){
   renderAll();
   /* 新内容插在上方：按「增高量」下移视口，原来读的那一条留在原地 */
   el.msgs.scrollTop = t0 + (el.msgs.scrollHeight - h0);
+}
+/* —— 1.96：撞顶必回音（管理员口径：触发就显示，失败也另有说法，
+   绝不顶到头啥反应都没有）——游标丢失时走「探针」问账本还有没有货，
+   有 → 如实报错；没有 → 绿条「没有更早的历史了」2.5s 后自收。 —— */
+function reqHistProbe(conv){
+  const id = ++reqSeq;
+  S_reqs[id] = {conv: conv || '', ts: Date.now()};
+  sendJson({t: 'req', id: id, c: 'hist_probe', conv: conv || ''});
+}
+var loadMoreEndTimer = null;
+function showLoadMoreEnd(){
+  S.loadingMore = true; S.loadMoreEnd = true;
+  renderAll();
+  if (loadMoreEndTimer) clearTimeout(loadMoreEndTimer);
+  loadMoreEndTimer = setTimeout(() => {
+    loadMoreEndTimer = null;
+    if (!S.loadMoreEnd) return;
+    S.loadingMore = false; S.loadMoreEnd = false;
+    renderAll();
+  }, 2500);
+}
+function applyProbeEnd(conv, has){
+  clearLoadMoreWatch();
+  S.prevBusy = false;
+  if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
+  if (has){   /* 账本有货但游标对不上：如实报错，别装死（服务端 2.41 已治根，此况罕见） */
+    S.loadingMore = true; S.loadMoreFail = true;
+    const div = el.msgs.querySelector('.loadmore');
+    if (div){ div.classList.add('fail');
+      div.textContent = '历史记录暂不可用（数据错位），请稍后再试'; }
+    else renderAll();
+  } else {
+    S.moreEnd = true;
+    showLoadMoreEnd();
+  }
 }
 /* —— 会话历史打开：换会话即重置翻页；窗口推进时重锚已翻出的老历史 —— */
 function ensureHist(){
@@ -2749,9 +2792,10 @@ function renderMsgs(msgs, finish, opts, ask){
   }
   if (S.loadingMore){                    // 分页窗口：向上补拉老历史在途
     const lmdiv = document.createElement('div');
-    lmdiv.className = 'loadmore' + (S.loadMoreFail ? ' fail' : '');
+    lmdiv.className = 'loadmore' + (S.loadMoreFail ? ' fail' : (S.loadMoreEnd ? ' end' : ''));
     lmdiv.textContent = S.loadMoreFail
-      ? LOADMORE_FAIL_TXT : '正在加载更早的消息…';   /* 1.69：30s 未回包改口报掉线 */
+      ? LOADMORE_FAIL_TXT
+      : (S.loadMoreEnd ? '没有更早的历史了' : '正在加载更早的消息…');   /* 1.96：到底如实收口 */
     el.msgs.appendChild(lmdiv);
   }
   if (empty){ renderPending(); return; }
@@ -3058,7 +3102,7 @@ function enterFmsg(){
   flash('已进入历史全屏（点「↓ 回到最新」返回）', 'var(--blue)');
 }
 function exitFmsg(){
-  /* 「回到最新」= 丢弃已翻出的老历史，回到「最近 3 组」的窗口形态
+  /* 「回到最新」= 丢弃已翻出的老历史，回到「最近 2 组」的窗口形态
      （翻页只为读历史；读完回底就卸掉，免得长期挂着大段 DOM）。 */
   if (!document.body.classList.contains('fmsg')){
     if (S.pageGroups > 0){ resetPaging(); renderAll(); }
@@ -3075,20 +3119,32 @@ el.msgs.addEventListener('scroll', () => {
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
-  /* 分页窗口：滑到顶且更老方向还有 → 再往前翻 3 组（先亮「加载中」）。
-     1.69：不再卡 S.onLine——网络断时也要亮横幅，由 30s 看护如实改口报掉线；
-     离线阶段只亮条、不推进游标也不发请求（免得重连后一次拉过头）。 */
-  if (m.scrollTop < 60 && !S.prevBusy && S.more
-      && S.histConv && S.histConv === curConvId() && S.winHeadSeq){
+  /* 分页窗口：滑到顶就必亮横幅。1.96：与 S.more/游标解耦——管理员口径
+     「只要触发了就显示，显示到最后加载失败也行，不能顶到头啥反应都没有」：
+     有游标照常翻页；服务端明说没更老 → 直接亮「没有更早」；游标丢失 →
+     走 hist_probe 探针如实收口。1.69：离线也亮，30s 看护改口报掉线。
+     S.moreEnd＝本会话已报到最早，不再反复亮条骚扰。 */
+  if (m.scrollTop < 60 && !S.prevBusy && !S.moreEnd
+      && S.histConv && S.histConv === curConvId()){
     S.prevBusy = true;
     S.loadingMore = true;
     S.loadMoreFail = false;
     renderAll();
-    if (S.onLine){
+    if (S.onLine && S.more && S.winHeadSeq){
       S.pageGroups += 3;
       reqHistPrev(S.histConv, S.winHeadSeq, S.pageGroups);
+      startLoadMoreWatch();
+    } else if (S.onLine && S.winHeadSeq){
+      /* 游标在、服务端说没更老 → 不发请求，如实亮「到头了」 */
+      S.prevBusy = false;
+      S.moreEnd = true;
+      showLoadMoreEnd();
+    } else if (S.onLine){
+      reqHistProbe(S.histConv);          /* 游标丢失：探账本里到底还有没有货 */
+      startLoadMoreWatch();
+    } else {
+      startLoadMoreWatch();              /* 离线：只亮条，30s 看护改口报掉线 */
     }
-    startLoadMoreWatch();
   }
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到
      最新」、切换会话。手指怎么滑都不退（鬼打墙根因）。
@@ -3564,7 +3620,16 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.95';   /* 1.94：📂 改引用公共独立服务「本地文件查看器」——
+const VER = '1.97';   /* 1.97：部署缓存破坏对齐 TRAE——入口 URL（gui.py `_WEB_URL`）改为带 ?v=VER
+   拼串，浏览器因 URL 变化重新拉取，根治「改了但手机端仍是旧缓存」；并确立「网页端版本号
+   单源＝本处 const VER，服务端声明 wb_cli\__init__.py WEB_VERSION 与之恒等（自检卡口）」口径。
+   本版无行为改动。
+   1.96：⤴ 翻页「顶到头零反应」根治（管理员 2026-10-15 口径
+   「只要触发了就显示，显示到最后加载失败也行」）——撞顶必亮横幅（与
+   S.more/游标解耦）；服务端明说没更老 → 绿条「没有更早的历史了」2.5s 收口；
+   游标丢失 → 走 hist_probe 探针如实收口；防反复亮条（S.moreEnd，窗口推进/
+   换会话解除）。配套服务端 2.41（账本治灌水 + 三级对齐 + 探针命令）。
+   1.94：📂 改引用公共独立服务「本地文件查看器」——
    本端工作台浏览页（page_bench / bench_ls）整体移除；📂 与新建任务「选目录」
    改用命名窗口打开 viewer，经 postMessage(fvwr_pick) 按 mode 回填
    （ins=插入输入区 / newdir=回填工作目录）。服务端同步删 cmd_bench_ls。
@@ -4200,6 +4265,7 @@ function onEv(kind, v){
       /* 分页窗口元数据随快照更新：游标（翻页基准）、窗口前的「我」条数
          （回退/删除全局下标）、能否再翻。窗口推进触发的重锚在 renderAll
          →ensureHist 里做（那时会话 sid 已对齐）。 */
+      if ((v.msgs_head_seq | 0) !== S.winHeadSeq) S.moreEnd = false;  /* 1.96：窗口推进，重新允许撞顶亮条 */
       S.winHeadSeq = v.msgs_head_seq | 0;
       S.winUserOff = v.msgs_useroff | 0;
       if (S.pageGroups <= 0) S.more = !!v.msgs_more;
@@ -4636,13 +4702,19 @@ function setOnLine(b){
   }
   /* 1.69：网络恢复 → 自动把「掉线时撞顶没拉成」的历史补回来，
      省得用户先看到「请刷新网络」还得自己再滑一次。 */
-  if (b && S.loadingMore && S.loadMoreFail && S.more
-      && S.histConv && S.histConv === curConvId() && S.winHeadSeq){
+  if (b && S.loadingMore && S.loadMoreFail && !S.moreEnd
+      && S.histConv && S.histConv === curConvId()){
     S.loadMoreFail = false;
     S.prevBusy = true;
-    S.pageGroups += 3;
     renderAll();
-    reqHistPrev(S.histConv, S.winHeadSeq, S.pageGroups);
+    if (S.more && S.winHeadSeq){
+      S.pageGroups += 3;
+      reqHistPrev(S.histConv, S.winHeadSeq, S.pageGroups);
+    } else if (!S.winHeadSeq){
+      reqHistProbe(S.histConv);          /* 1.96：游标丢失改走探针 */
+    } else {
+      S.prevBusy = false; S.moreEnd = true; showLoadMoreEnd();
+    }
     startLoadMoreWatch();
   }
   renderLink();
@@ -5124,6 +5196,11 @@ el.checkin.onclick = () => {             /* 1.59：今日签到（领积分） *
   S.checkin_busy = true;
   flash('正在签到…', 'var(--blue)');
   sendCmd('checkin', null);             // 服务端 cmd_checkin → checkin 事件回
+};
+el.archmaint.onclick = () => {           /* 一键维护本实例会话档案 */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  flash('正在维护会话档案…', 'var(--blue)');
+  sendCmd('arch_maint', null);          // 服务端 cmd_arch_maint → notice 事件回
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
