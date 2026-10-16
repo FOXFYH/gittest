@@ -295,6 +295,24 @@ function hasSidIn(v, sid){
   const cs = (v && v.convs) || [];
   return cs.some(r => r && r[0] === 'c' && (r[4] || '') === sid);
 }
+/* ===== 2.74：T16「锚定上报」——网页端自己选中的会话发生变化那一刻，把锚定上报
+   给服务端：{t:'anchor', sid:完整sid（空串=取消）, key:终身号稳定键, title:会话名}。
+   去重（同一锚定不重复发）+ ≥300ms 节流（连点合并、只发最后一次）；异常一律吞掉，
+   绝不因此报错。调用点：会话列表.js（用户点会话换锚）、adoptSnap（首次自动锚定/
+   锚定标题·完整sid变更）、电脑名册.js（切服务端清锚→sid:''）。 */
+let anchorRepT = 0, anchorRepSig = null;
+function anchorReport(){
+  clearTimeout(anchorRepT);
+  anchorRepT = setTimeout(() => {
+    try {
+      const sid = S.anchorFull || '', key = S.anchorSid || '', title = S.anchorTitle || '';
+      const sig = sid + '\n' + key + '\n' + title;
+      if (sig === anchorRepSig) return;      /* 去重：同一锚定不重复上报 */
+      anchorRepSig = sig;
+      sendJson({t: 'anchor', sid: sid, key: key, title: title});
+    } catch(e){}
+  }, 300);
+}
 function adoptSnap(v){
   /* 用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
      对话」——别人在电脑版操作别的会话（含会话路由器的临时占用），网页版
@@ -307,6 +325,7 @@ function adoptSnap(v){
   /* 未锚定（首拍）：吸附到当前选中会话（锚定键＝终身号；另记完整 sid 兜底） */
   if (!S.anchorSid && inSid){
     S.anchorSid = inKey; S.anchorTitle = inTitle; S.anchorFull = inSid;
+    anchorReport();                            /* 2.74：首次自动锚定 → 上报 */
   }
   /* 本专项 A4/A6：锚定会话已不在快照会话列表（被删/认不出）→ 只提醒、
      绝不静默改锚（旧实现会把锚点悄悄挪到桌面当前选中，用户毫无察觉）。
@@ -340,8 +359,11 @@ function adoptSnap(v){
   const arow = (v.convs || []).find(r => r && r[0] === 'c'
       && _行稳定(r) === S.anchorSid);
   if (arow){
+    const _oT = S.anchorTitle, _oF = S.anchorFull;
     S.anchorTitle = arow[1] || S.anchorTitle;
     if (arow[4]) S.anchorFull = arow[4];
+    /* 2.74：锚定标题/完整 sid 实际变更 → 上报（未变则 anchorReport 自身去重吞掉） */
+    if (_oT !== S.anchorTitle || _oF !== S.anchorFull) anchorReport();
   }
   return v;
 }

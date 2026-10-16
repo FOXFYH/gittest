@@ -259,12 +259,16 @@ function onEv(kind, v){
         在借框前后各发一条（true/false），异常也在 finally 里补 false。 */
       const d = v || {};
       if (d.busy){
-        S.inputBusy = String(d.who || '程序');
+        /* 2.74：支持服务端自定义整句播报——d.msg 非空则【原样】flash（不再套
+           「⏳ …正在借用输入框」模板）；同时 S.inputBusy 仍取到值（供 输入界面.js
+           的「借用中」/禁用发送生效，取 msg 或 who）。msg 为空维持旧文案与行为。 */
+        const msg = String(d.msg || '');
+        S.inputBusy = msg || String(d.who || '程序');
         clearTimeout(S.inputBusyT);
         S.inputBusyT = setTimeout(() => {   /* 安全兜底：防服务端中途消失卡死 */
           S.inputBusy = ''; renderState(S.snap);
         }, 25000);
-        flash('⏳ ' + S.inputBusy + ' 正在借用输入框，请稍后', 'var(--orange)');
+        flash(msg || ('⏳ ' + S.inputBusy + ' 正在借用输入框，请稍后'), 'var(--orange)');
       } else {
         S.inputBusy = '';
         clearTimeout(S.inputBusyT);

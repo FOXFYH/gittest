@@ -116,6 +116,7 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
           S.anchorSid = sKey || ''; S.anchorTitle = title || '';
           S.anchorFull = sid || '';    /* 完整 sid 兜底（switch/路由/占位卡用真 sid） */
           S.anchor_gone = '';          /* 本专项 A4：换锚点即清「已消失」提醒态 */
+          anchorReport();              /* 2.74：T16——用户换锚点即上报（去重+≥300ms 节流） */
           /* 本专项 A7：锚点变化 → 列表选中态立即跟随（不等下一拍快照） */
           S.convs_key = null;
           renderConvs(S.snap.convs || [], S.snap.conv_unread,
