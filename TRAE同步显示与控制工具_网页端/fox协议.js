@@ -323,11 +323,13 @@ function sendCmd(c, a, did, convSid){
   if (c === 'send' || c === 'interject'){
     const sid = convSid || curSid() || '';
     /* 2.18：附带网页版【锚定】的 sid——服务端路由若临时把桌面挪去别处
-       发消息，结束时按"网页版为尊"归还到锚定会话（见 会话路由器.anchor）。 */
+       发消息，结束时按"网页版为尊"归还到锚定会话（见 会话路由器.anchor）。
+       2026-10-16：归还目标须是**完整 sid**（服务端按真 sid 定位会话），
+       故用 anchorFull（锚定键现已改为终身号，不可直接拿它当 anchor）。 */
     const d = {t:'cmd', c:'route_send',
                a:{sid: sid, text: a, mode: (c === 'interject'
                                             ? 'interject' : 'auto'),
-                  anchor: S.anchorSid || ''}};
+                  anchor: S.anchorFull || ''}};
     if (did) d.did = did;   /* 1.88：did 仅用于消卡回执 */
     sendJson(d);
     return;

@@ -64,7 +64,11 @@ const S = {
      对话」——别人在电脑版操作别的会话，网页版不跟着跳。anchorSid 为
      『空』表示尚未锚定（首拍或锚定会话已被删），此时自动吸附到当前
      选中会话；一旦锚定，除非用户自己切会话/锚定会话消失，否则不换。 */
-  anchorSid: '', anchorTitle: '',
+  /* 2026-10-16（用户口径：绑定改终身号）：anchorSid 存「稳定性键」＝终身号
+     （TRAE：SID 前 4 位数字；WorkBuddy：完整 SID，本身永久不变）/ 非数字 SID
+     时退回会话名；anchorFull 记锚定会话「当前完整 SID」——供 switch/send/
+     路由归还/占位卡归属等**必须用真 sid 定位服务端会话**的地方使用。 */
+  anchorSid: '', anchorTitle: '', anchorFull: '',
   /* 本专项 A4：锚定会话「已消失」提醒去重标记（=已提醒过的那把锚定 sid） */
   anchor_gone: '',
   /* 本专项 B3：直播帧等待态——livePend=正在等直播帧的锚定 sid；

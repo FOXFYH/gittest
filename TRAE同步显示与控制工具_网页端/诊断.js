@@ -110,7 +110,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.72';   /* 2.72：📂「工作台浏览页」改为引用公共独立服务「网页版本地文件
+const VER = '2.73';   /* 2.73：会话绑定改终身号——网页端锚定/未读灯/备注/定时/直播帧
+                         的键一律用终身号（SID 前 4 位数字），仅切换会话仍送完整 sid
+                         （用户口径 2026-10-16）。
+                         2.72：📂「工作台浏览页」改为引用公共独立服务「网页版本地文件
                          查看器」（GitHub Pages fileview/index.html?h=trae&pick=1&mode=
                          ins|newdir，window.opener.postMessage 回传选中路径）——删本端自绘
                          page_bench（DOM/样式/JS/服务端接口全清，只维护公共这一份代码），

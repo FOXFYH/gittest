@@ -201,23 +201,39 @@ function resolveTimes(msgs){
   localStorage.setItem(LS_TM, JSON.stringify(cache));
   return out;
 }
+function 稳定键(sid, title){
+  /* 2026-10-16 用户口径（绑定改终身号）：会话「稳定性键」——完整 SID 每日会变，
+     取前 4 位数字（终身号）作稳定标识；非 4 位数字前缀（临时/hex SID）退回会话名。
+     供锚定/未读灯/备注/定时等**需跨天稳定**的键使用；sid 兜底保键非空。 */
+  const s = String(sid == null ? '' : sid);
+  if (/^\d{4}/.test(s)) return s.slice(0, 4);
+  return (title || s);
+}
+function _行稳定(r){ return 稳定键(r && r[4], r && r[1]); }
 function curTitle(){
   /* 本专项 A5：以本地锚定为准（用户点选的会话），快照选中行仅作兜底——
-     状态栏会话名与正文会话由同一锚定源产出，杜绝「横幅写 A、正文走 B」。 */
+     状态栏会话名与正文会话由同一锚定源产出，杜绝「横幅写 A、正文走 B」。
+     2026-10-16：锚定键改「终身号」（S.anchorSid 存稳定性键，不再存易变完整 sid）。 */
   const convs = (S.snap.convs || []);
   if (S.anchorSid){
     for (const r of convs)
-      if (r[0] === 'c' && (r[4] || '') === S.anchorSid) return r[1];
+      if (r[0] === 'c' && _行稳定(r) === S.anchorSid) return r[1];
     if (S.anchorTitle) return S.anchorTitle;  /* 锚点不在列表：先用锚定标题兜底（A4 已弹提醒） */
   }
   for (const r of convs) if (r[0] === 'c' && r[2]) return r[1];
   return '当前会话';
 }
 /* v1.95：当前会话的稳定 ID（convs 'c' 行第 5 位，TRAE 后端主键）。
-   本专项 A5：锚定 sid 优先；未锚定才回退快照选中行。拿不到返回 ''。 */
+   本专项 A5：锚定优先；未锚定才回退快照选中行。拿不到返回 ''。
+   2026-10-16：锚定键现为「终身号」，故按稳定性键在快照里反查**当前完整 sid**
+   （SID 每日变也能定位到真 sid，供 switch/send/repaint 等命令使用）。 */
 function curSid(){
-  if (S.anchorSid) return S.anchorSid;
   const convs = (S.snap.convs || []);
+  if (S.anchorSid){
+    for (const r of convs)
+      if (r[0] === 'c' && _行稳定(r) === S.anchorSid) return r[4] || '';
+    return S.anchorFull || '';      /* 锚点暂不在列表：用最近一次命中的完整 sid 兜底 */
+  }
   for (const r of convs) if (r[0] === 'c' && r[2]) return r[4] || '';
   return '';
 }
@@ -287,11 +303,17 @@ function adoptSnap(v){
      inputText/ask/attach/tail…），只并入会话列表，并把选中标志改写到
      锚定行——curTitle/curSid/ensureHist/renderAll 全按锚定走，零改动。 */
   const inSid = selSidOf(v), inTitle = selTitleOf(v);
-  /* 未锚定（首拍）：吸附到当前选中会话 */
-  if (!S.anchorSid && inSid){ S.anchorSid = inSid; S.anchorTitle = inTitle; }
-  /* 本专项 A4/A6：锚定 sid 已不在快照会话列表（被删/认不出）→ 只提醒、
-     绝不静默改锚（旧实现会把锚点悄悄挪到桌面当前选中，用户毫无察觉）。 */
-  const anchorGone = !!(S.anchorSid && !hasSidIn(v, S.anchorSid));
+  const inKey = 稳定键(inSid, inTitle);          /* 选中会话的稳定性键＝终身号 */
+  /* 未锚定（首拍）：吸附到当前选中会话（锚定键＝终身号；另记完整 sid 兜底） */
+  if (!S.anchorSid && inSid){
+    S.anchorSid = inKey; S.anchorTitle = inTitle; S.anchorFull = inSid;
+  }
+  /* 本专项 A4/A6：锚定会话已不在快照会话列表（被删/认不出）→ 只提醒、
+     绝不静默改锚（旧实现会把锚点悄悄挪到桌面当前选中，用户毫无察觉）。
+     2026-10-16：锚定键为终身号，故按稳定性键在列表里比对。 */
+  const anchorGone = !!(S.anchorSid
+      && !(v.convs || []).some(r => r && r[0] === 'c'
+                                    && _行稳定(r) === S.anchorSid));
   if (anchorGone){
     if (S.anchor_gone !== S.anchorSid){
       S.anchor_gone = S.anchorSid;
@@ -300,11 +322,11 @@ function adoptSnap(v){
   } else if (S.anchor_gone) S.anchor_gone = '';
   /* 用户自己的切换在途：放行原快照，等切换定论（不与锚定抢） */
   if (S.switch_pend) return v;
-  const stolen = !!(S.anchorSid && inSid && inSid !== S.anchorSid);
+  const stolen = !!(S.anchorSid && inKey && inKey !== S.anchorSid);
   if (!stolen && !anchorGone) return v;
   const old = S.snap || {};
   v.convs = (v.convs || []).map(r => (r && r[0] === 'c')
-      ? [r[0], r[1], (r[4] || '') === S.anchorSid, r[3], r[4]] : r);
+      ? [r[0], r[1], _行稳定(r) === S.anchorSid, r[3], r[4]] : r);
   v.msgs = Array.isArray(old.msgs) ? old.msgs : (v.msgs || []);
   v.finish = old.finish;
   v.inputText = old.inputText || '';
@@ -314,10 +336,13 @@ function adoptSnap(v){
   v.sendIdle = old.sendIdle;
   v.pend = Array.isArray(old.pend) ? old.pend : (v.pend || []);
   v.opts = old.opts || [];
-  /* 锚定标题跟随锚点（列表里查到就用最新标题，改名自动同步） */
+  /* 锚定标题跟随锚点（列表里查到就用最新标题，改名自动同步）；顺带刷新完整 sid 兜底 */
   const arow = (v.convs || []).find(r => r && r[0] === 'c'
-      && (r[4] || '') === S.anchorSid);
-  if (arow) S.anchorTitle = arow[1] || S.anchorTitle;
+      && _行稳定(r) === S.anchorSid);
+  if (arow){
+    S.anchorTitle = arow[1] || S.anchorTitle;
+    if (arow[4]) S.anchorFull = arow[4];
+  }
   return v;
 }
 

@@ -61,8 +61,11 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       inFolder = true;
     } else {
       const d = document.createElement('div');
-      /* 本专项 A7：列表选中态与锚定态同源——锚定 sid 优先，未锚定才用快照标志 */
-      const isAct = S.anchorSid ? (sid === S.anchorSid) : !!flag;
+      /* 2026-10-16（用户口径：绑定改终身号）：稳定性键＝终身号（完整 SID 每日变、
+         跨天不稳）——锚定/未读灯/备注/定时一律用它；仅 switch 仍送完整 sid。 */
+      const sKey = 稳定键(sid, title);
+      /* 本专项 A7：列表选中态与锚定态同源——锚定键优先，未锚定才用快照标志 */
+      const isAct = S.anchorSid ? (sKey === S.anchorSid) : !!flag;
       d.className = 'convo item' + (isAct ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       /* v1.49：对齐原版状态灯口径——只在这几种显示灯：
@@ -79,8 +82,8 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       const tspan = document.createElement('span');
       /* 2.40：会话名后追加（备注）——钩子由 会话备注.js 提供，缺失回退空串 */
       /* 2.47：会话名后追加（备注）+ 定时闹钟（⏰）——两钩子各自缺失则回退空串 */
-      tspan.textContent = title + (window.备注后缀 ? 备注后缀(sid) : '')
-        + (window.闹钟后缀 ? 闹钟后缀(sid) : '');
+      tspan.textContent = title + (window.备注后缀 ? 备注后缀(sKey) : '')
+        + (window.闹钟后缀 ? 闹钟后缀(sKey) : '');
       d.appendChild(tspan);
       const i = idx;
       /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
@@ -92,7 +95,7 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
         lpFired = false;
         lpTimer = setTimeout(() => {
           lpFired = true;
-          convMenuOpen(title, sid);
+          convMenuOpen(title, sid, sKey);
         }, 550);
       }, {passive: true});
       d.addEventListener('touchmove', stopLP, {passive: true});
@@ -110,7 +113,8 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
           /* v1.95：优先按稳定 ID 切换（改名/重排不切错），无 ID 回退序号 */
           /* 2.18 锚定：用户主动点会话行 = 自己换锚点；此后网页版守着这个
              会话，别人在电脑版操作别的会话也不会把网页版带走。 */
-          S.anchorSid = sid || ''; S.anchorTitle = title || '';
+          S.anchorSid = sKey || ''; S.anchorTitle = title || '';
+          S.anchorFull = sid || '';    /* 完整 sid 兜底（switch/路由/占位卡用真 sid） */
           S.anchor_gone = '';          /* 本专项 A4：换锚点即清「已消失」提醒态 */
           /* 本专项 A7：锚点变化 → 列表选中态立即跟随（不等下一拍快照） */
           S.convs_key = null;
@@ -118,7 +122,7 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
                       S.snap.conv_unread_ids);
           pendSwitchSet(title, sid, sid || i);   /* 2.67：切换在途提示（分档状态机）*/
           S.livePrefetch = false;      /* 2.67：新切换开始，撤销上一轮预取标记 */
-          snapIdbShow(sid, title);     /* 本专项 B2/B3：先铺本地存帧秒显 */
+          snapIdbShow(sKey, title);    /* B2/B3：先铺本地存帧秒显（键＝终身号，跨天可用） */
           /* 2.61：切会话后消息区钉底——正文（存帧/直播帧）真正上屏那次不再
              把中间态残留的 scrollTop=0 当「用户在翻历史」原样还原到顶部。
              标志在消息渲染.js 消费并清除。 */
@@ -139,8 +143,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
    （conv_rename，右键菜单「重命名」→ 内联编辑）；置顶/取消置顶
    （conv_pin，TRAE 菜单为切换项，两文案自动适配）；删除
    （conv_del，本端 confirm 后服务端再点确认框「删除」）。 */
-function convMenuOpen(title, sid){
+function convMenuOpen(title, sid, sKey){
   sid = sid || '';
+  sKey = sKey || 稳定键(sid, title);   /* 备注/定时用稳定性键（终身号）；pin/del/rename 仍用完整 sid */
   const old = $('convmenu');
   if (old) old.remove();
   const ov = document.createElement('div');
@@ -182,8 +187,8 @@ function convMenuOpen(title, sid){
   document.body.appendChild(ov);
   /* 2.40：追加两项网页端专享菜单——实现各在新 js 的钩子里，缺失则跳过，
      保证两个功能可整块摘除、本文件不膨胀。 */
-  if (window.备注菜单项) 备注菜单项(sid, title, ov);
-  if (window.自我激活菜单项) 自我激活菜单项(sid, title, ov);
+  if (window.备注菜单项) 备注菜单项(sKey, title, ov);
+  if (window.自我激活菜单项) 自我激活菜单项(sKey, title, ov);
 }
 
 /* ============ 1.09：待确认项（空窗期反馈） ============

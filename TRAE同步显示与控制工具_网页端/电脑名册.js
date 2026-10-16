@@ -120,7 +120,7 @@ function switchSrv(nm){
      把正文冻成旧（空）值 → 一直白屏、列表也没选中，用户每次过去都得手点会话
      （用户 2026-10-07 反馈）。清锚后，新服务端广播来的「当前选中会话」
      （convs 行第 3 位选中标志）即被 adoptSnap 自动吸附并打开＝一过去就有对话。 */
-  S.anchorSid = ''; S.anchorTitle = ''; S.anchor_gone = '';
+  S.anchorSid = ''; S.anchorTitle = ''; S.anchorFull = ''; S.anchor_gone = '';
   S.histConv = ''; S.histMsgs = null; S.histRaw = [];
   S.histVer = 0; S.histHave = 0; S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;

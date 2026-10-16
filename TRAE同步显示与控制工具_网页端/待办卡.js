@@ -23,7 +23,7 @@ function pendAdd(kind, text){
              state: 'sending', ts: Date.now(), conv: curTitle(),
              /* 2.16：记稳定 sid（改名/重排不变）。本专项 C1：以【锚定 sid】
                 为准——发起时网页版锚定哪个会话，卡就挂哪个会话（绝不按标题猜）。 */
-             convSid: S.anchorSid || curSid()};
+             convSid: curSid()};
   S.pending.push(p);
   return p;
 }
@@ -51,7 +51,7 @@ function renderPending(){
   const cv = curTitle();
   /* 2.16：能拿到 sid 就按稳定 ID 比（改名/重排不丢卡）；拿不到 sid 的
      旧卡片回退原「标题 / 当前会话 / 无 conv」逻辑，不判死旧数据 */
-  const sidNow = S.anchorSid || curSid();   /* 本专项 C2：锚定 sid 为准 */
+  const sidNow = curSid();   /* 本专项 C2：锚定 sid 为准 */
   const shown = S.pending.filter(p => {
     if (p.convSid && sidNow) return p.convSid === sidNow;
     return !p.conv || p.conv === cv || p.conv === '当前会话';

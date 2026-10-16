@@ -23,14 +23,18 @@ function 定时入快照(snap){
 }
 
 function 定时取(sid){
+  /* 2026-10-16（用户口径：定时改终身号）：sid 现为稳定性键（终身号）——
+     任务库存的是「锚」（终身号/会话名），跨天 SID 变了也能匹配；同时兼容
+     按完整 sid 传参（任务字段 sid 为创建那一刻的完整 SID）。 */
   if (!sid) return [];
-  return (S.定时 || []).filter(t => t && t.sid === sid);
+  return (S.定时 || []).filter(t => t && (t.sid === sid || (t['锚'] || '') === sid));
 }
 
 function 定时指纹(){
   /* 2.47：定时任务列表的稳定指纹——参与 会话列表.js convs_key 去重，
-     任务增删与推进（done/total）都能触发重绘；顺序变化不误触发。 */
-  return (S.定时 || []).map(t => (t && t.sid || '') + ':' + (t && t.id || '')
+     任务增删与推进（done/total）都能触发重绘；顺序变化不误触发。
+     2026-10-16：键改用稳定锚（终身号），避免完整 SID 每日变导致指纹漂移。 */
+  return (S.定时 || []).map(t => (t && (t['锚'] || t.sid) || '') + ':' + (t && t.id || '')
       + ':' + (t && t.done || 0) + '/' + (t && t.total || 0)).sort().join('|');
 }
 

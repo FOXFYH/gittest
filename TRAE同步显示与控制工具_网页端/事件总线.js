@@ -41,8 +41,9 @@ function onEv(kind, v){
       /* 本专项 B3：先记下这拍快照「桌面当前选中行」——它就是直播帧的归属
          会话；当前锚定会话的真直播帧一到，立即撤「正在获取直播帧」小条。 */
       const liveSid = selSidOf(v);
+      const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
-      if (S.livePend && liveSid && liveSid === S.anchorSid) liveClear();
+      if (S.livePend && liveKey && liveKey === S.anchorSid) liveClear();
       /* 2.40：网页端专享字段落全局——备注字典 + 定时自我激活任务列表，
          供 会话列表.js 渲染后缀/指纹与右键菜单读取（钩子缺失则跳过）。 */
       if (window.备注入快照) 备注入快照(v);
