@@ -316,6 +316,13 @@ body.fmsg #fexit{display:block;}
 .convo.item.act{background:#e3effb; color:var(--blue); font-weight:bold;}
 .dsec{flex:none; padding:6px 12px 2px; color:var(--gray); font-size:12px;
   border-top:1px solid var(--bd); background:#fafbfc;}
+/* 1.99：「服务端（点击切换操控）」行改 flex 两端对齐——右侧容纳「↻ 刷新服务端」
+   小按钮（排法照 TRAE 网页版 .srvhead + #btn_srvrefresh）。 */
+.srvhead{display:flex; align-items:center; justify-content:space-between;}
+#btn_refresh_srv{flex:none; margin-left:8px; font-size:12px; padding:2px 8px;
+  min-height:22px; border:1px solid var(--bd); border-radius:12px; background:#fff;
+  color:var(--blue); cursor:pointer; white-space:nowrap; line-height:1.4;}
+#btn_refresh_srv:active{background:#eef4fb;}
 .dmi{flex:none; padding:10px 14px; cursor:pointer;}
 .dmi:active{background:#eef4fb;}
 /* 操作区按钮两两并排（2 列网格）→ 省竖向空间，给会话列表多留位置 */
@@ -526,14 +533,15 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div class="dhdr" data-page-node-id="UX9xJ7WTICEexReuYMmB1i"><b data-page-node-id="cdqe18BGvfIS49PF4TNU1B">会话与操作</b>
     <button id="btn_dclose" data-page-node-id="bw5XmI4so1On3gY8Lekl62">✕</button></div>
   <div id="convs" data-page-node-id="IsffT1TgDFvsO7otRBnwGp"></div>
-  <div class="dsec" data-page-node-id="0zAOhFVQ79VNdiCr8Fnrjw">服务端（点击切换操控）</div>
+  <div class="dsec srvhead" data-page-node-id="0zAOhFVQ79VNdiCr8Fnrjw">服务端（点击切换操控）
+    <button id="btn_refresh_srv" title="广播点名，拉起全部服务端应答，刷新在线清单" data-page-node-id="SrvRefresh20261006a1">↻ 刷新服务端</button></div>
   <div id="srvlist" data-page-node-id="PGBlxfvg8bFmppmtz2w0MO"></div>
   <div class="dsec" data-page-node-id="c3sDv9IscaIa1GP95F52FT">操作</div>
   <div id="opgrid">
     <div class="dmi" id="btn_new" title="新建任务" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="拉起（重启当前目标）" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
-    <div class="dmi" id="btn_refresh_srv" title="广播点名，拉起全部服务端应答，刷新在线清单">↻ 刷新服务端</div>
+    <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔 10 秒）">✍ 批量签到</div>
     <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
   </div>
@@ -1105,7 +1113,7 @@ const el = {
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'), refresh_srv: $('btn_refresh_srv'),
-  checkin: $('btn_checkin'),
+  checkin: $('btn_checkin'), checkin_all: $('btn_checkin_all'),
   fexit: $('fexit'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
@@ -3619,7 +3627,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.98';   /* 1.98：删网页端抽屉「操作」里残留的「🛠️ 维护档案」按钮——
+const VER = '1.99';   /* 1.99：抽屉「↻ 刷新服务端」按钮搬进「服务端（点击切换操控）」行
+   （该行改 flex 两端对齐，照 TRAE 网页版 .srvhead 排法）；原操作网格空位改为
+   「✍ 批量签到」按钮（sendCmd('checkin_all')，本地后台执行）；事件总线接入
+   checkin_all（ack/start/row 进度）与 checkin_all_done（汇总）——网页端仅遥控面板。
+   1.98：删网页端抽屉「操作」里残留的「🛠️ 维护档案」按钮——
                          T19 桌面端已删、网页端未同步（本轮对齐，无其它行为改动）。
    1.97：部署缓存破坏对齐 TRAE——入口 URL（gui.py `_WEB_URL`）改为带 ?v=VER
    拼串，浏览器因 URL 变化重新拉取，根治「改了但手机端仍是旧缓存」；并确立「网页端版本号
@@ -4445,6 +4457,38 @@ function onEv(kind, v){
       }
       break;
     }
+    case 'checkin_all': {                   /* 1.99：批量签到/批量刷新 进度（本地后台执行） */
+      S.checkin_all_busy = false;
+      el.checkin_all.style.opacity = '';
+      const op = (v && v.op) || '';
+      const mode = (v && v.模式) || '批量操作';
+      if (op === 'ack'){
+        if (v && v.ok) flash(mode + '已开始（本地后台执行，逐账号进行）…', 'var(--green)');
+        else flash(mode + '未启动：可能已有批量任务在跑', 'var(--orange)');
+      } else if (op === 'start'){
+        flash(mode + '开始：共 ' + ((v && v.total) || 0) + ' 个账号', 'var(--blue)');
+      } else if (op === 'row'){
+        const rec = (v && v.记录) || {};
+        const nm = rec.名称 || (v && v.名称) || rec.账号 || (v && v.key) || '—';
+        flash(mode + ' ' + ((v && v.i) || 0) + '/' + ((v && v.total) || 0)
+              + '：' + nm, 'var(--blue)');
+      }
+      break;
+    }
+    case 'checkin_all_done': {              /* 1.99：批量操作收尾汇总（含是否切回原账号） */
+      S.checkin_all_busy = false;
+      el.checkin_all.style.opacity = '';
+      const mode = (v && v.模式) || '批量操作';
+      const total = (v && v.total) || 0;
+      const back = (v && v.切回) ? '，已切回原账号' : '';
+      if (mode === '刷新'){
+        flash('批量刷新完成：共 ' + total + ' 个账号' + back, 'var(--green)');
+      } else {
+        flash('批量签到完成：成功 ' + ((v && v.成功) || 0) + '/共 ' + total + ' 个' + back,
+              'var(--green)');
+      }
+      break;
+    }
     case 'account':                        /* 1.33：登录账号名（读积分时带回） */
       S.acct = String(v || '');
       renderAcct();
@@ -5197,6 +5241,16 @@ el.checkin.onclick = () => {             /* 1.59：今日签到（领积分） *
   S.checkin_busy = true;
   flash('正在签到…', 'var(--blue)');
   sendCmd('checkin', null);             // 服务端 cmd_checkin → checkin 事件回
+};
+el.checkin_all.onclick = () => {         /* 1.99：批量签到（全部账号，本地后台执行） */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (S.checkin_all_busy){ flash('批量签到请求处理中，请稍候…', 'var(--orange)'); return; }
+  S.checkin_all_busy = true;
+  el.checkin_all.style.opacity = '.55';       /* 短暂禁用（防重复点击） */
+  flash('正在发起批量签到…', 'var(--blue)');
+  sendCmd('checkin_all', null);         // 服务端 cmd_checkin_all → checkin_all 事件回
+  /* 兜底：ack 未到也不把按钮永久卡住 */
+  setTimeout(() => { S.checkin_all_busy = false; el.checkin_all.style.opacity = ''; }, 4000);
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
