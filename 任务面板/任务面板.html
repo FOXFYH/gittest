@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>任务面板 · 手机遥控页 v0.02</title>
+<!--
+  【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
+  版本：0.02
+  【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
+  依赖脚本：网页模块/接口.js、卡片.js、面板.js（一律【相对路径】引用，页面不硬编码本机 IP/端口）。
+  通道（§17 部署与 WS 通道）：接口.js 走【WebSocket】——页面与本机服务器各连同一 PieSocket 频道
+    （FOX 2.0 帧），本机 AI 走本地通道免 WS、跨机面板走 WS；故本页部署到 GitHub Pages（静态无后端）
+    后照样可用。同一 WiFi 下用 网页服务.py 的地址打开亦可（本机调试会回落 /api/*）。
+  WS 配置（频道名/密钥）：可在本页 <head> 内定义 window.任务面板_WS配置 覆盖 接口.js 里的默认值。
+-->
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    font-size: 16px; line-height: 1.5; color: #222; background: #eef1f5;
+  }
+  /* 顶栏 */
+  #顶栏 {
+    position: sticky; top: 0; z-index: 20; background: #2b5fb0; color: #fff;
+    padding: 10px 12px; box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  }
+  #顶栏 .题 { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #顶栏 .版本 { font-size: 13px; font-weight: 400; background: rgba(255,255,255,.22); border-radius: 999px; padding: 1px 8px; }
+  #顶栏 .角色 { font-size: 13px; font-weight: 400; background: rgba(255,255,255,.18); border-radius: 999px; padding: 1px 8px; }
+  #顶栏 .顶操作 { margin-top: 10px; display: flex; gap: 10px; }
+  /* 按钮（矩形倒角、自适应、文字居中） */
+  button {
+    font-family: inherit; font-size: 15px; color: #222; cursor: pointer;
+    border: 1px solid #c4ccd8; border-radius: 6px; background: #fff;
+    padding: 9px 14px; min-height: 42px; text-align: center;
+  }
+  button:active { transform: translateY(1px); }
+  .主钮 { background: #2b5fb0; color: #fff; border-color: #2b5fb0; }
+  .次钮 { background: #fff; color: #2b5fb0; border-color: #2b5fb0; }
+  .小钮 {
+    font-size: 14px; padding: 7px 12px; min-height: 38px; border-radius: 6px;
+    background: #f6f8fb; border-color: #c4ccd8;
+  }
+  .小钮:active { background: #e6ecf5; }
+  /* 主体 */
+  main { padding: 12px; }
+  .区 { margin-bottom: 18px; }
+  .区标题 { font-size: 16px; margin: 6px 2px 10px; color: #333; }
+  .计数 { font-size: 13px; color: #667; font-weight: 400; }
+  /* 端列表 */
+  .端列表 { display: flex; flex-direction: column; gap: 8px; }
+  .端项 {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: #fff; border: 1px solid #dfe4ec; border-radius: 8px; padding: 10px 12px;
+  }
+  .端项.离线 { opacity: .55; }
+  .端名 { font-weight: 700; }
+  .端标 { font-size: 12px; color: #667; background: #eef1f5; border-radius: 4px; padding: 1px 6px; }
+  .在线标 { font-size: 12px; border-radius: 999px; padding: 1px 8px; }
+  .在线标.在线 { background: #d8f5dc; color: #1a7a2e; }
+  .在线标.离线 { background: #e4e7ec; color: #77808c; }
+  /* 卡片 */
+  .任务列表 { display: flex; flex-direction: column; gap: 14px; }
+  .卡 { border-radius: 10px; border: 1px solid #d7dde7; background: #fff; overflow: hidden; }
+  .卡.主卡 { box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .卡.底蓝 { background: #dceaff; border-color: #b8d0f5; }
+  .卡.底绿 { background: #dcf6e1; border-color: #aee0b8; }
+  .卡.底黄 { background: #fff3c4; border-color: #edd98a; }
+  .卡头 { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0,0,0,.04); flex-wrap: wrap; }
+  .编号 { font-weight: 700; color: #2b5fb0; font-size: 14px; }
+  .卡头 .标题 { font-size: 14px; color: #333; }
+  .状态钮 { margin-left: auto; font-size: 12px; padding: 3px 9px; min-height: 0; border-radius: 999px; border: 1px solid #c4ccd8; background: #fff; }
+  .状态钮.态好 { background: #d8f5dc; border-color: #a9dcb4; color: #1a7a2e; }
+  .状态钮.态中 { background: #fff3c4; border-color: #edd98a; color: #8a6d00; }
+  .状态钮.态失败 { background: #ffe0e0; border-color: #f0b4b4; color: #b00020; }
+  .状态钮.态终 { background: #e4e7ec; border-color: #cfd5de; color: #556; }
+  .内容 {
+    width: 100%; border: 0; background: transparent; resize: none; overflow: hidden;
+    font-family: inherit; font-size: 15px; color: #1c2430; padding: 12px; min-height: 60px;
+  }
+  .按钮排 { display: flex; gap: 8px; padding: 0 10px 10px; flex-wrap: wrap; }
+  .互动树 { padding: 0 10px 12px; }
+  .子卡组 { display: flex; flex-direction: column; gap: 10px; padding-left: 10px; border-left: 3px solid rgba(43,95,176,.25); }
+  .回复卡 { margin-top: 10px; }
+  .隐藏 { display: none !important; }
+  .空样 { color: #889; font-size: 14px; padding: 8px 2px; }
+  /* 详情/原卡 展示 */
+  .原卡 { margin-top: 8px; background: #f4f6fa; border: 1px dashed #c4ccd8; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+  .原卡 .原头 { font-weight: 700; color: #2b5fb0; margin-bottom: 4px; }
+  /* 我来写 */
+  .我来写 { margin-top: 10px; }
+  .我来写 textarea {
+    width: 100%; font-family: inherit; font-size: 15px; border: 1px solid #b8d0f5;
+    border-radius: 8px; padding: 10px; min-height: 64px; background: #fff;
+  }
+  /* 弹窗 */
+  .遮罩 { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 14px; }
+  .弹窗 { background: #fff; border-radius: 12px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 16px; }
+  .弹窗 h3 { margin: 0 0 12px; font-size: 18px; }
+  .字段 { display: block; font-size: 14px; color: #556; margin: 12px 0 6px; }
+  .弹窗 textarea { width: 100%; font-family: inherit; font-size: 15px; border: 1px solid #c4ccd8; border-radius: 8px; padding: 10px; min-height: 90px; }
+  .大类 { display: flex; gap: 10px; }
+  .大类钮 { flex: 1; }
+  .大类钮.选中 { background: #2b5fb0; color: #fff; border-color: #2b5fb0; }
+  .选择框 { display: flex; flex-direction: column; gap: 6px; max-height: 30vh; overflow-y: auto; }
+  .选行 { display: flex; align-items: center; gap: 8px; border: 1px solid #dfe4ec; border-radius: 8px; padding: 9px 11px; background: #fafbfd; font-size: 15px; }
+  .选行.选中 { border-color: #2b5fb0; background: #dceaff; }
+  .选行.禁用 { opacity: .5; }
+  .弹窗底 { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+  /* 提示条 */
+  .提示 { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
+          background: #1c2430; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: 90vw; }
+  @media (min-width: 700px) {
+    main { max-width: 760px; margin: 0 auto; }
+  }
+</style>
+</head>
+<body>
+<header id="顶栏">
+  <div class="题">任务面板 <span class="版本">v0.02</span> <span id="角色" class="角色">连接中…</span></div>
+  <div class="顶操作">
+    <button id="按钮_发布任务" class="主钮">发布任务</button>
+    <button id="按钮_刷新" class="次钮">刷新</button>
+  </div>
+</header>
+<main>
+  <section class="区">
+    <h2 class="区标题">端列表 <span id="端计数" class="计数"></span></h2>
+    <div id="端列表" class="端列表"><div class="空样">加载中…</div></div>
+  </section>
+  <section class="区">
+    <h2 class="区标题">任务卡片 <span id="任务计数" class="计数"></span></h2>
+    <div id="任务列表" class="任务列表"><div class="空样">加载中…</div></div>
+  </section>
+</main>
+
+<div id="发布弹窗" class="遮罩 隐藏">
+  <div class="弹窗">
+    <h3>发布任务</h3>
+    <label class="字段" for="发布_内容">任务内容</label>
+    <textarea id="发布_内容" placeholder="写清要让 AI 做什么…"></textarea>
+    <label class="字段">AI 大类</label>
+    <div id="发布_大类" class="大类">
+      <button type="button" class="大类钮" data-类="WorkBuddy">WorkBuddy</button>
+      <button type="button" class="大类钮" data-类="Trae">Trae</button>
+    </div>
+    <label class="字段">选择端（该大类下所有可扫描到的端）</label>
+    <div id="发布_端" class="选择框"><div class="空样">请先选大类</div></div>
+    <label class="字段">选择对话</label>
+    <div id="发布_对话" class="选择框"><div class="空样">请先选端</div></div>
+    <div class="弹窗底">
+      <button id="发布_取消" class="次钮">取消</button>
+      <button id="发布_确认" class="主钮">发布</button>
+    </div>
+  </div>
+</div>
+<div id="提示" class="提示 隐藏"></div>
+
+<script src="网页模块/接口.js"></script>
+<script src="网页模块/卡片.js"></script>
+<script src="网页模块/面板.js"></script>
+</body>
+</html>
