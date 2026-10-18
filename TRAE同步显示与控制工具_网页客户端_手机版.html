@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.75</title>
-<link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.75">
+<title>TRAE远程 v2.76</title>
+<link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.76">
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
 
@@ -49,6 +49,7 @@
   <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_take" title="取回 TRAE 输入框残留到此处并清空（编辑不丢）" data-page-node-id="k3pV7nZfJdQx2tRwA5cLm1">⇩</button>
   <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
+  <button id="btn_urgent" title="加急插入对话流（勾上后本次发送立即插队、不排队；默认不记忆）" data-page-node-id="T63urgentBtn20261018">急</button>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
   <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
@@ -270,28 +271,28 @@
     立刻实测=真开无界面 Chrome 读官方用量页，耗时数分钟属正常。</div>
 </div>
 
-<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.75"></script>
-<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.75"></script>
+<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.76"></script>
+<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.76"></script>
 </body>
 </html>

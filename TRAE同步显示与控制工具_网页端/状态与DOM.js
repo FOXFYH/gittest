@@ -84,6 +84,11 @@ const S = {
      input_busy 置此；busy 期间禁用发送并提示「程序正在借用输入框」。
      inputBusyT 为安全兜底定时器（防服务端中途消失卡死）。 */
   inputBusy: '', inputBusyT: 0,
+  /* T63：加急插入勾选（输入框放大态顶行「急」）——true=本次发送/插话
+     走「加急」通道（route_send 的 interject_now，进排队条即点「立即发送」
+     插队）。**只活在本会话内存里、不落任何持久配置**：每次打开/刷新页面
+     都回到 false（未选中）。 */
+  urgent: false,
 };
 
 /* ================= DOM 快捷 ================= */
@@ -100,6 +105,7 @@ const el = {
   input_row: $('input_row'),
   attach: $('btn_attach'), ent: $('ent'), take: $('btn_take'),
   copy: $('btn_copy'),
+  urgent: $('btn_urgent'),        /* T63：加急插入勾选（放大态顶行「急」） */
   send: $('btn_send'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),

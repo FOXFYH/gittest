@@ -83,6 +83,20 @@ bindTapNoBlur(el.copy, () => {    // 1.76：一键复制输入框内容（放大
   copyText(t);
 });
 
+/* T63：输入行放大态顶行新增第 5 个「急」勾选——加急插入对话流。
+   未选＝白底常态 / 选中＝红底（醒目）。点它＝取反本次发送的「加急」标志
+   （S.urgent，随 route_send 的 interject_now 下发）。**不写任何持久配置**，
+   每次打开/刷新页面 S.urgent 即回 false、按钮回白底。
+   用 bindTapNoBlur：按下即切换且挡住输入框失焦（否则 grow 被摘、
+   按钮瞬间消失——同 ⇩/📋 的踩坑）。 */
+bindTapNoBlur(el.urgent, () => {
+  S.urgent = !S.urgent;
+  el.urgent.classList.toggle('on', S.urgent);
+  flash(S.urgent ? '急：本次发送将加急插入对话流（立即插队）'
+                 : '急：已取消加急（本次按常规发送）',
+        S.urgent ? 'var(--red)' : 'var(--gray)', 1500);
+});
+
 /* 2.72：📂 输入行按钮——打开公共查看器选路径（mode=ins）插入输入框 */
 el.bench.onclick = () => fvwrOpen('ins');
 

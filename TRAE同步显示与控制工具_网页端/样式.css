@@ -324,14 +324,21 @@ body.fmsg #msgs{padding-top:22px;}
 #input_row{display:flex; gap:6px; align-items:center;
   padding:6px 8px;
   background:#fff; border-top:1px solid var(--bd); flex:none;}
-/* 1.76：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
-#btn_attach,#btn_bench,#btn_take,#btn_copy{width:36px; min-width:36px;
-  height:36px; min-height:36px; padding:0; flex:none; font-size:15px;
-  display:inline-flex; align-items:center; justify-content:center;}
-/* 1.76：⇩ 取回 / 📋 复制 只在输入框放大态出现，小态隐藏（省地方） */
-#btn_take,#btn_copy{display:none;}
-#input_row.grow #btn_take,#input_row.grow #btn_copy{display:inline-flex;
-  order:1;}
+/* 1.76：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条）
+   T63：新增「急」加急插入勾选，同款正方形、与既有 4 个风格统一 */
+#btn_attach,#btn_bench,#btn_take,#btn_copy,#btn_urgent{width:36px;
+  min-width:36px; height:36px; min-height:36px; padding:0; flex:none;
+  font-size:15px; display:inline-flex; align-items:center;
+  justify-content:center;}
+/* 1.76：⇩ 取回 / 📋 复制 / T63 急 只在输入框放大态出现，小态隐藏（省地方） */
+#btn_take,#btn_copy,#btn_urgent{display:none;}
+#input_row.grow #btn_take,#input_row.grow #btn_copy,
+#input_row.grow #btn_urgent{display:inline-flex; order:1;}
+/* T63：加急插入勾选——默认未选＝白底常态；选中＝红底白字（醒目、可辨）。
+   纯按钮切换（非原生 checkbox），不落任何持久配置（每次打开回到未选）。 */
+#btn_urgent{font-weight:bold; font-size:14px; color:#333;
+  background:#fff; border:1px solid var(--bd);}
+#btn_urgent.on{color:#fff; background:var(--red); border-color:var(--red);}
 #ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}

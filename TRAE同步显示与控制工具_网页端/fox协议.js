@@ -329,7 +329,13 @@ function sendCmd(c, a, did, convSid){
     const d = {t:'cmd', c:'route_send',
                a:{sid: sid, text: a, mode: (c === 'interject'
                                             ? 'interject' : 'auto'),
-                  anchor: S.anchorFull || ''}};
+                  anchor: S.anchorFull || '',
+                  /* T63：加急插入勾选——勾上则本次发送/插话走「加急」
+                     通道（route_send 的 interject_now：进 TRAE 官方排队
+                     条后立即点「立即发送」插队，不干等队尾）。未勾＝
+                     false（原行为一字不变）。空闲直发时该标志无副作用
+                     （无排队条可插队）。 */
+                  interject_now: !!S.urgent}};
     if (did) d.did = did;   /* 1.88：did 仅用于消卡回执 */
     sendJson(d);
     return;
