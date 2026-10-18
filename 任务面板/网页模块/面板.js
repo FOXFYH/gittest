@@ -1,6 +1,6 @@
 /* ============================================================
  * 【任务面板】网页模块 · 面板.js
- * 版本：0.06
+ * 版本：0.07
  * 职责：页面装配（《软件架构设计》§6 手机网页版）。
  *   · 顶部【发布任务】→ 发布界面：填内容 / 选 AI 大类(WorkBuddy|Trae) / 列该类下所有端 /
  *     选中端→列出该端对话 / 指定对话→提交（接口层 接口.js 已改为 WS 请求）。
@@ -20,11 +20,16 @@
  *   · 0.06（2026-10-18）发布请求阶段上顶栏：点【发布】时，未连 WS → 角色显「WS 连接中」，
  *     已连 → 显「等待服务器接受」；应答后复位（服务器侧的「服务器已开始执行 / 投递成功」
  *     由卡片状态胶囊显示，见 卡片.js 0.02）。
+ *   · 0.07（2026-10-18）「选择对话」改版：**一行一个对话，只显示 对话名 + 忙闲标签**
+ *     （忙＝红/闲＝绿/未知＝灰，文字就写「忙」「闲」「未知」），**去掉 SID/终身号 展示标签**
+ *     （`选对话` 对象里仍保留 `终身号` 供提交）；并在**发布弹窗打开且已选端**时**每 10 秒**
+ *     重拉一次该端对话、刷新忙闲（10 秒内新鲜）；`关发布()`（弹窗隐藏）即**停轮询**（清定时器）。
+ *     刷新时按稳定键（终身号/SID/对话名）**复原选中**，不打断用户已选。
  * ============================================================ */
 (function (global) {
   'use strict';
 
-  var 版本 = '0.06';
+  var 版本 = '0.07';
   var 端缓存 = [];       // 全部端（含历史）
   var 端版本 = '';       // 端列表「版本指纹」（差额推送用；空=全量）
   var 任务版本 = '';     // 任务列表「版本指纹」（差额推送用；空=全量）
@@ -32,6 +37,8 @@
   var 选端 = null;       // 端 dict
   var 选对话 = null;     // 对话 dict
   var 提示定时 = null;
+  var 忙闲轮询 = null;   // 「选择对话」忙闲 10 秒轮询定时器
+  var 轮询在途 = false;  // 上一轮忙闲拉取是否仍在途（防叠加）
 
   function $(id) { return document.getElementById(id); }
 
@@ -183,7 +190,11 @@
     $('发布弹窗').classList.remove('隐藏');
   }
 
-  function 关发布() { $('发布弹窗').classList.add('隐藏'); }
+  function 关发布() {
+    $('发布弹窗').classList.add('隐藏');
+    停轮询();                          // 弹窗关闭即停「忙闲」轮询
+    选端 = null; 选对话 = null;
+  }
 
   function 大类钮们() {
     return Array.prototype.slice.call(document.querySelectorAll('#发布_大类 .大类钮'));
@@ -234,6 +245,59 @@
     }
   }
 
+  var 轮询间隔毫秒 = 10000;   // 「选择对话」忙闲轮询间隔（来源约每 10 秒刷新一轮，故 10 秒内新鲜）
+
+  // 对话的稳定键（用于轮询重绘后复原选中）：终身号优先，其次 SID / 对话名
+  function 键(对话) {
+    return (对话 && (对话.终身号 || 对话.SID || 对话.对话名)) || '';
+  }
+
+  // 忙闲标签：忙＝红 / 闲＝绿 / 未知＝灰（文字就写「忙」「闲」「未知」）
+  function 忙闲标(灯) {
+    var s = document.createElement('span');
+    var 值 = (灯 === '忙' || 灯 === '闲') ? 灯 : '未知';
+    s.className = '忙闲标 ' + 值;
+    s.textContent = 值;
+    return s;
+  }
+
+  // 拉该端对话并重绘（静默＝轮询刷新：不显「加载中」、失败不打断已画列表）
+  function 拉对话(静默) {
+    var 端 = 选端;
+    if (!端) return Promise.resolve();
+    if (!静默) 重置选择框($('发布_对话'), '加载对话中…');
+    return global.接口.端对话(端.端名).then(function (r) {
+      if (选端 !== 端) return;              // 端已切换：丢弃过期应答
+      画对话((r && r.对话) || []);
+    }).catch(function (e) {
+      if (静默) return;                     // 轮询失败：保留上一帧、不闪错
+      重置选择框($('发布_对话'), '加载失败：' + e.message);
+    });
+  }
+
+  // 一行一个对话：只显示 对话名 + 忙闲标签（SID/终身号不再展示；终身号仍在 对话 dict 里供提交）
+  function 画对话(对话s) {
+    var 框 = $('发布_对话');
+    var 旧键 = 选对话 ? 键(选对话) : '';
+    框.innerHTML = '';
+    if (!对话s.length) {
+      框.appendChild(空样('该端暂无对话'));
+      选对话 = null;
+      return;
+    }
+    var 新选 = null;
+    对话s.forEach(function (对话) {
+      var 行 = document.createElement('div');
+      行.className = '选行';
+      行.appendChild(文(对话.对话名 || '（未命名对话）'));
+      行.appendChild(忙闲标(对话.忙闲));
+      行.addEventListener('click', function () { 选对话处理(对话, 行); });
+      if (旧键 && 键(对话) === 旧键) { 行.classList.add('选中'); 新选 = 对话; }
+      框.appendChild(行);
+    });
+    选对话 = 新选;                          // 重绘后按稳定键复原选中；找不到＝视为未选
+  }
+
   function 选端处理(端, 行元素) {
     选端 = 端; 选对话 = null;
     Array.prototype.forEach.call($('发布_端').children, function (c) {
@@ -241,29 +305,27 @@
     });
     行元素.classList.add('选中');
     重置选择框($('发布_对话'), '加载对话中…');
-    global.接口.端对话(端.端名).then(function (r) {
-      var 对话s = (r && r.对话) || [];
-      var 框 = $('发布_对话');
-      框.innerHTML = '';
-      if (!对话s.length) { 框.appendChild(空样('该端暂无对话')); return; }
-      对话s.forEach(function (对话) {
-        var 行 = document.createElement('div');
-        行.className = '选行';
-        行.appendChild(文(对话.对话名 || '（未命名对话）'));
-        if (对话.SID) 行.appendChild(标('SID ' + 对话.SID));
-        if (对话.终身号) 行.appendChild(标('终身号 ' + 对话.终身号));
-        if (对话.终身号) {
-          var t = document.createElement('textarea');
-          t.className = '隐藏';
-          t.value = 对话.终身号;
-          行.appendChild(t);
-        }
-        行.addEventListener('click', function () { 选对话处理(对话, 行); });
-        框.appendChild(行);
-      });
-    }).catch(function (e) {
-      重置选择框($('发布_对话'), '加载失败：' + e.message);
-    });
+    拉对话(false);
+    开轮询();                              // 已选端 → 每 10 秒刷新忙闲
+  }
+
+  // 「选择对话」忙闲轮询：发布弹窗打开且已选端时每 10 秒重拉一次；弹窗关闭/未选端即停
+  function 开轮询() {
+    停轮询();
+    忙闲轮询 = setInterval(轮询一跳, 轮询间隔毫秒);
+  }
+
+  function 停轮询() {
+    if (忙闲轮询) { clearInterval(忙闲轮询); 忙闲轮询 = null; }
+    轮询在途 = false;
+  }
+
+  function 轮询一跳() {
+    var 弹 = $('发布弹窗');
+    if (!弹 || 弹.classList.contains('隐藏') || !选端) { 停轮询(); return; }   // 弹窗隐藏/未选端 → 停
+    if (轮询在途) return;                  // 上一轮未回 → 跳过本次（防叠加）
+    轮询在途 = true;
+    拉对话(true).then(function () { 轮询在途 = false; });
   }
 
   function 选对话处理(对话, 行元素) {
