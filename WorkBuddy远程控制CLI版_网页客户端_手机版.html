@@ -511,6 +511,24 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .foxplay.ask .fpst{background:rgba(230,81,0,.10);}
 .foxplay.ask .fptxt{color:#8a4b00;font-weight:bold;}
 .foxplay.ask .fpbtn{border-color:rgba(230,81,0,.45);color:#e65100;}
+/* ── 2.01：专属提示词「三段折叠小卡片」（(@fox-sys1)…(@fox-sys2) / (@fox-usr1)…(@fox-usr2) /
+   (@fox-co1)…(@fox-co2) 三对标记；口径 1:1 对齐 TRAE 网页端 2.77）——
+   默认折叠：只显示一排 3 个小标签（系统 ▸ / 用户 ▸ / 公司 ▸），点开各显内容、再点收起。
+   配色青绿一系，与蓝色语音卡 / 琥珀提问卡区分，辨识度高。 */
+.foxhint{margin:6px 0;padding:5px 8px;
+  border:1px solid rgba(0,121,107,.35);border-left:4px solid rgba(0,121,107,.7);
+  border-radius:8px;background:linear-gradient(135deg,#e9f7f4,#f1fbf8);}
+.foxhint .fhrow{display:flex;flex-wrap:wrap;gap:6px;}
+.foxhint .fhbtn{font-size:12px;min-height:24px;padding:1px 10px;border-radius:12px;
+  border:1px solid rgba(0,121,107,.4);background:#fff;color:#00796b;
+  cursor:pointer;font-weight:bold;white-space:nowrap;}
+.foxhint .fhbtn.on{background:#00796b;color:#fff;}
+.foxhint .fhbtn:active{transform:scale(.95);}
+.foxhint .fhpane{margin-top:6px;background:#fff;border-radius:6px;
+  padding:6px 8px;border:1px dashed rgba(0,121,107,.3);}
+.foxhint .fhtitle{font-size:11px;color:#00796b;font-weight:bold;margin-bottom:3px;}
+.foxhint .fhbody{font-size:12.5px;line-height:1.5;color:#333;
+  white-space:pre-wrap;overflow-wrap:break-word;}
 </style>
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
@@ -1291,6 +1309,94 @@ function foxAskCards(txt, out){
     out.push(seg);
     return '@@FAC' + (out.length - 1) + '@@';
   });
+}
+/* ── 2.01：专属提示词「三段折叠小卡片」（(@fox-sys1)…(@fox-sys2) / (@fox-usr1)…(@fox-usr2) /
+   (@fox-co1)…(@fox-co2) 三对标记；口径 1:1 对齐 TRAE 网页端 2.77）——
+   服务端 decorate（wb 会话提示词 1.15）把会话专属提示词拆成三段、各用一对 FOX 标记包夹；
+   本端把三段合成**一张折叠小卡片**：平时只显示一排小标签（系统 ▸ / 用户 ▸ / 公司 ▸），
+   点一个就展开该段内容、再点收起。有头就认（结尾可缺、可到消息末尾），末尾残标剪掉；
+   与 fox-play / fox-ask 两套老标记互不干扰（标记名不同、各自独立摘取）。 */
+const FSC_REG = /\(@fox-sys1\s*\)([\s\S]*?)(?:\(@fox-sys2\s*\)|$)/g;
+const FUC_REG = /\(@fox-usr1\s*\)([\s\S]*?)(?:\(@fox-usr2\s*\)|$)/g;
+const FCC_REG = /\(@fox-co1\s*\)([\s\S]*?)(?:\(@fox-co2\s*\)|$)/g;
+const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1'];
+const _fh_state = {};      /* 卡片开合状态：键＝三段内容指纹（快照每秒重画，开合要撑过重画） */
+const _fh_data = {};       /* 卡片内容登记 */
+function foxHintKey(hz){
+  return (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001' + (hz.co || '');
+}
+function _fhGrab(txt, re){
+  let v = '';
+  const rest = String(txt || '').replace(re, (m, p1) => {
+    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
+    if (seg) v = seg;
+    return '';
+  });
+  return {rest: rest, t: v};
+}
+function foxHintCards(txt, out){
+  let s = String(txt || '');
+  let idx = -1;
+  FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
+  if (idx < 0) return s;
+  const head = s.slice(0, idx), tail = s.slice(idx);
+  const a = _fhGrab(tail, FSC_REG), b = _fhGrab(a.rest, FUC_REG), c = _fhGrab(b.rest, FCC_REG);
+  const hz = {sys: a.t, usr: b.t, co: c.t};
+  if (!hz.sys && !hz.usr && !hz.co) return s;
+  out.push(hz);
+  const h = head.replace(/\s+$/, '');
+  return (h ? h + '\n' : '') + '@@FHC' + (out.length - 1) + '@@';
+}
+function foxHintHtml(hz){
+  const key = foxHintKey(hz);
+  _fh_data[key] = hz;
+  const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
+  const defs = [['系统', 'sys'], ['用户', 'usr'], ['公司', 'co']];
+  let tabs = '';
+  defs.forEach(function(d){
+    const k = d[1], label = d[0];
+    if (!hz[k]) return;
+    const on = (st.open && st.which === k);
+    tabs += '<button class="fhbtn' + (on ? ' on' : '') + '" data-fh="' + k
+          + '" title="' + label + '专属提示词">' + label + ' ▸</button>';
+  });
+  if (!tabs) return '';
+  let pane = '';
+  if (st.open && st.which && hz[st.which]){
+    const names = {sys: '系统', usr: '用户', co: '公司'};
+    pane = '<div class="fhpane"><div class="fhtitle">' + names[st.which]
+         + '专属提示词</div><div class="fhbody">' + esc(hz[st.which]) + '</div></div>';
+  }
+  return '<div class="foxhint" data-fhkey="' + esc(key) + '">'
+       + '<div class="fhrow">' + tabs + '</div>' + pane + '</div>';
+}
+function foxHintBind(root){
+  (root || document).querySelectorAll('.foxhint .fhbtn').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const card = b.closest('.foxhint');
+      if (!card) return;
+      const key = card.getAttribute('data-fhkey') || '';
+      const k = b.getAttribute('data-fh') || '';
+      const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
+      if (st.open && st.which === k){ st.open = false; st.which = ''; }
+      else { st.open = true; st.which = k; }
+      const hz = _fh_data[key];
+      if (hz){
+        const tmp = document.createElement('div');
+        tmp.innerHTML = foxHintHtml(hz);
+        const nc = tmp.firstElementChild;
+        if (nc){ card.replaceWith(nc); foxHintBind(nc.parentNode || document); }
+      }
+    };
+  });
+}
+/* 剥掉三段标记（「重编/回退」我发出的消息时用：把服务端追加的专属词段忽略，还原纯正文） */
+function stripHintMarks(txt){
+  return String(txt || '')
+    .replace(FSC_REG, '').replace(FUC_REG, '').replace(FCC_REG, '')
+    .replace(/\(@fox-(?:sys|usr|co)\d?\s*\)/g, '')
+    .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
 }
 /* 音色/语速：默认**女声晓晓**（用户 2026-09-30 明确不喜欢原先写死的男声云希）。
    由「设置→语音播报」改，随每次播报一起发给服务端。 */
@@ -2953,18 +3059,22 @@ function renderMsgs(msgs, finish, opts, ask){
     /* 1.69：AI 消息正文识别 (@fox-play1)…(@fox-play2) 包夹段 → 渲染成语音
        小卡片（占位符先过 mdHtml，再替换成卡片 HTML）。「我」的消息不处理。 */
     let bodyHtml;
-    if (user){
-      bodyHtml = esc(m[1]);
-    } else {
-      const fsegs = [], asegs = [];
+    {
+      const fsegs = [], asegs = [], hsegs = [];
       /* 1.70：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）互不冲突，
-         先摘语音、后摘提问，再各自回填卡片（提问卡叠 .ask 琥珀色）。 */
-      bodyHtml = mdHtml(foxAskCards(foxPlayCards(m[1], fsegs), asegs));
+         先摘语音、后摘提问，再各自回填卡片（提问卡叠 .ask 琥珀色）。
+         2.01：再加「专属提示词三段折叠卡」（@@FHC，见 foxHintCards）。
+         ★用户消息与 AI 消息**一视同仁**处理——专属提示词由服务端拼在「我」发出的
+         消息末尾，必须同样渲染成折叠卡（此前用户消息只 esc 原样）。 */
+      bodyHtml = mdHtml(foxHintCards(foxAskCards(foxPlayCards(m[1], fsegs), asegs), hsegs));
       fsegs.forEach((ft, n) => {
         bodyHtml = bodyHtml.replace('@@FPC' + n + '@@', foxCardHtml(ft));
       });
       asegs.forEach((at, n) => {
         bodyHtml = bodyHtml.replace('@@FAC' + n + '@@', foxCardHtml(at, true));
+      });
+      hsegs.forEach((hz, n) => {
+        bodyHtml = bodyHtml.replace('@@FHC' + n + '@@', foxHintHtml(hz));
       });
     }
     let h = '<div class="who">' + (user ? '我' : 'WorkBuddy')
@@ -2982,6 +3092,8 @@ function renderMsgs(msgs, finish, opts, ask){
         foxPlay(card ? (card.getAttribute('data-seg') || '') : '');
       };
     });
+    /* 2.01：专属提示词三段折叠卡——标签点开/收起绑定 */
+    foxHintBind(d);
     /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
        1.24：复制/重编（本地即时完成，不涉服务端） */
     d.querySelectorAll('.mact').forEach(b => {
@@ -2994,7 +3106,8 @@ function renderMsgs(msgs, finish, opts, ask){
         }
         if (k === 'edit'){
           const it = msgs[parseInt(b.dataset.i)];
-          el.ent.value = it ? (it[1] || '') : '';
+          /* 2.01：重编＝把我发的原话取回输入框——剥掉服务端追加的专属词三段标记，还原纯正文 */
+          el.ent.value = it ? stripHintMarks(it[1] || '') : '';
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
           flash('已回填输入框，可修改后重新发送', 'var(--blue)');
@@ -3002,9 +3115,10 @@ function renderMsgs(msgs, finish, opts, ask){
         }
         if (k === 'rewind'){
           /* 1.79：回退＝撤回「我」的这一问——截断后续之外，把该条原文取回输入框
-             （用户 2026-10-06 定：「回退应该把文本取回，输入框重新编辑」）。 */
+             （用户 2026-10-06 定：「回退应该把文本取回，输入框重新编辑」）。
+             2.01：取回时剥掉专属词三段标记，还原纯正文。 */
           const it = msgs[parseInt(b.dataset.i)];
-          const back = it ? (it[1] || '') : '';
+          const back = it ? stripHintMarks(it[1] || '') : '';
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
             + '其后全部对话（含 AI 回复）将一并移除。\n'
             + '（这条原文会取回输入框，可改完再发）')) return;
@@ -3730,7 +3844,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.00';   /* 2.00：「✍ 批量签到」改为弹出**遥控面板**（原先点击＝直接启动）——
+const VER = '2.01';   /* 2.01：专属提示词改「三段折叠小卡片」（用户 2026-10-18 口径）——
+   服务端 decorate（wb 会话提示词 1.15）把会话专属提示词拆成 系统/用户/公司 三段、各用一对
+   FOX 标记包夹（(@fox-sys1)…(@fox-sys2) / (@fox-usr1)…(@fox-usr2) / (@fox-co1)…(@fox-co2)）；
+   网页端用新增的 foxHintCards/foxHintHtml 把三段合成**一张折叠小卡**：平时只显示一排 3 个小
+   标签（系统 ▸ / 用户 ▸ / 公司 ▸），点一个就展开该段内容、再点收起（青绿配色，与语音卡/提问卡
+   区分）。用户消息与 AI 消息一视同仁；「重编/回退」用 stripHintMarks 剥掉三段标记还原纯正文。
+   口径 1:1 对齐 TRAE 网页端 2.77。
+   2.00：「✍ 批量签到」改为弹出**遥控面板**（原先点击＝直接启动）——
    面板＝电脑端「批量签到」分页的遥控版：账号名称/签到时间/积分增加/签到后总积分/
    状态 + 按钮（开始批量签到 / 批量刷新积分 / 刷新列表）；打开即 sendCmd('checkin_state')
    先拉一次「账号枚举＋上次结果」，按钮触发 checkin_all / credits_refresh_all（本地后台
