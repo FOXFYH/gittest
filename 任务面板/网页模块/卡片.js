@@ -20,7 +20,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.02';
+  var 版本 = '0.03';
 
   var 角色底纹 = { '人蓝': '底蓝', 'AI绿': '底绿', 'AI黄': '底黄' };
   var 卡片状态类 = {
@@ -176,12 +176,18 @@
   }
   function int(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
 
-  // ---------- 子卡组渲染 ----------
+  // ---------- 后代卡片渲染：拍平成同层平铺一列 ----------
+  // 递归展开所有层级、视觉不再嵌套：把 接口.任务树() 的嵌套树先拍平成【扁平列表】
+  // （按时间/编号顺序），再逐张平铺渲染。拍平由 面板.js 提供（面板.js 已在载入后可用）。
+  function 拍平后代(节点) {
+    if (global.面板 && typeof global.面板.拍平后代 === 'function') return global.面板.拍平后代(节点);
+    return [];
+  }
   function 填子组(容器, 父节点, 选项) {
     容器.innerHTML = '';
-    var 子 = 父节点.子卡 || [];
-    if (!子.length) { 容器.appendChild(空样('（暂无回复）')); return; }
-    子.forEach(function (c) {
+    var 平 = 拍平后代(父节点);
+    if (!平.length) { 容器.appendChild(空样('（暂无回复）')); return; }
+    平.forEach(function (c) {
       容器.appendChild(渲染卡(c, 复制(选项, { 主卡: false })));
     });
   }
@@ -191,20 +197,20 @@
     var 树区 = 卡.querySelector('.互动树');
     if (!树区) return;
     if (树区.classList.contains('隐藏')) {
-      var 子组 = 树区.querySelector('.子卡组');
+      var 平区 = 树区.querySelector('.平铺列');
       if (!树区.dataset.已载) {
         树区.dataset.已载 = '1';
         if (节点.子卡 !== undefined) {
-          填子组(子组, 节点, 选项);
+          填子组(平区, 节点, 选项);
         } else if (有接口()) {
-          子组.innerHTML = '';
-          子组.appendChild(空样('加载中…'));
+          平区.innerHTML = '';
+          平区.appendChild(空样('加载中…'));
           global.接口.任务树(节点.编号).then(function (r) {
-            填子组(子组, (r && r.树) || {}, 选项);
+            填子组(平区, (r && r.树) || {}, 选项);
             自适应(卡);
           }).catch(function (e) {
-            子组.innerHTML = '';
-            子组.appendChild(空样('加载失败：' + e.message));
+            平区.innerHTML = '';
+            平区.appendChild(空样('加载失败：' + e.message));
             自适应(卡);
           });
         }
@@ -293,11 +299,19 @@
     }
     卡.appendChild(排);
 
-    // 互动树（默认收起）
+    // 互动树（默认收起）：主卡的后代卡片【拍平成同层平铺一列】（不再嵌套/缩进）；
+    // 回复卡只在互动树里放「我来写」容器，其自身不再下钻（全部后代已平铺在主卡的平铺列里）。
     var 树区 = 元素('div', '互动树 隐藏');
-    var 子组 = 元素('div', '子卡组');
-    子组.appendChild(空样('（点「' + (主卡 ? '任务回复' : '回复') + '」展开）'));
-    树区.appendChild(子组);
+    var 平区 = 元素('div', '平铺列');
+    树区.appendChild(平区);
+    if (主卡) {
+      if (节点.子卡 !== undefined) {
+        树区.dataset.已载 = '1';
+        填子组(平区, 节点, 选项);          // 节点已带后代 → 直接拍平（懒加载已在内存时免再请求）
+      } else {
+        平区.appendChild(空样('（点「任务回复」展开）'));
+      }
+    }
     卡.appendChild(树区);
 
     return 卡;
