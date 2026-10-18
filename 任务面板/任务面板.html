@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>任务面板 · 手机遥控页 v0.03</title>
+<title>任务面板 · 手机遥控页 v0.04</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.03
+  版本：0.04
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   依赖脚本：网页模块/接口.js、卡片.js、面板.js（一律【相对路径】引用，页面不硬编码本机 IP/端口）。
   通道（§17 部署与 WS 通道）：接口.js 走【WebSocket】——页面与本机服务器各连同一 PieSocket 频道
     （FOX 2.0 帧），本机 AI 走本地通道免 WS、跨机面板走 WS；故本页部署到 GitHub Pages（静态无后端）
     后照样可用。同一 WiFi 下用 网页服务.py 的地址打开亦可（本机调试会回落 /api/*）。
-  WS 配置（频道名/密钥）：可在本页 <head> 内定义 window.任务面板_WS配置 覆盖 接口.js 里的默认值。
--->
+  §19 对外页面安全（口令）：频道 = 固定前缀 + 口令；【页面不写死频道】——首次打开弹「口令」窗，
+    输入后本地缓存（localStorage），接口.js 运行时拼出频道并连接；顶栏「口令」钮可随时重设。 -->
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
@@ -119,10 +119,11 @@
 </head>
 <body>
 <header id="顶栏">
-  <div class="题">任务面板 <span class="版本">v0.03</span> <span id="角色" class="角色">连接中…</span></div>
+  <div class="题">任务面板 <span class="版本">v0.04</span> <span id="角色" class="角色">连接中…</span></div>
   <div class="顶操作">
     <button id="按钮_发布任务" class="主钮">发布任务</button>
     <button id="按钮_刷新" class="次钮">刷新</button>
+    <button id="按钮_口令" class="小钮">口令</button>
   </div>
 </header>
 <main>
@@ -153,6 +154,21 @@
     <div class="弹窗底">
       <button id="发布_取消" class="次钮">取消</button>
       <button id="发布_确认" class="主钮">发布</button>
+    </div>
+  </div>
+</div>
+<div id="口令弹窗" class="遮罩 隐藏">
+  <div class="弹窗">
+    <h3>输入口令</h3>
+    <p style="font-size:14px;color:#556;margin:0 0 6px;line-height:1.6;">
+      口令用于拼出本面板的专用频道（固定前缀 + 口令），<b>仅本机浏览器缓存</b>、不上传、不写进源码。
+    </p>
+    <label class="字段" for="口令_输入">口令</label>
+    <input id="口令_输入" type="password" autocomplete="off" placeholder="请输入口令"
+           style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
+    <div class="弹窗底">
+      <button id="口令_取消" class="次钮">取消</button>
+      <button id="口令_确定" class="主钮">进入</button>
     </div>
   </div>
 </div>
