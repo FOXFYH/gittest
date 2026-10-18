@@ -171,7 +171,8 @@ function onEv(kind, v){
       break;
     }
     case 'input_take_out': {               /* 1.53：取回残留成功——文本回填本端 */
-      const t = (typeof v === 'string' ? v : '').trim();
+      /* 2.77：残留文本可能带着服务端追加的专属词三段标记 → 剥掉还原纯正文 */
+      const t = stripHintMarks(typeof v === 'string' ? v : '');
       if (t){
         el.ent.value = t;
         refreshSendBtn();

@@ -67,13 +67,14 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     /* 1.90：AI 消息正文识别 (@fox-play1)...(@fox-play2) 包夹段 →
        渲染成语音小卡片（占位符先过 mdHtml，再替换成卡片 HTML） */
     let bodyHtml;
-    if (user){
-      bodyHtml = esc(m[1]);
-    } else {
-      const fsegs = [], asegs = [];
+    {
+      const fsegs = [], asegs = [], hsegs = [];
       /* 2.21：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）
-         互不冲突，先摘语音、后摘提问，再各自回填卡片 */
-      bodyHtml = mdHtml(foxAskCards(foxPlayCards(m[1], fsegs), asegs));
+         互不冲突，先摘语音、后摘提问，再各自回填卡片。
+         2.77：再加「专属提示词三段折叠卡」（@@FHC，见 卡片TTS.js foxHintCards）。
+         ★用户消息与 AI 消息**一视同仁**处理——专属提示词由服务端 decorate
+         拼在「我」发出的消息末尾，必须同样渲染成折叠卡（此前用户消息只 esc 原样）。 */
+      bodyHtml = mdHtml(foxHintCards(foxAskCards(foxPlayCards(m[1], fsegs), asegs), hsegs));
       fsegs.forEach((ft, n) => {
         bodyHtml = bodyHtml.replace('@@FPC' + n + '@@',
                                     foxCardHtml(ft));
@@ -81,6 +82,10 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       asegs.forEach((at, n) => {
         bodyHtml = bodyHtml.replace('@@FAC' + n + '@@',
                                     foxCardHtml(at, true));
+      });
+      hsegs.forEach((hz, n) => {
+        bodyHtml = bodyHtml.replace('@@FHC' + n + '@@',
+                                    foxHintHtml(hz));
       });
     }
     let h = '<div class="who">' + (user ? '我' : 'TRAE')
@@ -99,6 +104,8 @@ function renderMsgs(msgs, finish, opts, ask, pend){
         foxPlay(card ? (card.getAttribute('data-seg') || '') : '');
       };
     });
+    /* 2.77：专属提示词三段折叠卡——标签点开/收起绑定 */
+    foxHintBind(d);
     /* 1.06：回退/删除（破坏性操作，confirm 二次确认）
        1.24：复制/重编（本地即时完成，不涉服务端） */
     d.querySelectorAll('.mact').forEach(b => {

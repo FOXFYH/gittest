@@ -163,11 +163,13 @@ function revertRefill(snap){
   const t = ((snap && snap.inputText) || '').trim();
   if (!t) return;
   S.revertPend = 0;
+  /* 2.77：撤回取回的是「原文＋专属词三段」——剥掉三段标记还原纯正文（发送时会重拼） */
+  const clean = stripHintMarks(t);
   if (!el.ent.value.trim()){
-    el.ent.value = t;
+    el.ent.value = clean;
     refreshSendBtn();
   }
-  const pv = t.length > 40 ? t.slice(0, 40) + '…' : t;
+  const pv = clean.length > 40 ? clean.slice(0, 40) + '…' : clean;
   flash('↩ 已撤回并取回：' + pv, 'var(--blue)', 6000);
 }
 

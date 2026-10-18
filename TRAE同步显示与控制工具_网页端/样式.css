@@ -247,6 +247,25 @@ body.fmsg #msgs{padding-top:22px;}
 .foxplay.ask .fpst{background:rgba(230,81,0,.10);}
 .foxplay.ask .fptxt{color:#8a4b00;font-weight:bold;}
 .foxplay.ask .fpbtn{border-color:rgba(230,81,0,.45);color:#e65100;}
+/* ── 2.77：专属提示词「三段折叠小卡片」（(@fox-sys1)…(@fox-sys2) /
+   (@fox-usr1)…(@fox-usr2) / (@fox-co1)…(@fox-co2) 三对标记）──
+   默认**折叠**：只显示一排 3 个小标签（系统 ▸ / 用户 ▸ / 公司 ▸）；点一个标签
+   就展开该段内容、再点收起。配色走「青绿」一系，与蓝色语音卡 / 琥珀提问卡
+   明确区分，辨识度高。 */
+.foxhint{margin:6px 0;padding:5px 8px;
+  border:1px solid rgba(0,121,107,.35);border-left:4px solid rgba(0,121,107,.7);
+  border-radius:8px;background:linear-gradient(135deg,#e9f7f4,#f1fbf8);}
+.foxhint .fhrow{display:flex;flex-wrap:wrap;gap:6px;}
+.foxhint .fhbtn{font-size:12px;min-height:24px;padding:1px 10px;border-radius:12px;
+  border:1px solid rgba(0,121,107,.4);background:#fff;color:#00796b;
+  cursor:pointer;font-weight:bold;white-space:nowrap;}
+.foxhint .fhbtn.on{background:#00796b;color:#fff;}
+.foxhint .fhbtn:active{transform:scale(.95);}
+.foxhint .fhpane{margin-top:6px;background:#fff;border-radius:6px;
+  padding:6px 8px;border:1px dashed rgba(0,121,107,.3);}
+.foxhint .fhtitle{font-size:11px;color:#00796b;font-weight:bold;margin-bottom:3px;}
+.foxhint .fhbody{font-size:12.5px;line-height:1.5;color:#333;
+  white-space:pre-wrap;overflow-wrap:break-word;}
 .optbtn.picked{opacity:.55;}
 /* ── 1.06：抽屉 文件夹➕ / 防升级开关 ── */
 .convo.folder{display:flex; align-items:center;}

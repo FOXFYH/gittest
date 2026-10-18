@@ -23,6 +23,102 @@ function foxAskCards(txt, out){
     return '@@FAC' + (out.length - 1) + '@@';
   });
 }
+/* ========== 2.77：专属提示词「三段折叠小卡片」（用户 2026-10-18 规定） ==========
+   会话专属提示词由服务端 decorate（TRAE会话提示词管理器 1.32）拆成三段、各用一对
+   FOX 标记包夹：系统 (@fox-sys1)…(@fox-sys2) / 用户 (@fox-usr1)…(@fox-usr2) /
+   公司 (@fox-co1)…(@fox-co2)。网页端把三段合成**一张折叠小卡片**：平时只显示一排
+   小标签（系统 ▸ / 用户 ▸ / 公司 ▸），点一个标签就展开该段内容、再点收起。
+   与语音卡/提问卡**同构**：有头就认（结尾可缺、可到消息末尾），末尾残标剪掉；
+   与 fox-play / fox-ask 两套老标记互不干扰（标记名不同，各自独立摘取）。 */
+const FSC_REG = /\(@fox-sys1\s*\)([\s\S]*?)(?:\(@fox-sys2\s*\)|$)/g;
+const FUC_REG = /\(@fox-usr1\s*\)([\s\S]*?)(?:\(@fox-usr2\s*\)|$)/g;
+const FCC_REG = /\(@fox-co1\s*\)([\s\S]*?)(?:\(@fox-co2\s*\)|$)/g;
+/* 三段「头标」——用于定位最早出现处：卡片就渲染在原标记所在位置 */
+const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1'];
+/* 卡片开合状态 + 内容登记：快照每秒重画，开合要撑过重画 → 记在模块级表里（键＝三段内容指纹） */
+const _fh_state = {};      /* key -> {open:bool, which:'sys'|'usr'|'co'|''} */
+const _fh_data = {};       /* key -> {sys,usr,co} */
+function foxHintKey(hz){
+  return (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001' + (hz.co || '');
+}
+function _fhGrab(txt, re){
+  /* 摘出该段内容（只留最后一个命中，与语音卡同口径），并从文本里剪掉整段（含标记） */
+  let v = '';
+  const rest = String(txt || '').replace(re, (m, p1) => {
+    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
+    if (seg) v = seg;
+    return '';
+  });
+  return {rest: rest, t: v};
+}
+function foxHintCards(txt, out){
+  let s = String(txt || '');
+  let idx = -1;
+  FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
+  if (idx < 0) return s;                       /* 无头标 → 原样（不误伤别的标记） */
+  const head = s.slice(0, idx), tail = s.slice(idx);
+  const a = _fhGrab(tail, FSC_REG), b = _fhGrab(a.rest, FUC_REG), c = _fhGrab(b.rest, FCC_REG);
+  const hz = {sys: a.t, usr: b.t, co: c.t};
+  if (!hz.sys && !hz.usr && !hz.co) return s;  /* 只有残标、无有效内容 → 原样 */
+  out.push(hz);
+  const h = head.replace(/\s+$/, '');
+  return (h ? h + '\n' : '') + '@@FHC' + (out.length - 1) + '@@';
+}
+function foxHintHtml(hz){
+  const key = foxHintKey(hz);
+  _fh_data[key] = hz;
+  const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
+  const defs = [['系统', 'sys'], ['用户', 'usr'], ['公司', 'co']];
+  let tabs = '';
+  defs.forEach(function(d){
+    const k = d[1], label = d[0];
+    if (!hz[k]) return;                          /* 空段不出标签 */
+    const on = (st.open && st.which === k);
+    tabs += '<button class="fhbtn' + (on ? ' on' : '') + '" data-fh="' + k
+          + '" title="' + label + '专属提示词">' + label + ' ▸</button>';
+  });
+  if (!tabs) return '';
+  let pane = '';
+  if (st.open && st.which && hz[st.which]){
+    const names = {sys: '系统', usr: '用户', co: '公司'};
+    pane = '<div class="fhpane"><div class="fhtitle">' + names[st.which]
+         + '专属提示词</div><div class="fhbody">' + esc(hz[st.which]) + '</div></div>';
+  }
+  return '<div class="foxhint" data-fhkey="' + esc(key) + '">'
+       + '<div class="fhrow">' + tabs + '</div>' + pane + '</div>';
+}
+function foxHintBind(root){
+  (root || document).querySelectorAll('.foxhint .fhbtn').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const card = b.closest('.foxhint');
+      if (!card) return;
+      const key = card.getAttribute('data-fhkey') || '';
+      const k = b.getAttribute('data-fh') || '';
+      const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
+      if (st.open && st.which === k){ st.open = false; st.which = ''; }  /* 再点收起 */
+      else { st.open = true; st.which = k; }                            /* 点开该段 */
+      const hz = _fh_data[key];
+      if (hz){
+        const tmp = document.createElement('div');
+        tmp.innerHTML = foxHintHtml(hz);           /* setter 不执行脚本（esc 已转义） */
+        const nc = tmp.firstElementChild;
+        if (nc){
+          card.replaceWith(nc);
+          foxHintBind(nc.parentNode || document);
+        }
+      }
+    };
+  });
+}
+/* 剥掉三段标记（「取回/重编」我发出的消息时用：把服务端追加的专属词段忽略，还原纯正文）——
+   消掉整段（含标记与内容），并剪掉多余空行；不动别的标记（play/ask）。 */
+function stripHintMarks(txt){
+  return String(txt || '')
+    .replace(FSC_REG, '').replace(FUC_REG, '').replace(FCC_REG, '')
+    .replace(/\(@fox-(?:sys|usr|co)\d?\s*\)/g, '')
+    .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+}
 /* 1.98：每段语音的会话内状态（阶段文案 + 颜色 + 已生成音频 BlobURL）。
    键＝正文文本本身：同一段文字只合成一次，再点 ▶ 直接重播（不重复生成）。 */
 const _tts_state = {};
