@@ -1,6 +1,6 @@
 /* ============================================================
  * 【任务面板】网页模块 · 面板.js
- * 版本：0.03
+ * 版本：0.04
  * 职责：页面装配（《软件架构设计》§6 手机网页版）。
  *   · 顶部【发布任务】→ 发布界面：填内容 / 选 AI 大类(WorkBuddy|Trae) / 列该类下所有端 /
  *     选中端→列出该端对话 / 指定对话→提交（接口层 接口.js 已改为 WS 请求）。
@@ -18,7 +18,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.03';
+  var 版本 = '0.04';
   var 端缓存 = [];       // 全部端（含历史）
   var 端版本 = '';       // 端列表「版本指纹」（差额推送用；空=全量）
   var 任务版本 = '';     // 任务列表「版本指纹」（差额推送用；空=全量）
@@ -299,12 +299,45 @@
     });
   }
 
+  // ---------------- 口令（§19 首登填、本地缓存；频道 = 前缀 + 口令，运行时拼） ----------------
+  function 开口令(首登) {
+    var 弹 = $('口令弹窗');
+    if (!弹) return;
+    var 输 = $('口令_输入');
+    if (输) {
+      if (首登) {
+        输.value = '';
+      } else {
+        try { 输.value = global.接口.读取口令 ? (global.接口.读取口令() || '') : ''; } catch (e) { }
+      }
+    }
+    弹.classList.remove('隐藏');
+    if (输) { try { 输.focus(); } catch (e) { } }
+  }
+
+  function 关口令() {
+    var 弹 = $('口令弹窗');
+    if (弹) 弹.classList.add('隐藏');
+  }
+
+  function 确认口令() {
+    var 输 = $('口令_输入');
+    var v = 输 ? String(输.value || '').trim() : '';
+    if (!v) { 提示('请输入口令'); return; }
+    关口令();
+    try { global.接口.设置口令(v); } catch (e) { }   // 存本地缓存 + 按新频道重连
+    首载();
+  }
+
+  // 口令就绪后（或已有缓存口令时）载入首屏数据
+  function 首载() {
+    载角色();
+    载端(true);
+    载任务(true);
+  }
+
   // ---------------- 启动装配 ----------------
   function 装配() {
-    载角色();
-    载端();
-    载任务();
-
     $('按钮_发布任务').addEventListener('click', 开发布);
     $('按钮_刷新').addEventListener('click', 刷新端);
     $('发布_取消').addEventListener('click', 关发布);
@@ -312,6 +345,25 @@
     大类钮们().forEach(function (b) {
       b.addEventListener('click', function () { 选大类处理(b.getAttribute('data-类')); });
     });
+    // §19 口令：首登窗 + 顶栏「口令」钮（随时重设）
+    $('按钮_口令').addEventListener('click', function () { 开口令(false); });
+    $('口令_取消').addEventListener('click', 关口令);
+    $('口令_确定').addEventListener('click', 确认口令);
+    var 输 = $('口令_输入');
+    if (输) {
+      输.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); 确认口令(); }
+      });
+    }
+
+    var 需 = true;
+    try { 需 = !!(global.接口.需要口令 && global.接口.需要口令()); } catch (e) { 需 = true; }
+    if (需) {
+      $('角色').textContent = '未连接';
+      开口令(true);        // 未缓存口令 → 先要口令，填完再载数据（不写死频道）
+    } else {
+      首载();             // 已有缓存口令 → 直接连频道载数据
+    }
   }
 
   if (document.readyState === 'loading') {
