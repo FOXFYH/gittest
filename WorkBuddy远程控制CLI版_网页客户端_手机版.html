@@ -398,6 +398,32 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   padding:4px 10px; border:1px solid var(--bd); border-radius:14px;
   background:#fff; color:var(--blue); cursor:pointer; white-space:nowrap;}
 #btn_favrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
+/* ── 2.00：批量签到遥控面板（全屏覆盖）——电脑端「批量签到」分页的遥控版：
+   本地执行、每个账号间隔 10 秒；本端仅取数/触发（无实际签到动作）。 ── */
+#page_checkin{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_checkin.on{display:flex;}
+#page_checkin .nhdr b{flex:1; min-width:0;}
+#ck_hint{padding:8px 12px; color:var(--gray); font-size:11px; line-height:1.6;
+  background:#fff; border-bottom:1px solid var(--bd);}
+#ck_stat{padding:6px 12px; color:#666; font-size:12px; background:#fff;
+  border-bottom:1px solid var(--bd);}
+#ck_wrap{flex:1; overflow:auto; -webkit-overflow-scrolling:touch; background:#fff;
+  overscroll-behavior:contain; padding:6px 8px;}
+#ck_tbl{border-collapse:collapse; width:100%; font-size:12px; margin-top:0;}
+#ck_tbl th,#ck_tbl td{border:1px solid var(--bd); padding:4px 6px;
+  text-align:left; white-space:nowrap;}
+#ck_tbl th{background:#eef2f6; position:sticky; top:0;}
+#ck_tbl td.num,#ck_tbl th.num{text-align:right; font-family:Consolas,monospace;}
+#ck_tbl td.ok{color:#2e7d32;}
+#ck_tbl td.warn{color:#c77700;}
+#ck_tbl td.bad{color:#c62828;}
+#ck_foot{flex:none; display:flex; gap:8px; padding:8px 12px; background:#fff;
+  border-top:1px solid var(--bd);}
+#ck_foot button{flex:1; min-height:38px; border:1px solid var(--bd);
+  border-radius:8px; background:#f2f5f9; color:var(--blue); font-weight:bold;
+  cursor:pointer;}
+#ck_foot button:active{background:#e3ecf5;}
 /* ── 1.50：模型校验弹窗——「我选的模型」没被真正采用时强提醒（可关闭）── */
 #model_dlg{position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.45);
   display:none; align-items:center; justify-content:center; padding:22px;}
@@ -593,6 +619,34 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div id="fav_list"></div>
   <div id="bfoot">官方模型列表经常变更，收藏被改名/下架时会标 ⚠ 提醒，
     到本页红字处移除即可。</div>
+</div>
+
+<!-- 2.00：批量签到遥控面板（全屏覆盖）——电脑端「批量签到」分页的遥控版。
+     本地执行、每个账号间隔 10 秒；本端只遥控：打开即 checkin_state 取
+     「账号枚举＋上次结果」，按钮触发 checkin_all / credits_refresh_all。 -->
+<div id="page_checkin">
+  <div class="nhdr">
+    <button id="btn_ckback">‹ 返回</button>
+    <b>✍ 批量签到</b>
+  </div>
+  <div id="ck_hint">本地执行、每个账号间隔 10 秒，网页端只是遥控面板；结束时电脑端会自动切回原账号。</div>
+  <div id="ck_stat">未连接</div>
+  <div id="ck_wrap">
+    <table id="ck_tbl">
+      <thead><tr>
+        <th>账号名称</th><th>签到时间</th><th class="num">积分增加</th>
+        <th class="num">签到后总积分</th><th>状态</th>
+      </tr></thead>
+      <tbody id="ck_body">
+        <tr><td colspan="5" style="color:#999;">打开面板即拉取账号列表…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="ck_foot">
+    <button id="ck_start">开始批量签到</button>
+    <button id="ck_refreshpts">批量刷新积分</button>
+    <button id="ck_reload">刷新列表</button>
+  </div>
 </div>
 
 <div id="page_net" data-page-node-id="oddG8dIObpfpeiicXo0wyz">
@@ -1000,6 +1054,9 @@ const S = {
   /* 1.89：登录账号库（服务端 hello/acct_list 下发）——顶部下拉切换账号，
      acct_asked=已向服务端点过名（只点一次，避免重复请求） */
   acct_items: [], acct_asked: false,
+  /* 2.00：批量签到遥控面板——checkin_rows=面板里显示的表格行
+     （服务端 checkin_state 下发的「账号枚举＋上次结果」合并行）。 */
+  checkin_rows: [],
   attach_pending: null,
   model_map: {}, model_busy: false,
   /* 1.50 模型校验：
@@ -1118,6 +1175,11 @@ const el = {
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
   favlist: $('fav_list'),
+  /* 2.00：批量签到遥控面板 */
+  checkinpage: $('page_checkin'), ck_back: $('btn_ckback'),
+  ck_stat: $('ck_stat'), ck_body: $('ck_body'),
+  ck_start: $('ck_start'), ck_refreshpts: $('ck_refreshpts'),
+  ck_reload: $('ck_reload'),
   md: $('model_dlg'), md_title: $('md_title'), md_body: $('md_body'),
   md_ok: $('md_ok'),
 };
@@ -2019,6 +2081,47 @@ function renderAcctSel(){
     '<option value="' + esc(it.key) + '"' + (it.cur ? ' selected' : '') + '>'
     + (it.cur ? '✓ ' : '') + esc(it.name || '未命名')
     + (it.uin ? '（' + esc(it.uin) + '）' : '') + '</option>').join('');
+}
+
+/* 2.00：批量签到遥控面板——渲染服务端 checkin_state 下发的合并行。
+   行字段＝{账号,名称,时间,本次增加,签到后总积分,状态}（服务端 批量签到.视图()）。
+   本端只用 DOM，无任何本地签到动作。 */
+function fmtNum(v){                       /* 积分友好显示：空→''；整数去零 */
+  if (v === null || v === undefined || v === '') return '';
+  const f = Number(v);
+  if (!isFinite(f)) return String(v);
+  return (Math.abs(f - Math.round(f)) < 1e-9)
+    ? String(Math.round(f)) : f.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+function ckStatusCls(s){                  /* 状态着色：成功绿 / 已签到等橙 / 失败红 */
+  s = String(s || '');
+  if (s === '成功') return 'ok';
+  if (s === '已签到' || s === '不符合资格' || s === '活动已结束') return 'warn';
+  if (s.indexOf('失败') === 0) return 'bad';
+  return '';
+}
+function renderCheckin(){
+  if (!el.ck_body) return;
+  const rows = S.checkin_rows || [];
+  if (!rows.length){
+    el.ck_body.innerHTML = '<tr><td colspan="5" style="color:#999;">（无账号）</td></tr>';
+  } else {
+    el.ck_body.innerHTML = rows.map(r => {
+      const nm  = esc((r && (r.名称 || r.账号)) || '—');
+      const ts  = esc((r && r.时间) || '');
+      const add = esc(fmtNum(r && r.本次增加));
+      const bal = esc((r && r.签到后总积分) || '');
+      const st  = String((r && r.状态) || '');
+      return '<tr><td>' + nm + '</td><td>' + ts + '</td>'
+        + '<td class="num">' + add + '</td><td class="num">' + bal + '</td>'
+        + '<td class="' + ckStatusCls(st) + '">' + esc(st) + '</td></tr>';
+    }).join('');
+  }
+  const pr = S.checkin_prog || {};
+  if (el.ck_stat)
+    el.ck_stat.textContent = S.checkin_running
+      ? ('进行中 ' + (pr.已 || 0) + '/' + (pr.总 || 0) + ' · ' + (pr.模式 || ''))
+      : ('空闲 · 共 ' + rows.length + ' 个账号');
 }
 
 /* 1.67：托管排队条——AI 忙时发出的消息挂在这里（不打断它），本轮跑完由服务端
@@ -3627,7 +3730,12 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '1.99';   /* 1.99：抽屉「↻ 刷新服务端」按钮搬进「服务端（点击切换操控）」行
+const VER = '2.00';   /* 2.00：「✍ 批量签到」改为弹出**遥控面板**（原先点击＝直接启动）——
+   面板＝电脑端「批量签到」分页的遥控版：账号名称/签到时间/积分增加/签到后总积分/
+   状态 + 按钮（开始批量签到 / 批量刷新积分 / 刷新列表）；打开即 sendCmd('checkin_state')
+   先拉一次「账号枚举＋上次结果」，按钮触发 checkin_all / credits_refresh_all（本地后台
+   执行、间隔 10 秒、结束时自动切回原账号）。新增 checkin_state 事件（全屏页 #page_checkin）。
+   1.99：抽屉「↻ 刷新服务端」按钮搬进「服务端（点击切换操控）」行
    （该行改 flex 两端对齐，照 TRAE 网页版 .srvhead 排法）；原操作网格空位改为
    「✍ 批量签到」按钮（sendCmd('checkin_all')，本地后台执行）；事件总线接入
    checkin_all（ack/start/row 进度）与 checkin_all_done（汇总）——网页端仅遥控面板。
@@ -4457,6 +4565,13 @@ function onEv(kind, v){
       }
       break;
     }
+    case 'checkin_state': {                 /* 2.00：批量签到面板——账号枚举＋上次结果 */
+      S.checkin_rows = (v && v.items) || [];
+      S.checkin_running = !!(v && v.进行中);
+      S.checkin_prog = (v && v.进度) || {};
+      if (el.checkinpage && el.checkinpage.classList.contains('on')) renderCheckin();
+      break;
+    }
     case 'checkin_all': {                   /* 1.99：批量签到/批量刷新 进度（本地后台执行） */
       S.checkin_all_busy = false;
       el.checkin_all.style.opacity = '';
@@ -4473,6 +4588,9 @@ function onEv(kind, v){
         flash(mode + ' ' + ((v && v.i) || 0) + '/' + ((v && v.total) || 0)
               + '：' + nm, 'var(--blue)');
       }
+      /* 2.00：面板开着 → 重拉一次状态（进度行/结果实时刷新） */
+      if (el.checkinpage && el.checkinpage.classList.contains('on'))
+        try{ sendCmd('checkin_state', null); }catch(e){}
       break;
     }
     case 'checkin_all_done': {              /* 1.99：批量操作收尾汇总（含是否切回原账号） */
@@ -4487,6 +4605,9 @@ function onEv(kind, v){
         flash('批量签到完成：成功 ' + ((v && v.成功) || 0) + '/共 ' + total + ' 个' + back,
               'var(--green)');
       }
+      /* 2.00：面板开着 → 重拉状态，收尾后列表显示最终结果 */
+      if (el.checkinpage && el.checkinpage.classList.contains('on'))
+        try{ sendCmd('checkin_state', null); }catch(e){}
       break;
     }
     case 'account':                        /* 1.33：登录账号名（读积分时带回） */
@@ -5242,15 +5363,35 @@ el.checkin.onclick = () => {             /* 1.59：今日签到（领积分） *
   flash('正在签到…', 'var(--blue)');
   sendCmd('checkin', null);             // 服务端 cmd_checkin → checkin 事件回
 };
-el.checkin_all.onclick = () => {         /* 1.99：批量签到（全部账号，本地后台执行） */
+el.checkin_all.onclick = () => {         /* 2.00：改为弹出「批量签到」遥控面板 */
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  drawerClose();                             /* 关抽屉，露出面板 */
+  if (el.ck_stat) el.ck_stat.textContent = '正在拉取账号列表…';
+  if (el.ck_body) el.ck_body.innerHTML =
+    '<tr><td colspan="5" style="color:#999;">正在拉取账号列表…</td></tr>';
+  el.checkinpage.classList.add('on');
+  sendCmd('checkin_state', null);         // 打开先拉一次当前状态（账号枚举＋上次结果）
+};
+el.ck_back.onclick = () => el.checkinpage.classList.remove('on');
+el.ck_reload.onclick = () => {            /* 刷新列表：重拉账号枚举＋结果 */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (el.ck_stat) el.ck_stat.textContent = '正在刷新账号列表…';
+  sendCmd('checkin_state', null);
+};
+el.ck_start.onclick = () => {            /* 开始批量签到：本地后台执行（间隔 10 秒） */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
   if (S.checkin_all_busy){ flash('批量签到请求处理中，请稍候…', 'var(--orange)'); return; }
   S.checkin_all_busy = true;
-  el.checkin_all.style.opacity = '.55';       /* 短暂禁用（防重复点击） */
   flash('正在发起批量签到…', 'var(--blue)');
-  sendCmd('checkin_all', null);         // 服务端 cmd_checkin_all → checkin_all 事件回
-  /* 兜底：ack 未到也不把按钮永久卡住 */
-  setTimeout(() => { S.checkin_all_busy = false; el.checkin_all.style.opacity = ''; }, 4000);
+  sendCmd('checkin_all', null);           // 服务端 cmd_checkin_all → checkin_all 事件回
+  setTimeout(() => { S.checkin_all_busy = false; }, 4000);   /* 兜底：ack 未到也不永久卡住 */
+};
+el.ck_refreshpts.onclick = () => {       /* 批量刷新积分：逐个账号查余额（间隔 10 秒） */
+  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
+  flash('正在发起批量刷新积分…', 'var(--blue)');
+  sendCmd('credits_refresh_all', null);
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
