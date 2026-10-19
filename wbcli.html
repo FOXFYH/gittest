@@ -1280,9 +1280,10 @@ function mdHtml(text){
 /* ================= 1.69：文本转语音小卡片 =================
    AI 消息末尾的大白话总结用 (@fox-play1)…(@fox-play2) 包夹，本端识别该段 →
    渲染成可点 ▶ 的语音卡片。1.84 起走**通道分层**（见下方「TTS 直连通道」）：
-   默认直连 TTS 频道（本端自己连上『TTS+密钥』频道，用 FOX 2.0 帧提需求，TTS
-   服务切片回音频，本端拼回后缓存播放，同段只合成一次）；直连走不通才回落
-   服务端本机中转（备用兜底）。★ 同一 id 只发一次请求，杜绝两份相同语音。 */
+   优先直连 TTS 频道（本端自己连上『TTS+密钥』频道，用 FOX 2.0 帧提需求，TTS
+   服务切片回音频，本端拼回后缓存播放，同段只合成一次）；2.02 起**串行**——
+   同一请求只走一条路、绝不并发，直连满 30 秒无结果才回落服务端本机中转（备用
+   兜底）。★ 同一 id 只真正发出一次请求，杜绝两份相同语音。 */
 
 /* 识别标志正则（用户规定）：(@fox-play1) 开头、(@fox-play2) 结尾包夹。
    容错识别——采集到的正文尾巴偶尔会缺（如截成「…(@fox」），原正则要求两端
@@ -1542,8 +1543,8 @@ function foxPlay(seg){
   const id = rid10();
   _tts_pend[id] = {ts: Date.now(), seg: seg};
   ttsStage(seg, '正在连接 TTS…', 'var(--gray)');
-  /* 1.84：统一走 ttsRoute——直连为默认；直连未就绪则由路由起连接 + TTS_GRACE
-     宽限，宽限内直连就绪即改走直连，否则回落服务端中转（备用兜底）。 */
+  /* 1.84/2.02：统一走 ttsRoute——优先 WS 直连；直连未就绪则由路由起连接，
+     30 秒(TTS_GRACE)内直连就绪即改走直连，直连仍无结果才回落服务端中转（备用兜底）。 */
   const payload = {t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()};
   if (ttsRoute(id, seg, payload)){
     ttsStage(seg, '任务已提交', 'var(--blue)');
@@ -1554,14 +1555,15 @@ function foxPlay(seg){
   }
 }
 function ttsFlushWait(){
-  /* TTS 直连一通：把仍在等待窗口、还没真正发出的请求立即改走直连
-     （★ 铁律：同一 id 只发一次——改走直连即清掉兜底定时器，不再回落服务端） */
+  /* TTS 直连一通：把仍在等待窗口、还没真正发出的请求立即改走直连。
+     ★ 串行铁律：同一 id 只真正发出一次——已在直连/兜底发出过的绝不再动；
+     30 秒「结果」窗口**不因改走直连而取消**（直连若再无结果，仍按口径切兜底）。 */
   Object.keys(_tts_fb).forEach(id => {
     const f = _tts_fb[id];
-    if (!f || f.used || !f.tm) return;      // 已用兜底 / 已发出 → 不动
-    if (!_tts_pend[id]){ clearTimeout(f.tm); delete _tts_fb[id]; return; }
+    if (!f || f.wsSent || f.srvSent) return;    // 已发出 / 已兜底 → 不动
+    if (!_tts_pend[id]){ if (f.tm) clearTimeout(f.tm); delete _tts_fb[id]; return; }
     if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
-      clearTimeout(f.tm); f.tm = null;
+      f.wsSent = true;
       ttsStage(_tts_pend[id].seg, '任务已提交', 'var(--blue)');
     }
   });
@@ -1616,8 +1618,9 @@ function ttsDeliver(id, binStr){
   }
 }
 /* 设置页「语音播报（TTS）」的小提示条 + 试听（对齐 TRAE 2.02）。
-   1.84：试听与语音卡片**同一条路由**（直连默认 + 服务端兜底），用一个没有
-   对应卡片的假 seg（ttsStage 对它自然 no-op），音频回来经 ttsDeliver → fpPlay 播放。 */
+   1.84/2.02：试听与语音卡片**同一条路由**（优先 WS 直连 + 服务端兜底；串行、
+   30 秒无结果才切兜底），用一个没有对应卡片的假 seg（ttsStage 对它自然 no-op），
+   音频回来经 ttsDeliver → fpPlay 播放。 */
 function ttsFlash(t, c){
   if (!el.lbl_tts_flash) return;
   el.lbl_tts_flash.textContent = t;
@@ -1632,22 +1635,24 @@ function ttsPreview(){
   const id = rid10(), seg = '__tts_preview__';
   _tts_pend[id] = {ts: Date.now(), seg: seg};
   ttsFlash('正在合成试听…', 'var(--blue)');
-  /* 1.84：与语音卡片同一条路由（直连默认 + 服务端兜底） */
+  /* 1.84/2.02：与语音卡片同一条路由（优先直连 + 服务端兜底） */
   const payload = {t:'tts', id:id, text:TTS_PREVIEW_TXT,
                    voice:ttsVoice(), rate:ttsRate()};
   if (!ttsRoute(id, seg, payload))
     ttsFlash('直连未就绪，' + (TTS_GRACE/1000) + ' 秒内未连通将自动回落服务端…',
              'var(--orange)');
 }
-/* 在途 tts 请求超时兜底：60 秒没回就清掉（防 _tts_pend 泄漏） */
+/* 在途 tts 请求超时兜底：90 秒没回就清掉（防 _tts_pend 泄漏）。
+   2.02：60→90 秒——WS 优先线的 30 秒切换窗口 + 服务端兜底合成（edge-tts 慢
+   时可达数十秒）叠加，60 秒可能早于兜底结果到达，故放宽到 90 秒。 */
 setInterval(() => {
   const now = Date.now();
   Object.keys(_tts_pend).forEach(id => {
-    if (now - _tts_pend[id].ts > 60000){
+    if (now - _tts_pend[id].ts > 90000){
       const seg = _tts_pend[id].seg;
       ttsClear(id);
       const o = _tts_state[seg];
-      if (o && !o.url) ttsStage(seg, '⚠ TTS 60 秒未回，可重试', 'var(--orange)');
+      if (o && !o.url) ttsStage(seg, '⚠ TTS 90 秒未回，可重试', 'var(--orange)');
     }
   });
 }, 20000);
@@ -1665,18 +1670,21 @@ setInterval(() => {
      （音频按 ≤10KB 应用层切片、每片仍单段），不触发分批/补发路径。
 
    ★ 服务端「本机 TTS 中转」保留为**备用兜底通道**（用户 2026-10-07）：仅在
-   直连走不通时才回落（经主频道发 t=='tts'，由服务端 tts_api 调本机 edge-tts）。
-   ★ 铁律：同一个 id 只允许真正发出一次请求（直连 或 服务端 二选一），绝不两边
-   同发 → 不会出现两份相同语音。默认直连；TTS_GRACE 毫秒内直连未连通才回落；
-   直连一回 tts_error 允许一次服务端兜底；直连一连通即把仍在等待的请求改走直连、
-   不再回落。 */
-const TTS_GRACE = 2500;                      // 直连等待窗口（毫秒），超时回落服务端
+   直连这条路**30 秒内没给出结果**时才回落（经主频道发 t=='tts'，由服务端
+   tts_api 调本机 edge-tts）。
+   ★ 2.02 口径（老板 2026-10-19，与 TRAE 侧同一标准）：
+   ①**优先 WS 直连**；②**串行**——同一请求任何时刻只走一条路，绝不并发；
+   ③**超时设长**——TTS_GRACE=30000ms，满 30 秒无结果才自动切下一条线路；
+   ④节约 WS、不重复劳动——同一个 id 只真正发出一次请求（直连 或 服务端
+   二选一），任一路先给出结果即收口，另一路不再发 → 绝不出现两份相同语音；
+   直连一回 tts_error 允许一次服务端兜底；直连一连通即把仍在等待的请求改走直连。 */
+const TTS_GRACE = 30000;                     // WS 优先线结果等待窗口（毫秒）：30 秒无结果才切兜底
 let ttsWs = null, ttsOnLine = false, ttsReconnectTimer = null;
 let ttsFailStreak = 0, ttsDeadline = 0;
 const TTS_BACKOFF = [2000, 4000, 8000];      // 逐次退避（13.3）
 const TTS_DEADLINE = 60000;                  // 单链路总时限（13.3）
 const _tts_parts = {};                       // id → 音频分片累加器 {n,total,bin}
-const _tts_fb = {};                          // id → 兜底状态 {tm:定时器|null, used:bool}
+const _tts_fb = {};                          // id → 路由状态 {tm:30 秒结果定时器, wsSent:已走直连, srvSent:已走兜底}
 
 function ttsPayload(id){
   /* 由在途请求那段的文本重建一条 tts 请求（回落服务端时用同一条 payload） */
@@ -1693,34 +1701,52 @@ function ttsClear(id){
   delete _tts_fb[id];
 }
 function ttsRoute(id, seg, payload){
-  /* 统一发送路由（外部唯一入口）：直连为默认，直连不通才在 TTS_GRACE 后回落
-     服务端本机中转（备用兜底）。返回 true = 已由直连真正发出。 */
+  /* 统一发送路由（外部唯一入口，2.02 口径）：**先走 WS 直连**；直连这条路满
+     TTS_GRACE(30 秒) 仍没给出结果，才串行切到下一条（服务端本机中转兜底）。
+     同一时刻只走一条路、绝不并发；任一路先给出结果即由 ttsClear 收口，另一路
+     不再发。返回 true = 本次已由直连真正发出。 */
   const j0 = _tts_pend[id];
   if (j0) j0.text = payload.text;  // 试听 seg 是占位串，兜底重建 payload 要用真文本
-  if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(payload)){
-    return true;                            // 只走直连，绝不再碰服务端
+  const f = {tm: null, wsSent: false, srvSent: false};
+  _tts_fb[id] = f;
+  if (ttsOnLine && ttsWs && ttsWs.readyState === 1){
+    if (ttsFoxSend(payload)) f.wsSent = true;   // 优先 WS：在线即发，只碰直连
+    else { ttsEnsure(); }                        // 直连在、此刻发不出：起一次连接再等宽限
+  } else {
+    ttsEnsure();                                 // 直连没就绪：立刻起连接，30 秒内连上即走直连
   }
-  ttsEnsure();                              // 直连没就绪：立刻起一次连接
-  _tts_fb[id] = {tm: setTimeout(() => ttsFallback(id), TTS_GRACE), used: false};
-  return false;
+  /* 统一「结果」窗口：30 秒内任一路都没结果 → 串行切下一条（不并发） */
+  f.tm = setTimeout(() => ttsFallback(id), TTS_GRACE);
+  return f.wsSent;
 }
 function ttsFallback(id){
-  /* TTS_GRACE 到点：直连仍不通才走服务端；若已被某路交付则什么都不做。 */
+  /* TTS_GRACE(30 秒) 到点：直连这条路仍没给出结果 → 串行切到下一条。
+     若已被某路交付 / 已走过兜底则什么都不做（天然去重，绝不重复劳动）。 */
   const f = _tts_fb[id];
-  if (!_tts_pend[id]){ if (f) delete _tts_fb[id]; return; }
-  if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
-    if (f) f.tm = null;                     // 直连赶上了：改走直连
+  if (f) f.tm = null;
+  if (!_tts_pend[id]){ delete _tts_fb[id]; return; }
+  if (f && f.srvSent) return;                     // 兜底已发出：不再重复
+  if (f && f.wsSent){
+    /* 直连发出去了，但 30 秒没结果 → 切服务端本机中转（备用兜底，同 id 最多一次） */
+    f.srvSent = true;
+    try { sendJson(ttsPayload(id)); } catch(e){}
     return;
   }
-  if (f) f.used = true;                     // 标记本 id 兜底已用（同 id 最多一次）
+  /* 直连一直没发出去（30 秒内都没连通）：此刻若已连上仍优先走直连，否则才走兜底 */
+  if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
+    f.wsSent = true;
+    f.tm = setTimeout(() => ttsFallback(id), TTS_GRACE);   // 再给直连一个 30 秒结果窗口
+    return;
+  }
+  f.srvSent = true;                              // 标记本 id 兜底已用（同 id 最多一次）
   try { sendJson(ttsPayload(id)); } catch(e){}   // 备用：经主频道发服务端中转
 }
 function ttsErrorFallback(id){
   /* 直连回 tts_error：允许一次服务端兜底。返回 true = 已发起兜底。 */
   const f = _tts_fb[id];
   if (f && f.tm){ clearTimeout(f.tm); f.tm = null; }
-  if (f && f.used) return false;            // 已用过兜底 → 不再重试
-  if (f) f.used = true; else _tts_fb[id] = {tm: null, used: true};
+  if (f && f.srvSent) return false;         // 已走过兜底 → 不再重试（同 id 最多一次）
+  if (f) f.srvSent = true; else _tts_fb[id] = {tm: null, wsSent: true, srvSent: true};
   try { sendJson(ttsPayload(id)); return true; } catch(e){ return false; }
 }
 
@@ -3844,7 +3870,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.01';   /* 2.01：专属提示词改「三段折叠小卡片」（用户 2026-10-18 口径）——
+const VER = '2.02';   /* 2.02：TTS 链路改「串行 · 优先 WS · 30 秒才兜底」（老板 2026-10-19
+   口径，与 TRAE 侧同一标准）——网页端点 ▶/试听时**只走一条**路：默认**优先 WS 直连**；
+   同一请求绝不并发走两条；直连这条满 30 秒（TTS_GRACE 2500→30000）仍没给出结果，才串行切
+   到服务端本机中转兜底；任一路先给出结果即收口、另一路绝不再发（同一 id 只真正发出一次
+   请求，杜绝重复接收）。ttsRoute/ttsFallback/ttsFlushWait/ttsErrorFallback 改用
+   wsSent/srvSent 双标记串行状态；「无结果」定时器不再随直连连通而取消；在途 60→90 秒
+   未回才清（给 30 秒窗口 + 服务端合成留够）。
+   2.01：专属提示词改「三段折叠小卡片」（用户 2026-10-18 口径）——
    服务端 decorate（wb 会话提示词 1.15）把会话专属提示词拆成 系统/用户/公司 三段、各用一对
    FOX 标记包夹（(@fox-sys1)…(@fox-sys2) / (@fox-usr1)…(@fox-usr2) / (@fox-co1)…(@fox-co2)）；
    网页端用新增的 foxHintCards/foxHintHtml 把三段合成**一张折叠小卡**：平时只显示一排 3 个小
