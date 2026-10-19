@@ -2,7 +2,7 @@
 
 /**
  * ============================================================
- * 双站切换器  v2.02   （手机端 / AutoX.js v7 / 打包成独立 APK）
+ * 双站切换器  v2.03   （手机端 / AutoX.js v7 / 打包成独立 APK）
  * ------------------------------------------------------------
  * 干什么：
  *   一个应用装两个网站：全屏 WebView + 右上角一条浮层竖条，
@@ -64,7 +64,7 @@ importClass(android.webkit.WebChromeClient);
 //   （应用专属外部目录，**不需要任何权限**，而且电脑端能直接读）。
 //   以后任何异常都不用截图，我远程读这个文件就知道崩在哪一步。
 // ================================================================
-var 底座版本 = "v2.02";
+var 底座版本 = "v2.03";
 var 日志路径 = "";
 
 (function 定日志位() {
@@ -119,7 +119,7 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v2.02";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
+var APP_VERSION = "v2.03";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
 // ★ 两个网站的地址。以后换地址只改这两行（或用 记事.json 的 站点 字段覆盖，不用改代码）。
 var 默认站点 = {
@@ -361,6 +361,7 @@ function 切站(k, 强制) {
     存记事();
     页面OK = false;
     最近备注 = "切到" + 站点说明[k];
+    try { ui.run(function () { 画当前站(); }); } catch (e) {}   // 切完立刻把"更深的那颗"换过去
     try {
         ui.run(function () { try { wv.loadUrl(站URL(k)); } catch (e) {} });
     } catch (e) {}
@@ -418,15 +419,16 @@ function 移条(x, y) {
 }
 
 // 圆角方块：黑底 + 2px 白描边（照 TRAE远程控制APP 竖条同款 GradientDrawable 画法）
-// ★ v2.01（用户 2026-10-19 定）：**四颗按钮完全一模一样**——同底色、同描边、同字色、同字号。
-//   不做"选中加深 / 金边 / 半透明"那一套；是否当前站只看网页内容。
+// ★ v2.03（用户 2026-10-19 定稿）：四颗按钮**同一种半透明黑底纹**（220）；
+//   只有 T/W 里**被选中的那一颗底纹更黑**（实心黑 255）——不加金边、不改字色、不换形状。
+//   除 T/W 以外（↻/⚙）永远按未选中处理。
 function 涂钮(控件, 选中) {
     if (!控件) return;
     try {
         var d = new android.graphics.drawable.GradientDrawable();
         d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         d.setCornerRadius(Math.floor(按钮尺寸 * 0.25));
-        d.setColor(android.graphics.Color.argb(220, 0x00, 0x00, 0x00));   // v1.20 那颗"黑里带点灰"的半透明黑，用户指定用这个
+        d.setColor(android.graphics.Color.argb(选中 ? 255 : 220, 0x00, 0x00, 0x00));
         d.setStroke(2, android.graphics.Color.parseColor("#80FFFFFF"));
         控件.setBackground(d);
     } catch (e) {}
@@ -450,11 +452,11 @@ function 涂条() {
     画当前站();
 }
 
-// v2.01：四颗按钮一视同仁，这里只负责重涂（不再改字色）
+// v2.03：T/W 里选中那颗底纹更黑；其余两颗永远按未选中画。字色一律纯白。
 function 画当前站() {
     if (!条) return;
-    try { 涂钮(条.bT, false); } catch (e) {}
-    try { 涂钮(条.bW, false); } catch (e) {}
+    try { 涂钮(条.bT, 当前站 === "T"); } catch (e) {}
+    try { 涂钮(条.bW, 当前站 === "W"); } catch (e) {}
     try { 涂钮(条.bR, false); } catch (e) {}
     try { 涂钮(条.bS, false); } catch (e) {}
     try { 条.bT.setTextColor(0xFFFFFFFF); } catch (e) {}
