@@ -191,6 +191,29 @@ function didTimeOf(text){
   return d.slice(0, 4) + '-' + d.slice(4, 6) + '-' + d.slice(6, 8) + ' '
        + d.slice(8, 10) + ':' + d.slice(10, 12) + ':' + d.slice(12, 14);
 }
+/* v2.84（老板实测 · Bug B）：剥净正文开头【已有】的 14 位 DID（含多层）——
+   重发/重编/残留回填会带着旧 DID，不剥净发送时就会「首行出现两个时间」。
+   反复剥到不再以 DID 打头为止（一次重发可能叠了两层）。兼容两形态：
+   ① 首行纯 DID（换行分隔）② TRAE 官方排队条把首行 DID 后的换行折叠成
+   空格后的单行形态。返回剥净后的正文（可能为空）。 */
+function stripHeadDid(text){
+  let s = String(text == null ? '' : text);
+  for (let i = 0; i < 4; i++){
+    const m = /^\s*(\d{14})(?!\d)[ \t]*\n?/.exec(s);
+    if (!m) break;
+    s = s.slice(m[0].length);
+  }
+  return s;
+}
+/* v2.84（老板实测 · Bug A）：官方排队条（pend）条目文本取【开头】的 14 位
+   DID——实测 TRAE 把首行 DID 后的换行折叠成空格（t='20261019201408 正文…'
+   单行），故不能再按「首行 ^\d{14}$」取（那样整段首行≠14 位，永远取不到、
+   卡就销不掉）。改取开头 14 位数字（其后须非数字）。 */
+function pendDidOf(text){
+  const s = String(text == null ? '' : text).trim();
+  const m = /^(\d{14})(?!\d)/.exec(s);
+  return m ? m[1] : '';
+}
 function resolveTimes(msgs){
   /* 2.22：时间以服务端为准——服务端快照给每条消息盖好第 6 位（已格式化的
      北京秒级串 'YYYY-MM-DD HH:MM:SS'），有则直接显示，不再本地打戳（本地

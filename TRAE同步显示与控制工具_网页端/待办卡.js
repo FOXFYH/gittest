@@ -19,18 +19,29 @@ function pendAdd(kind, text){
      DID，绝不出卡（根治现状混乱点）。 */
   const _did = firstLineDid(text);
   if (!_did) return null;
+  /* v2.84（老板实测 · Bug C）：卡上只显示【真实会话内容】——剥掉首行 DID
+     （它只是内部时间标记，非正文）；剥净后为空（只剩号码）⇒ 不建卡，杜绝
+     「只有号码的单行卡」。 */
+  const _body = stripHeadDid(text);
+  if (!_body.trim()) return null;
   const same = S.pending.find(p => p.text === text);
   if (same) return same;               // 同文本已在册（服务端 pend 回显）
   S.pend_seq++;
   /* 1.27：占位挂到发起时的会话上——插话/发送只对当时那个对话有效，
      切到别的对话期间不再显示（切回来仍可见，落地后照常撤下） */
-  const p = {id: S.pend_seq, kind: kind, text: text, did: _did,
+  const p = {id: S.pend_seq, kind: kind, text: text, body: _body, did: _did,
              state: 'sending', ts: Date.now(), conv: curTitle(),
              /* 2.16：记稳定 sid（改名/重排不变）。本专项 C1：以【锚定 sid】
                 为准——发起时网页版锚定哪个会话，卡就挂哪个会话（绝不按标题猜）。 */
              convSid: curSid()};
   S.pending.push(p);
   return p;
+}
+/* v2.84：占位卡展示/复制/改写用的【纯正文】——优先取建卡时剥好的 body 字段，
+   老卡（IDB 恢复等无 body）现场剥首行 DID 兜底。 */
+function pendBody(p){
+  if (!p) return '';
+  return (p.body != null) ? p.body : stripHeadDid(p.text);
 }
 
 function pendStat(p){
@@ -77,12 +88,13 @@ function renderPending(){
        卡片会永久停在中间态（1.25 起刻意无自动超时），原来按钮只在
        timeout 态出现，用户看到的就是"卡住且无按钮、只能干等"。现在：
        · 📋复制 / ✎改写 / 🗑丢弃 —— 任何状态恒显（随时能拷、能撤下来改、扔掉）；
-       · 🔁重发 —— 只在服务端尚未确认接收的态显示（已发出/已输入/未确认）；
-         sent（服务端已点发送）/queued（已进官方排队条）说明 TRAE 侧已收到，
-         再发会多出一份，故不给。
+       · 🔁重发 —— v2.84（老板 2026-10-19 追加）：**卡只要还在，就说明「销卡
+         判断（三渠道）失败」**（正常消息一进官方排队条/对话记录即销卡）⇒
+         一律给「重发」（此前只在 sending/typed/timeout 给，卡在 queued/sent
+         就无路可走、只能干等）。重发按当前时间生成**新号码**并替换首行，
+         首行恒只留最新一个（见 cmd 的 stripHeadDid）。
        1.40：复制自 1.40 起恒显，本次连改写/丢弃一起恒显。 */
-    let canGo = (p.state === 'sending' || p.state === 'typed'
-                 || p.state === 'timeout');
+    let canGo = true;
     h += '<span class="pacts"><button class="pendbtn cp" data-cp="'
        + p.id + '">📋 复制</button>'
        + '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>';
@@ -90,7 +102,7 @@ function renderPending(){
       h += '<button class="pendbtn go" data-go="' + p.id + '">🔁 重发</button>';
     h += '<button class="pendbtn drop" data-drop="' + p.id
        + '">🗑 丢弃</button></span>';
-    h += '</div><div class="body">' + esc(p.text) + '</div>';
+    h += '</div><div class="body">' + esc(pendBody(p)) + '</div>';
     d.innerHTML = h;
     wrap.appendChild(d);
   });
@@ -103,14 +115,14 @@ function renderPending(){
       const cpi = parseInt(b.dataset.cp || '0');   // 1.40：复制占位文字
       if (cpi){
         const p = S.pending.find(x => x.id === cpi);
-        if (p && p.text) copyText(p.text);
+        if (p) copyText(pendBody(p));    /* v2.84：只复制真实正文（剥掉首行 DID） */
         return;
       }
       if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
         const p = S.pending.find(x => x.id === ei);
         if (!p) return;
         S.pending = S.pending.filter(x => x.id !== ei);
-        el.ent.value = p.text || '';
+        el.ent.value = pendBody(p);   /* v2.84：回填纯正文（旧 DID 不再带回去，免重发叠时间） */
         refreshSendBtn();
         try { el.ent.focus(); } catch(e2){}
         renderAll();
@@ -125,8 +137,10 @@ function renderPending(){
       const p = S.pending.find(x => x.id === gi);
       if (!p) return;
       S.pending = S.pending.filter(x => x.id !== gi);
-      /* 2.16：重发锁定原会话 sid——即使用户已切到别的会话，也回原会话 */
-      cmd(p.kind, p.text, p.convSid);
+      /* 2.16：重发锁定原会话 sid——即使用户已切到别的会话，也回原会话。
+         v2.84：只把【纯正文】交回 cmd（旧 DID 已剥），cmd 再打新 DID →
+         首行恒为唯一 DID（Bug B）。 */
+      cmd(p.kind, pendBody(p), p.convSid);
     };
   });
   el.msgs.appendChild(wrap);
@@ -434,7 +448,7 @@ function pendOrphanWarn(p){
   p.orphan_warned = true;
   confirmFulls('占位卡所属对话「' + (p.conv || '（未知）')
     + '」已不存在。卡片文本仍然保留，可复制留存。',
-    () => copyText(p.text), '复制文本');
+    () => copyText(pendBody(p)), '复制文本');
   return false;                                        /* 卡片不消失 */
 }
 /* 本文件早于 缓存.js 加载，_idbReq 尚未就绪 → 延后一拍再恢复存卡 */

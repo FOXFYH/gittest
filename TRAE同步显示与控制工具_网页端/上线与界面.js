@@ -150,8 +150,18 @@ function cmd(c, a, convSid){
   let did = '';
   if ((c === 'send' || c === 'interject') && typeof a === 'string'
       && a.trim()){
+    /* v2.84（老板实测 · Bug B）：插入新 DID 前先【剥净正文里已有的 14 位
+       DID 首行】（含多层）——重发/重编/残留回填会带着旧 DID，不剥就
+       「首行出现两个时间」。剥净后为空（只剩号码）则不发送、不建卡
+       （对应 Bug C：绝不产生「只有号码的单行卡」）。 */
+    a = stripHeadDid(a);
+    if (!a.trim()){
+      flash('⚠ 内容只剩旧号码、无正文 → 未发送', 'var(--orange)');
+      refreshSendBtn();
+      return;
+    }
     did = didNow();
-    a = did + '\n' + a;              /* 首行 DID ＋ 原正文 */
+    a = did + '\n' + a;              /* 唯一首行 DID ＋ 原正文 */
     /* 占位卡挂 did（pendAdd 内部再按首行 DID 校验）；重发传了锁定 sid →
        新卡片也绑回原会话，与投递目标一致。 */
     const pp = pendAdd(c, a);

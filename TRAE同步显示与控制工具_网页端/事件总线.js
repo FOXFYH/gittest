@@ -50,6 +50,8 @@ function onEv(kind, v){
             「我」发出的消息）的【首行】14 位 DID；AI 发言不带 DID、绝不误判。
          ③ 本拍快照的【官方排队条】（v.pend 每项 t）——消息一进 TRAE 官方队列
             即算「已发出」，不必等它落进对话记录；命中该 DID 同样立刻销卡。
+            v2.84：条目文本实测是「DID 空格 正文」单行（TRAE 把首行 DID 后的
+            换行折叠成空格），故用 pendDidOf 取开头 DID（firstLineDid 取不到）。
          （② 服务端 did_pool 广播在下方 did_pool 分支处理。） */
       const _ct = curTitle();
       (v.msgs || []).forEach(m => {          /* ① 只扫人类发言 */
@@ -58,7 +60,7 @@ function onEv(kind, v){
         if (_d) pendClearByDid(_d, _ct);
       });
       (v.pend || []).forEach(it => {         /* ③ 官方排队条 */
-        const _d = firstLineDid(it && it.t);
+        const _d = pendDidOf(it && it.t);
         if (_d) pendClearByDid(_d, _ct);
       });
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位

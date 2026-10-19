@@ -69,12 +69,17 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     let bodyHtml;
     {
       const fsegs = [], asegs = [], hsegs = [];
+      /* v2.84（老板实测 · Bug B/C）：我自己发的消息正文开头是内部时间标记
+         14 位 DID（重发/残留可能叠多层）——顶栏时间已由 didTimeOf 取该 DID
+         单独显示，故正文【剥净】这些 DID 行，卡上只留真实会话内容；剥净后
+         为空也不再出现「只有号码的单行卡」。 */
+      const _src = user ? stripHeadDid(m[1]) : m[1];
       /* 2.21：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）
          互不冲突，先摘语音、后摘提问，再各自回填卡片。
          2.77：再加「专属提示词三段折叠卡」（@@FHC，见 卡片TTS.js foxHintCards）。
          ★用户消息与 AI 消息**一视同仁**处理——专属提示词由服务端 decorate
          拼在「我」发出的消息末尾，必须同样渲染成折叠卡（此前用户消息只 esc 原样）。 */
-      bodyHtml = mdHtml(foxHintCards(foxAskCards(foxPlayCards(m[1], fsegs), asegs), hsegs));
+      bodyHtml = mdHtml(foxHintCards(foxAskCards(foxPlayCards(_src, fsegs), asegs), hsegs));
       fsegs.forEach((ft, n) => {
         bodyHtml = bodyHtml.replace('@@FPC' + n + '@@',
                                     foxCardHtml(ft));
@@ -113,12 +118,15 @@ function renderMsgs(msgs, finish, opts, ask, pend){
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
         if (k === 'copy'){
-          copyText(msgs[parseInt(b.dataset.i)][1]);
+          /* v2.84：我自己发的消息只复制真实正文（剥掉首行 DID 内部标记） */
+          const c0 = msgs[parseInt(b.dataset.i)];
+          copyText(c0 && c0[0] === 'u' ? stripHeadDid(c0[1]) : (c0 ? c0[1] : ''));
           return;
         }
         if (k === 'edit'){
           const it = msgs[parseInt(b.dataset.i)];
-          el.ent.value = it ? (it[1] || '') : '';
+          /* v2.84：重编回填纯正文（不带旧 DID），重发时首行只打一个新 DID */
+          el.ent.value = it ? (it[0] === 'u' ? stripHeadDid(it[1]) : (it[1] || '')) : '';
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
           flash('已回填输入框，可修改后重新发送', 'var(--blue)');
