@@ -3,11 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>任务面板 · 手机遥控页 v0.12</title>
+<title>任务面板 · 手机遥控页 v0.13</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.12
+  版本：0.13
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
+  v0.13（2026-10-19）按用户口径（网页端）改【卡片尺寸规则】——去掉原固定正方体 --卡边长（默认 320px）
+    写法：卡片宽度取【容器 100%（满宽，手机上即＝手机宽度）】、高度【按内容自适应】（字少即矮），
+    高度上限＝该卡自身宽度（顶多撑成一个正方形，边长＝卡宽），超过上限即【截断】并保留「展开 ▾ /
+    收起 ▴」由人【手动】展开（展开后解除上限、height:auto）；主卡与每条回复卡同此规则。
+    max-height 上限由 卡片.js 0.08 在渲染后/窗口 resize 时贴（＝该卡 offsetWidth）。
   v0.12（2026-10-19）按用户口径（网页端）①卡片改【正方形】——CSS 变量 --卡边长（整卡宽高相等）＋
     内容【截断】＋「展开 ▾ / 收起 ▴」【手动】展开（展开后 height:auto）；主卡与每条回复卡一致。
     ②【AI 回复 (n)】按钮：黑字＝该卡回复【总数】、蓝字＝【未读】条数（有未读加 .有新 蓝描边），
@@ -73,16 +78,17 @@
   .忙闲标.忙 { background: #ffe0e0; color: #b00020; }
   .忙闲标.闲 { background: #d8f5dc; color: #1a7a2e; }
   .忙闲标.未知 { background: #e4e7ec; color: #77808c; }
-  /* 卡片（用户口径 2026-10-19：整卡【正方形】宽高相等；内容超出即【截断】；手动展开） */
-  :root { --卡边长: 320px; }
+  /* 卡片（用户口径 2026-10-19：宽＝容器满宽；高按内容自适应、上限＝本卡宽度；超出即【截断】；手动展开） */
+  /* 宽度取满容器（手机上＝手机宽度、桌面上＝面板列表宽度）；高度 auto（字少即矮），
+     max-height 上限＝本卡宽度（由 卡片.js 0.08 渲染后/resize 时贴 = offsetWidth），超出即截断 */
   .任务列表 { display: flex; flex-direction: column; gap: 14px; }
   .卡组 { display: flex; flex-direction: column; gap: 10px; }
   .卡 {
-    width: var(--卡边长); max-width: 100%; height: var(--卡边长); min-height: var(--卡边长);
+    width: 100%; height: auto;
     display: flex; flex-direction: column; overflow: hidden;
     border-radius: 10px; border: 1px solid #d7dde7; background: #fff;
   }
-  .卡.展开 { height: auto; }                 /* 手动「展开 ▾」后 height:auto（内容全见） */
+  .卡.展开 { max-height: none; }              /* 手动「展开 ▾」后解除上限、height:auto（内容全见） */
   .卡.主卡 { box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   .卡.底蓝 { background: #dceaff; border-color: #b8d0f5; }
   .卡.底绿 { background: #dcf6e1; border-color: #aee0b8; }
@@ -115,7 +121,7 @@
   .原卡 { margin-top: 8px; background: #f4f6fa; border: 1px dashed #c4ccd8; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
   .原卡 .原头 { font-weight: 700; color: #2b5fb0; margin-bottom: 4px; }
   /* 我来写（紧跟该卡之后；宽同卡、高随内容，不受正方形约束） */
-  .我来写 { width: var(--卡边长); max-width: 100%; background: #dceaff; border: 1px solid #b8d0f5; border-radius: 10px; padding: 10px; }
+  .我来写 { width: 100%; background: #dceaff; border: 1px solid #b8d0f5; border-radius: 10px; padding: 10px; }
   .我来写头 { font-size: 13px; font-weight: 700; color: #2b5fb0; margin-bottom: 6px; }
   .我来写 textarea {
     width: 100%; font-family: inherit; font-size: 15px; border: 1px solid #b8d0f5;
@@ -138,10 +144,7 @@
   /* 提示条 */
   .提示 { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
           background: #1c2430; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: 90vw; }
-  /* 窄屏：卡边长随视口收窄，避免横向溢出 */
-  @media (max-width: 380px) {
-    :root { --卡边长: calc(100vw - 24px); }
-  }
+  /* 卡片宽＝容器 100%，窄屏自然随视口收窄，不再需要 --卡边长 兜底 */
   @media (min-width: 700px) {
     main { max-width: 760px; margin: 0 auto; }
   }
@@ -149,7 +152,7 @@
 </head>
 <body>
 <header id="顶栏">
-  <div class="题">任务面板 <span class="版本">v0.12</span> <span id="角色" class="角色">连接中…</span></div>
+  <div class="题">任务面板 <span class="版本">v0.13</span> <span id="角色" class="角色">连接中…</span></div>
   <div class="顶操作">
     <button id="按钮_发布任务" class="主钮">发布任务</button>
     <button id="按钮_刷新" class="次钮">刷新</button>
