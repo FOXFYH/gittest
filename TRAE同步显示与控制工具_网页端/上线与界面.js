@@ -143,22 +143,22 @@ function cmd(c, a, convSid){
   if (!S.onLine){ flash('⚠ 还没连上，命令未发出'); return; }
   /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
      清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
-  /* 1.88：发送/插话自带 10 位随机对话 ID（did）——登记到本卡，
-     随协议发送；服务端收到即广播 did_ack，本端凭 did 直接消卡
-     （不再靠「识别相同文本/前 N 字」）。 */
+  /* v2.82（老板口径）：DID ＝ 本机时间 14 位 YYYYMMDDHHMMSS，**插入正文第一行**
+     ——服务端扫快照每条消息首行 ^\d{14}$ 命中 ⇒ 该 DID 已进流；网页端凭
+     ①快照首行抓到 ②did_pool 池子 销卡。**仅网页版发送才带**（AI 借输入框
+     发的消息不带 DID、绝不出卡）。不再用 10 位随机 did / did_ack。 */
   let did = '';
   if ((c === 'send' || c === 'interject') && typeof a === 'string'
       && a.trim()){
-    did = newDid();
-    /* 1.92 修复：把 did 真正挂到本卡——v1.88 起 pendAdd 一直没存 did
-       （形参只有 kind/text），导致 did_ack 广播即使到达也匹配不上、
-       卡片永不消；chk 兜底也发的是 undefined did。现在显式补挂。 */
+    did = didNow();
+    a = did + '\n' + a;              /* 首行 DID ＋ 原正文 */
+    /* 占位卡挂 did（pendAdd 内部再按首行 DID 校验）；重发传了锁定 sid →
+       新卡片也绑回原会话，与投递目标一致。 */
     const pp = pendAdd(c, a);
     if (pp){ pp.did = did;
-      /* 2.16：重发传了锁定 sid → 新卡片也绑回原会话，与投递目标一致 */
       if (convSid) pp.convSid = convSid; }
-    /* 2.31：记下「自己刚发过的文本」——服务端稍后回显 pend 时不再重复建
-       一张无 did 的孤儿卡（100% 卡住的元凶，详见 case 'pend'）。 */
+    /* 记下「自己刚发过的文本」（含首行 DID）——服务端稍后回显 pend 时不再
+       重复建卡（占位卡只由本端 cmd 建）。 */
     if (!S.sentGuard) S.sentGuard = {};
     S.sentGuard[a.trim()] = Date.now();
     if (c === 'send') flash('⏳ 已发出，等待服务器执行…',

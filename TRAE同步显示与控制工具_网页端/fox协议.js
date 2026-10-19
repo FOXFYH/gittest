@@ -312,6 +312,16 @@ function sendJson(d){
 function newDid(){
   return String(Math.floor(Math.random() * 1e10)).padStart(10, '0');
 }
+/* v2.82：DID ＝ 本机时间 14 位 `YYYYMMDDHHMMSS`（本地时区）——网页版发送时
+     **自动插入正文第一行**，作这条输入消息的 DID（服务端扫快照每条消息首行
+     ^\d{14}$ 命中 ⇒ 已进流）。仅「网页版发出的消息」带 DID；AI 借输入框发的
+     消息不带 DID、绝不出占位卡。 */
+function didNow(){
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return String(d.getFullYear()) + p(d.getMonth() + 1) + p(d.getDate())
+       + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
 function sendCmd(c, a, did, convSid){
   /* 2.17：发送/插话统一改走「会话路由器」——带着目标会话稳定 sid 自动
      找上门，到点才临时占用 TRAE 输入框发一条、发完立刻走人（不再长期

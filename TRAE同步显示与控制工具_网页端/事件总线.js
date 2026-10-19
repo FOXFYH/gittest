@@ -11,21 +11,16 @@ function onEv(kind, v){
         场景由 PEND_DID_TMO 超时兜底转「可能未送达」。 */
       return;
     }
-    case 'did_ack': {                  /* 1.94：服务端「已受理」回执——仅登记 acked，
-        不再据此消卡。用户 2026-09-30 定：卡片要留到聊天记录里真出现那句话
-        才消（did_ack 到达快于聊天记录渲染，若据此秒消会「文字还没出来卡就
-        没了」，空档期看不见自己发的话）。消卡改由快照 did_hits 负责。 */
-      if (v && typeof v === 'string'){
-        S.pending.forEach(p => { if (p.did === v) p.acked = true; });
-      }
-      return;
-    }
-    case 'did_miss': {                 /* 2.30：服务端确认没受理过该 did
-        → 卡片直接转「可能未送达」，不必傻等到 60 秒。 */
-      if (v && typeof v === 'string'){
-        let hit = false;
-        S.pending.forEach(p => { if (p.did === v){ p.state = 'timeout'; hit = true; } });
-        if (hit) renderAll();
+    case 'did_pool': {                 /* v2.82：服务端广播「最近 10 条由网页版
+        发出、且已进流」的 DID 池（帧 v={sid, 会话名, dids:[新→旧]}）——兜底
+        销卡（有些会话不在本拍快照里）。did_ack/did_miss 已整条作废，不处理。 */
+      const dp = v || {};
+      if (Array.isArray(dp.dids) && dp.dids.length){
+        let ch = false;
+        dp.dids.forEach(d => {
+          if (pendClearByDid(d, dp['会话名'] || '')) ch = true;
+        });
+        if (ch) renderAll();
       }
       return;
     }
@@ -48,17 +43,13 @@ function onEv(kind, v){
          供 会话列表.js 渲染后缀/指纹与右键菜单读取（钩子缺失则跳过）。 */
       if (window.备注入快照) 备注入快照(v);
       if (window.定时入快照) 定时入快照(v);
-      /* 2.31：聊天记录带回的 did（服务端把「原文已落到聊天记录」的对话 ID
-         搭快照一起发来）→ 直接按 did 消卡。这是可靠通道（能看到 AI 回复
-         即证明它必达），不依赖 did_ack 广播；根治「按 ID 判断后 100% 卡住」。 */
-      if (Array.isArray(v.did_hits) && v.did_hits.length){
-        /* 本专项 C3/D3：did 回执可带会话 sid（对象形态）——只销同一会话的卡；
-           旧服务端纯字符串回执照旧（向后兼容）。 */
-        v.did_hits.forEach(d => {
-          if (d && typeof d === 'object') pendClearByDid(d.did, d.sid);
-          else pendClearByDid(d);
-        });
-      }
+      /* v2.82：销卡路①——本拍快照（对话记录）每条消息【首行】抓到 14 位 DID
+         ⇒ 该 DID 已进流，按 (会话名, DID) 撤卡。硬数据、不再用相似度 did_hits。 */
+      const _ct = curTitle();
+      (v.msgs || []).forEach(m => {
+        const _d = firstLineDid(m && m[1]);
+        if (_d) pendClearByDid(_d, _ct);
+      });
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
       if (S.qedit !== null && S.qedit !== undefined){
         /* 1.29：取出编辑——TRAE 已把条目移出队列并回填其输入框，

@@ -175,17 +175,40 @@ function fmtTime(iso){                    // 北京时间 + 完整日期（YYYY-
        以数组顺序（=TRAE DOM 顺序）为次级依据——它天然存在，不算编号。
      - 老数据：分钟级字符串解析后秒=00，仍可正确显示与参与排序。 */
 }
+/* v2.82：取消息正文【首行】的 14 位 DID（^\d{14}$ 命中才返回，否则 ''）——
+   与网页版发送时插入的口径一致。 */
+function firstLineDid(text){
+  const s = String(text == null ? '' : text);
+  const head = s.split('\n', 1)[0].trim();
+  return /^\d{14}$/.test(head) ? head : '';
+}
+/* v2.82：把 14 位 DID（YYYYMMDDHHMMSS）还原成与 fmtTime 同格式的北京时间串
+   'YYYY-MM-DD HH:MM:SS'——「我自己发的消息」以首行 DID 的时间为准，
+   **不使用系统给的时间**。非 DID 返回 ''。 */
+function didTimeOf(text){
+  const d = firstLineDid(text);
+  if (!d) return '';
+  return d.slice(0, 4) + '-' + d.slice(4, 6) + '-' + d.slice(6, 8) + ' '
+       + d.slice(8, 10) + ':' + d.slice(10, 12) + ':' + d.slice(12, 14);
+}
 function resolveTimes(msgs){
   /* 2.22：时间以服务端为准——服务端快照给每条消息盖好第 6 位（已格式化的
      北京秒级串 'YYYY-MM-DD HH:MM:SS'），有则直接显示，不再本地打戳（本地
      打戳会因手机时区/首见时刻不准）。无第 6 位（老服务端/本地乐观追加行）
      回退旧本地逻辑。last 统一存「已格式化」串，AI 消息直接沿用，不再二次
-     fmtTime（避免对已格式化串再解析造成时区偏移）。 */
+     fmtTime（避免对已格式化串再解析造成时区偏移）。
+     v2.82（老板追加）：**网页版自己发的消息，其首行 DID 的 14 位时间就是它
+     的时间** ⇒ 顶部时间区显示该 DID 时间，**不使用系统给的时间**（优先于第
+     6 位服务端时间戳）。AI 消息沿用其提问时间（即上文那段 DID 时间）。 */
   const cache = timesGet(), title = curTitle(), out = [];
   let last = '';
   for (const m of msgs){
     let t = '';
-    if (m.length > 5 && m[5]){            // 服务端时间戳优先
+    const _dt = (m[0] === 'u') ? didTimeOf(m[1]) : '';
+    if (_dt){                             // v2.82：自己发的消息＝首行 DID 时间
+      t = _dt;
+      last = t;
+    } else if (m.length > 5 && m[5]){     // 服务端时间戳
       t = String(m[5]);
       if (m[0] === 'u') last = t;
     } else if (m[0] === 'u'){

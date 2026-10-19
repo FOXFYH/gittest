@@ -14,12 +14,17 @@ function askFp(a){
 
 function pendAdd(kind, text){
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
+  /* v2.82（老板口径）：**只有网页版发出的消息才在网页版出占位卡**——判据＝
+     正文首行是 14 位 DID（网页版发送时自动插入）；AI 借输入框发的消息不带
+     DID，绝不出卡（根治现状混乱点）。 */
+  const _did = firstLineDid(text);
+  if (!_did) return null;
   const same = S.pending.find(p => p.text === text);
   if (same) return same;               // 同文本已在册（服务端 pend 回显）
   S.pend_seq++;
   /* 1.27：占位挂到发起时的会话上——插话/发送只对当时那个对话有效，
      切到别的对话期间不再显示（切回来仍可见，落地后照常撤下） */
-  const p = {id: S.pend_seq, kind: kind, text: text,
+  const p = {id: S.pend_seq, kind: kind, text: text, did: _did,
              state: 'sending', ts: Date.now(), conv: curTitle(),
              /* 2.16：记稳定 sid（改名/重排不变）。本专项 C1：以【锚定 sid】
                 为准——发起时网页版锚定哪个会话，卡就挂哪个会话（绝不按标题猜）。 */
@@ -125,33 +130,27 @@ function renderPending(){
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
 
-/* ============ 1.88：对话 ID 核对消卡（替代旧的「同文本/前 N 字」识别） ============
-   用户 2026-09-29 规定：客户端发出去的对话自带 10 位随机数字对话 ID
-   （did，仅用于核对小卡片、绝不污染对话正文）；当收到的广播里出现
-   这个 ID（说明服务端已接收：出现在对话记录或托管排队里）→ 直接消卡。
-   旧的「识别相同文本」「识别前多少个字」（pendHead100/pendContains/
-   normTxt 及 pendReconcile 里的 msgs/排队条文本比对）**全部移除**——
-   不再凭内容猜，只凭 did 精确核对。
-   兼容：旧版服务端不广播 did 回执 → 本端卡片到 PEND_DID_TMO 后转
-   「⚠ 可能未送达」兜底（见 pendReconcile），不永久悬挂。 */
+/* ============ v2.82：销卡改「首行 DID」硬数据（老板 2026-10-19 终极办法） ============
+   网页版发送时把本机时间 14 位 `YYYYMMDDHHMMSS` **插入正文第一行** 作 DID；
+   占位卡键＝(会话名, DID)。销卡两路（**不再用 did_ack／相似度**）：
+   ① 本会话快照里抓到该 DID（对话记录首行，网页端自扫，见 事件总线.js）；
+   ② 服务端广播 did_pool（最近 10 条由网页版发出、且已进流的 DID）。
+   旧「按 did_ack 秒消 / 按文本前 N 字识别」（pendHead100/pendContains/normTxt
+   及 pendReconcile 里的 msgs 文本比对）**全部作废**。 */
 
-/* 1.88：兜底超时——旧服务端不广播 did_ack 时，卡片转「⚠ 可能未送达」。
-   本专项 C3/R8：兜底时长由 60 秒延长到 12 小时——用户口径「卡片绝不早撤」，
-   宁可久挂也不让「我发的话」凭空消失（服务端 did 池同步扩到 12 小时）。 */
-const PEND_DID_TMO = 12 * 3600 * 1000;
+/* v2.82：占位卡**至少保留 24 小时**（与服务端 did_pool 池 25h TTL 对齐）；
+   到期仍未销卡才转「⚠ 可能未送达」（卡片绝不早撤）。 */
+const PEND_DID_TMO = 24 * 3600 * 1000;
 
-/* 1.88：按 did 精确撤卡——广播里出现本卡 did（服务端 did_ack 回执）
-   即认为「服务端已接收」，立即撤下。返回 true 表示有变化需重画。
-   兼容：d && d.did 式判断，旧数据/旧广播没有 did 也不会崩。 */
-function pendClearByDid(did, sid){
+/* v2.82：按 DID 撤卡——命中本卡 did 即撤（可选按会话名 conv 收紧，防跨会话
+   误销）。返回 true 表示有变化需重画。 */
+function pendClearByDid(did, conv){
   if (!did) return false;
   let changed = false;
   const keep = [];
   S.pending.forEach(p => {
     if (p.did && p.did === did){
-      /* 本专项 C3/B6：回执带 sid 时只销「同一会话」的卡——别会话的 did
-         绝不误销本会话的卡（旧实现只比 did，存在跨会话误销风险）。 */
-      if (sid && p.convSid && p.convSid !== sid){ keep.push(p); return; }
+      if (conv && p.conv && p.conv !== conv){ keep.push(p); return; }
       changed = true; return;                                 /* 命中即撤 */
     }
     keep.push(p);
@@ -161,13 +160,10 @@ function pendClearByDid(did, sid){
 }
 
 /* 占位卡生命周期检查（快照到达/定时巡检调用）。
-   1.88：旧的「同文本用户消息出现 → 撤下它」文本比对全部移除，
-   消卡只走 did_ack（pendClearByDid）；本函数只剩两件事：
-   ① 清理误入气泡的 switch 残留（会话标题不在消息区，文本匹配
-      永远失败，属历史残留清理，与内容识别无关）；
-   ② 兜底超时——PEND_DID_TMO 内没收到 did 回执（对端是旧版服务端
-      不广播 did_ack，或消息真没送达）→ 卡片转「⚠ 可能未送达」，
-      用户可重发/丢弃，不永久悬挂。 */
+   v2.82：销卡**不再走 did_ack**（该回执整条作废）——销卡只认 ①本会话快照
+   抓到首行 DID ②服务端 did_pool 池子（见 事件总线.js）。本函数只剩两件事：
+   ① 清理误入气泡的 switch 残留；
+   ② 兜底超时——PEND_DID_TMO（≥24h）内仍未销卡 → 转「⚠ 可能未送达」。 */
 function pendReconcile(_msgs){
   if (!S.pending.length) return false;
   const now = Date.now();
@@ -179,17 +175,8 @@ function pendReconcile(_msgs){
       changed = true;
       return;
     }
-    /* 2.30：兜底核对——50 秒还没收到回执（广播可能丢），主动向
-       服务端问一次该 did 受理没有；已受理→补发 did_ack 消卡，
-       未受理→did_miss 转「可能未送达」。只问一次不刷屏。 */
+    /* v2.82：≥24h 仍未销卡 → 标「可能未送达」。卡片绝不早撤。 */
     const _age = now - (p.ts || now);
-    if (p.state !== 'chk_sent' && p.state !== 'timeout'
-        && _age > 50000 && _age <= PEND_DID_TMO){
-      p.state = 'chk_sent';
-      sendJson({t:'chk', did:p.did});
-      changed = true;
-    }
-    /* 1.88：did 回执未到且超时 → 标「可能未送达」（旧服务端兼容兜底） */
     if (p.state !== 'timeout' && _age > PEND_DID_TMO){
       p.state = 'timeout';
       changed = true;
