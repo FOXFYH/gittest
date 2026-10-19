@@ -2,25 +2,19 @@
 
 /**
  * ============================================================
- * 双站切换器  v1.22   （手机端 / AutoX.js v7 / 打包成独立 APK）
+ * 双站切换器  v1.20   （手机端 / AutoX.js v7 / 打包成独立 APK）
  * ------------------------------------------------------------
  * 干什么：
  *   一个应用装两个网站：全屏 WebView + 右上角一条浮层竖条，
- *   竖条上四个同款方块按钮 **T / W / ↻ / ⚙**：
+ *   竖条上两个大按钮 **T / W**：
  *     · T ＝ TRAE 网页版（AI，TRAE同步显示与控制工具 手机客户端）
  *     · W ＝ WorkBuddy 网页版（wbcli 手机客户端）
- *     · ↻ ＝ 刷新当前网页
- *     · ⚙ ＝ 设置面板（版本号 / 当前站 / 检查更新 / 清缓存 / 条位复位 / 退出）
  *   点 T/W ＝ 切到对应网站，应用被切到后台时会自己再提到前台。
  *
  * 竖条：
- *   · T / W / ↻ / ⚙ 四个圆角方块，统一 79×79px（黑底+白描边+白字）；
+ *   · T / W / ✕ 三个圆角方块（黑底+白描边+白字，79px）；
  *   · 按住可拖动，松手记住位置（存记事.json，下次打开还在）；
- *   · ★ 当前站那个按钮＝**更深更实的黑底 + 琥珀描边 + 琥珀字**，一眼看出现在开的是哪个站。
- *
- * ★ v1.21：✕ 撤掉（退出挪进设置面板，防误触）；新增刷新、设置面板。
- * ★ v1.22：刷新/设置改**图标**（↻ / ⚙）——用户不想看字；⚙ 后加 U+FE0E 强制黑白色。 
- *          设置面板能看版本号、查更新、清缓存重载、复位竖条。
+ *   · 当前站对应的按钮字会变琥珀色，一眼看出现在开的是哪个站。
  *
  * ★ v1.20 架构（用户 2026-10-19 定：照「急救版」那样一次打包、别再折腾）：
  *   ① 本文件就是**整个程序**，直接打包进 APK——不再需要从 /脚本/ 读外部文件，
@@ -47,7 +41,8 @@ importClass(android.webkit.WebViewClient);
 importClass(android.webkit.WebChromeClient);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v1.22";   // v1.22：刷新/设置改图标（↻ / ⚙，⚙ 带 U+FE0E 防彩色）。
+var APP_VERSION = "v1.20";   // v1.20：改成"自包含"——整份程序就在 APK 里，不再读 /脚本 外部文件；
+                             //        竖条改应用内浮层（不要"显示在其他应用上层"权限）；升级走网络自动取新版。
 
 // ★ 两个网站的地址。以后换地址只改这两行（或用 记事.json 的 站点 字段覆盖，不用改代码）。
 var 默认站点 = {
@@ -125,36 +120,19 @@ function 源里版本(src) {
     }
 })();
 
-// ★ v1.21：加 手动 参数——设置了面板里点「检查更新」要看得见结果（成功/失败都说一声）
-function 检查更新(手动) {
+function 检查更新() {
     threads.start(function () {
-        var 说 = "", 好 = false;
         try {
             var r = http.get(更新地址);
-            if (!r || r.statusCode !== 200) throw new Error("连不上更新地址");
+            if (!r || r.statusCode !== 200) return;
             var src = String(r.body.string() || "");
-            if (src.length < 3000 || src.indexOf("APP_VERSION") < 0) throw new Error("更新文件不正常");
+            if (src.length < 3000 || src.indexOf("APP_VERSION") < 0) return;
             var v = 源里版本(src);
-            if (!v) throw new Error("读不出版本号");
-            if (!版本更大(v, APP_VERSION)) {
-                说 = "已是最新 " + APP_VERSION;
-                好 = true;
-            } else {
-                files.write(新版缓存, src);
-                说 = "新版 v" + v + " 已下载，下次打开自动生效";
-                好 = true;
-                最近备注 = "已下载新版 v" + v;
-                try { toast("新版 v" + v + " 已下载，下次打开自动生效"); } catch (e) {}
-            }
-        } catch (e) {
-            说 = "检查失败：" + (e && e.message ? e.message : e);
-        }
-        if (手动) {
-            try { toast(说); } catch (e) {}
-            最近备注 = 说;
-        }
-        try { 刷设置文本(); } catch (e) {}
-        return 好;
+            if (!v || !版本更大(v, APP_VERSION)) return;
+            files.write(新版缓存, src);
+            try { toast("新版 v" + v + " 已下载，下次打开自动生效"); } catch (e) {}
+            最近备注 = "已下载新版 v" + v;
+        } catch (e) {}
     });
 }
 
@@ -181,7 +159,7 @@ function 存记事() {
 
 var 当前站 = 记事.当前站;
 var 页面OK = false;
-var 已结束 = false;      // 用户主动退出（设置面板「退出应用」/ 双按返回 / 命令退出）→ 不再复活
+var 已结束 = false;      // 用户主动退出（✕ / 双按返回 / 命令退出）→ 壳不再复活
 var 已让位 = false;      // 撞锁让位的新实例：什么都不干、等 AutoX 收尸
 var 最近备注 = "启动";
 
@@ -204,40 +182,14 @@ threads.start(function () {
 // ================================================================
 // 一、界面：全屏 WebView（按钮都在悬浮竖条上，界面内不放东西）
 // ================================================================
-// ★ v1.22：刷新/设置改用图标（用户：不想看字）。设置用 U+FE0E 强制文本样式，防小米渲染成彩色 emoji。
-var 图刷新 = "\u21BB";           // ↻
-var 图设置 = "\u2699\uFE0E";     // ⚙
-
 ui.layout(
     '<frame>' +
     '<webview id="web" w="*" h="*"/>' +
-    // ★ v1.21 设置面板：全屏半透明遮罩 + 中间黑卡片（默认隐藏，点 ⚙ 才开）
-    '<frame id="设罩" w="*" h="*" bg="#99000000" visibility="gone">' +
-    '  <vertical id="设卡" w="700px" h="wrap_content" padding="26" layout_gravity="center" gravity="center_horizontal">' +
-    '    <text text="双站切换器" textColor="#FFFFFF" textSize="21sp" gravity="center"/>' +
-    '    <text id="设版本" text="版本 -" textColor="#FFD54F" textSize="27sp" marginTop="8px" gravity="center"/>' +
-    '    <text id="设站" text="" textColor="#CCFFFFFF" textSize="14sp" marginTop="14px" gravity="center"/>' +
-    '    <text id="设址" text="" textColor="#88FFFFFF" textSize="11sp" marginTop="4px" gravity="center"/>' +
-    '    <text id="设更新" text="" textColor="#FFD54F" textSize="12sp" marginTop="12px" gravity="center"/>' +
-    '    <horizontal marginTop="18px" gravity="center">' +
-    '      <text id="btn检查" text="检查更新" w="160px" h="64px" textColor="#FFFFFF" gravity="center"/>' +
-    '      <text id="btn清缓" text="清缓存重载" w="180px" h="64px" marginLeft="10px" textColor="#FFFFFF" gravity="center"/>' +
-    '    </horizontal>' +
-    '    <horizontal marginTop="10px" gravity="center">' +
-    '      <text id="btn复位" text="条位复位" w="160px" h="64px" textColor="#FFFFFF" gravity="center"/>' +
-    '      <text id="btn关设" text="关闭" w="180px" h="64px" marginLeft="10px" textColor="#FFFFFF" gravity="center"/>' +
-    '    </horizontal>' +
-    '    <text id="btn生效" text="重启应用（生效）" w="350px" h="64px" marginTop="10px" textColor="#FFD54F" gravity="center" visibility="gone"/>' +
-    '    <text id="btn退出" text="退出应用" w="350px" h="58px" marginTop="14px" textColor="#FF8A80" gravity="center"/>' +
-    '    <text text="返回键：先关本面板；网页首页双按返回＝退出" textColor="#66FFFFFF" textSize="10sp" marginTop="12px" gravity="center"/>' +
-    '  </vertical>' +
-    '</frame>' +
     '<frame id="条根" w="wrap_content" h="wrap_content">' +
     '  <vertical id="条身" w="wrap_content" h="wrap_content">' +
     '    <text id="bT" text="T" w="79px" h="79px" textColor="#FFFFFF" gravity="center"/>' +
     '    <text id="bW" text="W" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
-    '    <text id="bR" text="' + 图刷新 + '" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
-    '    <text id="bS" text="' + 图设置 + '" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
+    '    <text id="bX" text="✕" w="79px" h="40px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
     '  </vertical>' +
     '</frame>' +
     '</frame>'
@@ -266,7 +218,6 @@ wv.setWebViewClient(new JavaAdapter(WebViewClient, {
 }));
 
 function 切站(k, 强制) {
-    关设置();
     if (当前站 === k && !强制) { 拉回自己(); return; }   // 已在该站：只把应用提到前台，不重载（保住页面状态）
     当前站 = k;
     记事.当前站 = k;
@@ -282,30 +233,29 @@ function 切站(k, 强制) {
 }
 
 // ================================================================
-// 二、应用内浮层竖条（T / W / ↻ / ⚙）
+// 二、应用内浮层竖条（T / W / ✕）
 //   ★ v1.20：不再用 floaty 系统悬浮窗（那要「显示在其他应用上层」特殊权限，
 //     小米上授不了就一直开不出来）。改成贴在本应用 WebView 上的一层浮窗：
 //     不需要任何权限，位置照样可拖、可记；打开应用就能切站。
 // ================================================================
 var 按钮尺寸 = 79;
 var 按钮间距 = 6;
-var 条 = null;                 // { 根, bT, bW, bR, bS }
+var 条 = null;                 // { 根, bT, bW, bX }
 var 窗X = -1, 窗Y = -1, 指X = 0, 指Y = 0, 按下X = 0, 按下Y = 0, 已拖动 = false;
 
 function 屏宽() { try { return context.getResources().getDisplayMetrics().widthPixels; } catch (e) { return 1080; } }
 function 屏高() { try { return context.getResources().getDisplayMetrics().heightPixels; } catch (e) { return 1920; } }
 
 function 开竖条() {
-    if (条) { try { 条.根.setVisibility(0); } catch (e) {} 绑设置(); return true; }
+    if (条) { try { 条.根.setVisibility(0); } catch (e) {} return true; }
     try {
-        条 = { 根: ui.条根, bT: ui.bT, bW: ui.bW, bR: ui.bR, bS: ui.bS };
+        条 = { 根: ui.条根, bT: ui.bT, bW: ui.bW, bX: ui.bX };
         if (!条.根) { 条 = null; return false; }
     } catch (e) { 条 = null; return false; }
     默认条位();
     移条(窗X, 窗Y);
     涂条();
     绑条手势();
-    绑设置();
     画当前站();
     return true;
 }
@@ -322,7 +272,7 @@ function 默认条位() {
 
 function 移条(x, y) {
     窗X = Math.max(0, Math.min(x, 屏宽() - 按钮尺寸));
-    窗Y = Math.max(0, Math.min(y, 屏高() - 按钮尺寸 * 4 - 按钮间距 * 3));
+    窗Y = Math.max(0, Math.min(y, 屏高() - 按钮尺寸 * 2 - 46));
     try {
         条.根.setTranslationX(窗X);
         条.根.setTranslationY(窗Y);
@@ -330,52 +280,43 @@ function 移条(x, y) {
 }
 
 // 圆角方块：黑底 + 2px 白描边（照 TRAE远程控制APP 竖条同款 GradientDrawable 画法）
-// ★ v1.21：选中态（当前站）＝**更深更实的黑底** + 琥珀描边；未选中＝淡一点的黑，一眼分得清。
-function 涂钮(控件, 选中) {
-    if (!控件) return;
-    try {
-        var d = new android.graphics.drawable.GradientDrawable();
-        d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-        d.setCornerRadius(Math.floor(按钮尺寸 * 0.25));
-        d.setColor(选中 ? android.graphics.Color.argb(255, 0x00, 0x00, 0x00)    // 选中：纯黑实底（更深）
-                        : android.graphics.Color.argb(168, 0x00, 0x00, 0x00));   // 未选中：半透明，浅一些
-        d.setStroke(选中 ? 3 : 2, android.graphics.Color.parseColor(选中 ? "#FFFFD54F" : "#80FFFFFF"));
-        控件.setBackground(d);
-    } catch (e) {}
-}
-
 function 涂条() {
     if (!条) return;
+    function 涂(控件, 圆角) {
+        try {
+            var d = new android.graphics.drawable.GradientDrawable();
+            d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            d.setCornerRadius(圆角);
+            d.setColor(android.graphics.Color.argb(220, 0x00, 0x00, 0x00));
+            d.setStroke(2, android.graphics.Color.parseColor("#80FFFFFF"));
+            控件.setBackground(d);
+        } catch (e) {}
+    }
     var 圆角 = Math.floor(按钮尺寸 * 0.25);
     try {
-        var 字大 = Math.max(10, Math.floor(按钮尺寸 * 0.42));
-        var 图标大 = Math.max(12, Math.floor(按钮尺寸 * 0.52));   // 符号本身比汉字"小"，放大一点才跟 T/W 一样压得住
+        var 字大 = Math.max(10, Math.floor(按钮尺寸 * 0.4));
         [条.bT, 条.bW].forEach(function (b) {
-            try { b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 字大); b.setGravity(17); } catch (e) {}
-            涂钮(b, false);
+            try {
+                b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 字大);
+                b.setGravity(17);
+            } catch (e) {}
+            涂(b, 圆角);
         });
-        [条.bR, 条.bS].forEach(function (b) {
-            try { b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 图标大); b.setGravity(17); } catch (e) {}
-            涂钮(b, false);
-        });
+        try { 条.bX.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 26); } catch (e) {}
+        try { 条.bX.setGravity(17); } catch (e) {}
+        涂(条.bX, Math.floor(20 * 0.25));
     } catch (e) {}
     画当前站();
 }
 
-// 当前站那个按钮：更深底 + 琥珀描边 + 琥珀字；另一个白字淡底——不用猜现在开的是哪个站
+// 当前站按钮字变琥珀色，另一个白——不用猜现在开的是哪个站
 function 画当前站() {
     if (!条) return;
-    try { 涂钮(条.bT, 当前站 === "T"); } catch (e) {}
-    try { 涂钮(条.bW, 当前站 === "W"); } catch (e) {}
-    try { 涂钮(条.bR, false); } catch (e) {}
-    try { 涂钮(条.bS, false); } catch (e) {}
     try { 条.bT.setTextColor(当前站 === "T" ? 0xFFFFD54F : 0xFFFFFFFF); } catch (e) {}
     try { 条.bW.setTextColor(当前站 === "W" ? 0xFFFFD54F : 0xFFFFFFFF); } catch (e) {}
-    try { 条.bR.setTextColor(0xFFFFFFFF); } catch (e) {}
-    try { 条.bS.setTextColor(0xFFFFFFFF); } catch (e) {}
 }
 
-// 按住拖动；**点一下**（没拖动）＝按落点分派到 T/W/↻/⚙（命中检测用控件在屏上的真实位置）
+// 按住拖动；**点一下**（没拖动）＝按落点分派到 T/W/✕（命中检测用控件在屏上的真实位置）
 function 绑条手势() {
     if (!条) return;
     try {
@@ -395,8 +336,7 @@ function 绑条手势() {
                         var 命中 = 找命中按钮(event.getRawX(), event.getRawY());
                         if (命中 === "T") { threads.start(function () { 切站("T", false); }); }
                         else if (命中 === "W") { threads.start(function () { 切站("W", false); }); }
-                        else if (命中 === "R") { threads.start(function () { 刷新页(); }); }
-                        else if (命中 === "S") { threads.start(function () { 开设置(); }); }
+                        else if (命中 === "X") { threads.start(function () { 用户退出(); }); }
                     } else {
                         记事.条X = Math.round(窗X); 记事.条Y = Math.round(窗Y); 存记事();
                     }
@@ -410,7 +350,7 @@ function 绑条手势() {
 // 拿按钮在屏幕上的真实矩形判断点没点中（getLocationOnScreen 需要 Java int[]，Android 原生回填，安全）
 function 找命中按钮(rx, ry) {
     if (!条) return null;
-    var 表 = [["bT", "T"], ["bW", "W"], ["bR", "R"], ["bS", "S"]];
+    var 表 = [["bT", "T"], ["bW", "W"], ["bX", "X"]];
     for (var i = 0; i < 表.length; i++) {
         try {
             var b = 条[表[i][0]];
@@ -421,153 +361,6 @@ function 找命中按钮(rx, ry) {
         } catch (e) {}
     }
     return null;
-}
-
-// ================================================================
-// 二之二、刷新 + 设置面板（★ v1.21）
-//   ↻ 刷新：重载当前站网页（登录态/历史都保住）
-//   ⚙ 设置：版本号 / 当前站 / 检查更新 / 清缓存重载 / 条位复位 / 退出应用
-// ================================================================
-var 设开 = false;
-var 设待新版 = "";
-var 绑过设 = false;
-
-function 刷新页() {
-    if (已结束 || 已让位) return;
-    关设置();
-    页面OK = false;
-    最近备注 = "手动刷新";
-    try { ui.run(function () { try { wv.reload(); } catch (e) {} }); } catch (e) {}
-    try { toast("正在刷新…"); } catch (e) {}
-    落状态(true);
-}
-
-function 开设置() {
-    if (已结束 || 已让位) return;
-    if (设开) { 关设置(); return; }
-    设开 = true;
-    var 待 = 算待新版();
-    设待新版 = 待;
-    try {
-        ui.run(function () {
-            try { do刷设置文本(待); } catch (e) {}
-            try { 涂设置(); } catch (e) {}
-            try { ui.设罩.setVisibility(0); } catch (e) {}
-        });
-    } catch (e) {}
-}
-
-function 关设置() {
-    if (!设开) return;
-    设开 = false;
-    try { ui.run(function () { try { ui.设罩.setVisibility(8); } catch (e) {} }); } catch (e) {}
-}
-
-function 算待新版() {
-    try {
-        if (!files.exists(新版缓存)) return "";
-        var v = 源里版本(files.read(新版缓存));
-        if (v && 版本更大(v, APP_VERSION)) return v;
-    } catch (e) {}
-    return "";
-}
-
-function 刷设置文本() {
-    var 待 = 算待新版();
-    设待新版 = 待;
-    try { ui.run(function () { do刷设置文本(待); }); } catch (e) {}
-}
-
-function do刷设置文本(待) {
-    try { ui.设版本.setText("版本 " + APP_VERSION); } catch (e) {}
-    try { ui.设站.setText("当前站：" + 站点说明[当前站]); } catch (e) {}
-    try { ui.设址.setText(站URL(当前站)); } catch (e) {}
-    try {
-        if (待) {
-            ui.设更新.setText("已下载 v" + 待 + "，点下面「重启应用」生效");
-            ui.设更新.setTextColor(0xFFFFD54F);
-            ui.btn生效.setVisibility(0);
-        } else {
-            ui.设更新.setText("点「检查更新」看有没有新版");
-            ui.设更新.setTextColor(0xFF99FFFFFF);
-            ui.btn生效.setVisibility(8);
-        }
-    } catch (e) {}
-}
-
-// 设置卡片也走同一套黑底+白描边风格
-function 涂设置() {
-    function 底(c, 圆角, 色, 边) {
-        try {
-            var d = new android.graphics.drawable.GradientDrawable();
-            d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-            d.setCornerRadius(圆角);
-            d.setColor(色);
-            d.setStroke(2, android.graphics.Color.parseColor(边));
-            c.setBackground(d);
-        } catch (e) {}
-    }
-    底(ui.设卡, 28, android.graphics.Color.argb(248, 0x0A, 0x0A, 0x0A), "#99FFFFFF");
-    [ui.btn检查, ui.btn清缓, ui.btn复位, ui.btn关设, ui.btn退出].forEach(function (b) {
-        try { b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 29); b.setGravity(17); } catch (e) {}
-        底(b, 13, android.graphics.Color.argb(255, 0x1C, 0x1C, 0x1C), "#60FFFFFF");
-    });
-    try { ui.btn生效.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 29); ui.btn生效.setGravity(17); } catch (e) {}
-    底(ui.btn生效, 13, android.graphics.Color.argb(255, 0x33, 0x26, 0x00), "#FFFFD54F");
-}
-
-function 绑设置() {
-    if (绑过设) return;
-    绑过设 = true;
-    try {
-        ui.run(function () {
-            try { ui.设罩.setClickable(true); } catch (e) {}
-            try { ui.设罩.setOnClickListener(function () {}); } catch (e) {}   // 吃掉遮罩上的点击，防止穿到网页
-            try { ui.btn检查.on("click", function () { threads.start(function () { 检查更新(true); }); }); } catch (e) {}
-            try { ui.btn清缓.on("click", function () { threads.start(清缓存重载); }); } catch (e) {}
-            try { ui.btn复位.on("click", function () { threads.start(条位复位); }); } catch (e) {}
-            try { ui.btn关设.on("click", function () { 关设置(); }); } catch (e) {}
-            try { ui.btn退出.on("click", function () { threads.start(确认退出); }); } catch (e) {}
-            try { ui.btn生效.on("click", function () { threads.start(立即生效); }); } catch (e) {}
-        });
-    } catch (e) {}
-}
-
-function 清缓存重载() {
-    try { wv.clearCache(true); } catch (e) {}
-    try { wv.clearFormData(); } catch (e) {}
-    关设置();
-    页面OK = false;
-    最近备注 = "清缓存重载";
-    try { ui.run(function () { try { wv.loadUrl(站URL(当前站)); } catch (e) {} }); } catch (e) {}
-    try { toast("已清缓存，正在重载"); } catch (e) {}
-}
-
-function 条位复位() {
-    记事.条X = -1; 记事.条Y = -1;
-    默认条位();
-    移条(窗X, 窗Y);
-    记事.条X = Math.round(窗X); 记事.条Y = Math.round(窗Y);
-    存记事();
-    try { toast("竖条位置已复位"); } catch (e) {}
-}
-
-function 确认退出() {
-    var 行 = true;
-    try { 行 = confirm("退出「" + APP_NAME + "」？"); } catch (e) {}
-    if (!行) return;
-    记事.意愿 = "退出"; 存记事();
-    用户退出();
-}
-
-// 已下载新版 → 关掉自己，下次点图标就自动跑新版（走 v1.20 顶部那套成熟逻辑，最稳）
-function 立即生效() {
-    var v = 算待新版();
-    if (!v) { try { toast("已是最新 " + APP_VERSION); } catch (e) {} return; }
-    关设置();
-    最近备注 = "等重启跑新版 v" + v;
-    try { toast("已就绪：重新打开应用就是 v" + v); } catch (e) {}
-    用户退出("换版");
 }
 
 // ================================================================
@@ -636,8 +429,6 @@ function 落状态(立刻) {
         当前站: 当前站,
         当前URL: 站URL(当前站),
         页面OK: 页面OK,
-        设置开: 设开 ? 1 : 0,
-        待新版: 设待新版,
         意愿: 已结束 ? "退出" : "跑",
         心跳: Date.now(),
         备注: 最近备注
@@ -658,9 +449,6 @@ function 查命令() {
     if (c === "开T" || c === "T") { threads.start(function () { 切站("T", true); }); }
     else if (c === "开W" || c === "W") { threads.start(function () { 切站("W", true); }); }
     else if (c === "唤前") { threads.start(function () { 拉回自己(); }); }
-    else if (c === "刷新") { threads.start(function () { 刷新页(); }); }
-    else if (c === "设置") { threads.start(function () { 开设置(); }); }
-    else if (c === "关设") { threads.start(function () { 关设置(); }); }
     else if (c === "重启") { 记事.意愿 = "换版"; 存记事(); threads.start(function () { 用户退出("换版"); }); }
     else if (c === "状态") { 落状态(true); }
     else if (c === "退出" || c === "exit") { 记事.意愿 = "退出"; 存记事(); threads.start(function () { 用户退出(); }); }
@@ -676,7 +464,6 @@ var 上次返回 = 0, 上次提示 = 0;
 function onBackKey(e) {
     try { e.consumed = true; } catch (err) {}
     if (已让位 || 已结束) return;
-    if (设开) { 关设置(); return; }        // ★ v1.21：设置面板开着，返回键先关面板
     var now = Date.now();
     if (now - 上次返回 < 300) return;
     上次返回 = now;
