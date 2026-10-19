@@ -2,7 +2,7 @@
 
 /**
  * ============================================================
- * 双站切换器  v1.23   （手机端 / AutoX.js v7 / 打包成独立 APK）
+ * 双站切换器  v2.01   （手机端 / AutoX.js v7 / 打包成独立 APK）
  * ------------------------------------------------------------
  * 干什么：
  *   一个应用装两个网站：全屏 WebView + 右上角一条浮层竖条，
@@ -49,8 +49,77 @@
 importClass(android.webkit.WebViewClient);
 importClass(android.webkit.WebChromeClient);
 
+// ================================================================
+// ★ 底座（v2.00）——这是"打进 APK 的那一层"，只干两件事：
+//   ① 看私有目录里有没有比底座更新的版本：有 → **在本引擎里 eval 它**，直接跑新版；
+//   ② 没有 / 新版跑崩了 → 老老实实跑本文件后面的「本体」（就是完整程序）。
+//
+// ★ 为什么把 execScriptFile 换成 eval（v1.20→v1.21 一闪而过的真凶）：
+//   v1.20 的写法是 `engines.execScriptFile(新版缓存); exit();`。
+//   execScriptFile 是**异步**的——新引擎还在排队，本脚本已经 exit()，
+//   在 APK 里 activity 跟着被收掉，新引擎还没建界面 → 整个应用一闪而过。
+//   同一引擎直接 eval 就没有这个"生命周期断层"，界面由新版自己建，一次到位。
+//
+// ★ 日志：全程写 /sdcard/Android/data/<包名>/files/启动日志.txt
+//   （应用专属外部目录，**不需要任何权限**，而且电脑端能直接读）。
+//   以后任何异常都不用截图，我远程读这个文件就知道崩在哪一步。
+// ================================================================
+var 底座版本 = "v2.01";
+var 日志路径 = "";
+
+(function 定日志位() {
+    try { 日志路径 = String(context.getExternalFilesDir(null)) + "/启动日志.txt"; } catch (e) {}
+    if (!日志路径) { try { 日志路径 = String(context.getFilesDir().getAbsolutePath()) + "/启动日志.txt"; } catch (e2) {} }
+})();
+
+function 记(s) {
+    try { files.append(日志路径, "[" + new Date().toLocaleString() + "] " + s + "\n"); } catch (e) {}
+}
+
+记("======== 启动 · 底座 " + 底座版本 + " ========");
+
+// ★ 关键：热更必须放在**函数里**跑。
+//   ① eval 进来的新版代码，它的 var/function 全部落在这个函数的作用域里，
+//      不会污染底座、也不会互相踩（踩了就会两套界面叠在一起，已在真机复现过）。
+//   ② 用返回值告诉外面"我接手了没有"，而不是用变量——变量会被新版的同名 var 覆盖。
+function 跑热更() {
+    var 缓存 = "";
+    try { 缓存 = String(context.getFilesDir().getAbsolutePath()) + "/最新.js"; }
+    catch (e) { 记("取私有目录失败：" + e); return false; }
+    try {
+        if (!files.exists(缓存)) { 记("无热更缓存 → 用底座本体"); return false; }
+        var s = files.read(缓存);
+        var m = String(s).match(/APP_VERSION\s*=\s*"v?([\d.]+)"/);
+        if (!m) {
+            记("热更缓存没有版本号 → 删掉，用底座本体");
+            try { files.remove(缓存); } catch (e1) {}
+            return false;
+        }
+        var 新 = m[1], 旧 = 底座版本.replace(/^v/, "");
+        var a = 新.split("."), b = 旧.split(".");
+        var 更大 = false;
+        for (var i = 0; i < 3; i++) {
+            var x = parseInt(a[i], 10) || 0, y = parseInt(b[i], 10) || 0;
+            if (x > y) { 更大 = true; break; }
+            if (x < y) break;
+        }
+        记("热更缓存 v" + 新 + " / 底座 v" + 旧 + " / 更大=" + 更大 + " / " + s.length + "字");
+        if (!更大 || s.length < 3000) { 记("不用热更 → 用底座本体"); return false; }
+        eval(s);                       // ← 新版在这个函数作用域里整份跑完（含它自己的界面）
+        记("热更完成：已按 v" + 新 + " 运行");
+        return true;
+    } catch (e) {
+        记("★热更失败：" + e + " ｜" + (e && e.stack ? String(e.stack).split("\n")[0] : ""));
+        try { files.remove(缓存); } catch (e2) {}
+        return false;
+    }
+}
+
+function 本体() {
+记("进入本体 " + 底座版本);
+
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v1.23";   // v1.23：APK 里起不来 → 界面改"最保守 XML"（只用 v1.20 验证过的属性）+ 崩溃兜底 + 报错可见。
+var APP_VERSION = "v2.01";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
 // ★ 两个网站的地址。以后换地址只改这两行（或用 记事.json 的 站点 字段覆盖，不用改代码）。
 var 默认站点 = {
@@ -114,19 +183,8 @@ function 源里版本(src) {
     return m ? m[1] : "";
 }
 
-// 启动最早期（还没建界面）：私有目录里有比内置更新的版本 → 直接跑它，本实例退场
-(function () {
-    try {
-        if (!files.exists(新版缓存)) return;
-        var src = files.read(新版缓存);
-        var v = 源里版本(src);
-        if (!v || !版本更大(v, APP_VERSION)) return;
-        engines.execScriptFile(新版缓存);
-        exit();
-    } catch (e) {
-        try { files.remove(新版缓存); } catch (e2) {}
-    }
-})();
+// ★ v2.00：这里原本是 `engines.execScriptFile(新版缓存); exit();` —— APK 里一闪而过的真凶。
+//   已挪到文件最上面的「底座」里，改成同引擎 eval。这里不再做装载。
 
 // ★ v1.21：加 手动 参数——设置了面板里点「检查更新」要看得见结果（成功/失败都说一声）
 function 检查更新(手动) {
@@ -360,16 +418,16 @@ function 移条(x, y) {
 }
 
 // 圆角方块：黑底 + 2px 白描边（照 TRAE远程控制APP 竖条同款 GradientDrawable 画法）
-// ★ v1.21：选中态（当前站）＝**更深更实的黑底** + 琥珀描边；未选中＝淡一点的黑，一眼分得清。
+// ★ v2.01（用户 2026-10-19 定）：**四颗按钮完全一模一样**——同底色、同描边、同字色、同字号。
+//   不做"选中加深 / 金边 / 半透明"那一套；是否当前站只看网页内容。
 function 涂钮(控件, 选中) {
     if (!控件) return;
     try {
         var d = new android.graphics.drawable.GradientDrawable();
         d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         d.setCornerRadius(Math.floor(按钮尺寸 * 0.25));
-        d.setColor(选中 ? android.graphics.Color.argb(255, 0x00, 0x00, 0x00)    // 选中：纯黑实底（更深）
-                        : android.graphics.Color.argb(168, 0x00, 0x00, 0x00));   // 未选中：半透明，浅一些
-        d.setStroke(选中 ? 3 : 2, android.graphics.Color.parseColor(选中 ? "#FFFFD54F" : "#80FFFFFF"));
+        d.setColor(android.graphics.Color.argb(255, 0x2A, 0x2A, 0x2A));
+        d.setStroke(2, android.graphics.Color.parseColor("#80FFFFFF"));
         控件.setBackground(d);
     } catch (e) {}
 }
@@ -392,15 +450,15 @@ function 涂条() {
     画当前站();
 }
 
-// 当前站那个按钮：更深底 + 琥珀描边 + 琥珀字；另一个白字淡底——不用猜现在开的是哪个站
+// v2.01：四颗按钮一视同仁，这里只负责重涂（不再改字色）
 function 画当前站() {
     if (!条) return;
-    try { 涂钮(条.bT, 当前站 === "T"); } catch (e) {}
-    try { 涂钮(条.bW, 当前站 === "W"); } catch (e) {}
+    try { 涂钮(条.bT, false); } catch (e) {}
+    try { 涂钮(条.bW, false); } catch (e) {}
     try { 涂钮(条.bR, false); } catch (e) {}
     try { 涂钮(条.bS, false); } catch (e) {}
-    try { 条.bT.setTextColor(当前站 === "T" ? 0xFFFFD54F : 0xFFFFFFFF); } catch (e) {}
-    try { 条.bW.setTextColor(当前站 === "W" ? 0xFFFFD54F : 0xFFFFFFFF); } catch (e) {}
+    try { 条.bT.setTextColor(0xFFFFFFFF); } catch (e) {}
+    try { 条.bW.setTextColor(0xFFFFFFFF); } catch (e) {}
     try { 条.bR.setTextColor(0xFFFFFFFF); } catch (e) {}
     try { 条.bS.setTextColor(0xFFFFFFFF); } catch (e) {}
 }
@@ -770,3 +828,10 @@ try { wv.loadUrl(站URL(当前站)); } catch (e) {}
 try { 开竖条(); } catch (e) {}
 落状态(true);
 检查更新();
+记("本体启动完成 · 当前站=" + 当前站 + " · 布局异常=" + (布局异常 || "无"));
+
+}   // ===== 本体() 结束 =====
+
+// 热更成功 → 新版已经在跑，底座收手；否则跑本体
+if (!跑热更()) 本体();
+else 记("底座收手（热更版已在运行）");
