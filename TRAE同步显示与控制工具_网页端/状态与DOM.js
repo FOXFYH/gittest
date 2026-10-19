@@ -71,6 +71,12 @@ const S = {
   anchorSid: '', anchorTitle: '', anchorFull: '',
   /* 本专项 A4：锚定会话「已消失」提醒去重标记（=已提醒过的那把锚定 sid） */
   anchor_gone: '',
+  /* 2.88（老板 2026-10-19 23:55）：锚定冻结时效状态——anchor_stale_since=锚定
+     被“借框/后台挪走”的起始时刻（桌面回到锚定即清零）；anchor_stale_n=连续被抢
+     拍数；anchor_led_at=超阈值后向账本补拉锚定会话最新内容的节流时刻。用于
+     「短暂借框固定旧内容、超阈值改走锚定自己的账本」这一时效（见 通用工具.js
+     ANCHOR_FREEZE_MS / adoptSnap）。 */
+  anchor_stale_since: 0, anchor_stale_n: 0, anchor_led_at: 0,
   /* 本专项 B3：直播帧等待态——livePend=正在等直播帧的锚定 sid；
      liveGot=本次切换是否已拿到直播帧（拿到后本地旧帧不再回铺） */
   livePend: '', liveGot: false,

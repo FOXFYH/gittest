@@ -400,6 +400,12 @@ function anchorReport(){
     } catch(e){}
   }, 300);
 }
+/* 2.88（老板 2026-10-19 23:55 口径）：锚定冻结时效阈值——锚定会话被“借框/后台挪走”
+   的短暂几拍（< 此值，即一次借框时长内）仍原样固定旧内容（老板明确「借走那几秒固定住
+   旧内容是可以的」）；但连续被抢超过此值仍拿不到真帧时，不再无条件沿用旧 msgs（改用
+   锚定会话自己的本地账本，见下方 adoptSnap），避免「桌面早已切回/更新，网页却永久钉
+   在旧内容」。取值须大于一次借框时长，故给 15s。 */
+const ANCHOR_FREEZE_MS = 15000;
 function adoptSnap(v){
   /* 用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
      对话」——别人在电脑版操作别的会话（含会话路由器的临时占用），网页版
@@ -426,14 +432,48 @@ function adoptSnap(v){
       flash('⚠ 当前锚定会话可能已不存在，请在会话列表重新选择', 'var(--red)', 6000);
     }
   } else if (S.anchor_gone) S.anchor_gone = '';
-  /* 用户自己的切换在途：放行原快照，等切换定论（不与锚定抢） */
-  if (S.switch_pend) return v;
-  const stolen = !!(S.anchorSid && inKey && inKey !== S.anchorSid);
-  if (!stolen && !anchorGone) return v;
+  /* 用户自己的切换在途：放行原快照，等切换定论（不与锚定抢）。
+     2.88：放行收紧为「这拍快照的选中行正是本次切换目标」——否则（切换目标在途
+     但选中行是被借框/后台挪去的“别人会话”）继续走锚定冻结，堵死「借框时把别人
+     正文当切换预取整段推上屏 ⇒ 标题对/内容错」的串台旁路。目标未知（兼容旧前端
+     只送序号、无 sid）时维持旧行为放行。 */
+  if (S.switch_pend){
+    const tgt = S.switch_pend.sid
+        ? 稳定键(S.switch_pend.sid, S.switch_pend.title) : '';
+    if (!tgt || tgt === inKey) return v;
+  }
   const old = S.snap || {};
+  /* 2.88：选中行彻底认不出（inSid/inTitle 皆空，如列表中间态/组头行）时也不再
+     放行——否则 inKey='' 令 stolen 恒假，桌面被借走那几拍的正文会直接推上屏。 */
+  const selUnknown = !inSid && !inTitle;
+  const stolen = !!(S.anchorSid
+      && ((inKey && inKey !== S.anchorSid)
+          || (selUnknown && Array.isArray(old.msgs) && old.msgs.length)));
+  if (!stolen && !anchorGone){
+    S.anchor_stale_since = 0; S.anchor_stale_n = 0;   /* 桌面回到锚定：清时效 */
+    return v;
+  }
+  /* 2.88 冻结时效（老板 2026-10-19 23:55）：借框那几拍（< ANCHOR_FREEZE_MS）仍
+     固定旧内容；连续被抢超阈值仍无真帧时，不再无条件沿用旧 msgs，改用【锚定会话
+     自己的本地账本】最新内容（账本按标题取，仍是该会话的内容，绝不把别人正文推
+     上屏）。配 缓存.js curMsgs 的「账本补尾」一起生效。 */
+  const _now = Date.now();
+  if (!S.anchor_stale_since) S.anchor_stale_since = _now;
+  S.anchor_stale_n = (S.anchor_stale_n || 0) + 1;
+  const _staleMs = _now - S.anchor_stale_since;
   v.convs = (v.convs || []).map(r => (r && r[0] === 'c')
       ? [r[0], r[1], _行稳定(r) === S.anchorSid, r[3], r[4]] : r);
-  v.msgs = Array.isArray(old.msgs) ? old.msgs : (v.msgs || []);
+  const _led = (S.histMsgs && S.histMsgs.length
+      && S.histConv === curTitle()) ? S.histMsgs : null;
+  v.msgs = (_staleMs >= ANCHOR_FREEZE_MS && _led)
+      ? _led.slice()
+      : (Array.isArray(old.msgs) ? old.msgs : (v.msgs || []));
+  /* 2.88：超阈值且本地暂无该锚定的账本 → 10s 节流补拉一次（快速刷到锚定会话最新内容） */
+  if (_staleMs >= ANCHOR_FREEZE_MS && !_led && typeof reqHist === 'function'
+      && _now - (S.anchor_led_at || 0) > 10000){
+    S.anchor_led_at = _now;
+    try { reqHist(curTitle(), S.histHave || 0, S.histVer || 0); } catch(e){}
+  }
   v.finish = old.finish;
   v.inputText = old.inputText || '';
   v.ask = old.ask || null;

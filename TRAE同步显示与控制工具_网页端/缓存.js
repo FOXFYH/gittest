@@ -205,6 +205,17 @@ function curMsgs(){
   const led = (S.histMsgs && S.histMsgs.length) ? S.histMsgs : null;
   if (!led) return snapMsgs || [];
   if (!snapMsgs || !snapMsgs.length) return led;
+  /* 2.88（老板 2026-10-19 23:55）：账本补尾——快照尾部时间【早于】账本尾部时以
+     账本为准。背景：锚定会话被“借框/后台挪走”时快照正文被冻结成旧内容（见
+     通用工具.js adoptSnap），而该会话的新行其实已进本地账本；旧实现恒把账本增量
+     丢弃（快照当唯一权威尾部）⇒ 页面「只见旧内容」（老板实测：桌面已 10/19 21:32、
+     网页却只显 10/05）。两边时间取各自末行：快照行第 6 位、账本行第 3 位；仅当
+     两边都有时间且账本更晚才改判，其余保持原口径。 */
+  {
+    const snapTail = String((snapMsgs[snapMsgs.length - 1] || [])[5] || '');
+    const ledTail  = String((led[led.length - 1] || [])[2] || '');
+    if (snapTail && ledTail && ledTail > snapTail) return led.slice();
+  }
   const k0 = _msgKey(snapMsgs[0]);
   let cut = -1;
   for (let i = led.length - 1; i >= 0; i--){
