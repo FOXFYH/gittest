@@ -102,21 +102,21 @@ function renderProf(){
    v1.47：取代机制——若已在实测，服务端 start_refresh 会自动终止旧的
    改测本分身（即便在跑也可再点，直接取代，不再拒绝）。 */
 function profTest(name){
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (srvNeedOnline('实测分身')) return;
   sendCmd('profiles_refresh', [name]);   /* 传数组 → 服务端精确实测该分身 */
   S.prof_run = true;
   renderProf();
-  flash('正在实测 ' + name + ' …', 'var(--blue)');
+  srvOpFlash('sent', '实测分身', name);   // 2.85：②（profiles_run 才收口）
 }
 
 /* 2.18：补登录——借服务端「谷歌分身助手 / T登录助手」的 HTTP 接口，对指定
    分身发起自动登录（分身名→编号自动映射手机号，跟人手操作一样）。服务没起
    时服务端会自动拉起分身助手；滑块/超时由对方负责，跑完回 profiles_login。*/
 function profLogin(name){
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (srvNeedOnline('补登录')) return;
   sendCmd('profiles_login', name);   /* 传分身名 → 服务端借登录助手 */
-  flash('正在补登录 ' + name + ' …（服务端会先确保登录助手在线）',
-        'var(--green)');
+  /* 2.85：② 等待服务器回应（原绿色＝假成功，改中性蓝；profiles_login 事件才收口） */
+  srvOpFlash('sent', '补登录', name + '（服务端会先确保登录助手在线）');
 }
 
 el.prof.onclick = () => {
@@ -127,20 +127,21 @@ el.prof.onclick = () => {
 };
 el.profback.onclick = () => el.profpage.classList.remove('on');
 el.profref.onclick = () => {
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (srvNeedOnline('分身实测')) return;
   /* v1.47：运行中为「停止」；空闲为「全量实测」。停止成功与否由
      profiles_run stopped 事件反馈。 */
-  if (S.prof_run){ sendCmd('profiles_stop'); flash('正在停止…'); return; }
+  if (S.prof_run){ sendCmd('profiles_stop'); srvOpFlash('sent', '停止实测'); return; }
   sendCmd('profiles_refresh');      // 真实访问谷歌分身助手（后台）
   S.prof_run = true;
   renderProf();
+  srvOpFlash('sent', '全量实测');    // 2.85：②
 };
 
 /* 2.19：一键换号迁移——填目标号码，服务端一站式完成「原版换号
    （沙盒启动器 origin-login）+ 对话记录智能迁移（最重度账号全部会话换新ID
    并入当前账号）」。进度经 switch_migrate 事件流回投到 #prof_swlog。 */
 function switchMigratePrompt(){
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (srvNeedOnline('一键换号迁移')) return;
   let ov = $('swmask');
   if (ov) ov.remove();
   ov = document.createElement('div');
@@ -193,7 +194,7 @@ function switchMigratePrompt(){
     if (slog){ slog.style.display = 'block'; slog.textContent = '（已提交，等待服务端…）'; }
     sendCmd('switch_migrate', { '目标': n, '轮次': keep, '清理': purge, '压缩': vac, '迁移': mig });
     S.switch_mig = { on: true, ok: null, log: [] };
-    flash('🚀 一键换号迁移已启动（目标 ' + n + ' 号）…', 'var(--blue)', 6000);
+    srvOpFlash('sent', '一键换号迁移', '目标 ' + n + ' 号', 6000);   // 2.85：②（switch_migrate done 才收口）
   };
   $('swok').onclick = go;
   inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) go(); };

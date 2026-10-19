@@ -110,7 +110,12 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.84';   /* 2.84（老板实测 2026-10-19 紧急 · 三 bug）：① Bug A 官方排队条
+const VER = '2.85';   /* 2.85（老板 2026-10-19 21:26 口径）：① 官方排队条条目剥首行 DID（消息渲染.js：
+                       条目正文 esc(stripHeadDid(p.t))、删除确认同剥）——内部 14 位时间标记不外露；
+                        ② 全站「对服务器的操作」统一四态提示（公共组件 SRV_PHASE / srvOpText /
+                        srvOpFlash / srvNeedOnline，见 通用工具.js），每态绑真实信号、禁无信号播报；
+                        ③ 随本次补记 2.84「已上线但漏记本表」的部署记录。
+   2.84（老板实测 2026-10-19 紧急 · 三 bug）：① Bug A 官方排队条
                         渠道此前失效——实测 pend 每项 t 是「DID 空格 正文」单行（TRAE 把首行
                         DID 后的换行折叠成空格），旧 firstLineDid 按「首行 ^\d{14}$」永远取不到
                         ⇒ 卡销不掉；改 pendDidOf 取开头 14 位 DID（事件总线.js）。② Bug B 重发/

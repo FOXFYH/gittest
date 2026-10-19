@@ -11,6 +11,35 @@ function flash(msg, color, ms){
   clearTimeout(flashTimer);
   if (msg) flashTimer = setTimeout(() => renderState(S.snap), ms || 4000);
 }
+/* ============ 2.85（老板口径 2026-10-19）：对服务器的操作「统一四态」提示 ============
+   凡网页版→服务端的操作，提示一律分阶段、且每态绑真实信号：
+     ① WS 不在线                 →「正在连接 WS…」
+     ② WS 在线、命令已发出        →「等待服务器回应…」
+     ③ 服务器确认收到（受理/ack） →「服务器开始执行…」
+     ④ 服务器给出成功信号         → 才「成功」；失败/超时/无回执如实说。
+   ★ 严禁「无信号就播报已排队/已执行」。文案＋颜色只此一处产出，
+     各模块（含 2.67 切换状态机——参照物）一律转调，杜绝各写各的文案漂移。 */
+const SRV_PHASE = {
+  offline: ['正在连接 WS…',   'var(--orange)'],
+  sent:    ['等待服务器回应…', 'var(--blue)'],
+  ack:     ['服务器开始执行…', 'var(--blue)'],
+  ok:      ['成功',            'var(--green)'],
+  fail:    ['失败',            'var(--red)']
+};
+function srvOpText(phase, label, extra){
+  const p = SRV_PHASE[phase] || SRV_PHASE.sent;
+  return (label ? label + '：' : '') + p[0] + (extra ? '（' + extra + '）' : '');
+}
+function srvOpFlash(phase, label, extra, ms){
+  const p = SRV_PHASE[phase] || SRV_PHASE.sent;
+  flash(srvOpText(phase, label, extra), p[1], ms);
+}
+/* 未连上中转的统一拦口：true=已拦（命令未发出；如实告知，绝不假装已发） */
+function srvNeedOnline(label){
+  if (S.onLine) return false;
+  srvOpFlash('offline', label, '命令未发出，稍后再试');
+  return true;
+}
 /* 本专项 A2/A3：切换文案唯一出口——状态栏（输入界面.js）、
    会话点击提示（会话列表.js）两处共用此函数，杜绝
    「正在切换」/「正在切换到」两套文案漂移。

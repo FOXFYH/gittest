@@ -135,11 +135,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
         if (k === 'rewind'){
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
             + '其后全部对话（含 AI 回复）将一并移除。')) return;
-          flash('正在回退…', 'var(--blue)');
+          srvOpFlash('sent', '回退');          // 2.85：② 等待服务器回应（msg_act 才收口）
         } else {
           if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
             + '其对应的 AI 回复会一并删除。')) return;
-          flash('正在删除…', 'var(--blue)');
+          srvOpFlash('sent', '删除消息');      // 2.85：② 等待服务器回应（msg_act 才收口）
         }
         sendCmd(k, mi);
         /* 1.62：撤回发起后记下时刻——TRAE 会把被撤回的那条话放回它
@@ -197,9 +197,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
           S.ask_lock = {fp: fp, idx: idx};
         }
         renderAll();                   /* 立即出锁定态（服务端 ~1s 生效） */
-        flash('已选「' + b.textContent.slice(0, 20)
-            + '」，点「' + (ask.btn || '下一步') + '」继续',
-            'var(--blue)');
+        /* 2.85：② 只报「已请求选择」，不替服务端断言选择已生效 */
+        srvOpFlash('sent', '选择「' + b.textContent.slice(0, 20) + '」',
+                   '点「' + (ask.btn || '下一步') + '」继续');
         sendCmd('ask_pick', idx);
       };
     });
@@ -209,17 +209,17 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       const v = inp ? (inp.value || '').trim() : '';
       go.disabled = true;
       if (v){
-        flash('已提交自定义回答…', 'var(--blue)');
+        srvOpFlash('sent', '提交自定义回答');        // 2.85：②
         sendCmd('ask_other', v);
       } else {
-        flash('提交答案…', 'var(--blue)');
+        srvOpFlash('sent', '提交答案');              // 2.85：②
         sendCmd('ask_submit', 0);
       }
     };
     const cc = oc.querySelector('#askcancel');
     if (cc) cc.onclick = () => {
       cc.disabled = true;
-      flash('已取消本次提问…', 'var(--blue)');
+      srvOpFlash('sent', '取消提问');                // 2.85：②
       sendCmd('ask_cancel', 0);
     };
     /* v1.28：回退上一问（服务端点 TRAE footer「上一步」按钮） */
@@ -227,7 +227,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     if (pv) pv.onclick = () => {
       pv.disabled = true;
       S.ask_lock = null;               /* 回退后必然换题，解锁单选 */
-      flash('回到上一题…', 'var(--blue)');
+      srvOpFlash('sent', '回到上一题');              // 2.85：②
       sendCmd('ask_prev', 0);
     };
     el.msgs.appendChild(oc);
@@ -247,7 +247,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
         if (b.disabled) return;
         b.disabled = true;
         b.classList.add('picked');
-        flash('已选择，正在提交给 TRAE…', 'var(--blue)');
+        srvOpFlash('sent', '选择');      // 2.85：② 等待服务器回应
         sendCmd('pick_opt', i);
       };
       oc.appendChild(b);
@@ -288,7 +288,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       qh += '<div class="qitem">'
          + '<div class="qtxt' + (S.qopen[p.t] ? ' open' : '') + '"'
          + ' data-qt="' + i + '" title="点一下展开/收起全文">'
-         + esc(p.t) + '</div>'
+         + esc(stripHeadDid(p.t)) + '</div>'
          + '<div class="qbtns">'
          + '<button class="go qsend" data-qi="' + i + '">⚡发送</button>'
          + '<div class="qsub">'
@@ -312,19 +312,19 @@ function renderMsgs(msgs, finish, opts, ask, pend){
         const k = b.dataset.qk;
         if (k === 'del'){
           if (!confirm('删除排队消息「'
-            + (pend[i].t || '').slice(0, 40) + '」？\n删除后不会发送。'))
+            + stripHeadDid(pend[i].t || '').slice(0, 40) + '」？\n删除后不会发送。'))
             return;
           b.disabled = true;
-          flash('已删除排队消息…', 'var(--blue)');
+          srvOpFlash('sent', '删除排队消息');   // 2.85：② 只报「已请求删除」，无信号不宣告已删
           sendCmd('pend_del', i);
         } else if (k === 'edit'){
           b.disabled = true;
           S.qedit = i;                     /* 快照回来后回填输入框 */
-          flash('正在取出到输入框…', 'var(--blue)');
+          srvOpFlash('sent', '取出到输入框');   // 2.85：②（pend_edit_out 才收口）
           sendCmd('pend_edit', i);
         } else {
           b.disabled = true;
-          flash('已立即发送，不打断当前生成…', 'var(--blue)');
+          srvOpFlash('sent', '立即发送');       // 2.85：② 只报「已请求立即发送」
           sendCmd('pend_sendnow', i);
         }
       };

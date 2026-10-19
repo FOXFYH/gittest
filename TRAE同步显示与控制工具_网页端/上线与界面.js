@@ -140,7 +140,8 @@ function renderPorts(){
 /* ================= 命令 ================= */
 
 function cmd(c, a, convSid){
-  if (!S.onLine){ flash('⚠ 还没连上，命令未发出'); return; }
+  /* 2.85：统一四态①——WS 不在线绝不假装已发，走公共拦口「正在连接 WS…」 */
+  if (srvNeedOnline('命令')) return;
   /* 1.09：空窗期反馈——发送/插话本地立即回显「我」的占位气泡，
      清空输入框的瞬间屏幕上就有东西，不用等 3~6s 的中继往返 */
   /* v2.82（老板口径）：DID ＝ 本机时间 14 位 YYYYMMDDHHMMSS，**插入正文第一行**
@@ -171,8 +172,9 @@ function cmd(c, a, convSid){
        重复建卡（占位卡只由本端 cmd 建）。 */
     if (!S.sentGuard) S.sentGuard = {};
     S.sentGuard[a.trim()] = Date.now();
-    if (c === 'send') flash('⏳ 已发出，等待服务器执行…',
-                            'var(--blue)');
+    /* 2.85：统一四态②——已发出、未收到服务端任何信号前只报「等待服务器回应…」，
+       绝不说「已排队/已执行/已送达」（那些是服务端信号才有的终态）。 */
+    if (c === 'send') srvOpFlash('sent', '发送');
   }
   sendCmd(c, a, did, convSid);
   /* 2.25：发消息/插话=真实人类操作 → actSend('send')（闸门见 通用工具.js） */
@@ -193,10 +195,11 @@ el.send.onclick = () => {        // 单按钮三态：插话 ⇄ 停止 ⇄ 发�
     if (t){                       /* 1.01：生成中打字=插话——服务端以
        Enter 触发 TRAE 官方排队机制，AI 在当前步骤边界消费；
        空闲时服务端自动降级常规发送 */
-      flash('💬 已发出插话（AI 在当前步骤边界处理）', 'var(--orange)');
+      /* 2.85：只说「已发出、等回应」，不再替服务端断言「AI 正在处理」 */
+      srvOpFlash('sent', '插话');
       cmd('interject', t);
     } else {
-      flash('⏳ 已请求停止生成…', 'var(--blue)');   // 1.09：空白期反馈
+      srvOpFlash('sent', '停止生成');   // 1.09：空白期反馈（②等待服务器回应）
       cmd('stop_gen', null);
     }
     return;
@@ -284,16 +287,16 @@ el.ent.addEventListener('keydown', e => {
 });
 el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并入）
   drawerClose();
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (srvNeedOnline('新建任务')) return;
   if (!S.snap || !S.snap.online){ flash('⚠ TRAE 未在线'); return; }
   if (S.task_open) return;
   taskDlgOpen();
-  flash('正在展开新建任务…', 'var(--blue)');
+  srvOpFlash('sent', '新建任务');           // 2.85：② 等待服务器回应
   sendCmd('new_task_dlg', null);
 };
 el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 boot
   drawerClose();                  // 本就先杀再拉——原在线时本地拦下，
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }   // TRAE 卡死救不了）
+  if (srvNeedOnline('重启/拉起')) return;   // TRAE 卡死救不了）
   const online = S.snap && S.snap.online;
   if (!confirm(online
     ? '要重启当前目标 ' + S.box + ' 的 TRAE 吗？\n'
@@ -302,16 +305,15 @@ el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 b
       + '（服务端正在运行的该 TRAE 会先关闭）'))
     return;
   S.busy = true;
-  flash(online ? '正在请求服务端重启 ' + S.box + '…'
-               : '正在请求服务端拉起 ' + S.box + '…', 'var(--blue)');
+  srvOpFlash('sent', online ? ('重启 ' + S.box) : ('拉起 ' + S.box));   // 2.85：②
   sendJson({t: 'boot', box: S.box});
 };
 el.box.onchange = () => {                 // 切换目标：在线直接切/离线确认拉起
   const box = el.box.value;
   if (box === S.box || S.busy){ el.box.value = S.box; return; }
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); el.box.value = S.box; return; }
+  if (srvNeedOnline('切换目标')){ el.box.value = S.box; return; }
   if (S.alive.has(box)){
-    flash('正在切换到 ' + box + '…', 'var(--blue)');
+    srvOpFlash('sent', '切换目标', box);       // 2.85：②（服务端 switched 才收口）
     sendJson({t: 'switch_box', box: box});
   } else {
     if (!confirm('[' + box + '] 在服务端未带调试端口运行。\n\n'
@@ -320,7 +322,7 @@ el.box.onchange = () => {                 // 切换目标：在线直接切/离�
       el.box.value = S.box; return;
     }
     S.busy = true;
-    flash('正在请求服务端拉起 ' + box + '…', 'var(--blue)');
+    srvOpFlash('sent', '拉起 ' + box);         // 2.85：②
     sendJson({t: 'boot', box: box});
   }
 };
@@ -335,7 +337,7 @@ el.model.onchange = () => {
     return;
   }
   S.model_busy = true;
-  flash('正在切换模型 ' + name + '…', 'var(--blue)');
+  srvOpFlash('sent', '切换模型', name);        // 2.85：②（model_set 才收口）
   cmd('switch_model', name);
 };
 

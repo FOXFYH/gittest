@@ -134,13 +134,14 @@ function 自激活_面板(sid, title){
   goBtns.className = 'bs_btns';
   goBtns.appendChild(bsBtn('取消', '', () => { 自激活_放弃确认(); bsClose(); }));
   goBtns.appendChild(bsBtn('＋ 开始定时', 'primary', () => {
-    if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+    if (srvNeedOnline('定时')) return;
     const min = Math.max(1, parseInt(inMin.value, 10) || 1);
     const total = Math.max(1, parseInt(inTotal.value, 10) || 1);
     const text = (inText.value || '').trim() || 自激活_默认文本;
     const ids = new Set(定时取(sid).map(t => t && t.id));
     sendCmd('sched_add', [sid, text, min, total]);
-    flash('已下发定时：每 ' + min + ' 分钟 × ' + total + ' 次', 'var(--green)');
+    /* 2.85：② 已下发、等服务端确认；成功只由快照对账推进，绝不先报绿 */
+    srvOpFlash('sent', '下发定时', '每 ' + min + ' 分钟 × ' + total + ' 次');
     自激活_下发确认({kind:'add', sid, ids, desc:'每 ' + min + ' 分钟 × ' + total + ' 次'});
   }));
   box.appendChild(goBtns);
@@ -167,16 +168,17 @@ function 自激活_面板(sid, title){
   const tail = document.createElement('div');
   tail.className = 'bs_btns';
   tail.appendChild(bsBtn('🔄 刷新', '', () => {
-    if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+    if (srvNeedOnline('刷新定时')) return;
     sendCmd('sched_ls', sid);
-    自激活_状态行($('sched_stat'), '⏳ 正在向服务器拉取最新定时…', 'var(--blue)');
-    flash('正在刷新定时任务…', 'var(--blue)');
+    自激活_状态行($('sched_stat'), srvOpText('sent', '刷新定时'),
+                  SRV_PHASE.sent[1]);
+    flash(srvOpText('sent', '刷新定时'), SRV_PHASE.sent[1]);
   }));
   tail.appendChild(bsBtn('🗑 取消本会话全部定时', 'danger', () => {
     if (!confirm('清空本会话的全部定时自我激活任务？')) return;
-    if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+    if (srvNeedOnline('取消定时')) return;
     sendCmd('sched_clear', sid);
-    flash('正在清空定时任务…', 'var(--blue)');
+    srvOpFlash('sent', '清空定时');          // 2.85：② 等待服务器回应
     自激活_下发确认({kind:'clear', sid, desc:'本会话全部定时'});
   }));
   box.appendChild(tail);
@@ -190,22 +192,28 @@ function 自激活_放弃确认(){
 
 function 自激活_下发确认(p){
   /* 2.80：下发后立刻在面板落「等待服务器确认」状态行，并武装 5 秒兜底；
-     真正的成功/失败由 自激活_对账（快照到达时）判定。 */
+     真正的成功/失败由 自激活_对账（快照到达时）判定。
+     2.85：文案统一走四态——②「等待服务器回应…」（此处）；
+     ④「成功」只由对账按服务端权威快照推进，绝不本地先报。 */
   自激活_放弃确认();
   p.timer = setTimeout(() => {
     if (自激活_待确认 !== p) return;
-    自激活_状态行($('sched_stat'), '⚠ 服务器未确认，请点「🔄 刷新」重试', '#e07b00');
+    自激活_状态行($('sched_stat'),
+      srvOpText('fail', null, '5 秒内服务器未确认，请点「🔄 刷新」重试'),
+      SRV_PHASE.fail[1]);
     自激活_待确认 = null;
   }, 5000);
   自激活_待确认 = p;
-  const 头 = p.kind === 'clear' ? '⏳ 正在取消本会话全部定时'
-             : (p.kind === 'del' ? '⏳ 正在取消定时' : '⏳ 已下发，等待服务器确认…');
-  自激活_状态行($('sched_stat'), 头 + (p.desc ? '（' + p.desc + '）' : ''), 'var(--blue)');
+  const 标签 = p.kind === 'clear' ? '清空定时'
+             : (p.kind === 'del' ? '取消定时' : '下发定时');
+  自激活_状态行($('sched_stat'),
+    srvOpText('sent', 标签, p.desc || ''), SRV_PHASE.sent[1]);
 }
 
 function 自激活_对账(){
   /* 2.80：快照到达时对账「服务器确认」——以服务端权威列表 S.定时 为准。
-     成功＝新任务出现 / 目标任务消失；仍在等则原样保留、不误判。 */
+     成功＝新任务出现 / 目标任务消失；仍在等则原样保留、不误判。
+     2.85：④「成功」信号只此来自服务端快照（真实信号），绝不本地乐观宣告。 */
   const p = 自激活_待确认;
   if (!p) return;
   const rows = 定时取(p.sid);
@@ -215,13 +223,13 @@ function 自激活_对账(){
     if (!新) return;                          /* 尚未出现，继续等 */
     const nx = 自激活_时刻(新.next);
     自激活_状态行(st, '✅ 定时已生效：' + (p.desc || '')
-      + (nx ? ' ｜ 下次 ' + nx : ''), 'var(--green)');
+      + (nx ? ' ｜ 下次 ' + nx : ''), SRV_PHASE.ok[1]);
   } else if (p.kind === 'del'){
     if (rows.some(t => t && t.id === p.jid)) return;   /* 还在，继续等 */
-    自激活_状态行(st, '✅ 已取消该定时任务', 'var(--green)');
+    自激活_状态行(st, '✅ 已取消该定时任务', SRV_PHASE.ok[1]);
   } else if (p.kind === 'clear'){
     if (rows.length) return;
-    自激活_状态行(st, '✅ 已取消本会话全部定时', 'var(--green)');
+    自激活_状态行(st, '✅ 已取消本会话全部定时', SRV_PHASE.ok[1]);
   }
   自激活_放弃确认();
 }
@@ -252,11 +260,11 @@ function 自激活_渲染列表(list, sid){
     del.textContent = '取消定时'; del.style.cssText = 'margin-left:auto;color:#c62828';
     del.onclick = e => {
       e.stopPropagation();
-      if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+      if (srvNeedOnline('取消定时')) return;
       /* 2.80：去二次确认——旧版「取消定时→弹确定/取消」的「取消」按钮易被误点成
          放弃，用户直呼「取消不了」；现直接下发 sched_del，成败看面板状态行。 */
       sendCmd('sched_del', t.id);
-      flash('正在取消定时…', 'var(--blue)');
+      srvOpFlash('sent', '取消定时');      // 2.85：② 等待服务器回应
       自激活_下发确认({kind:'del', sid, jid: t.id});
     };
     row.appendChild(ic); row.appendChild(tx); row.appendChild(del);

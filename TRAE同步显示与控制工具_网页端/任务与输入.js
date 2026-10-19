@@ -73,8 +73,8 @@ function bindTapNoBlur(btn, fn){
   btn.addEventListener('click', fire);
 }
 bindTapNoBlur(el.take, () => {    // 1.53：取回残留——TRAE 输入框文本取回本端+清空
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试，无法取回'); return; }
-  flash('正在取回 TRAE 输入框残留…', 'var(--blue)');
+  if (srvNeedOnline('取回残留')) return;
+  srvOpFlash('sent', '取回残留');    // 2.85：②（input_take_out 才收口）
   sendCmd('input_take');
 });
 bindTapNoBlur(el.copy, () => {    // 1.76：一键复制输入框内容（放大态小工具）
@@ -151,17 +151,17 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
   与记忆有变化才设置 */
   if (S.task_lock){
     taskDlgClose();
-    flash('正在文件夹「' + S.task_lock + '」内新建对话…', 'var(--blue)');
+    srvOpFlash('sent', '新建对话', '「' + S.task_lock + '」');   // 2.85：②
     sendCmd('new_task_in', S.task_lock);
     return;
   }
   if (S.task_cur && S.task_cur !== S.task_mem){
-    el.td_stat.textContent = '正在设置工作目录…';
-    flash('正在设置工作目录…', 'var(--blue)');
+    el.td_stat.textContent = srvOpText('sent', '设置工作目录');
+    srvOpFlash('sent', '设置工作目录');                        // 2.85：②（task_dlg_ok 才收口）
     sendCmd('task_dir_set', S.task_cur);
   } else {
     taskDlgClose();
-    flash('✅ 新建任务就绪', 'var(--green)');
+    flash('✅ 新建任务就绪', 'var(--green)');   /* 无命令下发＝本地就绪，非服务端信号 */
   }
 };
 el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 TRAE 输入区
@@ -179,7 +179,7 @@ el.file.onchange = async () => {
   el.file.value = '';
   if (!files.length) return;
   if (S.attach_pending){ flash('📎 正在附加上一批，请稍候…', 'var(--orange)'); return; }
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+  if (srvNeedOnline('附加附件')) return;
   const arr = [];
   for (const f of files){
     if (f.size > 6 * 1024 * 1024){
@@ -196,7 +196,7 @@ el.file.onchange = async () => {
   }
   S.attach_pending = arr.map(f => f.n);     // 反馈①：灰 chips 占位
   renderAttach([]);
-  flash('📎 附加中…（' + arr.length + ' 个文件）', 'var(--orange)');
+  srvOpFlash('sent', '附加附件', arr.length + ' 个文件');   // 2.85：②（attach_done 才收口）
   sendJson({t: 'attach_files', files: arr});
 };
 
@@ -207,8 +207,8 @@ el.file.onchange = async () => {
 /* ================= 网络页 ================= */
 
 el.refresh_pts.onclick = () => {         /* 刷新积分：委托服务端立刻查一次 */
-  if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
-  flash('正在刷新积分…', 'var(--blue)');
+  if (srvNeedOnline('刷新积分')) return;
+  srvOpFlash('sent', '刷新积分');        // 2.85：②（points 事件才收口）
   sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
 };
 

@@ -45,7 +45,7 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       p.title = '在此文件夹内新建对话（隶属文件夹工作区）';
       p.onclick = e => {
         e.stopPropagation();
-        if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+        if (srvNeedOnline('新建对话')) return;
         if (S.task_open) return;
         drawerClose();
         /* 1.11：统一新建弹窗（锁定模式）——创建才真正点组内新建 */
@@ -54,7 +54,7 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       };
       d.appendChild(p);
       d.onclick = () => {              /* 1.09：折叠/展开也要有反馈 */
-        flash('正在折叠/展开「' + title + '」…', 'var(--blue)');
+        srvOpFlash('sent', '折叠/展开', '「' + title + '」');   // 2.85：②
         sendCmd('toggle_folder', title);
       };
       el.convs.appendChild(d);
@@ -166,7 +166,7 @@ function convMenuOpen(title, sid, sKey){
       if (act === 'cancel'){ ov.remove(); return; }
       if (act === 'pin'){
         ov.remove();
-        flash('正在切换置顶…', 'var(--blue)');
+        srvOpFlash('sent', '置顶/取消置顶');      // 2.85：② 等待服务器回应
         /* v1.95：有稳定 ID 时送 [sid,title]（按 ID 定位，重名/改名不错位） */
         sendCmd('conv_pin', sid ? [sid, title] : title);
         return;
@@ -174,7 +174,7 @@ function convMenuOpen(title, sid, sKey){
       if (act === 'del'){
         ov.remove();
         if (!confirm('删除会话「' + title + '」？\n删除后不可恢复。')) return;
-        flash('正在删除会话…', 'var(--blue)');
+        srvOpFlash('sent', '删除会话');           // 2.85：② 等待服务器回应
         sendCmd('conv_del', sid ? [sid, title] : title);
         return;
       }
@@ -182,7 +182,7 @@ function convMenuOpen(title, sid, sKey){
       const nn = (prompt('重命名会话', title) || '').trim();
       if (!nn || nn === title) return;
       sendCmd('conv_rename', sid ? [sid, title, nn] : [title, nn]);
-      flash('正在重命名为「' + nn + '」…', 'var(--blue)');
+      srvOpFlash('sent', '重命名', '「' + nn + '」');   // 2.85：② 等待服务器回应
     };
   });
   document.body.appendChild(ov);

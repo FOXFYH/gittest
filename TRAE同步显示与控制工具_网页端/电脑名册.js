@@ -75,7 +75,7 @@ function pickCur(){
   if (heard.length){ setCur(heard[0]); enterCur(); }
 }
 function enterCur(){
-  flash('已选择服务端 [' + S.cur + ']', 'var(--blue)');
+  srvOpFlash('sent', '选择服务端', S.cur);   // 2.85：②（服务端 hello/srv 才收口）
   applySrvEntry();                           // 载入其缓存状态
   sendJson({t: 'hello'});                    // 拉即时全量
   helloWatch();                              // 1.14：快照看门狗
@@ -141,7 +141,7 @@ function switchSrv(nm){
   sendJson({t: 'hello'});
   helloWatch();                             /* 1.14：快照看门狗 */
   renderTop(); renderSrvList();
-  flash('已切换操控 [' + nm + ']', 'var(--blue)');
+  srvOpFlash('sent', '切换操控对象', nm);   // 2.85：②（新目标 hello 才收口，不再本地宣告已切换）
 }
 function applySrvEntry(){
   /* 用名册缓存恢复当前服务端的基础状态（hello 应答再补全） */
@@ -262,7 +262,7 @@ function refreshSrvs(){
   if (!S.onLine){ flash('未连接中继，稍后再刷', 'var(--orange)'); return; }
   foxSend(JSON.stringify({t: 'who'}));
   setTimeout(() => { if (S.onLine) foxSend(JSON.stringify({t: 'who'})); }, 1500);
-  flash('已点名，等待在线服务端应答…', 'var(--blue)');
+  srvOpFlash('sent', '刷新服务端', '等待在线服务端应答');   // 2.85：②
 }
 el.srvrefresh.onclick = () => refreshSrvs();
 

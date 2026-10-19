@@ -45,12 +45,12 @@ function 备注菜单项(sid, title, ov){
     e.stopPropagation();
     ov.remove();
     if (!sid){ flash('该会话无稳定 ID，暂不支持备注', 'var(--red)'); return; }
-    if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+    if (srvNeedOnline('备注')) return;
     /* 风格对齐 convMenuOpen 的重命名：prompt 内联编辑；取消(null)则不动。 */
     const nn = prompt('编辑备注（留空则删除；仅网页端显示）', 备注取(sid));
     if (nn === null) return;
     const t = (nn || '').trim();
     sendCmd('note_set', [sid, t]);
-    flash(t ? '正在保存备注…' : '正在删除备注…', 'var(--blue)');
+    srvOpFlash('sent', t ? '保存备注' : '删除备注');   // 2.85：② 等待服务器回应
   };
 }
