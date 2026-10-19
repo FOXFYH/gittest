@@ -2,7 +2,7 @@
 
 /**
  * ============================================================
- * 双站切换器  v2.06   （手机端 / AutoX.js v7 / 打包成独立 APK）
+ * 双站切换器  v2.07   （手机端 / AutoX.js v7 / 打包成独立 APK）
  * ------------------------------------------------------------
  * 干什么：
  *   一个应用装两个网站：全屏 WebView + 右上角一条浮层竖条，
@@ -64,7 +64,7 @@ importClass(android.webkit.WebChromeClient);
 //   （应用专属外部目录，**不需要任何权限**，而且电脑端能直接读）。
 //   以后任何异常都不用截图，我远程读这个文件就知道崩在哪一步。
 // ================================================================
-var 底座版本 = "v2.06";
+var 底座版本 = "v2.07";
 var 日志路径 = "";
 
 (function 定日志位() {
@@ -119,14 +119,15 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v2.06";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
+var APP_VERSION = "v2.07";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
 // ★ 两个网站的地址。以后换地址只改这两行（或用 记事.json 的 站点 字段覆盖，不用改代码）。
 var 默认站点 = {
     T: "https://foxfyh.github.io/gittest/TRAE同步显示与控制工具_网页客户端_手机版.html",
-    W: "https://foxfyh.github.io/gittest/wbcli.html?v=2.00"
+    W: "https://foxfyh.github.io/gittest/wbcli.html?v=2.00",
+    P: "https://foxfyh.github.io/gittest/任务面板/任务面板.html"
 };
-var 站点说明 = { T: "TRAE 网页版(AI)", W: "WorkBuddy 网页版" };
+var 站点说明 = { T: "TRAE 网页版(AI)", W: "WorkBuddy 网页版", P: "任务面板" };
 
 // ================================================================
 // 零、痕迹落点（★2026-10-15 规范：痕迹一律落 脚本/痕迹/软件痕迹/<软件名>/）
@@ -268,6 +269,7 @@ threads.start(function () {
 // ★ v1.22：刷新/设置改用图标（用户：不想看字）。设置用 U+FE0E 强制文本样式，防小米渲染成彩色 emoji。
 var 图刷新 = "\u21BB";           // ↻
 var 图设置 = "\u2699\uFE0E";     // ⚙
+var 图面板 = "\u2630\uFE0E";     // ☰ 记事本/清单（U+FE0E 强制黑白）
 
 // ★ v1.23：打包 APK 环境里 v1.21/1.22 那套带 bg/padding/layout_gravity/visibility 的 XML 起不来，
 //   改成"最保守写法"——只用 v1.20 验证过的属性（w/h/marginTop/textColor/gravity/text），
@@ -301,6 +303,7 @@ var 主XML =
     '    <text id="bW" text="W" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
     '    <text id="bR" text="' + 图刷新 + '" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
     '    <text id="bS" text="' + 图设置 + '" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
+    '    <text id="bP" text="' + 图面板 + '" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
     '  </vertical>' +
     '</frame>' +
     '</frame>';
@@ -387,7 +390,7 @@ function 屏高() { try { return context.getResources().getDisplayMetrics().heig
 function 开竖条() {
     if (条) { try { 条.根.setVisibility(0); } catch (e) {} 绑设置(); return true; }
     try {
-        条 = { 根: ui.条根, bT: ui.bT, bW: ui.bW, bR: ui.bR, bS: ui.bS };
+        条 = { 根: ui.条根, bT: ui.bT, bW: ui.bW, bR: ui.bR, bS: ui.bS, bP: ui.bP };
         if (!条.根) { 条 = null; return false; }
     } catch (e) { 条 = null; return false; }
     默认条位();
@@ -411,19 +414,20 @@ function 默认条位() {
 
 function 移条(x, y) {
     窗X = Math.max(0, Math.min(x, 屏宽() - 按钮尺寸));
-    窗Y = Math.max(0, Math.min(y, 屏高() - 按钮尺寸 * 4 - 按钮间距 * 3));
+    窗Y = Math.max(0, Math.min(y, 屏高() - 按钮尺寸 * 5 - 按钮间距 * 4));
     try {
         条.根.setTranslationX(窗X);
         条.根.setTranslationY(窗Y);
     } catch (e) {}
 }
 
-// 圆角方块：黑底 + 2px 白描边（照 TRAE远程控制APP 竖条同款 GradientDrawable 画法）
-// ★ v2.06（用户拍板的效果）：
-//   · 四颗按钮同一种"半透明黑底纹"；T/W 里**被选中的那颗底纹更黑一点**（仍半透明）。
-//   · 实现只用一条路：**每次全新 drawable，setColor 直接带透明度的颜色**——
-//     未选中 argb(220,0,0,0)（v1.20 用户认可的"黑里带灰"），选中 argb(242,0,0,0)（更黑一点，仍半透明）。
-//   · ★血泪：v2.05 用"不透明黑底 + setAlpha 调深浅"，setAlpha 那行在真机上被吞 → 不透明黑裸奔 = 四颗实心黑。
+// 圆角方块（照 TRAE远程控制APP 竖条同款 GradientDrawable 画法）
+// ★ v2.07（用户拍板，此前"选中更深"五连败后改方案）：
+//   · **所有按钮底纹恒为 argb(220,0,0,0) 半透明黑**（＝用户认可的设置按钮现在的样子），永不改变；
+//   · **选中态＝底纹不变，只把描边换成金框**（#FFD54F 3px）；未选中＝白描边 2px。
+//   · 全程不碰透明度——不可能再出现"选中变淡"。
+//   · 实现只用一条路：**每次全新 drawable，setColor 直接带透明度的颜色**。
+//   · ★血泪：v2.05 用"不透明黑底 + setAlpha 调深浅"，setAlpha 那行在真机上被吞 → 不透明黑裸奔 = 实心黑。
 //     所以这里**禁止用 setAlpha**、**禁止复用 getBackground**，深浅只写在颜色本身里。
 function 涂钮(控件, 选中) {
     if (!控件) return;
@@ -432,8 +436,8 @@ function 涂钮(控件, 选中) {
             var d = new android.graphics.drawable.GradientDrawable();
             d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
             d.setCornerRadius(Math.floor(按钮尺寸 * 0.25));
-            d.setColor(android.graphics.Color.argb(选中 ? 242 : 220, 0, 0, 0));
-            d.setStroke(2, android.graphics.Color.parseColor("#80FFFFFF"));
+            d.setColor(android.graphics.Color.argb(220, 0, 0, 0));   // 底纹恒定：所有按钮、任何状态都这一种
+            d.setStroke(选中 ? 3 : 2, android.graphics.Color.parseColor(选中 ? "#FFD54F" : "#80FFFFFF"));
             控件.setBackground(d);
         } catch (e) {}
     }
@@ -445,7 +449,6 @@ function 涂钮(控件, 选中) {
 
 function 涂条() {
     if (!条) return;
-    var 圆角 = Math.floor(按钮尺寸 * 0.25);
     try {
         var 字大 = Math.max(10, Math.floor(按钮尺寸 * 0.42));
         var 图标大 = Math.max(12, Math.floor(按钮尺寸 * 0.52));   // 符号本身比汉字"小"，放大一点才跟 T/W 一样压得住
@@ -453,7 +456,7 @@ function 涂条() {
             try { b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 字大); b.setGravity(17); } catch (e) {}
             涂钮(b, false);
         });
-        [条.bR, 条.bS].forEach(function (b) {
+        [条.bR, 条.bS, 条.bP].forEach(function (b) {
             try { b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 图标大); b.setGravity(17); } catch (e) {}
             涂钮(b, false);
         });
@@ -461,15 +464,17 @@ function 涂条() {
     画当前站();
 }
 
-// v2.03：T/W 里选中那颗底纹更黑；其余两颗永远按未选中画。字色一律纯白。
+// v2.07：选中那颗＝金框，底纹不变；其余全白框。字色一律纯白。
 function 画当前站() {
     if (!条) return;
     try { 涂钮(条.bT, 当前站 === "T"); } catch (e) {}
     try { 涂钮(条.bW, 当前站 === "W"); } catch (e) {}
+    try { 涂钮(条.bP, 当前站 === "P"); } catch (e) {}
     try { 涂钮(条.bR, false); } catch (e) {}
     try { 涂钮(条.bS, false); } catch (e) {}
     try { 条.bT.setTextColor(0xFFFFFFFF); } catch (e) {}
     try { 条.bW.setTextColor(0xFFFFFFFF); } catch (e) {}
+    try { 条.bP.setTextColor(0xFFFFFFFF); } catch (e) {}
     try { 条.bR.setTextColor(0xFFFFFFFF); } catch (e) {}
     try { 条.bS.setTextColor(0xFFFFFFFF); } catch (e) {}
 }
@@ -494,6 +499,7 @@ function 绑条手势() {
                         var 命中 = 找命中按钮(event.getRawX(), event.getRawY());
                         if (命中 === "T") { threads.start(function () { 切站("T", false); }); }
                         else if (命中 === "W") { threads.start(function () { 切站("W", false); }); }
+                        else if (命中 === "P") { threads.start(function () { 切站("P", false); }); }
                         else if (命中 === "R") { threads.start(function () { 刷新页(); }); }
                         else if (命中 === "S") { threads.start(function () { 开设置(); }); }
                     } else {
@@ -775,6 +781,7 @@ function 查命令() {
     最近备注 = "收到命令:" + c;
     if (c === "开T" || c === "T") { threads.start(function () { 切站("T", true); }); }
     else if (c === "开W" || c === "W") { threads.start(function () { 切站("W", true); }); }
+    else if (c === "开P" || c === "P") { threads.start(function () { 切站("P", true); }); }
     else if (c === "唤前") { threads.start(function () { 拉回自己(); }); }
     else if (c === "刷新") { threads.start(function () { 刷新页(); }); }
     else if (c === "设置") { threads.start(function () { 开设置(); }); }
