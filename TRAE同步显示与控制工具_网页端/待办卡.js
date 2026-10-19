@@ -39,12 +39,15 @@ function pendStat(p){
      排队条）。现在一律按「卡在哪一环」说人话，用户实测后拍板。 */
   if (p.state === 'typed')   return ['已输入 TRAE…', ''];
   if (p.state === 'queued')  return ['已进 TRAE 官方排队条，等待 AI 处理…', 'ok'];
-  if (p.state === 'sent')    return ['服务器已执行，等待聊天记录浮现…', 'ok'];
+  if (p.state === 'sent')    return ['TRAE 已执行，等待聊天记录浮现…', 'ok'];
   /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
      历史残留兼容，文案不再写死 15 秒 */
   if (p.state === 'timeout') return ['⚠ 可能未送达（可丢弃/改写/重发）', 'bad'];
-  /* sending：send 与 interject 同义——都是「已交给服务端，等它动手」 */
-  return ['已发出，等待服务器执行…', ''];
+  /* sending：send 与 interject 同义——都是「已交给服务端，等它动手」。
+     v2.83（老板口径）：销卡已「跳步」——消息一进 TRAE 官方排队条即销卡，
+     不再死等「已发出」确认；故文案改为「等 TRAE 收进排队条」（不再误导为
+     「等待服务器执行/回应」）。 */
+  return ['已发出，等 TRAE 收进排队条…', ''];
 }
 
 function renderPending(){
@@ -132,9 +135,11 @@ function renderPending(){
 
 /* ============ v2.82：销卡改「首行 DID」硬数据（老板 2026-10-19 终极办法） ============
    网页版发送时把本机时间 14 位 `YYYYMMDDHHMMSS` **插入正文第一行** 作 DID；
-   占位卡键＝(会话名, DID)。销卡两路（**不再用 did_ack／相似度**）：
-   ① 本会话快照里抓到该 DID（对话记录首行，网页端自扫，见 事件总线.js）；
-   ② 服务端广播 did_pool（最近 10 条由网页版发出、且已进流的 DID）。
+   占位卡键＝(会话名, DID)。v2.83（老板口径）：销卡**三渠道任一命中 ⇒ 立刻
+   销卡**（跳步，不死等「已发出」确认；**不再用 did_ack／相似度**）：
+   ① 对话记录——本拍快照【人类的发言】首行抓到该 DID（网页端自扫，见 事件总线.js）；
+   ② 官方排队条——本拍快照 v.pend 每项 t 首行抓到该 DID（同上，事件总线.js）；
+   ③ 服务端广播 did_pool（最近 10 条由网页版发出、且已进流的 DID）。
    旧「按 did_ack 秒消 / 按文本前 N 字识别」（pendHead100/pendContains/normTxt
    及 pendReconcile 里的 msgs 文本比对）**全部作废**。 */
 

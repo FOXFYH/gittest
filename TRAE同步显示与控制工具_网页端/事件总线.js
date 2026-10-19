@@ -13,7 +13,8 @@ function onEv(kind, v){
     }
     case 'did_pool': {                 /* v2.82：服务端广播「最近 10 条由网页版
         发出、且已进流」的 DID 池（帧 v={sid, 会话名, dids:[新→旧]}）——兜底
-        销卡（有些会话不在本拍快照里）。did_ack/did_miss 已整条作废，不处理。 */
+        销卡（有些会话不在本拍快照里）。did_ack/did_miss 已整条作废，不处理。
+        v2.83（老板口径）：这是**销卡渠道②**——池子里出现该 DID ⇒ 立刻销卡。 */
       const dp = v || {};
       if (Array.isArray(dp.dids) && dp.dids.length){
         let ch = false;
@@ -43,11 +44,21 @@ function onEv(kind, v){
          供 会话列表.js 渲染后缀/指纹与右键菜单读取（钩子缺失则跳过）。 */
       if (window.备注入快照) 备注入快照(v);
       if (window.定时入快照) 定时入快照(v);
-      /* v2.82：销卡路①——本拍快照（对话记录）每条消息【首行】抓到 14 位 DID
-         ⇒ 该 DID 已进流，按 (会话名, DID) 撤卡。硬数据、不再用相似度 did_hits。 */
+      /* v2.82/v2.83（老板口径）：销卡**三渠道任一命中 ⇒ 立刻销卡**（跳步，
+         不死等「已发出」确认）。
+         ① 本拍快照的【对话记录】——⚠ **只查「人类的发言」**（role=u，即
+            「我」发出的消息）的【首行】14 位 DID；AI 发言不带 DID、绝不误判。
+         ③ 本拍快照的【官方排队条】（v.pend 每项 t）——消息一进 TRAE 官方队列
+            即算「已发出」，不必等它落进对话记录；命中该 DID 同样立刻销卡。
+         （② 服务端 did_pool 广播在下方 did_pool 分支处理。） */
       const _ct = curTitle();
-      (v.msgs || []).forEach(m => {
-        const _d = firstLineDid(m && m[1]);
+      (v.msgs || []).forEach(m => {          /* ① 只扫人类发言 */
+        if (!m || m[0] !== 'u') return;
+        const _d = firstLineDid(m[1]);
+        if (_d) pendClearByDid(_d, _ct);
+      });
+      (v.pend || []).forEach(it => {         /* ③ 官方排队条 */
+        const _d = firstLineDid(it && it.t);
         if (_d) pendClearByDid(_d, _ct);
       });
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
