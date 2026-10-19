@@ -40,6 +40,18 @@ function srvNeedOnline(label){
   srvOpFlash('offline', label, '命令未发出，稍后再试');
   return true;
 }
+/* 2.87：带「真实发送信号」的服务器命令出口——②「等待服务器受理…」只在
+   报文确实写上线时才播报；WS 未就绪则报 ① 并返回 false（绝不假装已发）。
+   命令本身仍走 sendCmd（协议/命令字零改动）。 */
+function srvOpSend(cmd, arg, label, extra){
+  if (!S.onLine){
+    srvOpFlash('offline', label, '命令未发出（WS 未就绪），稍后再试');
+    return false;
+  }
+  sendCmd(cmd, arg);
+  srvOpFlash('sent', label, extra);        /* ②：已发出，等待服务器受理 */
+  return true;
+}
 /* 本专项 A2/A3：切换文案唯一出口——状态栏（输入界面.js）、
    会话点击提示（会话列表.js）两处共用此函数，杜绝
    「正在切换」/「正在切换到」两套文案漂移。

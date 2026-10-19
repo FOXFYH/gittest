@@ -282,6 +282,8 @@ function switchTimeout(){
   const sp = S.switch_pend; if (!sp || sp.phase === 'ok') return;
   switchFail(sp.title);                 /* 满 60s 未成功 → 宣布失败 */
   switchClear();
+  /* 2.87：超时收口后若仍钉在旧本地存帧 → 撤覆盖，回落真快照 */
+  if (S.livePend && typeof liveClear === 'function') liveClear();
 }
 /* 成功收口：显示「切换成功」2 秒，然后交回当前状态灯（用户：成功不常驻） */
 function switchOk(){
@@ -292,6 +294,8 @@ function switchOk(){
     sp.phase = 'ok';
     flash('切换成功', 'var(--green)');
   }
+  /* 2.87：成功收口也撤「直播帧覆盖」（防失败/超时后 livePend 残留钉住旧内容） */
+  if (S.livePend && typeof liveClear === 'function') liveClear();
   renderAll();
   sp._okT = setTimeout(function(){
     if (S.switch_pend === sp) switchClear();
@@ -302,6 +306,11 @@ function switchClear(){
   const sp = S.switch_pend; if (!sp) return false;
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
+  /* 2.87：切换收口统一补一处——若「直播帧覆盖」仍置位则清除，让页面回落
+     真快照（旧实现只有 事件总线.js:42「桌面选中行＝锚定」才会 liveClear，
+     失败/超时、或桌面被后台投递/借框抢走时永不触发 ⇒ 页面被永久钉在旧
+     本地存帧、上翻拉历史也被禁）。成功路径 liveClear 已先执行＝空操作。 */
+  if (S.livePend && typeof liveClear === 'function') liveClear();
   renderAll();
   return true;
 }

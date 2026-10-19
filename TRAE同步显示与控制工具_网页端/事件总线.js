@@ -352,6 +352,8 @@ function onEv(kind, v){
       break;
     case 'cmderr':
       flash('命令失败：' + v);
+      /* 2.87：在途的「重命名」用真实失败信号收口（不无信号播报成功） */
+      if (window.renameFail) renameFail(v);
       /* 1.11：新建弹窗流程出错 → 收起弹窗（否则卡在「正在展开」） */
       if (S.task_open){ taskDlgClose(); }
       /* 1.09：命令报错 → 在途占位立刻标「未确认」，别让用户干等 15s */

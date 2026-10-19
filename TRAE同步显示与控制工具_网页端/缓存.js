@@ -109,10 +109,14 @@ function reqHistPrev(conv, from_seq, count){
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
   sendJson({t: 'req', id: id, c: 'hist_prev', conv: conv || '',
             from_seq: from_seq | 0, count: count | 4});   /* 2.49：每次补 4 条 */
-  /* 2.49：兜底——服务端 8 秒没回也别把「正在取回历史记录…」挂死、别锁死防重入 */
+  /* 2.49：兜底——服务端 8 秒没回也别把「正在取回历史记录…」挂死、别锁死防重入。
+     2.85：兜底时**同时清 histPullFrom**——否则「近顶分支」见
+     `S.histPullFrom === first.seq`（起始游标未推进）会误判「已到底」，
+     把 histEnd 置真、此后永不再拉（深采回包 >8s 时必现）。 */
   setTimeout(function(){
     if (S.histLoadingPrev && S.histPullFrom === (from_seq | 0)){
       S.histLoadingPrev = false;
+      S.histPullFrom = 0;              /* 2.85：清游标，避免近顶误判「到底」 */
     }
   }, 8000);
 }
@@ -153,12 +157,21 @@ function prependHist(conv, older, end){
   if (end) S.histEnd = true;          /* 2.49：服务端判到底 → 不再请求 */
   if (conv !== S.histConv) return;
   if (!Array.isArray(older) || !older.length) return;
-  const h = el.msgs.scrollHeight;              /* 保阅读位置 */
-  S.histRaw = older.concat(S.histRaw || []);
+  const h = el.msgs.scrollHeight, t0 = el.msgs.scrollTop;   /* 2.85：记「旧高＋旧位」 */
+  /* 2.85：按 seq 去重并入——8s 兜底清游标后可能「旧包未回、新包又发」，两个
+     回包同段会重复并入并重复上屏（且扰 curMsgs 的 cut 定位）；这里同 seq 只并一次。 */
+  const _have = new Set((S.histRaw || []).map(x => x.seq));
+  S.histRaw = older.filter(r => !_have.has(r.seq)).concat(S.histRaw || []);
   S.histMsgs = S.histRaw.map(ledToArr);
   histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
   renderAll();
-  el.msgs.scrollTop = el.msgs.scrollHeight - h;
+  /* 2.85：按「增量」还原阅读位置。旧写法 `scrollTop = 新height - 旧height`：
+     ①用户在中间读（t0>0）时被硬拽回相对顶部（新-旧往往很小甚至为 0）；
+     ②renderAll() 空转（renderMsgs 指纹相同直接 return，或 curMsgs 未把补拉行
+     上屏）时新==旧 ⇒ 赋值 0 ⇒ 跳到最顶上；且该赋值还抛 scroll 事件 →
+     近顶分支再发请求 →「鬼打墙」。增量写法：位置 = 旧位 + max(0, 增长量)；
+     内容没长高则原地不动（不抛事件，根断重入）。 */
+  el.msgs.scrollTop = t0 + Math.max(0, el.msgs.scrollHeight - h);
 }
 /* —— 会话历史打开：秒显本地 + 发请求式增量 —— */
 function ensureHist(){

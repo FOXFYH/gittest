@@ -24,6 +24,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
     + '#a:' + (S.anchorSid || '');
   if (key === S.convs_key) return;
   S.convs_key = key;
+  /* 2.87：重命名完成对账——会话行标题真变成目标新名即收口「成功」
+     （真实信号；列表标题在指纹里，改名必致 key 变化 → 必到这里）。 */
+  renameScanRows(rows);
   el.convs.innerHTML = '';
   let inFolder = false, idx = 0;
   /* 1.31：按位取值（兼容旧 3 元组）——r[3]=状态灯 run/done/fail/stop/''
@@ -179,10 +182,12 @@ function convMenuOpen(title, sid, sKey){
         return;
       }
       ov.remove();
-      const nn = (prompt('重命名会话', title) || '').trim();
-      if (!nn || nn === title) return;
-      sendCmd('conv_rename', sid ? [sid, title, nn] : [title, nn]);
-      srvOpFlash('sent', '重命名', '「' + nn + '」');   // 2.85：② 等待服务器回应
+      /* 2.87：改「就地弹层」——不再用浏览器原生 prompt（移动端内置
+         浏览器 / 部分 WebView 会静默屏蔽 prompt：既不弹框、流程还直接
+         return，于是「点了重命名啥也没有、也没弹窗」）。开层即有反馈；
+         提交后走四态：①未连 WS→「正在连接 WS…」②已发出→「等待服务器
+         受理…」④会话名真被改成新名（快照对账）→「成功」；失败/超时如实。*/
+      renameDlgOpen(title, sid);
     };
   });
   document.body.appendChild(ov);
@@ -190,6 +195,88 @@ function convMenuOpen(title, sid, sKey){
      保证两个功能可整块摘除、本文件不膨胀。 */
   if (window.备注菜单项) 备注菜单项(sKey, title, ov);
   if (window.自我激活菜单项) 自我激活菜单项(sKey, title, ov);
+}
+
+/* ============ 2.87：重命名就地弹层 + 四态反馈 ============
+   起因（老板 2026-10-19 22:34）：点「✎ 重命名」后「啥反馈也没有、也没弹窗」。
+   断点＝本函数原来用浏览器原生 prompt()：移动端内置浏览器/部分 WebView 会
+   【静默屏蔽】prompt（不弹框、直接返回 null），于是 `if (!nn) return` 悄悄
+   退出——无弹窗、无提示。改为本端自绘弹层，任何时候都可见可交互；提交后
+   四态：① 未连 WS→「正在连接 WS…」（srvNeedOnline，命令不发出）；
+   ② 已发出→「等待服务器受理…」（srvOpSend，绑 S.onLine 真实信号）；
+   ④ 会话名真被改成新名（快照对账）、或 cmderr/超时→如实报失败。
+   ③（服务端受理 ack）本命令服务端 WS 路径暂无回调，收到即播报——现为缺项。*/
+let 重命名在途 = null;
+function renameDlgOpen(title, sid){
+  const old = $('renmask');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'renmask';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;'
+    + 'background:rgba(0,0,0,.45);display:flex;align-items:center;'
+    + 'justify-content:center;';
+  ov.innerHTML = '<div id="renbox" style="background:#fff;border-radius:12px;'
+    + 'padding:16px;width:86%;max-width:420px;box-shadow:0 8px 30px rgba(0,0,0,.3);">'
+    + '<div style="font-weight:bold;font-size:15px;margin-bottom:10px;">'
+    + '✎ 重命名会话</div>'
+    + '<input id="renin" autocomplete="off" autocapitalize="off" value="'
+      + esc(title) + '" style="width:100%;box-sizing:border-box;padding:10px;'
+      + 'font-size:15px;border:1px solid var(--bd,#ccc);border-radius:8px;">'
+    + '<div id="renerr" style="color:var(--red,#c00);font-size:12px;'
+      + 'min-height:16px;margin-top:4px;"></div>'
+    + '<div style="display:flex;gap:8px;margin-top:6px;">'
+    + '<button id="rencancel" style="flex:1;padding:10px;border:1px solid '
+      + 'var(--bd,#ccc);border-radius:8px;background:#f6f6f6;">取消</button>'
+    + '<button id="renok" style="flex:1;padding:10px;border:0;border-radius:8px;'
+      + 'background:var(--blue,#1565c0);color:#fff;font-weight:bold;">确定</button>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  /* 开层即反馈——「点了没反馈」到此为止（此前 prompt 被屏蔽时连这句都没有）。 */
+  flash('重命名「' + title + '」：输入新名称后点「确定」', 'var(--blue)');
+  const inp = $('renin'), err = $('renerr');
+  setTimeout(() => { try { inp.focus(); inp.select(); } catch(e){} }, 60);
+  const close = () => ov.remove();
+  $('rencancel').onclick = close;
+  ov.onclick = e => { if (e.target === ov) close(); };
+  const go = () => {
+    const nn = (inp.value || '').trim();
+    if (!nn){ err.textContent = '名称不能为空'; return; }
+    if (nn === title){ close(); flash('名称未变，未发送', 'var(--blue)'); return; }
+    if (srvNeedOnline('重命名')) return;            /* ①：未连 WS，命令不发出 */
+    if (!srvOpSend('conv_rename', sid ? [sid, title, nn] : [title, nn],
+                   '重命名', '「' + nn + '」')) return;   /* ②：已发出 */
+    clearTimeout(重命名在途 && 重命名在途.timer);
+    重命名在途 = {sid: sid || '', to: nn, timer: null};
+    重命名在途.timer = setTimeout(() => {
+      if (重命名在途 && 重命名在途.to === nn){
+        重命名在途 = null;
+        srvOpFlash('fail', '重命名', '超时未见结果，请刷新确认', 6000);
+      }
+    }, 30000);                                       /* 失败/超时如实（无信号不宣告成功） */
+    close();
+  };
+  $('renok').onclick = go;
+  inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) go(); };
+}
+/* 2.87：快照对账——某会话行标题已变成目标新名 ⇒ 重命名成功（真实信号，非乐观宣告） */
+function renameScanRows(rows){
+  if (!重命名在途) return;
+  const hit = (rows || []).some(r => r && r[0] === 'c'
+    && (r[1] || '') === 重命名在途.to
+    && (!重命名在途.sid || (r[4] || '') === 重命名在途.sid));
+  if (hit){
+    const nn = 重命名在途.to;
+    clearTimeout(重命名在途.timer);
+    重命名在途 = null;
+    srvOpFlash('ok', '重命名', '已改为「' + nn + '」');
+  }
+}
+/* 2.87：命令失败（cmderr）→ 如实收口（由 事件总线.js cmderr 分支转调） */
+function renameFail(reason){
+  if (!重命名在途) return;
+  clearTimeout(重命名在途.timer);
+  重命名在途 = null;
+  srvOpFlash('fail', '重命名', String(reason || '').slice(0, 40));
 }
 
 /* ============ 1.09：待确认项（空窗期反馈） ============
