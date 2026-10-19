@@ -37,10 +37,20 @@ select{font-size:12px;}
   text-overflow:ellipsis; cursor:pointer;}
 .h2row{display:flex; align-items:center; gap:5px; padding:0 8px 2px;
   flex-wrap:wrap;}
-#cmb_model{flex:1; min-width:0;}
+/* 2.03：模型下拉宽度 −30%（老板 2026-10-19 口径）——顶栏控制行里
+   原本只有 #cmb_model 一个可伸缩项(flex:1)＝独占全部余量；现把余量按
+   3:7 分给「账号切换 / 模型下拉」两项 → 模型下拉只拿 7/10（＝原 100% 的
+   70%），让出的 30% 补给账号切换下拉（账号切换仍是本行左起第一格）。
+   同排其它控件（⟳ 重扫 / 积分 / ☆）仍 flex:none，尺寸不受影响。 */
+#cmb_model{flex:7 1 0; min-width:0;}
 #lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
-#cmb_acct{flex:0 0 60px; min-width:0; font-size:12px;}
-#btn_acct_scan{flex:none; padding:0 5px; font-size:12px; line-height:1.4;}
+#cmb_acct{flex:3 1 0; min-width:0; font-size:12px;}
+/* 2.03：「⟳ 重扫本机安装」按钮改正方形 36×36（老板 2026-10-19 口径：
+   原为扁条/长条，看着不美观）——只调宽高与内边距，图标(⟳)不变。
+   空间让给同排的账号切换下拉（见上行注释）。 */
+#btn_acct_scan{flex:none; width:36px; min-width:36px; height:36px;
+  min-height:36px; padding:0; font-size:14px; line-height:1;
+  display:inline-flex; align-items:center; justify-content:center;}
 #statebar{flex:none; text-align:center; font-size:12px; padding:1px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -268,6 +278,16 @@ body.fmsg #fexit{display:block;}
    本版不做「取回」⇩ 按钮（用户口径：CLI 版不需要那个按钮）。 */
 #btn_copy{display:none;}
 #input_row.grow #btn_copy{display:inline-flex; order:1;}
+/* 2.03：新增「急」加急插入按钮（对齐 TRAE T63）——同款正方形 36×36；
+   未选＝白底常态 / 选中＝红底白字（醒目、可辨）；小态隐藏、放大态才出现
+   （`order:1` 跳顶行，与 📋 同排）。纯按钮切换（非原生 checkbox），
+   不落任何持久配置（每次打开回到未选）。 */
+#btn_urgent{width:36px; min-width:36px; height:36px; min-height:36px;
+  padding:0; flex:none; font-size:14px; font-weight:bold; color:#333;
+  background:#fff; border:1px solid var(--bd); display:none;
+  align-items:center; justify-content:center;}
+#input_row.grow #btn_urgent{display:inline-flex; order:1;}
+#btn_urgent.on{color:#fff; background:var(--red); border-color:var(--red);}
 #ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
@@ -558,6 +578,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
   <button id="btn_fvwr" title="打开本地文件查看器，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
   <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
+  <button id="btn_urgent" title="加急插入对话流（勾上后本次发送若进托管队列则立即插队发送、不干等队尾；默认不记忆）" data-page-node-id="WBurgentT63Btn20261019">急</button>
   <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
   <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
@@ -1076,6 +1097,10 @@ const S = {
      （服务端 checkin_state 下发的「账号枚举＋上次结果」合并行）。 */
   checkin_rows: [],
   attach_pending: null,
+  /* 2.03：加急插入勾选（输入框放大态「急」）——true=本次发送若进托管队列
+     则立即插队发送（发 queue_sendnow 立刻放行、不干等队尾）。**只活在本会话
+     内存里、不落任何持久配置**：每次打开/刷新页面都回到 false（未选中）。 */
+  urgent: false, urgentRid: '',
   model_map: {}, model_busy: false,
   /* 1.50 模型校验：
      verify={sel, n, t}——发消息时记下「所选模型 + 当时回复序号」，回复到达
@@ -1167,6 +1192,7 @@ const el = {
   edit_row: $('edit_row'),                    /* 1.53：队列取回修改横幅 */
   attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
   copy: $('btn_copy'),                       /* 1.40：复制输入框内容（放大态） */
+  urgent: $('btn_urgent'),                   /* 2.03：加急插入勾选（放大态「急」） */
   input_row: $('input_row'),
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
@@ -3870,7 +3896,15 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.02';   /* 2.02：TTS 链路改「串行 · 优先 WS · 30 秒才兜底」（老板 2026-10-19
+const VER = '2.03';   /* 2.03：三处 UI/功能对齐 TRAE 侧（老板 2026-10-19 口径）——
+   ①输入框放大态新增「急」加急按钮（对齐 TRAE T63，功能同步）：勾上后本条若
+     进托管队列，网页端立即补发 queue_sendnow（服务端把该条提到队首、中止当前轮
+     并立刻放出）＝插队立即发送、不干等队尾；未勾＝原行为一字不变；不落持久配置。
+   ②顶栏模型下拉宽度 −30%：原只有 #cmb_model 一个可伸缩项(flex:1)独占余量，
+     改为与账号切换按 3:7 分担 → 模型拿 70%（＝原 100% 的 70%），让出的 30% 补给
+     账号切换下拉（仍是顶栏控制行左起第一格）。
+   ③「⟳ 重扫本机安装」按钮改正方形 36×36（原扁条），同排更美观。
+   2.02：TTS 链路改「串行 · 优先 WS · 30 秒才兜底」（老板 2026-10-19
    口径，与 TRAE 侧同一标准）——网页端点 ▶/试听时**只走一条**路：默认**优先 WS 直连**；
    同一请求绝不并发走两条；直连这条满 30 秒（TTS_GRACE 2500→30000）仍没给出结果，才串行切
    到服务端本机中转兜底；任一路先给出结果即收口、另一路绝不再发（同一 id 只真正发出一次
@@ -4634,6 +4668,17 @@ function onEv(kind, v){
       flash(qstage === 'sent' ? '▶ 托管队列已放行发出 1 条'
                               : '🕘 已挂入托管队列（服务端已确认收到）',
             qstage === 'sent' ? 'var(--green)' : 'var(--orange)');
+      /* 2.03：加急勾选——本机带「急」发出的那条刚进托管队列（stage='wait'，
+         条目 id 即其 rid）→ 立即补发 queue_sendnow：服务端把该条提到队首、
+         中止当前轮并立刻放出（＝「立即插队发送」、不干等队尾）。只认本机
+         自己的 rid。stage='sent'（直发已受理）时无队列可插，清标记即可。 */
+      if (qrid && qrid === S.urgentRid){
+        S.urgentRid = '';
+        if (qstage === 'wait'){
+          sendCmd('queue_sendnow', qrid);
+          flash('急：已立即插队发送（不等队尾）', 'var(--red)');
+        }
+      }
       S.msgs_key = null;
       renderAll();
       break;
@@ -5157,6 +5202,10 @@ function cmd(c, a, lockConv){
   if (pendConv) cex.conv = pendConv;
   sendCmd(c, a, (cex.rid || cex.conv) ? cex : null);
   if (c === 'send' || c === 'interject'){
+    /* 2.03：加急勾选——记下本条占位卡的 rid；本条若随即进托管队列（收到
+       stage='wait' 的 queued 回执，条目 id 即此 rid），立即补发 queue_sendnow
+       插队放行、不干等队尾（见 'queued' 分支）。空闲直发不经队列 → 无副作用。 */
+    if (S.urgent && rid){ S.urgentRid = rid; }
     if (gen) flash('🕘 已加入托管队列，本轮结束后自动发送（若久无回执可重发）',
                    'var(--orange)');
     else if (c === 'send') flash('⏳ 正在发送…（已回显，等待 WorkBuddy 同步）',
@@ -5296,6 +5345,19 @@ bindGrowBtn(el.copy, () => {     // 1.40：一键复制输入框内容（放大�
   /* 判空必须走 trim —— 框内恒有 3 个空行，`!t` 会假报"已复制" */
   if (!t.trim()){ flash('输入框是空的，没东西可复制'); return; }
   copyText(t);                   // 复用 1.24 的 copyText（含非安全上下文兜底）
+});
+/* 2.03：「急」加急插入勾选（放大态顶行）——对齐 TRAE T63。
+   未选＝白底常态 / 选中＝红底（醒目）。点它＝取反本次发送的「加急」标志
+   （S.urgent，进托管队列时随该条立即发 queue_sendnow 插队放行）。
+   **不写任何持久配置**，每次打开/刷新页面 S.urgent 即回 false、按钮回白底。
+   用 bindGrowBtn：按下即切换且挡住输入框失焦（否则 grow 被摘、按钮瞬间消失
+   ——同 📋 的踩坑）。 */
+bindGrowBtn(el.urgent, () => {
+  S.urgent = !S.urgent;
+  el.urgent.classList.toggle('on', S.urgent);
+  flash(S.urgent ? '急：本次发送若排队将立即插队发送（不等队尾）'
+                 : '急：已取消加急（本次按常规排队发送）',
+        S.urgent ? 'var(--red)' : 'var(--gray)', 1500);
 });
 el.new.onclick = () => {         // 1.68：CLI 无目录可选、无输入区要「展开」——
   drawerClose();                 // 直接建新会话，不再绕「新建任务」弹窗页（少一页）
