@@ -259,7 +259,7 @@ function ttsPreview(){
   if (ttsRoute(id, seg, payload)){
     ttsFlash('正在合成试听…', 'var(--blue)');
   } else {
-    ttsFlash('直连未就绪，2.5 秒内未连通将自动回落服务端…', 'var(--orange)');
+    ttsFlash('直连未就绪，30 秒内未连通将自动回落服务端…', 'var(--orange)');
   }
 }
 if (el.btn_tts_preview) el.btn_tts_preview.onclick = ttsPreview;

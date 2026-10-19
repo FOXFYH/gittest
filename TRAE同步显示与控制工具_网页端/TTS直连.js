@@ -12,11 +12,18 @@
      （音频按 ≤10KB 应用层切片、每片仍单段），不触发分批/补发路径。
 
    ★ 铁律：同一个 id 只允许真正发出一次请求（直连 或 服务端 二选一），
-   绝不两边同时发 → 不会出现两份相同语音。默认直连；TTS_GRACE 毫秒内直连
-   未连通才回落服务端；直连一回 tts_error 允许一次服务端兜底；直连一连通即
-   把仍在等待的请求改走直连、不再回落。 */
+   绝不两边同时发 → 不会出现两份相同语音。
+
+   ★ 2.78（用户 2026-10-19 口径）：串行 + 优先 WS + 30 秒无回执才切线路——
+     · 同一请求先试 WS 直连（默认通道）；WS 满 30 秒内没有任何回执，才串行改走
+       服务端中转（TTS_GRACE=30000）；绝不同时发两条、不重复干活。
+     · 任一路一旦收到任何回执（tts_ack）即认定该路活着 → 撤掉 30 秒看门狗，
+       不再切另一条；音频交付（ttsDeliver）后整条请求收口（天然去重）。
+     · WS 没连上就点播：先企图连上 WS（仍给 30 秒窗口），到点仍连不上/无回执 →
+       直接走服务端；某一路回 tts_error → 也可立即兜底一次。
+     · 同一 id 最多「WS 发一次 + 服务端发一次」，先后串行、不并发。 */
 const TTS_PFX = 'TTS';
-const TTS_GRACE = 2500;                      // 直连等待窗口（毫秒），超时回落服务端
+const TTS_GRACE = 30000;                     // 30 秒：一条线路无任何回执才串行切下一条（用户 2026-10-19 口径）
 function ttsChannelUrl(){
   const u = new URLSearchParams(location.search).get('tts');
   if (u) return u;                          // ?tts= 高级覆盖（不改持久化）
@@ -28,7 +35,7 @@ let ttsFailStreak = 0, ttsDeadline = 0;
 const TTS_BACKOFF = [2000, 4000, 8000];      // 逐次退避（13.3）
 const TTS_DEADLINE = 60000;                  // 单链路总时限（13.3）
 const _tts_parts = {};                       // id → 音频分片累加器 {n,total,bin}
-const _tts_fb = {};                          // id → 兜底状态 {tm:定时器|null, used:bool}
+const _tts_fb = {};                          // id → 线路状态 {wd:看门狗|null, used:bool, line:''|'ws'|'srv'}
 
 function ttsPayload(id){
   /* 由在途请求那段的文本重建一条 tts 请求（回落服务端时用同一条 payload） */
@@ -41,38 +48,63 @@ function ttsClear(id){
   delete _tts_pend[id];
   delete _tts_parts[id];
   const f = _tts_fb[id];
-  if (f && f.tm) clearTimeout(f.tm);
+  if (f && f.wd) clearTimeout(f.wd);
   delete _tts_fb[id];
 }
+function _ttsArmWatch(id){
+  /* 给一条在途请求挂 30 秒看门狗：任一路满 TTS_GRACE 仍无任何回执 → 串行切下一条 */
+  const f = _tts_fb[id];
+  if (!f) return;
+  clearTimeout(f.wd);
+  f.wd = setTimeout(() => ttsWatchdog(id), TTS_GRACE);
+}
+function ttsWatchdog(id){
+  /* 30 秒无任何回执的看门狗（串行切换的唯一入口）：同 id 每条线最多发一次。 */
+  const f = _tts_fb[id];
+  if (!_tts_pend[id]){ if (f) delete _tts_fb[id]; return; }
+  if (!f) return;
+  f.wd = null;
+  const wsReady = ttsOnLine && ttsWs && ttsWs.readyState === 1;
+  if (f.line === 'ws'){
+    /* WS 已发但 30 秒无回执 → 串行改走服务端（仅此一次） */
+    if (f.used) return;
+    f.used = true; f.line = 'srv';
+    try { sendJson(ttsPayload(id)); } catch(e){}
+    return;
+  }
+  if (f.line === 'srv') return;             // 已是最后一条线，交给 60s 兜底清场
+  /* line===''（WS 一直没连上、还没真正发过）→ 优先补发 WS；还不行才服务端 */
+  if (wsReady && ttsFoxSend(ttsPayload(id))){
+    f.line = 'ws'; _ttsArmWatch(id);
+    ttsStage(_tts_pend[id].seg, '任务已提交', 'var(--blue)');
+    return;
+  }
+  f.used = true; f.line = 'srv';
+  try { sendJson(ttsPayload(id)); } catch(e){}
+}
 function ttsRoute(id, seg, payload){
-  /* 统一发送路由（外部唯一入口）：直连为默认，直连不通才在 TTS_GRACE 后回落
-     服务端本机中转（备用兜底）。返回 true = 已由直连真正发出。 */
+  /* 统一发送路由（外部唯一入口）：优先 WS 直连（默认通道）；WS 30 秒内无任何
+     回执才串行回落服务端本机中转。返回 true = 已由直连真正发出。 */
   const j0 = _tts_pend[id];
   if (j0) j0.text = payload.text;  // 试听 seg 是占位串，兜底重建 payload 要用真文本
   if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(payload)){
-    return true;                            // 只走直连，绝不再碰服务端
+    _tts_fb[id] = {wd: null, used: false, line: 'ws'};
+    _ttsArmWatch(id);                       // 只走直连；30 秒无回执才切服务端
+    return true;
   }
-  ttsEnsure();                              // 直连没就绪：立刻起一次连接
-  _tts_fb[id] = {tm: setTimeout(() => ttsFallback(id), TTS_GRACE), used: false};
+  ttsEnsure();                              // 直连没就绪：立刻起一次连接（30 秒窗口）
+  _tts_fb[id] = {wd: null, used: false, line: ''};
+  _ttsArmWatch(id);
   return false;
 }
-function ttsFallback(id){
-  /* TTS_GRACE 到点：直连仍不通才走服务端；若已被某路交付则什么都不做。 */
-  const f = _tts_fb[id];
-  if (!_tts_pend[id]){ if (f) delete _tts_fb[id]; return; }
-  if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
-    if (f) f.tm = null;                     // 直连赶上了：改走直连
-    return;
-  }
-  if (f) f.used = true;                     // 标记本 id 兜底已用（同 id 最多一次）
-  try { sendJson(ttsPayload(id)); } catch(e){}   // 备用：经主频道发服务端中转
-}
 function ttsErrorFallback(id){
-  /* 直连回 tts_error：允许一次服务端兜底。返回 true = 已发起兜底。 */
+  /* 某一路回 tts_error：串行切到另一条（服务端中转），同 id 最多一次。
+     返回 true = 已发起服务端兜底。 */
   const f = _tts_fb[id];
-  if (f && f.tm){ clearTimeout(f.tm); f.tm = null; }
-  if (f && f.used) return false;            // 已用过兜底 → 不再重试
-  if (f) f.used = true; else _tts_fb[id] = {tm: null, used: true};
+  if (f && f.wd){ clearTimeout(f.wd); f.wd = null; }
+  if (f && f.used) return false;            // 兜底已用尽 → 不再重试
+  if (f){ f.used = true; f.line = 'srv'; }
+  else _tts_fb[id] = {wd: null, used: true, line: 'srv'};
   try { sendJson(ttsPayload(id)); return true; } catch(e){ return false; }
 }
 function ttsFoxSend(obj){
@@ -122,13 +154,14 @@ function ttsEnsure(){
   return false;
 }
 function ttsFlushWait(){
-  /* 直连一通：把仍在等待窗口、还没真正发出的请求立即改走直连（不再回落服务端） */
+  /* 直连一通：把仍在等待窗口、还没真正发出的请求立即改走直连（优先 WS），
+     并重挂 30 秒看门狗（发过 WS 仍无回执才切服务端）。 */
   Object.keys(_tts_fb).forEach(id => {
     const f = _tts_fb[id];
-    if (!f || f.used || !f.tm) return;      // 已用兜底 / 已发出 → 不动
-    if (!_tts_pend[id]){ clearTimeout(f.tm); delete _tts_fb[id]; return; }
+    if (!f || f.used || f.line) return;      // 已切线路 / 已发过 WS → 不动
+    if (!_tts_pend[id]){ clearTimeout(f.wd); delete _tts_fb[id]; return; }
     if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
-      clearTimeout(f.tm); f.tm = null;
+      f.line = 'ws'; _ttsArmWatch(id);
       ttsStage(_tts_pend[id].seg, '任务已提交', 'var(--blue)');
     }
   });
@@ -187,6 +220,9 @@ function onTtsAck(d){
   /* TTS 阶段回执——recv=已收到并受理、conv=引擎已开始合成 */
   const j = _tts_pend[d.id];
   if (!j) return;
+  /* 2.78：任一路收到回执＝该路活着 → 撤掉 30 秒看门狗，绝不再切另一条（不重复干活） */
+  const f = _tts_fb[d.id];
+  if (f && f.wd){ clearTimeout(f.wd); f.wd = null; }
   const conv = (d.st === 'conv');
   const txt = conv ? 'TTS 引擎正在转换…' : 'TTS 已收到，引擎正在转换…';
   ttsStage(j.seg, txt, 'var(--blue)');

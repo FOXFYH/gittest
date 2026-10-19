@@ -285,7 +285,7 @@ function foxPlay(seg){
       ttsStage(seg, '任务已提交', 'var(--blue)');
       flash('🔈 任务已提交，等 TTS 接收…', 'var(--blue)');
     } else {
-      ttsStage(seg, '直连未就绪，2.5 秒内未连通将自动回落服务端…', 'var(--orange)');
+      ttsStage(seg, '直连未就绪，30 秒内未连通将自动回落服务端…', 'var(--orange)');
       flash('🔈 直连未就绪，稍后自动回落服务端…', 'var(--orange)');
     }
   };
