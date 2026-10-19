@@ -293,12 +293,14 @@ function onEv(kind, v){
       applySwitch(v[0], v[1]);
       break;
     case 'switch_ack':           /* 2.67 切换过程状态机：服务端已收到命令回执
-                                    → 从「等待服务器回应」转「正在切换中」 */
+                                    → 从「等待服务器回应」转「正在切换中」；2.81：收到
+                                    回执即【静默等待】，停掉补发定时器、不再 re-arm 补发，
+                                    只保留 60s 超时兜底（服务器已接收就不再打扰） */
       if (S.switch_pend && _swMatch(S.switch_pend, v)){
         if (S.switch_pend.phase !== 'ok'){
           S.switch_pend.phase = 'switching';
           S.switch_pend.ts = Date.now();
-          switchReArm();
+          clearTimeout(S.switch_pend._resendT);   /* 2.81：不再每 10s 补发 */
           renderAll();
         }
       }

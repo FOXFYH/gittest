@@ -228,8 +228,11 @@ function msgsFp(msgs){
    · switching ：已收 switch_ack → 「正在切换中…」
    · ok        ：已收 switch_ok（或兜底判到达）→ 「切换成功」，2s 后交回状态灯
    · fail      ：switch_fail 或满 60s 无 ok → 「切换失败」
-   期间每 10s 补发一次同一 switch 命令（服务端同目标幂等），满 60s 判失败。 */
-const SWITCH_RESEND_MS  = 10000;   /* 每 10s 补发一次切换命令（幂等） */
+   期间 waiting 阶段保留一次兜底补发（服务端同目标幂等），满 60s 判失败。
+   2.81：收到服务端 switch_ack（服务器已收到）后即【静默等待】，不再每 10s 补发——
+   服务端切换实测要 15~30s，ack→ok 间隙 > 10s，旧逻辑会重复补发 4~5 条
+   （点 1 次变 5 条且重复执行）。现仅在 waiting（尚未收到 ack）时兜底补发。 */
+const SWITCH_RESEND_MS  = 15000;   /* 仅 waiting 阶段兜底补发间隔（2.81 放宽，原 10s） */
 const SWITCH_TIMEOUT_MS = 60000;   /* 满 60s 未成功 → 判失败 */
 const SWITCH_OK_SHOW_MS = 2000;    /* 「切换成功」闪现时长，随后交回状态灯 */
 const SWITCH_HANG_MS = SWITCH_TIMEOUT_MS;   /* 兼容旧引用（原 24s 墙钟兜底） */
@@ -248,17 +251,19 @@ function _swMatch(sp, v){
   if (sp.title && v.title) return sp.title === v.title;
   return true;
 }
-/* 重置「补发 + 60s 超时」两只定时器（进入 waiting/switching 或收到回执时调） */
+/* 重置「补发 + 60s 超时」两只定时器（进入 waiting 或收到回执时调）。
+   2.81：补发只在 waiting 阶段武装；进入 switching（已收 ack）不再补发，
+   仅保留 60s 超时兜底——实现「知道服务器已接收就安静等待」。 */
 function switchReArm(){
   const sp = S.switch_pend; if (!sp) return;
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
   sp._tmoT = setTimeout(switchTimeout, SWITCH_TIMEOUT_MS);
-  if (sp.phase === 'waiting' || sp.phase === 'switching')
+  if (sp.phase === 'waiting')
     sp._resendT = setTimeout(switchResend, SWITCH_RESEND_MS);
 }
 function switchResend(){
   const sp = S.switch_pend; if (!sp) return;
-  if (sp.phase !== 'waiting' && sp.phase !== 'switching') return;
+  if (sp.phase !== 'waiting') return;   /* 2.81：仅 waiting 补发；收 ack 后静默 */
   sendCmd('switch', switchRef());       /* 补发（服务端同目标幂等，不会重复点） */
   sp.ts = Date.now();
   switchReArm();
