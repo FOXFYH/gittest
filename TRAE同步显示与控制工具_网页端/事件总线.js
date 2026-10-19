@@ -39,7 +39,19 @@ function onEv(kind, v){
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
-      if (S.livePend && liveKey && liveKey === S.anchorSid) liveClear();
+      /* 2.89（老板 2026-10-20）：切换过渡期「锁死目标会话」——网页端自己发起的
+         切换在途、且目标正文尚未到达时【不】撤直播帧覆盖。旧实现在「TRAE 先点亮
+         B 标题、正文仍属 A」那一拍就 liveClear ⇒ 回落 curMsgs 读到仍是 A 的快照
+         正文，出现「一会 B、闪一下 A、再 B」的交叉闪现。现改由「目标正文真到达」
+         （msgsFp 与切换前不同）那一刻才撤覆盖、上屏 B 的真内容。 */
+      const _sp0 = S.switch_pend;
+      const _transit = !!(_sp0 && _sp0.lockTarget && msgsFp(v.msgs) === _sp0.fp0);
+      if (_transit){
+        /* 过渡期：锁死目标（正文取 B 的帧），快照里 A 的正文不上屏 */
+      } else if (S.livePend && liveKey && liveKey === S.anchorSid){
+        if (_sp0 && _sp0.lockTarget) _sp0.arrived = true;   /* 目标正文已到 → 收口 */
+        liveClear();
+      }
       /* 2.40：网页端专享字段落全局——备注字典 + 定时自我激活任务列表，
          供 会话列表.js 渲染后缀/指纹与右键菜单读取（钩子缺失则跳过）。 */
       if (window.备注入快照) 备注入快照(v);

@@ -451,25 +451,24 @@ function adoptSnap(v){
           || (selUnknown && Array.isArray(old.msgs) && old.msgs.length)));
   if (!stolen && !anchorGone){
     S.anchor_stale_since = 0; S.anchor_stale_n = 0;   /* 桌面回到锚定：清时效 */
+    S.anchor_need_refresh = 0;                        /* 2.89：回锚即清「待刷新」 */
     return v;
   }
-  /* 2.88 冻结时效（老板 2026-10-19 23:55）：借框那几拍（< ANCHOR_FREEZE_MS）仍
-     固定旧内容；连续被抢超阈值仍无真帧时，不再无条件沿用旧 msgs，改用【锚定会话
-     自己的本地账本】最新内容（账本按标题取，仍是该会话的内容，绝不把别人正文推
-     上屏）。配 缓存.js curMsgs 的「账本补尾」一起生效。 */
+  /* 2.89（老板 2026-10-20 紧急 · AI 行消失最高优先）：冻结到期不再拿锚定账本盖掉
+     快照正文——旧 2.88 在超阈值后 `v.msgs = _led.slice()`，账本只记终答、常缺 AI
+     行 ⇒ 拿账本盖页面会把快照里已有的 AI 行整段抹掉（「AI 行突然消失」）。现一律
+     【保留现有正文】old.msgs（含 AI 行），只置「待刷新」标记并节流补拉一次该锚定的
+     最新历史；新行由 缓存.js curMsgs 的「只补不删」并入，绝不整段覆盖快照。 */
   const _now = Date.now();
   if (!S.anchor_stale_since) S.anchor_stale_since = _now;
   S.anchor_stale_n = (S.anchor_stale_n || 0) + 1;
   const _staleMs = _now - S.anchor_stale_since;
   v.convs = (v.convs || []).map(r => (r && r[0] === 'c')
       ? [r[0], r[1], _行稳定(r) === S.anchorSid, r[3], r[4]] : r);
-  const _led = (S.histMsgs && S.histMsgs.length
-      && S.histConv === curTitle()) ? S.histMsgs : null;
-  v.msgs = (_staleMs >= ANCHOR_FREEZE_MS && _led)
-      ? _led.slice()
-      : (Array.isArray(old.msgs) ? old.msgs : (v.msgs || []));
-  /* 2.88：超阈值且本地暂无该锚定的账本 → 10s 节流补拉一次（快速刷到锚定会话最新内容） */
-  if (_staleMs >= ANCHOR_FREEZE_MS && !_led && typeof reqHist === 'function'
+  v.msgs = (Array.isArray(old.msgs) ? old.msgs : (v.msgs || []));
+  S.anchor_need_refresh = (_staleMs >= ANCHOR_FREEZE_MS) ? 1 : 0;
+  /* 2.89：待刷新（超阈值）→ 10s 节流补拉一次锚定会话最新历史（不覆盖正文）。 */
+  if (S.anchor_need_refresh && typeof reqHist === 'function'
       && _now - (S.anchor_led_at || 0) > 10000){
     S.anchor_led_at = _now;
     try { reqHist(curTitle(), S.histHave || 0, S.histVer || 0); } catch(e){}
@@ -516,8 +515,10 @@ function renderAll(){
       if (/^(全部)?(撤销|保留)$/.test(t)) return false;
       return true;
     });
-  /* 2.57B：切换在途不并入账本（账本可能仍是旧会话的），只认存帧/空 */
-  renderMsgs(S.livePend ? (snap.msgs || []) : curMsgs(), snap.finish,
+  /* 2.57B：切换在途不并入账本（账本可能仍是旧会话的），只认存帧/空。
+     2.89：过渡期锁死目标会话（_liveLockOn）——网页端自己发起切到 B 后，B 的
+     真内容未上屏前一律取 B 的帧，快照里仍是 A 的正文绝不上屏。 */
+  renderMsgs(_liveLockOn() ? (snap.msgs || []) : curMsgs(), snap.finish,
              opts0, snap.ask || null, snap.pend || []);
   renderState(snap);
   revertRefill(snap);              // 1.62：撤回后把被撤回的话补回输入框

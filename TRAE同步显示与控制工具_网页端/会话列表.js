@@ -113,6 +113,10 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
              时，消息渲染.js 的 inF 分支压过 pinBottom，把 scrollTop 原样还原
              成顶部的 0，并因 scrollTop<60 误触发「正在取回历史记录」。 */
           exitFmsg();
+          /* 2.89（老板 2026-10-20）：先记「切换前的锚定」——切换失败时回退到此
+             （见 待办卡.js switchClear 回退分支；成功则继续目标 B）。 */
+          const _prevAnchor = {sid: S.anchorSid, title: S.anchorTitle,
+                               full: S.anchorFull};
           /* v1.95：优先按稳定 ID 切换（改名/重排不切错），无 ID 回退序号 */
           /* 2.18 锚定：用户主动点会话行 = 自己换锚点；此后网页版守着这个
              会话，别人在电脑版操作别的会话也不会把网页版带走。 */
@@ -124,7 +128,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
           S.convs_key = null;
           renderConvs(S.snap.convs || [], S.snap.conv_unread,
                       S.snap.conv_unread_ids);
-          pendSwitchSet(title, sid, sid || i);   /* 2.67：切换在途提示（分档状态机）*/
+          /* 2.67：切换在途提示（分档状态机）；2.89：带「锁死目标 + 切换前锚定」*/
+          pendSwitchSet(title, sid, sid || i,
+                        {prevAnchor: _prevAnchor, lockTarget: true});
           S.livePrefetch = false;      /* 2.67：新切换开始，撤销上一轮预取标记 */
           snapIdbShow(sKey, title);    /* B2/B3：先铺本地存帧秒显（键＝终身号，跨天可用） */
           /* 2.61：切会话后消息区钉底——正文（存帧/直播帧）真正上屏那次不再

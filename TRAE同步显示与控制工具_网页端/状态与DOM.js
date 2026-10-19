@@ -77,6 +77,9 @@ const S = {
      「短暂借框固定旧内容、超阈值改走锚定自己的账本」这一时效（见 通用工具.js
      ANCHOR_FREEZE_MS / adoptSnap）。 */
   anchor_stale_since: 0, anchor_stale_n: 0, anchor_led_at: 0,
+  /* 2.89（老板 2026-10-20）：冻结到期后的「待刷新」标记（1=已超 ANCHOR_FREEZE_MS
+     仍被抢，已节流补拉锚定历史；正文一律保留 old.msgs 不覆盖，见 adoptSnap）。 */
+  anchor_need_refresh: 0,
   /* 本专项 B3：直播帧等待态——livePend=正在等直播帧的锚定 sid；
      liveGot=本次切换是否已拿到直播帧（拿到后本地旧帧不再回铺） */
   livePend: '', liveGot: false,

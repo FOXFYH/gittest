@@ -205,24 +205,31 @@ function curMsgs(){
   const led = (S.histMsgs && S.histMsgs.length) ? S.histMsgs : null;
   if (!led) return snapMsgs || [];
   if (!snapMsgs || !snapMsgs.length) return led;
-  /* 2.88（老板 2026-10-19 23:55）：账本补尾——快照尾部时间【早于】账本尾部时以
-     账本为准。背景：锚定会话被“借框/后台挪走”时快照正文被冻结成旧内容（见
-     通用工具.js adoptSnap），而该会话的新行其实已进本地账本；旧实现恒把账本增量
-     丢弃（快照当唯一权威尾部）⇒ 页面「只见旧内容」（老板实测：桌面已 10/19 21:32、
-     网页却只显 10/05）。两边时间取各自末行：快照行第 6 位、账本行第 3 位；仅当
-     两边都有时间且账本更晚才改判，其余保持原口径。 */
-  {
-    const snapTail = String((snapMsgs[snapMsgs.length - 1] || [])[5] || '');
-    const ledTail  = String((led[led.length - 1] || [])[2] || '');
-    if (snapTail && ledTail && ledTail > snapTail) return led.slice();
-  }
+  /* 2.89（老板 2026-10-20 紧急）：账本「补尾」收紧为**只补不删**——旧 2.88 在
+     账本尾部时间更晚时直接 `return led.slice()`，会把快照里存在、账本里缺失的行
+     （尤其 AI 行——账本只记终答、常缺 AI 行）整段抹掉 ⇒ 页面「AI 行突然消失」。
+     现一律以快照为骨架：账本只 **补更早**（与快照首行对齐点之前的行）＋ **补缺失的
+     新行**（快照尾部之后、账本里有而快照没有的），绝不删除快照已有的行。两边时间
+     取各自末行：快照行第 6 位（index 5）、账本行第 3 位（index 2）。 */
   const k0 = _msgKey(snapMsgs[0]);
   let cut = -1;
   for (let i = led.length - 1; i >= 0; i--){
     if (_msgKey(led[i]) === k0){ cut = i; break; }
   }
-  if (cut <= 0) return snapMsgs;
-  return led.slice(0, cut).concat(snapMsgs);
+  /* 账本与快照首行对齐点之前的行＝更早历史，拼在快照之前；对齐不上（或就在
+     开头）则只用快照（宁缺不乱）。 */
+  let out = (cut > 0) ? led.slice(0, cut).concat(snapMsgs) : snapMsgs.slice();
+  /* 补缺失的新行：账本尾部时间晚于快照尾部时，只【追加】快照里没有的账本行
+     （按「角色+正文指纹」去重），不覆盖、不删除快照已有的行。 */
+  const snapTail = String((snapMsgs[snapMsgs.length - 1] || [])[5] || '');
+  const ledTail  = String((led[led.length - 1] || [])[2] || '');
+  if (snapTail && ledTail && ledTail > snapTail){
+    const have = new Set(out.map(_msgKey));
+    const add = led.filter(m => String(m[2] || '') > snapTail
+                                && !have.has(_msgKey(m)));
+    if (add.length) out = out.concat(add);
+  }
+  return out;
 }
 
 /* ========== 1.90：文本转语音小卡片 ========== */
@@ -347,12 +354,22 @@ function snapIdbClearAll(){
     _idbReq('snap_list', 'readwrite', st => st.clear())
   ]).catch(() => {});
 }
+/* 2.89（老板 2026-10-20）：切换过渡期是否「锁死目标会话」——一旦网页端自己发起
+   切到 B，正文一律以 B 的帧为准（B 的帧优先，快照里仍是 A 的正文不得上屏），直到
+   切换成功（继续 B）或失败（回退 A）。条件：livePend 置位中，或网页端自己发起的
+   切换在途且目标正文尚未到达（switch_pend.lockTarget && !arrived）。非过渡期不锁。 */
+function _liveLockOn(){
+  if (S.livePend) return true;
+  const sp = S.switch_pend;
+  return !!(sp && sp.lockTarget && !sp.arrived);
+}
 /* 2.57B：切换在途的展示视图（用户 2026-10-07）——已点目标 B、真直播帧尚未
    到达：正文/选项/占位/输入框/附件/模型一律取「B 的本地存帧」，没有存帧
    就留空；绝不回落到服务器快照（那是旧会话 A 的内容，会造成张冠李戴）。
+   2.89：过渡期锁死目标会话（见 _liveLockOn）一并纳入闸门。
    非切换期原样返回快照。 */
 function liveOverlay(snap){
-  if (!S.livePend) return snap;
+  if (!_liveLockOn()) return snap;
   const f = S.liveFrame || {};
   return Object.assign({}, snap, {
     msgs: (f.msgs || []), finish: f.finish || null, tail: f.tail || '',

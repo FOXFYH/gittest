@@ -294,8 +294,11 @@ function switchOk(){
     sp.phase = 'ok';
     flash('切换成功', 'var(--green)');
   }
-  /* 2.87：成功收口也撤「直播帧覆盖」（防失败/超时后 livePend 残留钉住旧内容） */
-  if (S.livePend && typeof liveClear === 'function') liveClear();
+  /* 2.89（老板 2026-10-20）：成功收口【不】在此撤「直播帧覆盖」——服务端
+     switch_ok 常先到、目标快照随后才到；若此刻就 liveClear 回落 curMsgs，会
+     读到仍是 A 的快照正文（A/B 交叉闪现）。改由「目标正文真到达」那一刻
+     （事件总线.js 快照分支）撤覆盖，或 switchClear（成功闪现 2s 后）兜底；
+     失败/超时路径（switchTimeout/switchClear）仍保留撤覆盖（见 2.87 修复）。 */
   renderAll();
   sp._okT = setTimeout(function(){
     if (S.switch_pend === sp) switchClear();
@@ -306,10 +309,24 @@ function switchClear(){
   const sp = S.switch_pend; if (!sp) return false;
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
+  /* 2.89（老板 2026-10-20）：切换【失败】收口回退到「切换前的 A」——恢复锚定
+     （标题/选中态）与切换前正文；成功（phase==='ok'）不回退，继续 B。
+     仅网页端自己发起的切换（lockTarget）才有 prevAnchor/prevMsgs。 */
+  if (sp.phase !== 'ok' && sp.lockTarget && sp.prevAnchor){
+    S.anchorSid   = sp.prevAnchor.sid   || '';
+    S.anchorTitle = sp.prevAnchor.title || '';
+    S.anchorFull  = sp.prevAnchor.full  || '';
+    S.anchor_gone = '';
+    S.anchor_stale_since = 0; S.anchor_stale_n = 0; S.anchor_need_refresh = 0;
+    if (Array.isArray(sp.prevMsgs))
+      S.snap = Object.assign({}, S.snap, {msgs: sp.prevMsgs.slice()});
+    S.msgs_key = null; S.convs_key = null;      /* 强制重画回 A */
+    if (typeof anchorReport === 'function') anchorReport();
+  }
   /* 2.87：切换收口统一补一处——若「直播帧覆盖」仍置位则清除，让页面回落
-     真快照（旧实现只有 事件总线.js:42「桌面选中行＝锚定」才会 liveClear，
+     真快照（旧实现只有 事件总线.js「桌面选中行＝锚定」才会 liveClear，
      失败/超时、或桌面被后台投递/借框抢走时永不触发 ⇒ 页面被永久钉在旧
-     本地存帧、上翻拉历史也被禁）。成功路径 liveClear 已先执行＝空操作。 */
+     本地存帧、上翻拉历史也被禁）。成功路径由「目标正文到达」先执行＝空操作。 */
   if (S.livePend && typeof liveClear === 'function') liveClear();
   renderAll();
   return true;
@@ -321,7 +338,7 @@ function switchAbort(){
   S.switch_pend = null;
   return true;
 }
-function pendSwitchSet(title, sid, ref){
+function pendSwitchSet(title, sid, ref, opt){
   title = title || ''; sid = sid || '';
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
      不重复渲染）；v1.95：有稳定 ID 时按 ID 判同目标（改名也算同一目标） */
@@ -336,10 +353,19 @@ function pendSwitchSet(title, sid, ref){
     switchReArm();                      /* v2.67：重置补发/超时 */
     return;
   }
+  /* 2.89（老板 2026-10-20）：网页端自己点会话切换时带 opt——
+       lockTarget=true：切换过渡期锁死目标（正文一律以目标帧为准，见 缓存.js
+                        _liveLockOn / 事件总线.js）；
+       prevAnchor/prevMsgs：切换前的锚定与正文，失败时回退用（见 switchClear）。 */
   S.switch_pend = {title: title, sid: sid,
                    ref: (ref !== undefined ? ref : (sid || 0)),
                    ts: Date.now(), fp0: msgsFp(S.snap.msgs),
-                   phase: S.onLine ? 'waiting' : 'connecting'};
+                   phase: S.onLine ? 'waiting' : 'connecting',
+                   lockTarget: !!(opt && opt.lockTarget),
+                   arrived: false,
+                   prevAnchor: (opt && opt.prevAnchor) || null,
+                   prevMsgs: (S.snap && Array.isArray(S.snap.msgs))
+                             ? S.snap.msgs.slice() : null};
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   switchReArm();                        /* v2.67：起补发/超时 */
   renderAll();
