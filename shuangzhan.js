@@ -2,7 +2,7 @@
 
 /**
  * ============================================================
- * 双站切换器  v2.01   （手机端 / AutoX.js v7 / 打包成独立 APK）
+ * 双站切换器  v2.02   （手机端 / AutoX.js v7 / 打包成独立 APK）
  * ------------------------------------------------------------
  * 干什么：
  *   一个应用装两个网站：全屏 WebView + 右上角一条浮层竖条，
@@ -64,7 +64,7 @@ importClass(android.webkit.WebChromeClient);
 //   （应用专属外部目录，**不需要任何权限**，而且电脑端能直接读）。
 //   以后任何异常都不用截图，我远程读这个文件就知道崩在哪一步。
 // ================================================================
-var 底座版本 = "v2.01";
+var 底座版本 = "v2.02";
 var 日志路径 = "";
 
 (function 定日志位() {
@@ -119,7 +119,7 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v2.01";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
+var APP_VERSION = "v2.02";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
 // ★ 两个网站的地址。以后换地址只改这两行（或用 记事.json 的 站点 字段覆盖，不用改代码）。
 var 默认站点 = {
@@ -426,7 +426,7 @@ function 涂钮(控件, 选中) {
         var d = new android.graphics.drawable.GradientDrawable();
         d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
         d.setCornerRadius(Math.floor(按钮尺寸 * 0.25));
-        d.setColor(android.graphics.Color.argb(255, 0x2A, 0x2A, 0x2A));
+        d.setColor(android.graphics.Color.argb(220, 0x00, 0x00, 0x00));   // v1.20 那颗"黑里带点灰"的半透明黑，用户指定用这个
         d.setStroke(2, android.graphics.Color.parseColor("#80FFFFFF"));
         控件.setBackground(d);
     } catch (e) {}
