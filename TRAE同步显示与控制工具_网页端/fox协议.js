@@ -322,14 +322,17 @@ function didNow(){
   return String(d.getFullYear()) + p(d.getMonth() + 1) + p(d.getDate())
        + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
 }
-function sendCmd(c, a, did, convSid){
+function sendCmd(c, a, did, convSid, id){
   /* 2.17：发送/插话统一改走「会话路由器」——带着目标会话稳定 sid 自动
      找上门，到点才临时占用 TRAE 输入框发一条、发完立刻走人（不再长期
      霸占输入框）。正文 + 目标 sid + 模式都放进 arg；服务端
      _cmd_route_send 把整段路由事务（切会话→核验→取回残留→写入→回读→
      发送）作为【一条 cmdq 命令】串行执行，段内插不进任何人。
      2.11/2.16：外部传入锁定 sid（重发）就用它、绝不现取 curSid()。
-     旧服务端忽略多余字段（无 route_send 时退回原 send/interject）。 */
+     旧服务端忽略多余字段（无 route_send 时退回原 send/interject）。
+     2.90：新增可选 `id`＝网页端「动作 id」，随 cmd 帧带上——服务端「四步
+     提醒」回执（t:'rcpt'）按同 id 回 accepted/running/done/fail，前端据此
+     补 ③④（见 通用工具.js srvOpSend / 事件总线.js onRcpt）。旧服务端忽略。 */
   if (c === 'send' || c === 'interject'){
     const sid = convSid || curSid() || '';
     /* 2.18：附带网页版【锚定】的 sid——服务端路由若临时把桌面挪去别处
@@ -347,11 +350,13 @@ function sendCmd(c, a, did, convSid){
                      （无排队条可插队）。 */
                   interject_now: !!S.urgent}};
     if (did) d.did = did;   /* 1.88：did 仅用于消卡回执 */
+    if (id)  d.id  = id;    /* 2.90：动作 id（供 rcpt 四步回执配对） */
     sendJson(d);
     return;
   }
   const d = {t:'cmd', c:c, a:a};
   if (did) d.did = did;
+  if (id)  d.id  = id;      /* 2.90：动作 id（供 rcpt 四步回执配对） */
   sendJson(d);
 }
 

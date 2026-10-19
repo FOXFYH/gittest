@@ -421,3 +421,35 @@ function onEv(kind, v){
   }
 }
 
+/* ============ 2.90（老板夜间令 B10／C7）：接服务端「四步提醒」回执 t:'rcpt' ============
+   协议（单通道 + stage）：{"t":"rcpt","id":<网页端动作id>,"cmd":<命令名>,
+     "stage":"accepted|running|done|fail","ok":true|false,"did":<供占位卡配对>,
+     "msg":<fail原因/done摘要>}。本处理只补「③ 服务器已受理/开始执行」与
+     「④ 完成／失败（失败如实显示 msg）」；①（未连 WS）与②（已发出）仍由发送侧
+     （srvNeedOnline／srvOpSend 的 srvOpFlash）播报，switch_ack／cmderr 行为一字不动。
+   配对：① 通用操作（置顶/取消置顶、删除、折叠/展开、重命名…）按动作 id 匹配
+            在途登记表 srvOpAcct（见 通用工具.js）；
+         ② 发送/插话占位卡按【真 DID】匹配（不再按「含 DID 的文本」——服务端回执
+            已带 did，旧文本匹配遇服务端回纯正文必失配，正是③永不显示之根因）。 */
+function onRcpt(d){
+  if (!d || typeof d !== 'object') return;
+  const stage = String(d.stage || '');
+  const did   = (d.did == null) ? '' : String(d.did);
+  const id    = (d.id  == null) ? '' : String(d.id);
+  const msg   = (d.msg == null) ? '' : String(d.msg);
+  /* ② 占位卡（发送/插话）——按真 DID 配对 */
+  if (did){
+    const p = S.pending.find(x => x.did === did);
+    if (p){
+      if (stage === 'accepted')      p.state = 'accepted';   /* ③ 服务器已受理 */
+      else if (stage === 'running')  p.state = 'typed';      /* ③ 服务器开始执行 */
+      else if (stage === 'done')     p.state = 'done';       /* ④ 完成 */
+      else if (stage === 'fail'){    p.state = 'fail';       /* ④ 失败（如实带 msg） */
+        p.failMsg = msg; }
+      renderAll();
+    }
+  }
+  /* ① 通用操作——按动作 id 匹配在途登记表（③④ 收口） */
+  if (id) srvOpAck(id, stage, msg);
+}
+

@@ -110,7 +110,26 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.89';   /* 2.89（老板 2026-10-20 01:0x 紧急 · AI 行消失＋切换过渡期锁死）：
+const VER = '2.90';   /* 2.90（老板夜间令 B10／C7 · 「四步提醒」接线闭环）：
+                       ① 接服务端回执 t:'rcpt'（单通道 + stage）——连接.js 路由转发、
+                       事件总线.js 新增 onRcpt：按 stage 显示 ③（accepted/running→
+                       「服务器已受理/开始执行」）与 ④（done/fail→成功/失败，失败如实带 msg）；
+                       保留既有 ①②④ 逻辑与 switch_ack/cmderr 行为一字不动。
+                       ② 配对改按真数据：通用操作按【动作 id】配 srvOpAcct 在途登记表
+                       （通用工具.js 新增 srvOpNewId/srvOpAcct/srvOpAck；srvOpSend 生成 id 随
+                       cmd 帧 `id` 字段发出，sendCmd 增可选 id 参）；发送/插话占位卡按【真 DID】
+                       配对（不再按「含 DID 的文本」——服务端回纯正文时文本匹配必失配，正是
+                       ③永不显示之根因）。
+                       ③ 补①缺拦口——会话列表.js 折叠/展开、置顶/取消置顶、删除会话三处
+                       旧走 srvOpFlash+sendCmd、绕过 srvNeedOnline；统一改走 srvOpSend
+                       （未连 WS ⇒ ①「正在连接 WS…」且命令不发出）。
+                       ④ 占位卡新增 accepted/done/fail 三态（待办卡.js pendStat，失败显示 msg）。
+                       ★ 占位卡即撤（did_pool/快照首行 DID）与 2.89 两处收紧保留不回退；
+                         did_pool 即撤已由服务端时间闸（痕迹与配置 0.14 消卡仅凭池子阈值秒=600）
+                         保证「先上屏、后撤卡」，前端无对应阈值逻辑、无需对齐。
+                       改 连接.js / 事件总线.js / 通用工具.js / fox协议.js / 会话列表.js /
+                       待办卡.js / 诊断.js；入口 html 版本同步拉平 2.90。
+   2.89（老板 2026-10-20 01:0x 紧急 · AI 行消失＋切换过渡期锁死）：
                        ① AI 行「出现后突然消失」堵根——旧 2.88 有两处会拿「本地账本」
                        整段覆盖快照正文，而账本只记终答、常缺 AI 行 ⇒ AI 行被抹掉：
                        (a) 缓存.js curMsgs「账本补尾」收紧为**只补不删**（只补更早的行

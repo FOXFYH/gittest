@@ -326,6 +326,9 @@ function handleBody(body){
     return;
   }
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
+  /* 2.90：「四步提醒」服务端回执（t:'rcpt'，单通道 + stage）——按 stage 补
+     ③（accepted/running）与 ④（done/fail），配对见 事件总线.js onRcpt。 */
+  if (d.t === 'rcpt') { onRcpt(d); return; }
   /* 2.20 新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
   /* 2.69：服务端备用通道回执（TTS 直连走不通时回落本机中转）——复用直连那套

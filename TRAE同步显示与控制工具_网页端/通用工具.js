@@ -22,7 +22,8 @@ function flash(msg, color, ms){
 const SRV_PHASE = {
   offline: ['正在连接 WS…',   'var(--orange)'],
   sent:    ['等待服务器回应…', 'var(--blue)'],
-  ack:     ['服务器开始执行…', 'var(--blue)'],
+  accepted:['服务器已受理…',   'var(--blue)'],   /* 2.90：rcpt stage=accepted → ③ */
+  ack:     ['服务器开始执行…', 'var(--blue)'],   /* rcpt stage=running → ③ */
   ok:      ['成功',            'var(--green)'],
   fail:    ['失败',            'var(--red)']
 };
@@ -40,17 +41,48 @@ function srvNeedOnline(label){
   srvOpFlash('offline', label, '命令未发出，稍后再试');
   return true;
 }
-/* 2.87：带「真实发送信号」的服务器命令出口——②「等待服务器受理…」只在
-   报文确实写上线时才播报；WS 未就绪则报 ① 并返回 false（绝不假装已发）。
-   命令本身仍走 sendCmd（协议/命令字零改动）。 */
+/* ============ 2.90（老板夜间令 B10／C7）：四步闭环=②发送→③受理/执行→④完成/失败 ============
+   srvOpSend 为每次「网页端→服务端」操作生成一个动作 id（随 cmd 帧 `id` 字段发出），
+   服务端回执（t:'rcpt'，带同 id）据此把 ③「服务器已受理/开始执行」、④「完成／失败」
+   补上（见 事件总线.js onRcpt → srvOpAck）。在途登记表 srvOpAcct 以 30s 定时兜底
+   过期（旧服务端不回 rcpt 时不泄漏）；命令一字不改，仍走 sendCmd 协议。 */
+let srvOpSeq = 0;
+const SRV_OP_TTL = 30000;                 /* 在途登记最长存活（无回执自动清） */
+const srvOpAcct = {};                      /* 动作 id(str) -> {label, extra, timer} */
+function srvOpNewId(){
+  srvOpSeq++;
+  return 'a' + Date.now().toString(36) + '-' + srvOpSeq;
+}
+/* 2.87/2.90：带「真实发送信号」的服务器命令出口——②「等待服务器回应…」只在
+   报文确实写上线时才播报；WS 未就绪则报 ① 并返回 false（绝不假装已发）。 */
 function srvOpSend(cmd, arg, label, extra){
   if (!S.onLine){
     srvOpFlash('offline', label, '命令未发出（WS 未就绪），稍后再试');
     return false;
   }
-  sendCmd(cmd, arg);
-  srvOpFlash('sent', label, extra);        /* ②：已发出，等待服务器受理 */
+  const id = srvOpNewId();
+  const op = {label: label, extra: extra, timer: null};
+  op.timer = setTimeout(() => { delete srvOpAcct[id]; }, SRV_OP_TTL);
+  srvOpAcct[id] = op;
+  sendCmd(cmd, arg, null, null, id);
+  srvOpFlash('sent', label, extra);        /* ②：已发出，等待服务器回应 */
   return true;
+}
+/* 2.90：rcpt 收口——按动作 id 取在途操作，补 ③（accepted/running）与
+   ④（done→成功 / fail→失败，如实带 msg）。他人/已清 id 一律忽略。 */
+function srvOpAck(id, stage, msg){
+  const op = srvOpAcct[id];
+  if (!op) return false;
+  if (stage === 'accepted'){ srvOpFlash('accepted', op.label, op.extra); return true; }
+  if (stage === 'running'){  srvOpFlash('ack',      op.label, op.extra); return true; }
+  if (stage === 'done' || stage === 'fail'){
+    clearTimeout(op.timer);
+    delete srvOpAcct[id];
+    if (stage === 'done') srvOpFlash('ok',   op.label, op.extra);
+    else                  srvOpFlash('fail', op.label, msg);
+    return true;
+  }
+  return false;
 }
 /* 本专项 A2/A3：切换文案唯一出口——状态栏（输入界面.js）、
    会话点击提示（会话列表.js）两处共用此函数，杜绝

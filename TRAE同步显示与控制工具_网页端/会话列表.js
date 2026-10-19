@@ -57,8 +57,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       };
       d.appendChild(p);
       d.onclick = () => {              /* 1.09：折叠/展开也要有反馈 */
-        srvOpFlash('sent', '折叠/展开', '「' + title + '」');   // 2.85：②
-        sendCmd('toggle_folder', title);
+        /* 2.90：统一走 srvOpSend（未连 WS ⇒ ①「正在连接 WS…」且命令不发出；
+           连上 ⇒ ②「等待服务器回应…」＋服务端 rcpt 补 ③④）。 */
+        srvOpSend('toggle_folder', title, '折叠/展开', '「' + title + '」');
       };
       el.convs.appendChild(d);
       inFolder = true;
@@ -175,16 +176,15 @@ function convMenuOpen(title, sid, sKey){
       if (act === 'cancel'){ ov.remove(); return; }
       if (act === 'pin'){
         ov.remove();
-        srvOpFlash('sent', '置顶/取消置顶');      // 2.85：② 等待服务器回应
-        /* v1.95：有稳定 ID 时送 [sid,title]（按 ID 定位，重名/改名不错位） */
-        sendCmd('conv_pin', sid ? [sid, title] : title);
+        /* 2.90：统一走 srvOpSend（未连 WS ⇒ ①且不发出；连上 ⇒ ②＋rcpt ③④）。 */
+        srvOpSend('conv_pin', sid ? [sid, title] : title, '置顶/取消置顶');
         return;
       }
       if (act === 'del'){
         ov.remove();
         if (!confirm('删除会话「' + title + '」？\n删除后不可恢复。')) return;
-        srvOpFlash('sent', '删除会话');           // 2.85：② 等待服务器回应
-        sendCmd('conv_del', sid ? [sid, title] : title);
+        /* 2.90：统一走 srvOpSend（未连 WS ⇒ ①且不发出；连上 ⇒ ②＋rcpt ③④）。 */
+        srvOpSend('conv_del', sid ? [sid, title] : title, '删除会话');
         return;
       }
       ov.remove();
@@ -208,10 +208,10 @@ function convMenuOpen(title, sid, sKey){
    断点＝本函数原来用浏览器原生 prompt()：移动端内置浏览器/部分 WebView 会
    【静默屏蔽】prompt（不弹框、直接返回 null），于是 `if (!nn) return` 悄悄
    退出——无弹窗、无提示。改为本端自绘弹层，任何时候都可见可交互；提交后
-   四态：① 未连 WS→「正在连接 WS…」（srvNeedOnline，命令不发出）；
-   ② 已发出→「等待服务器受理…」（srvOpSend，绑 S.onLine 真实信号）；
-   ④ 会话名真被改成新名（快照对账）、或 cmderr/超时→如实报失败。
-   ③（服务端受理 ack）本命令服务端 WS 路径暂无回调，收到即播报——现为缺项。*/
+   四态：① 未连 WS→「正在连接 WS…」（srvOpSend 内置 srvNeedOnline，命令不发出）；
+   ② 已发出→「等待服务器回应…」（srvOpSend，绑 S.onLine 真实信号）；
+   ③ 服务器已受理/开始执行（2.90 起：rcpt accepted/running → srvOpAck）；
+   ④ 会话名真被改成新名（快照对账）、或 rcpt done（成功）/ fail/ cmderr/超时→如实收口。*/
 let 重命名在途 = null;
 function renameDlgOpen(title, sid){
   const old = $('renmask');

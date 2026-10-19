@@ -53,9 +53,15 @@ function pendStat(p){
      发出、服务端尚未回报任何阶段) / ③「服务器开始执行…」(typed，服务端
      已确认写入输入框) / 更后「已进官方排队条」「TRAE 已执行」只认服务端
      sent 事件推来的阶段；超时如实说「可能未送达」。 */
+  if (p.state === 'accepted') return ['服务器已受理，等待执行…', ''];
   if (p.state === 'typed')   return ['服务器开始执行…（已输入 TRAE）', ''];
   if (p.state === 'queued')  return ['已进 TRAE 官方排队条，等待 AI 处理…', 'ok'];
   if (p.state === 'sent')    return ['TRAE 已执行，等待聊天记录浮现…', 'ok'];
+  /* 2.90（老板夜间令 B10/C7）：接服务端 rcpt 的 ④ 终态——done 完成 / fail 失败
+     （失败如实显示服务端 msg；配对按真 DID，见 事件总线.js onRcpt）。 */
+  if (p.state === 'done')    return ['✅ 服务器已完成，等待聊天记录浮现…', 'ok'];
+  if (p.state === 'fail')    return ['⚠ 服务器执行失败：'
+                                    + (p.failMsg || '未知原因'), 'bad'];
   /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
      历史残留兼容，文案不再写死 15 秒 */
   if (p.state === 'timeout') return ['⚠ 可能未送达（可丢弃/改写/重发）', 'bad'];
