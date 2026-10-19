@@ -1,4 +1,104 @@
 'use strict';
+/* ========== 2.92：思维流折叠头 / 子代理外层「轻量呈现」（对齐 TRAE 原版） ==========
+   服务端「采集剥壳规则整改」（C4·痕迹与配置 0.15 / TRAE界面JS 0.07 / 命令路由 0.23）起，
+   `core-expandable-section`（思维流折叠头）与子代理 header 最外层**不再 remove()**，
+   这些文案随 AI 行正文（快照 msgs[i][1]）以【文本行】带出（广播/账本/网页端同源）。
+   本端把 AI 行按下面的三类「块」轻量重建，尽量贴近原版观感：
+     · 折叠头行（思考过程 / 已执行N条命令 / 已搜索N次文件 …）→ 灰色 13px 折叠条；
+     · 子代理外层（Sub Coding Agent ＋ 副标题「已编辑N个文件…」）→ 标题＋副标题（灰 13px）；
+     · 其余行 → 原样交给原 mdHtml 管线（一字不改）。
+   折叠条默认折叠、点击可展开，高 28 / #737373 / 13px（贴原版）。
+   人类消息**不折叠**（老板口径：人类发言全量显示）。
+   字段缺省（正文无这些文案）⇒ 退化为「整段正文」原样渲染，不渲染、不报错。
+   ⚠ 协议待服务端定稿：当前据源码落盘形态＝**文本行**（非结构化字段），
+     故本端按文本行识别；若服务端日后改结构化字段，再另行对齐。 */
+
+/* 折叠头判据：短行（≤40 字）＋ 命中关键词/计数条，绝不误伤正文长句。 */
+function _isFoldLine(s){
+  s = String(s == null ? '' : s).trim();
+  if (!s || s.length > 40) return false;
+  if (/^Sub\s*Coding\s*Agent/i.test(s)) return false;   /* 子代理头另行处理 */
+  if (/^(思考过程|思考中|已深度思考)/.test(s)) return 'fold';
+  if (/^已(执行|读取|搜索|创建|修改|编辑|删除|更新|查看|运行|访问|写入|生成|调用|使用|浏览|打开)\s*\d+\s*(条命令|次文件|个文件|条|次|个|项|步|张|段|份)/.test(s))
+    return 'fold';
+  return false;
+}
+function _isSubLine(s){
+  return /^Sub\s*Coding\s*Agent/i.test(String(s == null ? '' : s).trim());
+}
+
+/* 把一段 AI 正文拆成 [{t:'text',lines}|{t:'fold',title,lines}|{t:'sub',title,subtitle,lines}]。
+   规则：头与头**之间**的行 → 归入前一个头（其可折叠内容）；头之前的行、
+   以及**最后一个头之后**的尾行（通常是 AI 最终答复）→ 归入正文 text 块，
+   保证答复绝不被末尾头吞掉。 */
+function thinkBlocks(text){
+  const lines = String(text == null ? '' : text).split('\n');
+  const hdr = [];
+  for (let i = 0; i < lines.length; i++){
+    if (_isSubLine(lines[i])){
+      let j = i + 1, subtitle = '', endIdx = i;
+      while (j < lines.length && !String(lines[j]).trim()) j++;
+      /* 子代理外层＝标题行 ＋ 紧随其后的副标题行（原版结构恒定：title+subtitle
+         相邻）。副标题文案本身可能形如「已编辑N个文件…」（会命中折叠头计数条），
+         故此处**不再用 _isFoldLine 排除**——只要紧随的非空行不是另一个 Sub 头，
+         就认作副标题，避免把子代理副标题误当独立折叠条。 */
+      if (j < lines.length && !_isSubLine(lines[j])){
+        subtitle = String(lines[j]).trim(); endIdx = j;
+      }
+      hdr.push({idx: i, endIdx: endIdx, t: 'sub',
+                title: String(lines[i]).trim(), subtitle: subtitle});
+      i = endIdx;
+    } else if (_isFoldLine(lines[i])){
+      hdr.push({idx: i, endIdx: i, t: 'fold',
+                title: String(lines[i]).trim(), subtitle: ''});
+    }
+  }
+  const out = [];
+  let prevEnd = -1;
+  hdr.forEach((h, k) => {
+    /* 只有「第一个头之前」的行是独立正文；头与头之间的行恒属前一头内容，
+       绝不再重复成正文块（否则同一行既进内容又进正文）。 */
+    if (k === 0){
+      const pre = lines.slice(0, h.idx);
+      if (pre.join('\n').trim()) out.push({t: 'text', lines: pre});
+    }
+    const next = hdr[k + 1];
+    const content = next ? lines.slice(h.endIdx + 1, next.idx) : [];
+    out.push({t: h.t, title: h.title, subtitle: h.subtitle, lines: content});
+    prevEnd = h.endIdx;
+  });
+  const tail = lines.slice(prevEnd + 1);
+  if (tail.join('\n').trim()) out.push({t: 'text', lines: tail});
+  return out;
+}
+
+/* 单段正文 → HTML（语音卡/提问卡/专属提示词卡三套占位符管线，与原逻辑一字一致）。 */
+function _mdBody(t){
+  const fsegs = [], asegs = [], hsegs = [];
+  let h = mdHtml(foxHintCards(foxAskCards(foxPlayCards(t, fsegs), asegs), hsegs));
+  fsegs.forEach((ft, n) => { h = h.replace('@@FPC' + n + '@@', foxCardHtml(ft)); });
+  asegs.forEach((at, n) => { h = h.replace('@@FAC' + n + '@@', foxCardHtml(at, true)); });
+  hsegs.forEach((hz, n) => { h = h.replace('@@FHC' + n + '@@', foxHintHtml(hz)); });
+  return h;
+}
+
+/* 折叠头/子代理外层 → 折叠条 HTML（高 28 / 灰 13px；默认折叠）。
+   可折叠内容＝头与头之间的行；无内容时不留空 div（点击仅切换箭头）。 */
+function thinkBarHtml(b){
+  const ic = '<span class="fbic">▸</span>';
+  const cnt = (b.lines || []).join('\n');
+  const body = cnt.trim() ? '<div class="fbc">' + _mdBody(cnt) + '</div>' : '';
+  if (b.t === 'sub'){
+    return '<div class="subhd"><div class="fbhd">' + ic
+      + '<span class="subt">' + esc(b.title) + '</span>'
+      + (b.subtitle ? '<span class="subs">' + esc(b.subtitle) + '</span>' : '')
+      + '</div>' + body + '</div>';
+  }
+  return '<div class="foldbar"><div class="fbhd">' + ic
+    + '<span class="fbt">' + esc(b.title) + '</span>'
+    + '</div>' + body + '</div>';
+}
+
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
@@ -68,7 +168,6 @@ function renderMsgs(msgs, finish, opts, ask, pend){
        渲染成语音小卡片（占位符先过 mdHtml，再替换成卡片 HTML） */
     let bodyHtml;
     {
-      const fsegs = [], asegs = [], hsegs = [];
       /* v2.84（老板实测 · Bug B/C）：我自己发的消息正文开头是内部时间标记
          14 位 DID（重发/残留可能叠多层）——顶栏时间已由 didTimeOf 取该 DID
          单独显示，故正文【剥净】这些 DID 行，卡上只留真实会话内容；剥净后
@@ -79,19 +178,18 @@ function renderMsgs(msgs, finish, opts, ask, pend){
          2.77：再加「专属提示词三段折叠卡」（@@FHC，见 卡片TTS.js foxHintCards）。
          ★用户消息与 AI 消息**一视同仁**处理——专属提示词由服务端 decorate
          拼在「我」发出的消息末尾，必须同样渲染成折叠卡（此前用户消息只 esc 原样）。 */
-      bodyHtml = mdHtml(foxHintCards(foxAskCards(foxPlayCards(_src, fsegs), asegs), hsegs));
-      fsegs.forEach((ft, n) => {
-        bodyHtml = bodyHtml.replace('@@FPC' + n + '@@',
-                                    foxCardHtml(ft));
-      });
-      asegs.forEach((at, n) => {
-        bodyHtml = bodyHtml.replace('@@FAC' + n + '@@',
-                                    foxCardHtml(at, true));
-      });
-      hsegs.forEach((hz, n) => {
-        bodyHtml = bodyHtml.replace('@@FHC' + n + '@@',
-                                    foxHintHtml(hz));
-      });
+      /* 2.92：AI 行按「思维流折叠头 / 子代理外层 / 正文」分块渲染（见文件头）。
+         三套卡片管线改走 _mdBody（逐段调用，占位符互不串台）。
+         人类消息**不折叠**；AI 行无折叠头文案（字段缺省）时退化为整段正文，
+         输出与原逻辑逐字一致。 */
+      if (user){
+        bodyHtml = '<div class="body">' + _mdBody(_src) + '</div>';
+      } else {
+        const _blks = thinkBlocks(_src);
+        bodyHtml = _blks.map(b => b.t === 'text'
+          ? '<div class="body">' + _mdBody(b.lines.join('\n')) + '</div>'
+          : thinkBarHtml(b)).join('');
+      }
     }
     /* 2.91：视觉对齐「原版」——说话人文案 TRAE→TraeWork；时间戳 .tm 仅
        user（「我」）消息挂，AI 行不挂（原版 AI 行不带时间）。 */
@@ -99,8 +197,15 @@ function renderMsgs(msgs, finish, opts, ask, pend){
           + (user && times[i]
              ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
-          + '</div><div class="body">' + bodyHtml + '</div>';
+          + '</div>' + bodyHtml;
     d.innerHTML = h;
+    /* 2.92：思维流折叠头 / 子代理外层——点击标题行折叠/展开（默认折叠）。 */
+    d.querySelectorAll('.foldbar .fbhd, .subhd .fbhd').forEach(b => {
+      b.onclick = e => {
+        e.stopPropagation();
+        b.parentElement.classList.toggle('open');
+      };
+    });
     /* 1.90：语音卡片 ▶ 播放绑定（1.96：卡片已全量显示原文，data-seg 仍存完整原文供合成）
        1.99：改为 closest('.foxplay') 取段文本——▶ 按钮的父节点是 .fprow（不是卡片本身），
        原先写 b.parentElement.getAttribute('data-seg') 取到 null，点 ▶ 等于 foxPlay('')

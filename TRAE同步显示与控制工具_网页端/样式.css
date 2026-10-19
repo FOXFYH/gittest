@@ -128,6 +128,24 @@ body.fmsg #msgs{padding-top:22px;}
 .msg .body pre code{background:none; padding:0;}
 .msg .body h1,.msg .body h2,.msg .body h3{margin:4px 0 2px; font-size:14px;}
 .msg .body a{color:var(--blue);}
+/* ── 2.92：思维流折叠头 / 子代理外层「轻量呈现」（对齐 TRAE 原版） ──
+   原版 core-expandable-section 折叠头：高 28、灰 13px、#737373、可折叠（默认折叠）。
+   服务端「采集剥壳规则整改」(C4) 起这些文案随 AI 行正文以文本行带出，
+   本端把「思考过程／已执行N条命令／已搜索N次文件」渲染成折叠条、
+   「Sub Coding Agent＋副标题」渲染成标题行；人类消息不折叠。 */
+.msg .foldbar,.msg .subhd{color:#737373; font-size:13px;}
+.msg .fbhd{display:flex; align-items:center; gap:4px;
+  min-height:28px; line-height:28px; cursor:pointer;
+  -webkit-user-select:none; user-select:none;}
+.msg .fbic{display:inline-block; width:14px; color:#8a8a8a;
+  transition:transform .15s;}
+.msg .foldbar.open .fbic,.msg .subhd.open .fbic{transform:rotate(90deg);}
+.msg .fbt,.msg .subt{font-weight:500;}
+.msg .subs{color:#8a8a8a; font-weight:400; min-width:0;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.msg .fbc{display:none; color:#737373; font-size:13px; line-height:19.5px;
+  white-space:pre-wrap; word-break:break-word; padding:0 0 2px 18px;}
+.msg .foldbar.open .fbc,.msg .subhd.open .fbc{display:block;}
 .empty{color:#999; text-align:center; padding:30px 0;}
 /* ── 1.25：会话操作菜单（长按会话行） ── */
 #convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
