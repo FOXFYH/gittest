@@ -362,11 +362,18 @@ function snapIdbClearAll(){
 /* 2.89（老板 2026-10-20）：切换过渡期是否「锁死目标会话」——一旦网页端自己发起
    切到 B，正文一律以 B 的帧为准（B 的帧优先，快照里仍是 A 的正文不得上屏），直到
    切换成功（继续 B）或失败（回退 A）。条件：livePend 置位中，或网页端自己发起的
-   切换在途且目标正文尚未到达（switch_pend.lockTarget && !arrived）。非过渡期不锁。 */
+   切换在途且目标正文尚未到达（switch_pend.lockTarget && !arrived）。非过渡期不锁。
+   2.93（老板 2026-10-20 07:09）：再加一道缓存层护栏——即便 arrived 已被置真，
+   只要撤锁当下 S.snap 正文【仍属切换前旧会话 A】，就继续锁死目标（不上屏 A 的
+   缓存），等 B 的真帧到达（S.snap 换会话）再放行。 */
 function _liveLockOn(){
   if (S.livePend) return true;
   const sp = S.switch_pend;
-  return !!(sp && sp.lockTarget && !sp.arrived);
+  if (!sp || !sp.lockTarget) return false;
+  if (!sp.arrived) return true;
+  if (Array.isArray(sp.prevMsgs)
+      && sameConvBody((S.snap || {}).msgs, sp.prevMsgs)) return true;
+  return false;
 }
 /* 2.57B：切换在途的展示视图（用户 2026-10-07）——已点目标 B、真直播帧尚未
    到达：正文/选项/占位/输入框/附件/模型一律取「B 的本地存帧」，没有存帧

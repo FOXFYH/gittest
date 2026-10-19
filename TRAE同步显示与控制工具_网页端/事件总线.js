@@ -42,11 +42,16 @@ function onEv(kind, v){
       /* 2.89（老板 2026-10-20）：切换过渡期「锁死目标会话」——网页端自己发起的
          切换在途、且目标正文尚未到达时【不】撤直播帧覆盖。旧实现在「TRAE 先点亮
          B 标题、正文仍属 A」那一拍就 liveClear ⇒ 回落 curMsgs 读到仍是 A 的快照
-         正文，出现「一会 B、闪一下 A、再 B」的交叉闪现。现改由「目标正文真到达」
-         （msgsFp 与切换前不同）那一刻才撤覆盖、上屏 B 的真内容。 */
+         正文，出现「一会 B、闪一下 A、再 B」的交叉闪现。
+         2.93（老板 2026-10-20 07:09「切换成功瞬间又闪 A」）：判定「仍是旧会话 A」
+         改用 sameConvBody（消息身份＝首条角色＋正文，忽略 can_rev/can_del 标志
+         抖动）——旧用 msgsFp，标志一抖即被误判成「目标正文已到」⇒ 撤锁露出 A。 */
       const _sp0 = S.switch_pend;
-      const _transit = !!(_sp0 && _sp0.lockTarget && msgsFp(v.msgs) === _sp0.fp0);
-      if (_transit){
+      const _stillOld = !!(_sp0 && _sp0.lockTarget
+          && (Array.isArray(_sp0.prevMsgs)
+              ? sameConvBody(v.msgs, _sp0.prevMsgs)
+              : msgsFp(v.msgs) === _sp0.fp0));
+      if (_stillOld){
         /* 过渡期：锁死目标（正文取 B 的帧），快照里 A 的正文不上屏 */
       } else if (S.livePend && liveKey && liveKey === S.anchorSid){
         if (_sp0 && _sp0.lockTarget) _sp0.arrived = true;   /* 目标正文已到 → 收口 */
@@ -103,8 +108,10 @@ function onEv(kind, v){
         const has = cv.some(r => r[0] === 'c'
                        && (r[4] || r[1]) && rowKey(r) === (spSid || sp.title));
         /* 1.16：到达确认——标题激活还不够（TRAE 先亮标题后加载
-           正文），消息指纹与切换前不同才说明正文真的换过来了 */
-        const arrived = msgsFp(v.msgs) !== sp.fp0;
+           正文），正文真的换过来才算到达。2.93：改用消息身份
+           （sameConvBody），标志抖动不再算「到达」。 */
+        const arrived = Array.isArray(sp.prevMsgs)
+            ? !sameConvBody(v.msgs, sp.prevMsgs) : (msgsFp(v.msgs) !== sp.fp0);
         const arrivedOk = act && (spSid ? (act[4] || '') === spSid
                                         : act[1] === sp.title) && arrived;
         if (arrivedOk){
@@ -327,6 +334,13 @@ function onEv(kind, v){
     case 'switch_pre':           /* 2.67 切换过程状态机：目标已在服务端最近抓取的
                                     pane 里 → 点击前先推来的正文帧，先显示（预取） */
       if (S.switch_pend && v && v.sid && S.switch_pend.sid === v.sid){
+        /* 2.93（老板 2026-10-20 07:09）：预取帧若携的仍是【切换前旧会话 A 的
+           正文】（服务端偶发把切换前的 pane 帧当预取推来），【不得】据以上屏、
+           也不得当作「目标到达」——整帧弃用，保留目标会话的本地存帧，等 B 真帧。
+           仅当帧确属目标 B（消息身份与 A 不同）才走原预取路径。 */
+        if (S.switch_pend.lockTarget
+            && Array.isArray(S.switch_pend.prevMsgs)
+            && sameConvBody(v.msgs, S.switch_pend.prevMsgs)) break;
         S.livePrefetch = true;                 /* 标记：别被本地存帧覆盖 */
         S.liveFrame = {msgs: v.msgs || [], finish: v.finish || null,
                        tail: '', sendIdle: true, inputText: '',

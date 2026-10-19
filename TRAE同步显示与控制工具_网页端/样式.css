@@ -109,12 +109,11 @@ body.fmsg #msgs{padding-top:22px;}
 /* 2.09：时间戳改成「可被压缩、挤不下就省略号」——这样当 .who 一行放不下
    时，先牺牲时间显示，保证右侧那排操作按钮（📋复制/✎重编/↩回退/🗑删除）
    始终完整、恒在一行不被挤断。 */
-/* 2.91：对齐原版尺度——12px/#737373/lh18，默认隐藏、悬停才显
-   （且仅「我」的发言带时间，AI 行不挂）。 */
+/* 2.91：对齐原版尺度——12px/#737373/lh18。
+   2.93（老板 2026-10-20 07:14）：取消「默认隐藏、悬停才显」——改为【常显】
+   （手机端无 hover，hover 才显＝双方都看不到时间）；用户行与 AI 行都挂（消息渲染.js）。 */
 .msg .tm{color:#737373; font-size:12px; line-height:18px; margin-left:4px;
-  opacity:0; transition:opacity .15s;
   min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.msg:hover .tm{opacity:1;}
 /* 2.91：字号/行高对齐原版——正文 13px/lh19.5；AI 回复 markdown 14px/lh21；
    用户提问 14px/lh20、字距 -0.28px（原 body 14px/1.55）。 */
 .msg .body{margin-top:2px; font-size:13px; line-height:19.5px;
@@ -225,6 +224,10 @@ body.fmsg #msgs{padding-top:22px;}
 .msg.pend{background:var(--ubg); border-radius:8px; padding:5px 10px;
   border:1px dashed rgba(21,101,192,.55);}
 .msg.pend .body{color:#5a6b7d;}
+/* 2.93（老板 2026-10-20 07:10）：占位卡显示老板自己的时间，用【自己的元素】
+   .ptm（与 .tm 规则分开），且常显。 */
+.msg.pend .ptm{color:#5a6b7d; font-size:12px; line-height:18px; margin-left:4px;
+  white-space:nowrap;}
 .msg.pend .pstat{font-size:11px; margin-left:6px; padding:1px 7px;
   border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);}
 .msg.pend.ok .pstat{background:rgba(10,125,50,.14); color:var(--green);}

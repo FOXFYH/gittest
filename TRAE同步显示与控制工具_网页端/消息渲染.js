@@ -191,11 +191,13 @@ function renderMsgs(msgs, finish, opts, ask, pend){
           : thinkBarHtml(b)).join('');
       }
     }
-    /* 2.91：视觉对齐「原版」——说话人文案 TRAE→TraeWork；时间戳 .tm 仅
-       user（「我」）消息挂，AI 行不挂（原版 AI 行不带时间）。 */
+    /* 2.91：视觉对齐「原版」——说话人文案 TRAE→TraeWork。
+       2.93（老板 2026-10-20 07:14「我和 AI 各自的回复卡片都没显示时间」）：
+       时间戳 .tm 改为【用户行与 AI 行都挂】（原版 AI 行不带时间、且 hover 才显；
+       老板实际需求＝看得到时间，故与「原版 hover 才显」口径不同——手机端无 hover，
+       等于双方都看不到；见 样式.css .tm 改为常显）。 */
     let h = '<div class="who">' + (user ? '我' : 'TraeWork')
-          + (user && times[i]
-             ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
+          + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
           + '</div>' + bodyHtml;
     d.innerHTML = h;

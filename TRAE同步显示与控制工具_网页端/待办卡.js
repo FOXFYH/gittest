@@ -92,8 +92,13 @@ function renderPending(){
     const st = pendStat(p);
     const d = document.createElement('div');
     d.className = 'msg user pend ' + st[1];
-    let h = '<div class="who">我<span class="pstat">' + esc(st[0])
-          + '</span>';
+    /* 2.93（老板 2026-10-20 07:10）：占位卡补上老板自己的时间（取首行 DID 的
+       14 位时间，见 通用工具.js didTimeOf），用专属元素 .ptm 且常显——不复用
+       .tm（.tm 属普通消息行）。 */
+    const _pTm = didTimeOf(p.did || p.text);
+    let h = '<div class="who">我'
+          + (_pTm ? '<span class="ptm">' + esc(_pTm) + '</span>' : '')
+          + '<span class="pstat">' + esc(st[0]) + '</span>';
     /* 1.83：出口恒亮——服务端"耳聋"（命令已发出却一个回执都收不到）时
        卡片会永久停在中间态（1.25 起刻意无自动超时），原来按钮只在
        timeout 态出现，用户看到的就是"卡住且无按钮、只能干等"。现在：
@@ -235,6 +240,24 @@ function msgsFp(msgs){
   return (msgs || []).map(m => m[0] + ':' + m[1] + ':'
     + (m[3] || 0) + (m[4] || 0)).join('#');
 }
+/* 2.93（老板 2026-10-20 07:09「切换成功瞬间闪出 A 的缓存」）：判断「这拍快照的
+   正文是否仍属切换前旧会话 A」不再用 msgsFp（它含 can_rev/can_del 易变标志，
+   标志一抖就被误判成「正文已换＝到达」）。改看【消息身份】——首条消息的
+   角色＋正文前 40 字（去空白）；会话真正换掉时首条完全变，A 只是追加/翻标志
+   时首条不变 ⇒ 仍判「旧会话」。 */
+function msgsHeadId(msgs){
+  const a = msgs || [];
+  if (!a.length) return '';
+  const m = a[0] || [];
+  return (m[0] || '') + ':' + String(m[1] || '').replace(/\s+/g, '').slice(0, 40);
+}
+function sameConvBody(msgs, prevMsgs){
+  /* 未记旧正文（旧数据）→ 无法判定，返回 false（交由调用方回退 fp0 口径）。 */
+  if (!Array.isArray(prevMsgs)) return false;
+  const h0 = msgsHeadId(prevMsgs), h1 = msgsHeadId(msgs);
+  if (!h0) return false;   /* 旧会话无正文 ⇒ 没有「旧内容」可误显 */
+  return h1 === h0;
+}
 /* ── 2.67 切换过程状态机（2026-10-07 用户定）──
    原实现只有一个 S.switch_pend，从「一点」糊到「切完」，看不出究竟是在连
    WS、在等服务器回话、还是在真的切。现拆成可分辨的分档，反映真实过程：
@@ -337,9 +360,14 @@ function switchClear(){
      服务端 switch_ok 走 _TeeQueue 立刻外发、目标快照随后才到，两帧可差数秒；
      此刻撤锁会回落 S.snap（正文仍属旧会话 A）⇒「切回后 +2s 仍显旧会话」。
      改由 事件总线.js「目标正文真到达」（liveKey===锚定）时撤覆盖；
-     失败/超时（phase!=='ok'）与已到真帧（arrived）仍照常撤。 */
-  if (S.livePend && (sp.phase !== 'ok' || sp.arrived)
-      && typeof liveClear === 'function') liveClear();
+     失败/超时（phase!=='ok'）与已到真帧（arrived）仍照常撤。
+     2.93（老板 2026-10-20 07:09「切换成功瞬间又闪 A」）：「成功且 arrived」这一支
+     再核一遍——若撤锁当下 S.snap 正文【仍属切换前旧会话 A】，宁可不撤（继续显示
+     目标存帧 B），防 arrived 被误置后露出 A 的缓存；等 B 真帧到达那一拍再撤。 */
+  const _snapStillOld = Array.isArray(sp.prevMsgs)
+      && sameConvBody((S.snap || {}).msgs, sp.prevMsgs);
+  if (S.livePend && typeof liveClear === 'function'
+      && (sp.phase !== 'ok' || (sp.arrived && !_snapStillOld))) liveClear();
   renderAll();
   return true;
 }
