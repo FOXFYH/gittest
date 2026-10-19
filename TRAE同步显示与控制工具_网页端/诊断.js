@@ -110,7 +110,22 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.90';   /* 2.90（老板夜间令 B10／C7 · 「四步提醒」接线闭环）：
+const VER = '2.91';   /* 2.91（老板夜间令 A2 视觉对齐 ＋ A3「切回后 +2s 仍显旧会话」诊断修复）：
+                       ① A2「TRAE 原版看起来什么样，网页版就该什么样」：消息渲染.js 说话人
+                       文案「TRAE」→「TraeWork」，时间戳 .tm 仅「我」的发言挂（AI 行不挂）；
+                       样式.css —— .who 统一 400/13px/#171717/lh20（不再按 user/agent 蓝绿分色）、
+                       .tm 12px/#737373/lh18 且默认隐藏、悬停才显；.msg 容器改扁平（无底色/
+                       无圆角/零内边距、margin-bottom:24px；AI 行按原版 .turn__agent-row 内缩
+                       pad 12px 12px 12px 16px）、画布 #f5f5f5；字号行高对齐（正文 13px/lh19.5、
+                       AI 回复 markdown 14px/lh21、用户提问 14px/lh20/letter-spacing -0.28px）。
+                       ② A3「切回看不到最新一轮」：待办卡.js switchClear 撤「直播帧锁」加条件
+                       —— 成功（phase==='ok'）但目标正文未到达（!arrived）时不撤，改由
+                       事件总线.js 真帧到达（liveKey===锚定）时撤；缓存.js snapIdbTick 加护栏
+                       （switch_pend.lockTarget && !arrived 在途即 return），防旧正文写入 IDB
+                       污染「切回秒显」。
+                       改 消息渲染.js / 样式.css / 待办卡.js / 缓存.js / 诊断.js；
+                       入口 html 版本同步拉平 2.91。
+   2.90（老板夜间令 B10／C7 · 「四步提醒」接线闭环）：
                        ① 接服务端回执 t:'rcpt'（单通道 + stage）——连接.js 路由转发、
                        事件总线.js 新增 onRcpt：按 stage 显示 ③（accepted/running→
                        「服务器已受理/开始执行」）与 ④（done/fail→成功/失败，失败如实带 msg）；

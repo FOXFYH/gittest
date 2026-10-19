@@ -305,6 +305,11 @@ function snapIdbTick(force){
   /* 2.57B：切换在途——此刻 S.snap 正文仍属旧会话 A，绝不能在锚定已指向 B 时
      把它当 B 的存帧落地（否则会把 A 的内容毒化成 B 的缓存）。 */
   if (S.livePend) return;
+  /* 2.91（老板夜间令 A3）：网页端自己发起的切换、目标正文尚未到达时，
+     S.snap 正文仍属旧会话——直接 return，防「旧正文被当作目标会话存帧
+     写进 IDB」污染「切回秒显」。 */
+  if (S.switch_pend && S.switch_pend.lockTarget
+      && !S.switch_pend.arrived) return;
   const s = S.snap || {};
   if (!Array.isArray(s.convs) || !s.convs.length) return;   /* 还没快照 */
   const sid = (S.anchorSid || curSid() || '');

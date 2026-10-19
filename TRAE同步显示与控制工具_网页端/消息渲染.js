@@ -93,8 +93,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
                                     foxHintHtml(hz));
       });
     }
-    let h = '<div class="who">' + (user ? '我' : 'TRAE')
-          + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
+    /* 2.91：视觉对齐「原版」——说话人文案 TRAE→TraeWork；时间戳 .tm 仅
+       user（「我」）消息挂，AI 行不挂（原版 AI 行不带时间）。 */
+    let h = '<div class="who">' + (user ? '我' : 'TraeWork')
+          + (user && times[i]
+             ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
           + '</div><div class="body">' + bodyHtml + '</div>';
     d.innerHTML = h;

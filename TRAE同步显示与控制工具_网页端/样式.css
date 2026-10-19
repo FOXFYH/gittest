@@ -46,7 +46,7 @@ select{font-size:12px;}
 #loginbar.on{display:block;}
 /* ── 消息区 ── */
 #msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:8px 8px 4px; background:#fff;}
+  padding:8px 8px 4px; background:#f5f5f5;}   /* 2.91：对齐原版画布 #f5f5f5 */
 /* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
    消息区独占整屏，能看更多历史；body.fmsg 生效 */
 body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
@@ -99,18 +99,28 @@ body.fmsg #msgs{padding-top:22px;}
   border-bottom:1px solid #f0d9b5; box-shadow:0 1px 4px rgba(0,0,0,.06);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 #livebar.on{display:block;}
-.msg{border-radius:8px; padding:5px 10px; margin:0 0 8px;}
-.msg.user{background:var(--ubg);}
-.msg.agent{background:var(--abg);}
-.msg .who{font-weight:bold; font-size:12px;}
-.msg.user .who{color:var(--blue);}
-.msg.agent .who{color:var(--green);}
+/* 2.91：视觉对齐「原版」（老板夜间令 A2）——容器改扁平：无底色、无圆角、
+   零内边距，仅留 24px 行间距（原版 .turn pad 0 0 24px）；AI 行按原版
+   .turn__agent-row 内缩 pad 12px 12px 12px 16px；说话人 .who 统一
+   400/13px/#171717/lh20（不再按 user/agent 蓝绿分色）。 */
+.msg{background:none; border-radius:0; padding:0; margin:0 0 24px;}
+.msg.agent{padding:12px 12px 12px 16px;}
+.msg .who{font-weight:400; font-size:13px; color:#171717; line-height:20px;}
 /* 2.09：时间戳改成「可被压缩、挤不下就省略号」——这样当 .who 一行放不下
    时，先牺牲时间显示，保证右侧那排操作按钮（📋复制/✎重编/↩回退/🗑删除）
    始终完整、恒在一行不被挤断。 */
-.msg .tm{color:var(--gray); font-size:11px; margin-left:4px;
+/* 2.91：对齐原版尺度——12px/#737373/lh18，默认隐藏、悬停才显
+   （且仅「我」的发言带时间，AI 行不挂）。 */
+.msg .tm{color:#737373; font-size:12px; line-height:18px; margin-left:4px;
+  opacity:0; transition:opacity .15s;
   min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.msg .body{margin-top:2px; white-space:pre-wrap; word-break:break-word;}
+.msg:hover .tm{opacity:1;}
+/* 2.91：字号/行高对齐原版——正文 13px/lh19.5；AI 回复 markdown 14px/lh21；
+   用户提问 14px/lh20、字距 -0.28px（原 body 14px/1.55）。 */
+.msg .body{margin-top:2px; font-size:13px; line-height:19.5px;
+  white-space:pre-wrap; word-break:break-word;}
+.msg.agent .body{font-size:14px; line-height:21px;}
+.msg.user .body{font-size:14px; line-height:20px; letter-spacing:-0.28px;}
 .msg .body code{background:rgba(0,0,0,.06); padding:0 4px;
   border-radius:3px; font-family:Consolas,monospace; font-size:12px;}
 .msg .body pre{background:rgba(0,0,0,.05); padding:6px 8px;
@@ -193,7 +203,9 @@ body.fmsg #msgs{padding-top:22px;}
 .qitem .qtxt.open{-webkit-line-clamp:unset; display:block;
   overflow:visible;}
 /* ── 1.09：待确认占位气泡（空窗期反馈）── */
-.msg.pend{background:var(--ubg); border:1px dashed rgba(21,101,192,.55);}
+/* 2.91：容器已扁平（.msg padding:0/圆角0）→ 占位卡自补内边距/圆角，保持卡样 */
+.msg.pend{background:var(--ubg); border-radius:8px; padding:5px 10px;
+  border:1px dashed rgba(21,101,192,.55);}
 .msg.pend .body{color:#5a6b7d;}
 .msg.pend .pstat{font-size:11px; margin-left:6px; padding:1px 7px;
   border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);}

@@ -333,7 +333,13 @@ function switchClear(){
      真快照（旧实现只有 事件总线.js「桌面选中行＝锚定」才会 liveClear，
      失败/超时、或桌面被后台投递/借框抢走时永不触发 ⇒ 页面被永久钉在旧
      本地存帧、上翻拉历史也被禁）。成功路径由「目标正文到达」先执行＝空操作。 */
-  if (S.livePend && typeof liveClear === 'function') liveClear();
+  /* 2.91（老板夜间令 A3）：成功收口但【目标正文尚未到达】时不撤「直播帧锁」——
+     服务端 switch_ok 走 _TeeQueue 立刻外发、目标快照随后才到，两帧可差数秒；
+     此刻撤锁会回落 S.snap（正文仍属旧会话 A）⇒「切回后 +2s 仍显旧会话」。
+     改由 事件总线.js「目标正文真到达」（liveKey===锚定）时撤覆盖；
+     失败/超时（phase!=='ok'）与已到真帧（arrived）仍照常撤。 */
+  if (S.livePend && (sp.phase !== 'ok' || sp.arrived)
+      && typeof liveClear === 'function') liveClear();
   renderAll();
   return true;
 }
