@@ -3,11 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>任务面板 · 手机遥控页 v0.11</title>
+<title>任务面板 · 手机遥控页 v0.12</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.11
+  版本：0.12
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
+  v0.12（2026-10-19）按用户口径（网页端）①卡片改【正方形】——CSS 变量 --卡边长（整卡宽高相等）＋
+    内容【截断】＋「展开 ▾ / 收起 ▴」【手动】展开（展开后 height:auto）；主卡与每条回复卡一致。
+    ②【AI 回复 (n)】按钮：黑字＝该卡回复【总数】、蓝字＝【未读】条数（有未读加 .有新 蓝描边），
+    人点开该卡即清未读（localStorage 已读基线）。③主卡下方按时间升序【平铺】全部回复（无嵌套），
+    回复卡头标「回复：<编号>」。④投递【四段状态机】胶囊：连接 WS 中 → 等待服务器回应 →
+    服务器已接收 → 投递成功（失败＝发送失败）；广播帧「投递受理 / 投递结果」在 接口.js 收。
   v0.10（2026-10-19）主卡按钮排新增【删除】整卡（含全部回复）：点→二次确认→经 WS 路由 `del` 删除→刷新列表。
   依赖脚本：网页模块/接口.js、卡片.js、面板.js（一律【相对路径】引用，页面不硬编码本机 IP/端口）。
   通道（§17 部署与 WS 通道）：接口.js 走【WebSocket】——页面与本机服务器各连同一 PieSocket 频道
@@ -67,36 +73,50 @@
   .忙闲标.忙 { background: #ffe0e0; color: #b00020; }
   .忙闲标.闲 { background: #d8f5dc; color: #1a7a2e; }
   .忙闲标.未知 { background: #e4e7ec; color: #77808c; }
-  /* 卡片 */
+  /* 卡片（用户口径 2026-10-19：整卡【正方形】宽高相等；内容超出即【截断】；手动展开） */
+  :root { --卡边长: 320px; }
   .任务列表 { display: flex; flex-direction: column; gap: 14px; }
-  .卡 { border-radius: 10px; border: 1px solid #d7dde7; background: #fff; overflow: hidden; }
+  .卡组 { display: flex; flex-direction: column; gap: 10px; }
+  .卡 {
+    width: var(--卡边长); max-width: 100%; height: var(--卡边长); min-height: var(--卡边长);
+    display: flex; flex-direction: column; overflow: hidden;
+    border-radius: 10px; border: 1px solid #d7dde7; background: #fff;
+  }
+  .卡.展开 { height: auto; }                 /* 手动「展开 ▾」后 height:auto（内容全见） */
   .卡.主卡 { box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   .卡.底蓝 { background: #dceaff; border-color: #b8d0f5; }
   .卡.底绿 { background: #dcf6e1; border-color: #aee0b8; }
   .卡.底黄 { background: #fff3c4; border-color: #edd98a; }
-  .卡头 { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0,0,0,.04); flex-wrap: wrap; }
+  .卡头 { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0,0,0,.04); flex-wrap: wrap; flex: 0 0 auto; }
   .编号 { font-weight: 700; color: #2b5fb0; font-size: 14px; }
-  .卡头 .标题 { font-size: 14px; color: #333; }
   .状态钮 { margin-left: auto; font-size: 12px; padding: 3px 9px; min-height: 0; border-radius: 999px; border: 1px solid #c4ccd8; background: #fff; }
   .状态钮.态好 { background: #d8f5dc; border-color: #a9dcb4; color: #1a7a2e; }
   .状态钮.态中 { background: #fff3c4; border-color: #edd98a; color: #8a6d00; }
   .状态钮.态失败 { background: #ffe0e0; border-color: #f0b4b4; color: #b00020; }
   .状态钮.态终 { background: #e4e7ec; border-color: #cfd5de; color: #556; }
+  /* 正文框：占满剩余高度；未展开即【截断】（overflow:hidden、不撑高 → 默认无超高卡） */
   .内容 {
-    width: 100%; border: 0; background: transparent; resize: none; overflow: hidden;
-    font-family: inherit; font-size: 15px; color: #1c2430; padding: 12px; min-height: 60px;
+    flex: 1 1 auto; min-height: 0; width: 100%; border: 0; background: transparent; resize: none;
+    overflow: hidden; font-family: inherit; font-size: 15px; color: #1c2430; padding: 12px;
   }
-  .按钮排 { display: flex; gap: 8px; padding: 0 10px 10px; flex-wrap: wrap; }
+  .卡.展开 .内容 { flex: 0 0 auto; overflow: visible; }
+  .按钮排 { display: flex; gap: 6px; padding: 0 8px 8px; flex-wrap: wrap; flex: 0 0 auto; }
+  .卡 .小钮 { font-size: 12px; padding: 5px 9px; min-height: 30px; }
+  /* 【AI 回复 (n)】：黑字＝总数；未读＝蓝字；有未读 → 按钮加 .有新（蓝描边） */
+  .回复钮 .总 { color: #222; font-weight: 600; }
+  .回复钮 .未读 { color: #2b5fb0; font-weight: 700; }
+  .回复钮.有新 { border-color: #2b5fb0; box-shadow: inset 0 0 0 1px #2b5fb0; }
+  /* 主卡下方【平铺】其全部回复（无嵌套、时间升序） */
+  .平铺列 { display: flex; flex-direction: column; gap: 10px; margin-left: 0; }
   .互动树 { padding: 0 10px 12px; }
-  .平铺列 { display: flex; flex-direction: column; gap: 10px; }
-  .回复卡 { margin-top: 10px; }
   .隐藏 { display: none !important; }
   .空样 { color: #889; font-size: 14px; padding: 8px 2px; }
   /* 详情/原卡 展示 */
   .原卡 { margin-top: 8px; background: #f4f6fa; border: 1px dashed #c4ccd8; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
   .原卡 .原头 { font-weight: 700; color: #2b5fb0; margin-bottom: 4px; }
-  /* 我来写 */
-  .我来写 { margin-top: 10px; }
+  /* 我来写（紧跟该卡之后；宽同卡、高随内容，不受正方形约束） */
+  .我来写 { width: var(--卡边长); max-width: 100%; background: #dceaff; border: 1px solid #b8d0f5; border-radius: 10px; padding: 10px; }
+  .我来写头 { font-size: 13px; font-weight: 700; color: #2b5fb0; margin-bottom: 6px; }
   .我来写 textarea {
     width: 100%; font-family: inherit; font-size: 15px; border: 1px solid #b8d0f5;
     border-radius: 8px; padding: 10px; min-height: 64px; background: #fff;
@@ -118,6 +138,10 @@
   /* 提示条 */
   .提示 { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
           background: #1c2430; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: 90vw; }
+  /* 窄屏：卡边长随视口收窄，避免横向溢出 */
+  @media (max-width: 380px) {
+    :root { --卡边长: calc(100vw - 24px); }
+  }
   @media (min-width: 700px) {
     main { max-width: 760px; margin: 0 auto; }
   }
@@ -125,7 +149,7 @@
 </head>
 <body>
 <header id="顶栏">
-  <div class="题">任务面板 <span class="版本">v0.11</span> <span id="角色" class="角色">连接中…</span></div>
+  <div class="题">任务面板 <span class="版本">v0.12</span> <span id="角色" class="角色">连接中…</span></div>
   <div class="顶操作">
     <button id="按钮_发布任务" class="主钮">发布任务</button>
     <button id="按钮_刷新" class="次钮">刷新</button>
