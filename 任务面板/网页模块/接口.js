@@ -1,7 +1,15 @@
 /* ============================================================
  * 【任务面板】网页模块 · 接口.js
- * 版本：0.06
+ * 版本：0.07
  * 职责：网页版与服务器的通信层——由 fetch(/api/*) 改为 WebSocket（WS）请求层。
+ *   · 0.07（2026-10-19）【多服务器切换 / 服务器归属】起因＝用户 2026-10-19 双机口径
+ *     （「家里」「宿舍」各跑一台服务器、争抢应答，网页版需切「谁应答」）：
+ *     ①**定向 `sv`**：已选服务器时，请求帧顶层带 `sv=<实例号>`（服务端仅在自己==sv 时应答；
+ *       未选不带、兼容旧「谁先答算谁」）。②**归属判定**：收到的应答/广播帧若带 `服务器` 字段
+ *       且 ≠ 当前选中 → **丢弃**（不更新界面）；= 选中 或 无该字段 → 照常处理。③**自动发现**：
+ *       收 `{"t":"服务器报到",…}` → 记入服务器表（按实例号去重、刷新名称/版本/最近在线），供
+ *       页面下拉展示「名称（实例号）· 在线/离线」。④选中项存 localStorage（key=`任务面板_服务器`）；
+ *       选中实例不在线时**如实提示、仍按其定向**（不偷偷改选）。
  *   · 0.06（2026-10-19）【回帖改发新参数】`回帖()` 由旧 `父编号` 改为发送 **`回复对象`**
  *     （被回复者编号；同时带上 `父编号` 兼容旧签名）——对齐后端 `reply` 路由的新平铺 A 系列
  *     口径（0.10 起后端两者都收，此处以前者为主）。应答 `{ok, 回复:{编号,回复对象,…}}`。
@@ -27,7 +35,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.06';
+  var 版本 = '0.07';
 
   /* ---------------- 可配置常量（页面里可覆盖） ----------------
    * §19 对外页面安全：**频道号当口令**——连接频道 = 固定前缀 + 口令，【源码不写死频道名】。
@@ -70,6 +78,65 @@
   }
   function 有口令() { return !!取口令(); }
   function 频道名() { return 配置.前缀 + 取口令(); }
+
+  /* ---------------- 服务器（多服务器切换 / 自动发现 / 按服务器归属） ---------------- */
+  // 选中项：localStorage 存 {实例号, 名称}；实例号为空串＝「自动（谁先答算谁）」。
+  var 服务器存储键 = '任务面板_服务器';
+  var 报到时效 = 30000;          // 报到帧视为「在线」的时效（服务端每 10 秒报到一次，30 秒宽容）
+
+  function 读服务器选择() {
+    try {
+      var raw = String(global.localStorage.getItem(服务器存储键) || '');
+      if (!raw) return { 实例号: '', 名称: '' };
+      var d = JSON.parse(raw);
+      if (d && typeof d === 'object') return { 实例号: String(d.实例号 || ''), 名称: String(d.名称 || '') };
+      return { 实例号: raw, 名称: '' };   // 兜底：曾直接存了实例号
+    } catch (e) { return { 实例号: '', 名称: '' }; }
+  }
+  function 存服务器选择(实例号, 名称) {
+    try {
+      if (!实例号) global.localStorage.removeItem(服务器存储键);
+      else global.localStorage.setItem(服务器存储键,
+        JSON.stringify({ 实例号: String(实例号), 名称: String(名称 || '') }));
+    } catch (e) { }
+  }
+  function 选中实例号() { return 读服务器选择().实例号; }
+
+  // 发现的服务器表：实例号 -> {名称,版本,地址,最近}（按实例号去重、刷新名称/版本/最近在线）
+  var _服务器表 = {};
+  var _服务器监听 = [];
+  function 记报到(d) {
+    var sv = String((d && d.服务器) || '').trim();
+    if (!sv) return;
+    _服务器表[sv] = {
+      实例号: sv, 名称: String(d.名称 || ''), 版本: String(d.版本 || ''),
+      地址: String(d.地址 || ''), 最近: Date.now()
+    };
+    服务器分发();
+  }
+  function 在线判定(最近) { return (Date.now() - (最近 || 0)) < 报到时效; }
+  function 服务器列表() {
+    var 出 = [], k;
+    for (k in _服务器表) {
+      if (!Object.prototype.hasOwnProperty.call(_服务器表, k)) continue;
+      var v = _服务器表[k];
+      出.push({ 实例号: v.实例号, 名称: v.名称, 版本: v.版本, 地址: v.地址,
+                最近: v.最近, 在线: 在线判定(v.最近) });
+    }
+    出.sort(function (a, b) { return (b.最近 || 0) - (a.最近 || 0); });
+    return 出;
+  }
+  function 服务器分发() {
+    _服务器监听.slice().forEach(function (fn) { try { fn(服务器列表()); } catch (e) { } });
+  }
+  // 归属判定：帧带 `服务器` 且 ≠ 当前选中 → 丢弃；= 选中 或 无该字段 → 照常。
+  function 归属本机(d) {
+    var sv = String((d && d.服务器) || '').trim();
+    if (!sv) return true;
+    var 选 = 选中实例号();
+    if (!选) return true;              // 未选（自动）：谁答都收
+    return sv === 选;
+  }
 
   // 慢接口单独放宽超时（端刷新要扫共享数据库，可能较久）
   var 请求超时表 = { 'ends/refresh': 180000 };
@@ -313,6 +380,8 @@
     var d;
     try { d = JSON.parse(正文); } catch (e) { return; }
     if (!d || typeof d !== 'object') return;
+    if (d.t === '服务器报到') { 记报到(d); return; }   // 报到帧：永远处理（自动发现，不受选中影响）
+    if (!归属本机(d)) return;                          // 非本机所选服务器的帧 → 丢弃，不更新界面
     if (d.t === '投递受理' || d.t === '投递结果') { 广播分发(d); return; }   // 广播帧：不走应答配对
     if (d.t !== 'res') return;
     if (d.to && d.to !== _网页号) return;          // 别的网页端的应答，丢弃
@@ -349,7 +418,10 @@
         reject(new Error('请求超时（' + 路由 + '）'));
       }, 超时);
       _待应答[id] = { resolve: resolve, reject: reject, timer: 定时, 路由: 路由 };
-      发json({ t: 'req', id: id, r: 路由, p: 载荷 || {}, sid: _网页号 });
+      var 请求帧 = { t: 'req', id: id, r: 路由, p: 载荷 || {}, sid: _网页号 };
+      var 选 = 选中实例号();
+      if (选) 请求帧.sv = 选;   // 已选服务器 → 定向：服务端仅在自己==sv 时应答（未选不带，兼容）
+      发json(请求帧);
     });
   }
 
@@ -518,6 +590,31 @@
     退订广播: function (fn) {
       var i = _广播监听.indexOf(fn);
       if (i >= 0) _广播监听.splice(i, 1);
+    },
+
+    /* 服务器（0.07 多服务器切换 / 自动发现）：选中项＝「定向谁应答」 */
+    选中服务器: function () { return 读服务器选择(); },     // {实例号, 名称}；实例号空＝自动（谁先答算谁）
+    设置服务器: function (实例号, 名称) {
+      var v = String(实例号 == null ? '' : 实例号).trim();
+      var 名 = String(名称 || (_服务器表[v] ? _服务器表[v].名称 : '') || '');
+      存服务器选择(v, 名);                                  // 空实例号＝清除，回到「自动」
+      try {
+        if (typeof global.任务面板_服务器变化 === 'function') global.任务面板_服务器变化(读服务器选择());
+      } catch (e) { }
+      return 读服务器选择();
+    },
+    服务器列表: 服务器列表,           // [{实例号,名称,版本,地址,在线,最近}]（按最近在线倒序）
+    订阅服务器: function (fn) { if (typeof fn === 'function') _服务器监听.push(fn); return fn; },
+    退订服务器: function (fn) {
+      var i = _服务器监听.indexOf(fn);
+      if (i >= 0) _服务器监听.splice(i, 1);
+    },
+    选中在线: function () {                                  // 选中的实例是否当前在线（界面如实提示用）
+      var sv = 选中实例号();
+      if (!sv) return true;
+      var 表 = 服务器列表(), i;
+      for (i = 0; i < 表.length; i++) { if (表[i].实例号 === sv) return !!表[i].在线; }
+      return false;
     }
   };
 
