@@ -9,15 +9,33 @@
    2.47：新增 闹钟后缀(sid)（会话名后显示「 ⏰」，多条带条数）+ 定时指纹()
    （任务列表稳定指纹，参与 会话列表.js 的 convs_key 去重），供会话行一眼
    看出哪些会话设了定时提醒。
-   2.79：定时入快照 收紧——仅当快照**确实带「定时」字段**才覆盖 S.定时（字段
-   缺失时保留旧值），杜绝命令路径/初连快照把 ⏰ 角标误清（铃铛时有时无）。
+   2.80：面板体验整改（用户 2026-10-19 口径：两个输入框含义不明、点了没反馈、
+   取消不了）——① 两框加可见标签「① 间隔 / ② 次数 / ③ 发送内容」+ 实时换算
+   说明（「＝ 每 N 分钟发一次，共 M 次」），placeholder 因有默认值不显示的问题
+   一并解决；② 面板内新增**服务器确认状态行**（比 flash 持久）：点开始/取消先落
+   「⏳ 等待服务器确认…」，随后盯服务端权威快照 S.定时 对账（新任务出现=定时生效 /
+   目标任务消失=取消成功），5 秒内无变化即提示「⚠ 未确认，请点刷新」；③ 逐条
+   「取消定时」去二次确认（旧版「取消定时→弹确定/取消」的「取消」易被误点成放弃，
+   用户直呼「取消不了」），直接下发 sched_del 并以状态行反馈。
    依赖：S、sendCmd、flash、$，以及 任务与输入.js 的 bsOpen/bsClose/bsBtn。 */
 
 const 自激活_默认文本 = '（定时自我激活：请继续。）';
 
+/* 2.80：面板内「服务器确认」状态——点开始/取消后先在面板落一行可见状态
+   「⏳ 等待服务器确认…」，随后盯服务端权威快照 S.定时 对账：
+   新任务出现＝定时成功；目标任务消失＝取消成功；5 秒内仍无变化即提示未确认。
+   状态行常驻到下一次操作（比 flash 持久）。kind ∈ 'add'|'del'|'clear'。 */
+let 自激活_待确认 = null;
+
+function 自激活_状态行(st, msg, color){
+  if (!st) return;
+  st.textContent = msg || '';
+  st.style.color = color || '#666';
+}
+
 function 定时入快照(snap){
   /* 快照到达：把定时任务列表落到全局，供右键菜单/面板读取；
-     若自我激活面板正开着，就地刷新其列表。
+     若自我激活面板正开着，就地刷新其列表，并对账「服务器确认」状态行。
      2.79：**仅当快照确实带「定时」字段才覆盖 S.定时**——命令路径 / 初连等快照
      可能不带该字段，旧实现会当成空把它清掉 → 会话行 ⏰ 角标被误清（铃铛时有时无）。
      服务端 命令路由 0.14 起已在快照广播前统一补注入该字段（双保险）。 */
@@ -26,6 +44,7 @@ function 定时入快照(snap){
     S.定时 = Array.isArray(l) ? l : [];
   }
   自我激活刷新();
+  自激活_对账();
   return S.定时;
 }
 
@@ -65,9 +84,18 @@ function 自激活_时刻(n){
 function 自激活_面板(sid, title){
   if (!sid){ flash('该会话无稳定 ID，暂不支持定时自我激活', 'var(--red)'); return; }
   if (typeof bsOpen !== 'function'){ flash('面板组件未就绪，请刷新后重试', 'var(--red)'); return; }
+  自激活_放弃确认();                    /* 2.80：重开面板即作废旧确认等待 */
   const box = bsOpen('⏰ 定时自我激活 · ' + title);
 
   /* —— 新建：间隔（分钟）/ 次数 / 文本 —— */
+  const mkLabel = txt => {               /* 2.80：可见小标签（旧版占位符因有默认值
+                                           不显示，用户只看到裸的 5、3，含义不明） */
+    const l = document.createElement('div');
+    l.className = 'bs_msg';
+    l.style.cssText = 'padding:10px 18px 0;font-size:13px;color:#666';
+    l.textContent = txt;
+    box.appendChild(l);
+  };
   const hint = document.createElement('div');
   hint.className = 'bs_msg';
   hint.textContent = '到点由电脑端临时借输入框发送，纯本地、不广播；'
@@ -81,22 +109,49 @@ function 自激活_面板(sid, title){
     box.appendChild(i);
     return i;
   };
+  mkLabel('① 间隔：几分钟发一次');
   const inMin = mkIn('number', '5', '间隔（分钟，≥1）');
+  mkLabel('② 次数：一共发几次');
   const inTotal = mkIn('number', '3', '次数（≥1）');
+
+  /* 2.80：实时换算说明——随两框改动即时更新，一眼看懂参数含义 */
+  const live = document.createElement('div');
+  live.className = 'bs_msg';
+  live.style.cssText = 'padding:2px 18px 0;font-size:13px;color:var(--blue)';
+  const syncLive = () => {
+    const min = Math.max(1, parseInt(inMin.value, 10) || 1);
+    const total = Math.max(1, parseInt(inTotal.value, 10) || 1);
+    live.textContent = '＝ 每 ' + min + ' 分钟发一次，共 ' + total + ' 次';
+  };
+  inMin.addEventListener('input', syncLive);
+  inTotal.addEventListener('input', syncLive);
+  syncLive();
+  box.appendChild(live);
+
+  mkLabel('③ 发送内容：到点发这句话（可留默认）');
   const inText = mkIn('text', 自激活_默认文本, '发送文本');
   const goBtns = document.createElement('div');
   goBtns.className = 'bs_btns';
-  goBtns.appendChild(bsBtn('取消', '', bsClose));
+  goBtns.appendChild(bsBtn('取消', '', () => { 自激活_放弃确认(); bsClose(); }));
   goBtns.appendChild(bsBtn('＋ 开始定时', 'primary', () => {
     if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
     const min = Math.max(1, parseInt(inMin.value, 10) || 1);
     const total = Math.max(1, parseInt(inTotal.value, 10) || 1);
     const text = (inText.value || '').trim() || 自激活_默认文本;
+    const ids = new Set(定时取(sid).map(t => t && t.id));
     sendCmd('sched_add', [sid, text, min, total]);
-    flash('已下发定时自我激活：每 ' + min + ' 分钟 × ' + total + ' 次',
-          'var(--green)');
+    flash('已下发定时：每 ' + min + ' 分钟 × ' + total + ' 次', 'var(--green)');
+    自激活_下发确认({kind:'add', sid, ids, desc:'每 ' + min + ' 分钟 × ' + total + ' 次'});
   }));
   box.appendChild(goBtns);
+
+  /* 2.80：服务器确认状态行——比 flash 持久，常驻到下一次操作 */
+  const stat = document.createElement('div');
+  stat.id = 'sched_stat';
+  stat.className = 'bs_msg';
+  stat.style.cssText = 'padding:4px 18px 0;font-size:14px;min-height:22px;color:#666';
+  stat.textContent = '　';
+  box.appendChild(stat);
 
   /* —— 已有任务：查看 / 删除 —— */
   const hd = document.createElement('div');
@@ -114,6 +169,7 @@ function 自激活_面板(sid, title){
   tail.appendChild(bsBtn('🔄 刷新', '', () => {
     if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
     sendCmd('sched_ls', sid);
+    自激活_状态行($('sched_stat'), '⏳ 正在向服务器拉取最新定时…', 'var(--blue)');
     flash('正在刷新定时任务…', 'var(--blue)');
   }));
   tail.appendChild(bsBtn('🗑 取消本会话全部定时', 'danger', () => {
@@ -121,8 +177,53 @@ function 自激活_面板(sid, title){
     if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
     sendCmd('sched_clear', sid);
     flash('正在清空定时任务…', 'var(--blue)');
+    自激活_下发确认({kind:'clear', sid, desc:'本会话全部定时'});
   }));
   box.appendChild(tail);
+}
+
+function 自激活_放弃确认(){
+  /* 2.80：撤销进行中的确认等待（清定时器），供重开面板/关闭时调用。 */
+  if (自激活_待确认 && 自激活_待确认.timer) clearTimeout(自激活_待确认.timer);
+  自激活_待确认 = null;
+}
+
+function 自激活_下发确认(p){
+  /* 2.80：下发后立刻在面板落「等待服务器确认」状态行，并武装 5 秒兜底；
+     真正的成功/失败由 自激活_对账（快照到达时）判定。 */
+  自激活_放弃确认();
+  p.timer = setTimeout(() => {
+    if (自激活_待确认 !== p) return;
+    自激活_状态行($('sched_stat'), '⚠ 服务器未确认，请点「🔄 刷新」重试', '#e07b00');
+    自激活_待确认 = null;
+  }, 5000);
+  自激活_待确认 = p;
+  const 头 = p.kind === 'clear' ? '⏳ 正在取消本会话全部定时'
+             : (p.kind === 'del' ? '⏳ 正在取消定时' : '⏳ 已下发，等待服务器确认…');
+  自激活_状态行($('sched_stat'), 头 + (p.desc ? '（' + p.desc + '）' : ''), 'var(--blue)');
+}
+
+function 自激活_对账(){
+  /* 2.80：快照到达时对账「服务器确认」——以服务端权威列表 S.定时 为准。
+     成功＝新任务出现 / 目标任务消失；仍在等则原样保留、不误判。 */
+  const p = 自激活_待确认;
+  if (!p) return;
+  const rows = 定时取(p.sid);
+  const st = $('sched_stat');
+  if (p.kind === 'add'){
+    const 新 = rows.find(t => t && t.id && !p.ids.has(t.id));
+    if (!新) return;                          /* 尚未出现，继续等 */
+    const nx = 自激活_时刻(新.next);
+    自激活_状态行(st, '✅ 定时已生效：' + (p.desc || '')
+      + (nx ? ' ｜ 下次 ' + nx : ''), 'var(--green)');
+  } else if (p.kind === 'del'){
+    if (rows.some(t => t && t.id === p.jid)) return;   /* 还在，继续等 */
+    自激活_状态行(st, '✅ 已取消该定时任务', 'var(--green)');
+  } else if (p.kind === 'clear'){
+    if (rows.length) return;
+    自激活_状态行(st, '✅ 已取消本会话全部定时', 'var(--green)');
+  }
+  自激活_放弃确认();
 }
 
 function 自激活_渲染列表(list, sid){
@@ -151,10 +252,12 @@ function 自激活_渲染列表(list, sid){
     del.textContent = '取消定时'; del.style.cssText = 'margin-left:auto;color:#c62828';
     del.onclick = e => {
       e.stopPropagation();
-      if (!confirm('取消这条定时自我激活任务？')) return;
       if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
+      /* 2.80：去二次确认——旧版「取消定时→弹确定/取消」的「取消」按钮易被误点成
+         放弃，用户直呼「取消不了」；现直接下发 sched_del，成败看面板状态行。 */
       sendCmd('sched_del', t.id);
       flash('正在取消定时…', 'var(--blue)');
+      自激活_下发确认({kind:'del', sid, jid: t.id});
     };
     row.appendChild(ic); row.appendChild(tx); row.appendChild(del);
     list.appendChild(row);
