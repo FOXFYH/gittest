@@ -2,23 +2,24 @@
 
 /**
  * ============================================================
- * 双站切换器  v1.21   （手机端 / AutoX.js v7 / 打包成独立 APK）
+ * 双站切换器  v1.22   （手机端 / AutoX.js v7 / 打包成独立 APK）
  * ------------------------------------------------------------
  * 干什么：
  *   一个应用装两个网站：全屏 WebView + 右上角一条浮层竖条，
- *   竖条上四个同款方块按钮 **T / W / 刷 / 设**：
+ *   竖条上四个同款方块按钮 **T / W / ↻ / ⚙**：
  *     · T ＝ TRAE 网页版（AI，TRAE同步显示与控制工具 手机客户端）
  *     · W ＝ WorkBuddy 网页版（wbcli 手机客户端）
- *     · 刷 ＝ 刷新当前网页
- *     · 设 ＝ 设置面板（版本号 / 当前站 / 检查更新 / 清缓存 / 条位复位 / 退出）
+ *     · ↻ ＝ 刷新当前网页
+ *     · ⚙ ＝ 设置面板（版本号 / 当前站 / 检查更新 / 清缓存 / 条位复位 / 退出）
  *   点 T/W ＝ 切到对应网站，应用被切到后台时会自己再提到前台。
  *
  * 竖条：
- *   · T / W / 刷 / 设 四个圆角方块，统一 79×79px（黑底+白描边+白字）；
+ *   · T / W / ↻ / ⚙ 四个圆角方块，统一 79×79px（黑底+白描边+白字）；
  *   · 按住可拖动，松手记住位置（存记事.json，下次打开还在）；
  *   · ★ 当前站那个按钮＝**更深更实的黑底 + 琥珀描边 + 琥珀字**，一眼看出现在开的是哪个站。
  *
- * ★ v1.21：✕ 撤掉（退出挪进设置面板，防误触）；新增「刷」刷新、「设」设置面板。
+ * ★ v1.21：✕ 撤掉（退出挪进设置面板，防误触）；新增刷新、设置面板。
+ * ★ v1.22：刷新/设置改**图标**（↻ / ⚙）——用户不想看字；⚙ 后加 U+FE0E 强制黑白色。 
  *          设置面板能看版本号、查更新、清缓存重载、复位竖条。
  *
  * ★ v1.20 架构（用户 2026-10-19 定：照「急救版」那样一次打包、别再折腾）：
@@ -46,7 +47,7 @@ importClass(android.webkit.WebViewClient);
 importClass(android.webkit.WebChromeClient);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v1.21";   // v1.21：撤 ✕（退出收进设置）；新增 ↻ 刷新 / ⚙ 设置面板（版本号·查更新·清缓存·条位复位）。
+var APP_VERSION = "v1.22";   // v1.22：刷新/设置改图标（↻ / ⚙，⚙ 带 U+FE0E 防彩色）。
 
 // ★ 两个网站的地址。以后换地址只改这两行（或用 记事.json 的 站点 字段覆盖，不用改代码）。
 var 默认站点 = {
@@ -203,6 +204,10 @@ threads.start(function () {
 // ================================================================
 // 一、界面：全屏 WebView（按钮都在悬浮竖条上，界面内不放东西）
 // ================================================================
+// ★ v1.22：刷新/设置改用图标（用户：不想看字）。设置用 U+FE0E 强制文本样式，防小米渲染成彩色 emoji。
+var 图刷新 = "\u21BB";           // ↻
+var 图设置 = "\u2699\uFE0E";     // ⚙
+
 ui.layout(
     '<frame>' +
     '<webview id="web" w="*" h="*"/>' +
@@ -231,8 +236,8 @@ ui.layout(
     '  <vertical id="条身" w="wrap_content" h="wrap_content">' +
     '    <text id="bT" text="T" w="79px" h="79px" textColor="#FFFFFF" gravity="center"/>' +
     '    <text id="bW" text="W" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
-    '    <text id="bR" text="刷" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
-    '    <text id="bS" text="设" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
+    '    <text id="bR" text="' + 图刷新 + '" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
+    '    <text id="bS" text="' + 图设置 + '" w="79px" h="79px" marginTop="6px" textColor="#FFFFFF" gravity="center"/>' +
     '  </vertical>' +
     '</frame>' +
     '</frame>'
@@ -277,7 +282,7 @@ function 切站(k, 强制) {
 }
 
 // ================================================================
-// 二、应用内浮层竖条（T / W / 刷 / 设）
+// 二、应用内浮层竖条（T / W / ↻ / ⚙）
 //   ★ v1.20：不再用 floaty 系统悬浮窗（那要「显示在其他应用上层」特殊权限，
 //     小米上授不了就一直开不出来）。改成贴在本应用 WebView 上的一层浮窗：
 //     不需要任何权限，位置照样可拖、可记；打开应用就能切站。
@@ -344,11 +349,13 @@ function 涂条() {
     var 圆角 = Math.floor(按钮尺寸 * 0.25);
     try {
         var 字大 = Math.max(10, Math.floor(按钮尺寸 * 0.42));
-        [条.bT, 条.bW, 条.bR, 条.bS].forEach(function (b) {
-            try {
-                b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 字大);
-                b.setGravity(17);
-            } catch (e) {}
+        var 图标大 = Math.max(12, Math.floor(按钮尺寸 * 0.52));   // 符号本身比汉字"小"，放大一点才跟 T/W 一样压得住
+        [条.bT, 条.bW].forEach(function (b) {
+            try { b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 字大); b.setGravity(17); } catch (e) {}
+            涂钮(b, false);
+        });
+        [条.bR, 条.bS].forEach(function (b) {
+            try { b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 图标大); b.setGravity(17); } catch (e) {}
             涂钮(b, false);
         });
     } catch (e) {}
