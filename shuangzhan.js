@@ -2,7 +2,7 @@
 
 /**
  * ============================================================
- * 双站切换器  v2.05   （手机端 / AutoX.js v7 / 打包成独立 APK）
+ * 双站切换器  v2.06   （手机端 / AutoX.js v7 / 打包成独立 APK）
  * ------------------------------------------------------------
  * 干什么：
  *   一个应用装两个网站：全屏 WebView + 右上角一条浮层竖条，
@@ -64,7 +64,7 @@ importClass(android.webkit.WebChromeClient);
 //   （应用专属外部目录，**不需要任何权限**，而且电脑端能直接读）。
 //   以后任何异常都不用截图，我远程读这个文件就知道崩在哪一步。
 // ================================================================
-var 底座版本 = "v2.05";
+var 底座版本 = "v2.06";
 var 日志路径 = "";
 
 (function 定日志位() {
@@ -119,7 +119,7 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v2.05";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
+var APP_VERSION = "v2.06";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
 // ★ 两个网站的地址。以后换地址只改这两行（或用 记事.json 的 站点 字段覆盖，不用改代码）。
 var 默认站点 = {
@@ -419,27 +419,23 @@ function 移条(x, y) {
 }
 
 // 圆角方块：黑底 + 2px 白描边（照 TRAE远程控制APP 竖条同款 GradientDrawable 画法）
-// ★ v2.05 两条硬规矩：
-//   ① **改 View 一律回 UI 线程**（前面就是在子线程 setBackground，异常被吞掉 → 那颗按钮等于没上底色，
-//      网页一浅，白字就"消失"了）。
-//   ② 底色恒为不透明黑，深浅只靠 setAlpha：未选中 220、选中 255。绝不重建 drawable。
-//   只有 T/W 里被选中的那颗加深；↻/⚙ 永远按未选中画。不加金边、不改字色、不改形状。
+// ★ v2.06（用户拍板的效果）：
+//   · 四颗按钮同一种"半透明黑底纹"；T/W 里**被选中的那颗底纹更黑一点**（仍半透明）。
+//   · 实现只用一条路：**每次全新 drawable，setColor 直接带透明度的颜色**——
+//     未选中 argb(220,0,0,0)（v1.20 用户认可的"黑里带灰"），选中 argb(242,0,0,0)（更黑一点，仍半透明）。
+//   · ★血泪：v2.05 用"不透明黑底 + setAlpha 调深浅"，setAlpha 那行在真机上被吞 → 不透明黑裸奔 = 四颗实心黑。
+//     所以这里**禁止用 setAlpha**、**禁止复用 getBackground**，深浅只写在颜色本身里。
 function 涂钮(控件, 选中) {
     if (!控件) return;
     function 画() {
-        var d = null;
-        try { d = 控件.getBackground(); } catch (e) { d = null; }
-        if (!d || !d.setAlpha) {
-            try {
-                d = new android.graphics.drawable.GradientDrawable();
-                d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-                d.setCornerRadius(Math.floor(按钮尺寸 * 0.25));
-                d.setColor(-16777216);   // 0xFF000000，不透明黑（用负数常量，避免大数转换）
-                d.setStroke(2, android.graphics.Color.parseColor("#80FFFFFF"));
-                控件.setBackground(d);
-            } catch (e) { return; }
-        }
-        try { d.setAlpha(选中 ? 255 : 220); } catch (e) {}
+        try {
+            var d = new android.graphics.drawable.GradientDrawable();
+            d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            d.setCornerRadius(Math.floor(按钮尺寸 * 0.25));
+            d.setColor(android.graphics.Color.argb(选中 ? 242 : 220, 0, 0, 0));
+            d.setStroke(2, android.graphics.Color.parseColor("#80FFFFFF"));
+            控件.setBackground(d);
+        } catch (e) {}
     }
     try {
         if (ui && ui.isUiThread && ui.isUiThread()) 画();
