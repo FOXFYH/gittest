@@ -3,11 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>任务面板 · 手机遥控页 v0.13</title>
+<title>任务面板 · 手机遥控页 v0.14</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.13
+  版本：0.14
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
+  v0.14（2026-10-19）新增【服务器切换】（起因＝用户 2026-10-19 双机口径：家里/宿舍各一台服务器
+    在争抢应答，需网页版切「谁应答」）：顶栏「刷新」与「口令」之间加【服务器】下拉——选项＝
+    自动发现在线服务器（`服务器报到` 帧，显示「名称（实例号）· 在线/离线」，按实例号去重）＋
+    「自动（谁先答算谁）」＋「手动输入实例号…」；选中即定向（接口.js 请求帧带 `sv`）、按帧的
+    `服务器` 字段归属、只收选中那台的应答/广播；选中项本地持久化，离线时如实标注「所选：X 离线」。
   v0.13（2026-10-19）按用户口径（网页端）改【卡片尺寸规则】——去掉原固定正方体 --卡边长（默认 320px）
     写法：卡片宽度取【容器 100%（满宽，手机上即＝手机宽度）】、高度【按内容自适应】（字少即矮），
     高度上限＝该卡自身宽度（顶多撑成一个正方形，边长＝卡宽），超过上限即【截断】并保留「展开 ▾ /
@@ -56,6 +61,18 @@
     background: #f6f8fb; border-color: #c4ccd8;
   }
   .小钮:active { background: #e6ecf5; }
+  /* 服务器切换（顶栏，与按钮同排）：下拉 + 在线/离线小标 */
+  .服务器盒 { display: flex; align-items: center; gap: 6px; font-size: 14px; flex: 1 1 auto; min-width: 0; }
+  .服务器题 { color: #fff; opacity: .9; white-space: nowrap; }
+  .服务器选 {
+    font-family: inherit; font-size: 14px; color: #222; cursor: pointer;
+    border: 1px solid #c4ccd8; border-radius: 6px; background: #fff;
+    padding: 8px 10px; min-height: 42px; max-width: 46vw; flex: 1 1 auto; min-width: 0;
+  }
+  .服务器态 { font-size: 12px; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+  .服务器态.在线 { background: #d8f5dc; color: #1a7a2e; }
+  .服务器态.离线 { background: #ffe0e0; color: #b00020; }
+  .服务器态.自动 { background: rgba(255,255,255,.22); color: #fff; }
   /* 主体 */
   main { padding: 12px; }
   .区 { margin-bottom: 18px; }
@@ -152,10 +169,14 @@
 </head>
 <body>
 <header id="顶栏">
-  <div class="题">任务面板 <span class="版本">v0.13</span> <span id="角色" class="角色">连接中…</span></div>
+  <div class="题">任务面板 <span class="版本">v0.14</span> <span id="角色" class="角色">连接中…</span></div>
   <div class="顶操作">
     <button id="按钮_发布任务" class="主钮">发布任务</button>
     <button id="按钮_刷新" class="次钮">刷新</button>
+    <label class="服务器盒" for="服务器_选择"><span class="服务器题">服务器</span>
+      <select id="服务器_选择" class="服务器选" title="选择只应答你的服务器（自动发现/自动/手动）"></select>
+      <span id="服务器_态" class="服务器态 自动">自动</span>
+    </label>
     <button id="按钮_口令" class="小钮">口令</button>
   </div>
 </header>
