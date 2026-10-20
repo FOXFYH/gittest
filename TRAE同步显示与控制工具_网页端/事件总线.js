@@ -25,6 +25,51 @@ function onEv(kind, v){
       }
       return;
     }
+    case 'snap_pane': {                /* 2.113（协议另半边·服务端已 3.41）：按需单会话帧
+        （v={sid,title,msgs,n,finish,sel,vis}，服务端只为一个会话单独下发，正文单条已截 8000）。
+        ① 该 sid 就是网页端当前锚定会话 ⇒ 当作目标正文上屏：与常规快照走同一条护栏
+           （_msgsMonotonic「少≥1」＋ renderAll 持屏闸），绝不把已上屏内容打回去；真帧到
+           即撤「正在获取直播帧」条，并给「刷新当前会话」收口。
+        ② 不是锚定会话 ⇒ **不打扰当前屏幕**：只存为该会话的内存存帧＋按会话键落 IDB
+           （复用 2.112 的 _frameMem 与 `cacheKey|稳定键` 口径），切过去即可秒显。
+        缺字段/旧服务端（无此帧）一律静默忽略，绝不影响既有语义。 */
+      const pv = (v && typeof v === 'object') ? v : {};
+      const psid = String(pv.sid || '');
+      if (!psid || !Array.isArray(pv.msgs)) break;
+      if (!_paneIsAnchor(psid, pv.title || '')){
+        try { if (typeof paneFrameStore === 'function')
+          paneFrameStore(psid, pv.title || '', pv); } catch(e){}
+        break;
+      }
+      const _prevPm = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
+      const _inc = {msgs: pv.msgs.slice(), finish: pv.finish};
+      /* 单调护栏只对「同一会话的正文」比较：切换在途、S.snap 正文仍是旧会话 A 时
+         这是目标 B 的帧，跨会话比条数会把 B 误判成「少≥1」打回（同 adoptSnap 口径）。 */
+      const _spg = S.switch_pend;
+      const _crossConv = !!(_spg && _spg.lockTarget && !_spg.arrived
+          && Array.isArray(_spg.prevMsgs)
+          && sameConvBody((S.snap || {}).msgs, _spg.prevMsgs));
+      if (!_crossConv && _prevPm && _prevPm.length) _msgsMonotonic(_inc, S.snap);
+      if (_prevPm && _inc.msgs === _prevPm) break;   /* 空帧/少≥1：护栏已拦，保持已上屏 */
+      if (S.snap && typeof S.snap === 'object'){
+        S.snap.msgs = _inc.msgs;
+        if ('finish' in pv) S.snap.finish = pv.finish || null;
+      } else {
+        S.snap = {msgs: _inc.msgs, finish: pv.finish || null, convs: []};
+      }
+      /* 切换在途：目标正文真到 ⇒ 立即收口（解锁持屏，交给 renderAll 正常让位） */
+      const _spv = S.switch_pend;
+      if (_spv && _spv.lockTarget && !_spv.arrived
+          && (_spv.sid ? String(_spv.sid) === psid
+                       : (S.anchorSid && 稳定键(psid, pv.title || '') === S.anchorSid)))
+        _spv.arrived = true;
+      /* 撤「正在获取直播帧」条（liveClear 内含立即落盘）；无条则补一次存帧 */
+      if (S.livePend && (S.livePend === psid || S.livePend === S.anchorSid)) liveClear();
+      else { try { snapIdbTick(true); } catch(e){} }
+      try { if (typeof paneReqDone === 'function') paneReqDone(psid); } catch(e){}
+      renderAll();
+      break;
+    }
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
       /* 1.xx：登录轻启动——服务端 hello 只发「框架版」快照（无 msgs，
@@ -490,4 +535,38 @@ function onRcpt(d){
   /* ① 通用操作——按动作 id 匹配在途登记表（③④ 收口） */
   if (id) srvOpAck(id, stage, msg);
 }
+
+/* ============ 2.113：按需单会话（snap_pane）与「刷新当前会话」 ============
+   服务端 3.41 新增 `{'t':'ev','k':'snap_pane',v:{sid,title,msgs,…}}`：同一次
+   只送 1 个会话的正文（≥2s 限频、内容不变不发），需求来源＝网页端 switch /
+   `{'t':'pane_req','sid':…}` / 登录重连首拍。此处补齐网页端这半边。 */
+function _paneIsAnchor(sid, title){
+  if (!sid) return false;
+  if (S.anchorFull && String(S.anchorFull) === String(sid)) return true;
+  /* 刷新/跨天后 anchorFull 可能还是旧完整 SID：按终身号再认一次 */
+  return !!(S.anchorSid && typeof 稳定键 === 'function'
+            && 稳定键(sid, title || '') === S.anchorSid);
+}
+/* 「刷新当前会话」在途登记（成功标志＝收到该 sid 的 snap_pane） */
+let _paneReqWait = null;
+function paneReqDone(sid){
+  const w = _paneReqWait;
+  if (!w || String(w.sid) !== String(sid)) return;
+  _paneReqWait = null;
+  try { srvOpAck(w.id, 'done'); } catch(e){}   /* ④ 成功（文案仍只由 SRV_PHASE 出） */
+}
+/* P1-5：向服务端索取「当前锚定会话」的全额帧（pane_req；服务端 _pane_sniff 同名认）。
+   四步提示走 2.90/2.112 公共出口 srvOpSendJson＋SRV_PHASE；无回帧 30s 落「待确认」。 */
+function paneRefreshNow(){
+  const label = '刷新当前会话';
+  const sid = String(S.anchorFull || (typeof curSid === 'function' ? curSid() : '') || '');
+  if (!sid){ srvOpFlash('fail', label, '当前无锚定会话'); return false; }
+  if (!S.onLine){ srvOpFlash('offline', label, '命令未发出（WS 未就绪），稍后再试'); return false; }
+  const id = srvOpNewId();
+  _paneReqWait = {sid: sid, id: id, at: Date.now()};
+  const ok = srvOpSendJson({t: 'pane_req', sid: sid}, label, '', 4000, id);
+  if (!ok) _paneReqWait = null;
+  return ok;
+}
+try { const _bpn = $('btn_panerefresh'); if (_bpn) _bpn.onclick = paneRefreshNow; } catch(e){}
 

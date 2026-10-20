@@ -86,13 +86,15 @@ function srvOpSend(cmd, arg, label, extra, ms){
 /* 2.109：非 cmd 帧（t:'boot'/'switch_box'/'attach_files'）的统一四态出口——
    与 srvOpSend 同一套在途登记/rcpt 收口，只是发的是自定义帧；帧上并入 `id`
    供服务端 回执.受理/开始/终态 配对（服务端「四步提醒」同样按 d.id 回 stage）。
-   旧服务端忽略多余 `id` 字段。补充多参数 ms（保持原 flash 时长）。 */
-function srvOpSendJson(obj, label, extra, ms){
+   旧服务端忽略多余 `id` 字段。补充多参数 ms（保持原 flash 时长）。
+   2.113：新增可选 `id`（调用方自带动作 id，供「刷新当前会话」在收到 snap_pane
+   时用同一 id 收口 ④；不传则维持原行为）。 */
+function srvOpSendJson(obj, label, extra, ms, id){
   if (!S.onLine){
     srvOpFlash('offline', label, '命令未发出（WS 未就绪），稍后再试');
     return false;
   }
-  const id = srvOpNewId();
+  id = id || srvOpNewId();
   const op = {label: label, extra: extra, timer: null, stage: 'queued', at: Date.now()};
   op.timer = setTimeout(() => {
     delete srvOpAcct[id];

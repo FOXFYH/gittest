@@ -660,6 +660,29 @@ function snapIdbShow(sid, title){
     if (!S.liveGot && (S.anchorSid || '') === sid) renderAll();
   });
 }
+/* 2.113：非锚定会话的按需帧（snap_pane）→ 存为该会话的内存存帧＋按会话键落 IDB。
+   键与 2.112 完全一致（`cacheKey|稳定键`，snapIdbTick/snapIdbShow 同源），点该会话时
+   同步命中 `_frameMem` 即秒显；**绝不碰 S.snap / 当前屏幕**（非目标不打扰），也不动
+   落盘节流账（按会话各自记账）。 */
+function paneFrameStore(sid, title, v){
+  try{
+    if (!sid || !v || !Array.isArray(v.msgs)) return false;
+    const _sid = 稳定键(sid, title || '') || String(sid);
+    const _sk = _frameMemKey(_sid), key = cacheKeyNow(), now = Date.now();
+    const frame = {online: !!(S.snap && S.snap.online),
+                   login: (S.snap && S.snap.login),
+                   msgs: keepLastRounds(v.msgs),
+                   finish: v.finish || null, tail: '', sendIdle: true,
+                   inputText: '', opts: [], ask: null, pend: [],
+                   attach: [], model: ''};
+    _frameMem[_sk] = frame;                 /* 内存帧：切过去 0ms 同步上屏 */
+    _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = msgsFp(frame.msgs);
+    _idbReq('snap_conv', 'readwrite', st => st.put(
+      {sk: _sk, key: key, port: S.port, sid: _sid,
+       title: title || '', ts: now, frame: frame})).catch(() => {});
+    return true;
+  }catch(e){ return false; }
+}
 /* 直播帧到达（专属于当前锚定会话）→ 撤条并停用本地帧 */
 function liveClear(){
   S.livePend = ''; S.liveGot = true; S.liveFrame = null;   /* 2.57B：真帧到手撤存帧 */
