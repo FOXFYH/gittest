@@ -124,6 +124,9 @@ function onEv(kind, v){
         /* 2.67：超时不再在此按指钟判——由 switchReArm 的 60s 定时器负责 */
       }
       renderAll();
+      /* 2.98（标准§二之一「不是等刻度」）：新快照到达即触发一次落盘检查——
+         距上次落盘已满 10 秒就立刻落（不必等 10 秒轮询那一拍）。 */
+      if (typeof snapIdbTick === 'function') snapIdbTick();
       break;
     }
     case 'profiles': {

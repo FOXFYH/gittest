@@ -311,8 +311,8 @@ function switchTimeout(){
   const sp = S.switch_pend; if (!sp || sp.phase === 'ok') return;
   switchFail(sp.title);                 /* 满 60s 未成功 → 宣布失败 */
   switchClear();
-  /* 2.87：超时收口后若仍钉在旧本地存帧 → 撤覆盖，回落真快照 */
-  if (S.livePend && typeof liveClear === 'function') liveClear();
+  /* 2.98（老板 2026-10-20 10:01「失败也继续锚定目标」）：超时＝失败，也【不】撤
+     「直播帧覆盖」——保留目标会话本地存帧显示（收口在 switchClear，见下）。 */
 }
 /* 成功收口：显示「切换成功」2 秒，然后交回当前状态灯（用户：成功不常驻） */
 function switchOk(){
@@ -339,20 +339,10 @@ function switchClear(){
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
   S.swHold = false;         /* 2.97：切换收口 → 松开持屏，回落真快照 */
-  /* 2.89（老板 2026-10-20）：切换【失败】收口回退到「切换前的 A」——恢复锚定
-     （标题/选中态）与切换前正文；成功（phase==='ok'）不回退，继续 B。
-     仅网页端自己发起的切换（lockTarget）才有 prevAnchor/prevMsgs。 */
-  if (sp.phase !== 'ok' && sp.lockTarget && sp.prevAnchor){
-    S.anchorSid   = sp.prevAnchor.sid   || '';
-    S.anchorTitle = sp.prevAnchor.title || '';
-    S.anchorFull  = sp.prevAnchor.full  || '';
-    S.anchor_gone = '';
-    S.anchor_stale_since = 0; S.anchor_stale_n = 0; S.anchor_need_refresh = 0;
-    if (Array.isArray(sp.prevMsgs))
-      S.snap = Object.assign({}, S.snap, {msgs: sp.prevMsgs.slice()});
-    S.msgs_key = null; S.convs_key = null;      /* 强制重画回 A */
-    if (typeof anchorReport === 'function') anchorReport();
-  }
+  /* 2.98（老板 2026-10-20 10:01「失败也继续锚定目标」·与本文相反）：切换【失败】
+     不再回退到切换前的旧会话 A——锚定保持在本目标会话，页面继续显示目标会话的
+     本地存帧（保留目标锁，见下方 livePend 分支），直至目标真直播帧到达才收口。
+     旧 2.89 的「失败回退 prevAnchor/prevMsgs」语义按新口径【删除】。 */
   /* 2.87：切换收口统一补一处——若「直播帧覆盖」仍置位则清除，让页面回落
      真快照（旧实现只有 事件总线.js「桌面选中行＝锚定」才会 liveClear，
      失败/超时、或桌面被后台投递/借框抢走时永不触发 ⇒ 页面被永久钉在旧
@@ -367,8 +357,10 @@ function switchClear(){
      目标存帧 B），防 arrived 被误置后露出 A 的缓存；等 B 真帧到达那一拍再撤。 */
   const _snapStillOld = Array.isArray(sp.prevMsgs)
       && sameConvBody((S.snap || {}).msgs, sp.prevMsgs);
+  /* 2.98：失败（phase!=='ok'）不再撤「直播帧覆盖」——保留目标存帧显示（失败也
+     继续锚定目标）。仅【成功】且目标正文已到、且快照正文确已换掉旧会话 A 这一支撤锁。*/
   if (S.livePend && typeof liveClear === 'function'
-      && (sp.phase !== 'ok' || (sp.arrived && !_snapStillOld))) liveClear();
+      && sp.phase === 'ok' && sp.arrived && !_snapStillOld) liveClear();
   renderAll();
   return true;
 }

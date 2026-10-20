@@ -114,10 +114,13 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
              时，消息渲染.js 的 inF 分支压过 pinBottom，把 scrollTop 原样还原
              成顶部的 0，并因 scrollTop<60 误触发「正在取回历史记录」。 */
           exitFmsg();
-          /* 2.89（老板 2026-10-20）：先记「切换前的锚定」——切换失败时回退到此
-             （见 待办卡.js switchClear 回退分支；成功则继续目标 B）。 */
+          /* 2.89（老板 2026-10-20）：先记「切换前的锚定」——作为「到达判定」的旧
+             正文基线（sameConvBody 判目标正文是否已换）；2.98 起失败不再回退到此。 */
           const _prevAnchor = {sid: S.anchorSid, title: S.anchorTitle,
                                full: S.anchorFull};
+          /* 2.98（老板 2026-10-20 09:43）：切走＝离开当前会话 ⇒ 立刻强制落盘一次
+             当前会话的完整快照（下次回来能立刻顶出「离开前那一刻」，不看到更旧的）。 */
+          if (typeof snapIdbTick === 'function'){ try { snapIdbTick(true); } catch(e){} }
           /* v1.95：优先按稳定 ID 切换（改名/重排不切错），无 ID 回退序号 */
           /* 2.18 锚定：用户主动点会话行 = 自己换锚点；此后网页版守着这个
              会话，别人在电脑版操作别的会话也不会把网页版带走。 */

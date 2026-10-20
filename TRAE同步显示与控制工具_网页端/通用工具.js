@@ -255,14 +255,22 @@ function firstLineDid(text){
   const head = s.split('\n', 1)[0].trim();
   return /^\d{14}$/.test(head) ? head : '';
 }
-/* v2.82：把 14 位 DID（YYYYMMDDHHMMSS）还原成与 fmtTime 同格式的北京时间串
-   'YYYY-MM-DD HH:MM:SS'——「我自己发的消息」以首行 DID 的时间为准，
-   **不使用系统给的时间**。非 DID 返回 ''。 */
-function didTimeOf(text){
-  const d = firstLineDid(text);
-  if (!d) return '';
+/* v2.82／2.99：14 位 DID（YYYYMMDDHHMMSS）→ 与 fmtTime 同格式的北京时间串
+   'YYYY-MM-DD HH:MM:SS'（「我自己发的消息」以首行 DID 的时间为准，不用系统时间）。 */
+function didToStr(d){
   return d.slice(0, 4) + '-' + d.slice(4, 6) + '-' + d.slice(6, 8) + ' '
        + d.slice(8, 10) + ':' + d.slice(10, 12) + ':' + d.slice(12, 14);
+}
+/* 2.99：取「该条自身」的 14 位 DID——兼容两形态：① 首行纯 DID（换行分隔，
+   firstLineDid）；② TRAE 官方排队条把首行 DID 后的换行折叠成空格后的单行形态
+   （'20261020114333 正文…'，pendDidOf）。② 正是「更早老对话被统一打上最新时间」
+   的根因：旧口径只认 ①，② 取不到 DID 便落进「首见缓存/NOW」兜底。 */
+function msgDidOf(text){
+  return firstLineDid(text) || pendDidOf(text);
+}
+function didTimeOf(text){
+  const d = firstLineDid(text);
+  return d ? didToStr(d) : '';
 }
 /* v2.84（老板实测 · Bug B）：剥净正文开头【已有】的 14 位 DID（含多层）——
    重发/重编/残留回填会带着旧 DID，不剥净发送时就会「首行出现两个时间」。
@@ -288,36 +296,36 @@ function pendDidOf(text){
   return m ? m[1] : '';
 }
 function resolveTimes(msgs){
-  /* 2.22：时间以服务端为准——服务端快照给每条消息盖好第 6 位（已格式化的
-     北京秒级串 'YYYY-MM-DD HH:MM:SS'），有则直接显示，不再本地打戳（本地
-     打戳会因手机时区/首见时刻不准）。无第 6 位（老服务端/本地乐观追加行）
-     回退旧本地逻辑。last 统一存「已格式化」串，AI 消息直接沿用，不再二次
-     fmtTime（避免对已格式化串再解析造成时区偏移）。
-     v2.82（老板追加）：**网页版自己发的消息，其首行 DID 的 14 位时间就是它
-     的时间** ⇒ 顶部时间区显示该 DID 时间，**不使用系统给的时间**（优先于第
-     6 位服务端时间戳）。AI 消息沿用其提问时间（即上文那段 DID 时间）。 */
-  const cache = timesGet(), title = curTitle(), out = [];
-  let last = '';
+  /* 2.99（老板 2026-10-20 11:43「最近几条对话的时间，居然都是一样的……明明我记得
+     这些都是更早之前的老对话，全部一起被打上了最新时间」）——时间【取源】整改。
+     根因：v2.82 的 didTimeOf 只认「首行纯 14 位 DID」，而「更早老对话」经 TRAE 官方
+     排队条落账后首行 DID 被折进单行（'20261020114333 正文…'，账本 tm 列同时为空）⇒
+     取不到 DID ⇒ 落进旧的 else 本地兜底（首见缓存/渲染时刻 NOW）⇒ 同拍多条一并被打上
+     「最新时间」（且各条独立、不串用的口径被破坏）。
+     2.99 起口径：消息时间必须＝该条【自身】真实时间，按优先序取——
+       ① 首行 DID（含折叠单行 msgDidOf；网页版自己发起的消息其时间就是该 DID）；
+       ② 账本源 tm（历史行 index 2，见 缓存.js ledToArr；亦＝快照 index 2 的 TRAE DOM
+          实测真值，与快照服务端第 6 位同源）；
+       ③ 服务端 2.52 盖章（快照 index 5）。
+     三者皆无 ⇒ 【不显示时间】（times[i] 空 ⇒ 消息渲染.js .tm 不渲染）——绝不再用
+     本地首见/NOW 兜底，各条独立、不串用。AI 行沿用其【紧邻上一句人类提问】的时间
+     （该句无真值则 AI 行亦不显）。保留 2.93「双方常显」口径（是显示与否，非时间源）。 */
+  const out = [];
+  let last = '';                          // 紧邻上一句人类提问的时间（无真值＝''）
   for (const m of msgs){
     let t = '';
-    const _dt = (m[0] === 'u') ? didTimeOf(m[1]) : '';
-    if (_dt){                             // v2.82：自己发的消息＝首行 DID 时间
-      t = _dt;
+    if (m[0] === 'u'){
+      const d = msgDidOf(m[1]);           // ① 首行 DID（兼容折叠单行）
+      if (d) t = didToStr(d);
+      else if (m[2]) t = String(m[2]);    // ② 账本源 tm / TRAE DOM 真值
+      else if (m.length > 5 && m[5]) t = String(m[5]);   // ③ 服务端 2.52 盖章
+      /* else：拿不到真实时间 ⇒ 空（不显示，绝不打 NOW） */
       last = t;
-    } else if (m.length > 5 && m[5]){     // 服务端时间戳
-      t = String(m[5]);
-      if (m[0] === 'u') last = t;
-    } else if (m[0] === 'u'){
-      const k = S.port + '|' + title + '|' + djb2('u|' + m[1]);
-      if (!cache[k]) cache[k] = new Date().toISOString().slice(0,19);
-      last = fmtTime(cache[k]);
-      t = last;
     } else {
-      t = last;                           // AI 消息沿用其提问时间
+      t = last;                           // AI 沿用其紧邻提问时间（无真值＝空）
     }
     out.push(t);
   }
-  localStorage.setItem(LS_TM, JSON.stringify(cache));
   return out;
 }
 function 稳定键(sid, title){

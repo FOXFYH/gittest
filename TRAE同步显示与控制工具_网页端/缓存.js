@@ -250,10 +250,10 @@ function curMsgs(){
    秒显：点会话先读本地存帧立刻铺上，并出「正在获取直播帧」小条，
    直到当前锚定会话的真直播帧到达才撤。IDB 打不开则静默降级，绝不阻断主流程。 */
 const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
-const IDB_KEEP_MS = 7 * 24 * 3600 * 1000;   /* 超一周剪枝（与 SRV_TTL 同一把尺） */
+const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
 const WEB_ROUNDS_KEEP = 3;               /* 2.59：单帧/本地历史只留最近 3 轮（用户 2026-10-07）；原为尾部 40 条 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
-let _idbP = null, _idbLastAt = 0, _idbLastFp = '', _idbLastSid = '';
+let _idbP = null, _idbLastAt = 0;
 function idbOpen(){
   if (_idbP) return _idbP;
   _idbP = new Promise((res, rej) => {
@@ -285,12 +285,6 @@ function _idbReq(store, mode, fn){
     tx.onabort = () => rej(tx.error);
   })).catch(e => { throw e; });
 }
-function _idbFp(){
-  const s = S.snap || {};
-  return msgsFp(s.msgs) + '|' + (s.finish || '') + '|' + (s.tail || '')
-    + '|' + (s.sendIdle ? 1 : 0) + '|' + (s.inputText || '')
-    + '|' + (s.model || '') + '|' + ((s.convs || []).length);
-}
 function _idbFrame(){
   const s = S.snap || {};
   return {online: !!s.online, login: s.login,
@@ -300,7 +294,10 @@ function _idbFrame(){
           ask: s.ask || null, pend: s.pend || [], attach: s.attach || [],
           model: s.model || ''};
 }
-/* 每 5 秒（+关键动作强制）把当前锚定会话的快照落地 */
+/* 2.98（标准《快照缓存策略》§二/二之一）：落盘＝「两次落盘最小间隔 10 秒」的
+   节流（不是固定周期到点才落）——只要「上次落盘已超 10 秒」且有完整快照即可落。
+   调用点：每 10 秒轮询一拍 ＋ 新快照到达即触发（事件总线.js 快照分支）＋ 关键动作
+   强制（liveClear／切走）。 */
 function snapIdbTick(force){
   /* 2.57B：切换在途——此刻 S.snap 正文仍属旧会话 A，绝不能在锚定已指向 B 时
      把它当 B 的存帧落地（否则会把 A 的内容毒化成 B 的缓存）。 */
@@ -318,12 +315,11 @@ function snapIdbTick(force){
   if (!Array.isArray(s.convs) || !s.convs.length) return;   /* 还没快照 */
   const sid = (S.anchorSid || curSid() || '');
   if (!sid) return;
-  const now = Date.now(), fp = _idbFp();
-  if (force !== true){
-    if (now - _idbLastAt < 5000) return;                     /* 5 秒时间闸 */
-    if (fp === _idbLastFp && sid === _idbLastSid) return;     /* 指纹去重 */
-  }
-  _idbLastAt = now; _idbLastFp = fp; _idbLastSid = sid;
+  const now = Date.now();
+  /* 2.98：节流＝「上次落盘已超 10 秒即可再次落盘」（纯时间判据；不再要求内容变化
+     ——旧 5 秒闸 + 指纹去重已移除）。force=true（关键动作）绕过节流立即落。 */
+  if (force !== true && now - _idbLastAt < 10000) return;
+  _idbLastAt = now;
   const key = cacheKeyNow();
   _idbReq('snap_conv', 'readwrite', st => st.put(
     {sk: key + '|' + sid, key: key, port: S.port, sid: sid,
@@ -341,7 +337,7 @@ function snapIdbGet(sid){
 function snapIdbListGet(){
   return _idbReq('snap_list', 'readonly', st => st.get(cacheKeyNow()));
 }
-/* 剪枝：超一周的记录按主键逐个删（绝不整库清空），单轮上限 IDB_PRUNE_MAX */
+/* 剪枝①：超 10 天的记录按主键逐个删（绝不整库清空），单轮上限 IDB_PRUNE_MAX */
 function snapIdbPrune(){
   const cut = Date.now() - IDB_KEEP_MS;
   let n = 0;
@@ -356,6 +352,39 @@ function snapIdbPrune(){
     return rq;
   }).catch(() => {});
 }
+/* 剪枝②（2.98·标准《快照缓存策略》§五/§六）：会话不存在则清理——先取【当前会话
+   列表】，列表【为空/取不到 ⇒ 本轮直接跳过】（防呆·硬要求：网络未加载出来时绝不
+   全删）；有列表才删「不在列表内」的会话存帧，单轮上限 IDB_PRUNE_MAX。
+   匹配口径：存帧记录按 sid/标题 归属，只要其 sid（终身号或完整 sid）或标题命中
+   当前列表即视为存在（宁留勿误删）。 */
+function snapIdbPruneMissing(){
+  const s = S.snap || {};
+  const convs = Array.isArray(s.convs) ? s.convs : [];
+  const keep = new Set();
+  for (const r of convs){
+    if (!r || r[0] !== 'c') continue;
+    if (r[1]) keep.add(String(r[1]));                 /* 会话标题 */
+    if (r[4]) keep.add(String(r[4]));                 /* 完整 SID */
+    const k = 稳定键(r[4], r[1]); if (k) keep.add(k);  /* 稳定性键＝终身号 */
+  }
+  if (!keep.size) return;                             /* 防呆：列表空/取不到 ⇒ 全部保留 */
+  const key = cacheKeyNow();
+  let n = 0;
+  return _idbReq('snap_conv', 'readwrite', st => {
+    const rq = st.openCursor();
+    rq.onsuccess = () => {
+      const c = rq.result;
+      if (!c || n >= IDB_PRUNE_MAX) return;
+      const rec = c.value || {};
+      const gone = rec.key === key
+          && !keep.has(String(rec.sid || ''))
+          && !keep.has(String(rec.title || ''));
+      if (gone){ c.delete(); n++; }
+      c.continue();
+    };
+    return rq;
+  }).catch(() => {});
+}
 /* 版本换代 / 清缓存：清空快照类（快照表 + 列表骨架），不动占位卡 */
 function snapIdbClearAll(){
   return Promise.all([
@@ -365,7 +394,7 @@ function snapIdbClearAll(){
 }
 /* 2.89（老板 2026-10-20）：切换过渡期是否「锁死目标会话」——一旦网页端自己发起
    切到 B，正文一律以 B 的帧为准（B 的帧优先，快照里仍是 A 的正文不得上屏），直到
-   切换成功（继续 B）或失败（回退 A）。条件：livePend 置位中，或网页端自己发起的
+   切换成功、或失败（2.98：失败也【继续锚定 B】、不回退 A）。条件：livePend 置位中，或网页端自己发起的
    切换在途且目标正文尚未到达（switch_pend.lockTarget && !arrived）。非过渡期不锁。
    2.93（老板 2026-10-20 07:09）：再加一道缓存层护栏——即便 arrived 已被置真，
    只要撤锁当下 S.snap 正文【仍属切换前旧会话 A】，就继续锁死目标（不上屏 A 的
@@ -442,5 +471,29 @@ function liveClear(){
   liveHide();
   snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
 }
-setInterval(() => snapIdbTick(), 5000);
-setInterval(() => snapIdbPrune(), 10 * 60 * 1000);
+/* 2.98（标准《快照缓存策略》附录A「刷新/首屏也应立刻顶出最新缓存」）：首屏/刷新在
+   骨架秒显后，立刻读「当前会话」的 IDB 最新存帧顶出（走 snapIdbShow 同一入口），
+   替代更旧的账本残行。当前会话＝骨架（或快照）列表里被选中那行，无选中则第一行
+   会话；列表取不到 ⇒ 不动作（保 2.57B「无缓存即空白」语义）。 */
+function snapIdbBoot(sk){
+  try{
+    if (S.livePend || S.liveGot || S.livePrefetch) return;
+    const convs = (sk && sk.convs) || (S.snap && S.snap.convs) || [];
+    let sel = null;
+    for (const r of convs){
+      if (!r || r[0] !== 'c') continue;
+      if (!sel) sel = r;
+      if (r[2]){ sel = r; break; }
+    }
+    if (!sel || !sel[4]) return;
+    const key = 稳定键(sel[4], sel[1]);
+    if (!key) return;
+    /* 首屏无锚定：先锚定到上次看的会话（跨刷新续锚，与「网页版锚定自己选的会话」同源） */
+    if (!S.anchorSid){
+      S.anchorSid = key; S.anchorTitle = sel[1] || ''; S.anchorFull = sel[4] || '';
+    }
+    snapIdbShow(key, sel[1]);
+  }catch(e){}
+}
+setInterval(() => snapIdbTick(), 10000);                       /* 2.98：10 秒节流（原 5 秒） */
+setInterval(() => { snapIdbPrune(); snapIdbPruneMissing(); }, 10 * 60 * 1000);
