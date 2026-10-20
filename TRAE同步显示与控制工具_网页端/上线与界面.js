@@ -291,8 +291,7 @@ el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并�
   if (!S.snap || !S.snap.online){ flash('⚠ TRAE 未在线'); return; }
   if (S.task_open) return;
   taskDlgOpen();
-  srvOpFlash('sent', '新建任务');           // 2.85：② 等待服务器回应
-  sendCmd('new_task_dlg', null);
+  srvOpSend('new_task_dlg', null, '新建任务');   // 2.109：②＋rcpt ③④
 };
 el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 boot
   drawerClose();                  // 本就先杀再拉——原在线时本地拦下，
@@ -305,16 +304,15 @@ el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 b
       + '（服务端正在运行的该 TRAE 会先关闭）'))
     return;
   S.busy = true;
-  srvOpFlash('sent', online ? ('重启 ' + S.box) : ('拉起 ' + S.box));   // 2.85：②
-  sendJson({t: 'boot', box: S.box});
+  /* 2.109：非 cmd 帧统一四态出口——②＋rcpt ③④。 */
+  srvOpSendJson({t: 'boot', box: S.box}, online ? ('重启 ' + S.box) : ('拉起 ' + S.box));
 };
 el.box.onchange = () => {                 // 切换目标：在线直接切/离线确认拉起
   const box = el.box.value;
   if (box === S.box || S.busy){ el.box.value = S.box; return; }
   if (srvNeedOnline('切换目标')){ el.box.value = S.box; return; }
   if (S.alive.has(box)){
-    srvOpFlash('sent', '切换目标', box);       // 2.85：②（服务端 switched 才收口）
-    sendJson({t: 'switch_box', box: box});
+    srvOpSendJson({t: 'switch_box', box: box}, '切换目标', box);   // 2.109：②＋rcpt ③④
   } else {
     if (!confirm('[' + box + '] 在服务端未带调试端口运行。\n\n'
       + '要请求服务端重启该 TRAE 并带端口吗？\n'
@@ -322,8 +320,8 @@ el.box.onchange = () => {                 // 切换目标：在线直接切/离�
       el.box.value = S.box; return;
     }
     S.busy = true;
-    srvOpFlash('sent', '拉起 ' + box);         // 2.85：②
-    sendJson({t: 'boot', box: box});
+    /* 2.109：非 cmd 帧统一四态出口——②＋rcpt ③④。 */
+    srvOpSendJson({t: 'boot', box: box}, '拉起 ' + box);
   }
 };
 el.model.onchange = () => {
@@ -337,8 +335,7 @@ el.model.onchange = () => {
     return;
   }
   S.model_busy = true;
-  srvOpFlash('sent', '切换模型', name);        // 2.85：②（model_set 才收口）
-  cmd('switch_model', name);
+  srvOpSend('switch_model', name, '切换模型', name);   // 2.109：②＋rcpt ③④（model_set 另回填）
 };
 
 /* —— 1.15：模型收藏管理页 —— */
@@ -350,7 +347,8 @@ el.favback.onclick = () => el.favpage.classList.remove('on');
 el.favrefresh.onclick = () => {
   const b = el.favrefresh;
   b.disabled = true; b.textContent = '刷新中…';
-  renderFavPage(); sendCmd('model_list', null);
+  renderFavPage();
+  srvOpSend('model_list', null, '刷新模型');   // 2.109：②＋rcpt ③④（models 事件另回填）
   setTimeout(() => { b.disabled = false; b.textContent = '↻ 刷新模型'; }, 1200);
 };
 

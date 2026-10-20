@@ -2,7 +2,7 @@
 /* 2.40：会话备注（网页端专享）——会话名后追加（备注），不改 TRAE 真名。
    独立模块：渲染后缀钩子 备注后缀(sid) + 右键菜单项 备注菜单项(sid,title,ov)。
    数据源：服务端快照 snap['备注'] = {"<sid>":"<文本>"}，收到快照时落到 S.备注；
-   写回命令：sendCmd('note_set', [sid, 文本])（空文本 = 删除）。
+   写回命令：srvOpSend('note_set', [sid, 文本], 标签)（空文本 = 删除）。
    依赖：S（状态与DOM.js）、sendCmd（fox协议.js）、flash（通用工具.js）。 */
 
 function 备注入快照(snap){
@@ -50,7 +50,8 @@ function 备注菜单项(sid, title, ov){
     const nn = prompt('编辑备注（留空则删除；仅网页端显示）', 备注取(sid));
     if (nn === null) return;
     const t = (nn || '').trim();
-    sendCmd('note_set', [sid, t]);
-    srvOpFlash('sent', t ? '保存备注' : '删除备注');   // 2.85：② 等待服务器回应
+    /* 2.109：改走统一四态出口（②「等待服务器回应…」＋ 服务端 rcpt 补 ③受理/④完成）。
+       服务端 命令路由 对 note_set 就地回 running/done/fail（_note_sched）。 */
+    srvOpSend('note_set', [sid, t], t ? '保存备注' : '删除备注');
   };
 }

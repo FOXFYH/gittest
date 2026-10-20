@@ -110,7 +110,24 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.108';   /* 2.108（老板 2026-10-20）本批一次发全，含两件：
+const VER = '2.109';   /* 2.109（老板 2026-10-20 18:38 令「手机网页版所有操作都要分四步提示、
+                          有缺全部补上；CDP 亲测右键菜单每项都要能实现＋都有四步提醒」）：
+                       全量审计后把网页端**所有触发服务器动作的入口**统一收敛到四态出口
+                       srvOpSend / 新增 srvOpSendJson（②「已发出」由 srvOpSend 播报；③受理/
+                       ④完成 由服务端 rcpt 按同 id 收口）——补齐按钮/自带 2.85 只报②却无 id
+                       （=> 无 ③④）的旧调用点。文案一律只从 SRV_PHASE 出，禁止各写各的。
+                       改：通用工具.js（srvOpSend＋ms、新增 srvOpSendJson 供非 cmd 帧 boot/
+                       switch_box/attach_files）、会话备注.js（note_set）、自我激活.js
+                       （sched_add/ls/clear/del）、任务与输入.js（input_take/new_task_in/
+                       task_dir_set/task_dlg_cancel/points/attach_files）、待办卡.js
+                       （check_fulls）、设置与迁移.js（check_fulls/profiles/profiles_refresh×2/
+                       profiles_login/profiles_stop/switch_migrate）、上线与界面.js
+                       （new_task_dlg/model_list/switch_model/boot×2/switch_box）、输入界面.js
+                       （attach_rm）、消息渲染.js（rewind/del_msg/ask_pick 等/pick_opt/pend_系列）、
+                       fox协议.js（SESS_CMDS 补 del_msg＝会话级动作强制带目标 sid，对齐 02-P0-2）。
+                       服务端 3.40 已对全部 cmdq 命令＋note_set/sched_*＋boot/switch_box/
+                       attach_files 回 rcpt（回执.py 0.01／命令路由 0.21+），本批无需改服务端。 */
+                       /* 2.108（老板 2026-10-20）本批一次发全，含两件：
                        ① 【语音小卡片残标消费范围扩大】卡片TTS.js（另一件完成、本地就绪、
                           实测 12/12 PASS；本人未改其语义）——后缀标记收尾时把残标一并吞到
                           `)`／行尾／下一个完整头标，杜绝残片留在正文。

@@ -327,7 +327,7 @@ function didNow(){
      提问卡…）——目标＝当前锚定会话 sid；**取不到目标就【拒发】**（如实提示，绝不发空目标）。
    · SESS_CMDS_ARG：作用于列表/记录【某一指定会话】的动作——目标优先取 arg 里的完整 sid。
    （switch/route_send 目标本就在 arg 里，且已由调用方传 convSid，不在此表内。） */
-const SESS_CMDS = { stop_gen:1, rewind:1, 'del':1, pend_del:1, pend_edit:1, pend_sendnow:1,
+const SESS_CMDS = { stop_gen:1, rewind:1, del_msg:1, 'del':1, pend_del:1, pend_edit:1, pend_sendnow:1,
   ask_pick:1, ask_other:1, ask_submit:1, ask_cancel:1, ask_prev:1, pick_opt:1,
   input_take:1, attach_rm:1 };
 const SESS_CMDS_ARG = { conv_del:1, conv_pin:1, conv_rename:1, note_set:1 };

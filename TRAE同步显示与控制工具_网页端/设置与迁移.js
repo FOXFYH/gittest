@@ -24,7 +24,7 @@ el.nettest.onclick = diagTest;
 /* 1.xx：被动查询最大化/全屏——前端发起，服务端即时检测回投一次结果 */
 el.check_fulls.onclick = () => {
   el.lbl_fulls.textContent = '查询中…';
-  sendCmd('check_fulls');
+  srvOpSend('check_fulls', null, '查询全屏');   // 2.109：②＋rcpt ③④（fullscreen_warn 另回填）
 };
 el.netclear.onclick = () => { DIAG.log.length = 0; diagRender(); };
 /* 1.58：一键复制诊断信息（直接粘给 AI 排查，省得截图） */
@@ -103,10 +103,10 @@ function renderProf(){
    改测本分身（即便在跑也可再点，直接取代，不再拒绝）。 */
 function profTest(name){
   if (srvNeedOnline('实测分身')) return;
-  sendCmd('profiles_refresh', [name]);   /* 传数组 → 服务端精确实测该分身 */
+  /* 2.109：统一四态出口——②＋rcpt ③④（profiles_run 事件另回填进度）。 */
+  srvOpSend('profiles_refresh', [name], '实测分身', name);
   S.prof_run = true;
   renderProf();
-  srvOpFlash('sent', '实测分身', name);   // 2.85：②（profiles_run 才收口）
 }
 
 /* 2.18：补登录——借服务端「谷歌分身助手 / T登录助手」的 HTTP 接口，对指定
@@ -114,14 +114,14 @@ function profTest(name){
    时服务端会自动拉起分身助手；滑块/超时由对方负责，跑完回 profiles_login。*/
 function profLogin(name){
   if (srvNeedOnline('补登录')) return;
-  sendCmd('profiles_login', name);   /* 传分身名 → 服务端借登录助手 */
-  /* 2.85：② 等待服务器回应（原绿色＝假成功，改中性蓝；profiles_login 事件才收口） */
-  srvOpFlash('sent', '补登录', name + '（服务端会先确保登录助手在线）');
+  /* 2.109：统一四态出口——②＋rcpt ③④（profiles_login 事件另回填结果）。 */
+  srvOpSend('profiles_login', name, '补登录',
+            name + '（服务端会先确保登录助手在线）');
 }
 
 el.prof.onclick = () => {
   drawerClose();
-  sendCmd('profiles');              // 拉一次当前数据
+  srvOpSend('profiles', null, '拉取分身数据');   // 2.109：②＋rcpt ③④（profiles 事件另回填）
   renderProf();
   el.profpage.classList.add('on');
 };
@@ -130,11 +130,11 @@ el.profref.onclick = () => {
   if (srvNeedOnline('分身实测')) return;
   /* v1.47：运行中为「停止」；空闲为「全量实测」。停止成功与否由
      profiles_run stopped 事件反馈。 */
-  if (S.prof_run){ sendCmd('profiles_stop'); srvOpFlash('sent', '停止实测'); return; }
-  sendCmd('profiles_refresh');      // 真实访问谷歌分身助手（后台）
+  if (S.prof_run){ srvOpSend('profiles_stop', null, '停止实测'); return; }   // 2.109
+  /* 2.109：统一四态出口——②＋rcpt ③④（profiles_run 事件另回填进度）。 */
+  srvOpSend('profiles_refresh', null, '全量实测');
   S.prof_run = true;
   renderProf();
-  srvOpFlash('sent', '全量实测');    // 2.85：②
 };
 
 /* 2.19：一键换号迁移——填目标号码，服务端一站式完成「原版换号
@@ -192,9 +192,11 @@ function switchMigratePrompt(){
     close();
     const slog = $('prof_swlog');
     if (slog){ slog.style.display = 'block'; slog.textContent = '（已提交，等待服务端…）'; }
-    sendCmd('switch_migrate', { '目标': n, '轮次': keep, '清理': purge, '压缩': vac, '迁移': mig });
+    /* 2.109：统一四态出口——②＋rcpt ③④（switch_migrate 事件另回投逐行进度）。 */
+    srvOpSend('switch_migrate',
+              { '目标': n, '轮次': keep, '清理': purge, '压缩': vac, '迁移': mig },
+              '一键换号迁移', '目标 ' + n + ' 号', 6000);
     S.switch_mig = { on: true, ok: null, log: [] };
-    srvOpFlash('sent', '一键换号迁移', '目标 ' + n + ' 号', 6000);   // 2.85：②（switch_migrate done 才收口）
   };
   $('swok').onclick = go;
   inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) go(); };

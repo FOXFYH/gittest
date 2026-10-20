@@ -431,7 +431,7 @@ function fullsCheckFire(title){
   if (!S.onLine) return;                 // 仅 WS 连通时才问（网络正常前提）
   confirmFulls(
     '切换对话超过 15 秒仍未载入内容，是否查询是否有窗口最大化/全屏压制原版渲染？',
-    () => sendCmd('check_fulls'));
+    () => srvOpSend('check_fulls', null, '查询全屏'));   // 2.109：②＋rcpt ③④
 }
 /* 2.67：旧名保留为别名（切在途清理由 switchClear 统一收口，含定时器） */
 function pendSwitchClear(){ return switchClear(); }

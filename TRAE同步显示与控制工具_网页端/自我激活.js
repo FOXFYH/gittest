@@ -139,9 +139,10 @@ function 自激活_面板(sid, title){
     const total = Math.max(1, parseInt(inTotal.value, 10) || 1);
     const text = (inText.value || '').trim() || 自激活_默认文本;
     const ids = new Set(定时取(sid).map(t => t && t.id));
-    sendCmd('sched_add', [sid, text, min, total]);
-    /* 2.85：② 已下发、等服务端确认；成功只由快照对账推进，绝不先报绿 */
-    srvOpFlash('sent', '下发定时', '每 ' + min + ' 分钟 × ' + total + ' 次');
+    /* 2.109：统一四态出口——②＋服务端 rcpt 补 ③受理/④完成（服务端 _note_sched
+       对 sched_add 就地回 running/done/fail）。面板状态行仍按快照对账双保险。 */
+    srvOpSend('sched_add', [sid, text, min, total], '下发定时',
+             '每 ' + min + ' 分钟 × ' + total + ' 次');
     自激活_下发确认({kind:'add', sid, ids, desc:'每 ' + min + ' 分钟 × ' + total + ' 次'});
   }));
   box.appendChild(goBtns);
@@ -169,16 +170,16 @@ function 自激活_面板(sid, title){
   tail.className = 'bs_btns';
   tail.appendChild(bsBtn('🔄 刷新', '', () => {
     if (srvNeedOnline('刷新定时')) return;
-    sendCmd('sched_ls', sid);
+    /* 2.109：统一四态出口——②＋rcpt ③④；面板状态行仍留一行持久提示。 */
+    srvOpSend('sched_ls', sid, '刷新定时');
     自激活_状态行($('sched_stat'), srvOpText('sent', '刷新定时'),
                   SRV_PHASE.sent[1]);
-    flash(srvOpText('sent', '刷新定时'), SRV_PHASE.sent[1]);
   }));
   tail.appendChild(bsBtn('🗑 取消本会话全部定时', 'danger', () => {
     if (!confirm('清空本会话的全部定时自我激活任务？')) return;
     if (srvNeedOnline('取消定时')) return;
-    sendCmd('sched_clear', sid);
-    srvOpFlash('sent', '清空定时');          // 2.85：② 等待服务器回应
+    /* 2.109：统一四态出口——②＋rcpt ③④。 */
+    srvOpSend('sched_clear', sid, '清空定时');
     自激活_下发确认({kind:'clear', sid, desc:'本会话全部定时'});
   }));
   box.appendChild(tail);
@@ -262,9 +263,9 @@ function 自激活_渲染列表(list, sid){
       e.stopPropagation();
       if (srvNeedOnline('取消定时')) return;
       /* 2.80：去二次确认——旧版「取消定时→弹确定/取消」的「取消」按钮易被误点成
-         放弃，用户直呼「取消不了」；现直接下发 sched_del，成败看面板状态行。 */
-      sendCmd('sched_del', t.id);
-      srvOpFlash('sent', '取消定时');      // 2.85：② 等待服务器回应
+         放弃，用户直呼「取消不了」；现直接下发 sched_del，成败看面板状态行。
+         2.109：统一四态出口——②＋rcpt ③④。 */
+      srvOpSend('sched_del', t.id, '取消定时');
       自激活_下发确认({kind:'del', sid, jid: t.id});
     };
     row.appendChild(ic); row.appendChild(tx); row.appendChild(del);

@@ -349,7 +349,8 @@ function renderAttach(items){
       + (it.size ? '  ' + esc(it.size) : '')
       + ' <span class="rm" title="移除">✕</span>';
     c.querySelector('.rm').onclick = e => {
-      e.stopPropagation(); sendCmd('attach_rm', i);
+      e.stopPropagation();
+      srvOpSend('attach_rm', i, '移除附件');   // 2.109：②＋rcpt ③④（attach_rm_done 另回填）
     };
     row.appendChild(c);
   });

@@ -58,17 +58,45 @@ function srvOpNewId(){
 }
 /* 2.87/2.90：带「真实发送信号」的服务器命令出口——②「等待服务器回应…」只在
    报文确实写上线时才播报；WS 未就绪则报 ① 并返回 false（绝不假装已发）。 */
-function srvOpSend(cmd, arg, label, extra){
+function srvOpSend(cmd, arg, label, extra, ms){
   if (!S.onLine){
     srvOpFlash('offline', label, '命令未发出（WS 未就绪），稍后再试');
     return false;
   }
   const id = srvOpNewId();
   const op = {label: label, extra: extra, timer: null};
-  op.timer = setTimeout(() => { delete srvOpAcct[id]; }, SRV_OP_TTL);
+  /* 2.109（02-P1-1/2.105 落地）：TTL 到期仍未收到任何终态回帧 ⇒ 不再静默删除，
+     如实播报「待确认（长时间无终态回帧，动作可能已丢失）」，绝不永远停在
+     「等待/执行中」。收到终态（srvOpAck）会 clearTimeout 并删表项，不误报。 */
+  op.timer = setTimeout(() => {
+    delete srvOpAcct[id];
+    srvOpFlash('timeout', label, extra);
+  }, SRV_OP_TTL);
   srvOpAcct[id] = op;
   sendCmd(cmd, arg, null, null, id);
-  srvOpFlash('sent', label, extra);        /* ②：已发出，等待服务器回应 */
+  srvOpFlash('sent', label, extra, ms);    /* ②：已发出，等待服务器回应 */
+  return true;
+}
+/* 2.109：非 cmd 帧（t:'boot'/'switch_box'/'attach_files'）的统一四态出口——
+   与 srvOpSend 同一套在途登记/rcpt 收口，只是发的是自定义帧；帧上并入 `id`
+   供服务端 回执.受理/开始/终态 配对（服务端「四步提醒」同样按 d.id 回 stage）。
+   旧服务端忽略多余 `id` 字段。补充多参数 ms（保持原 flash 时长）。 */
+function srvOpSendJson(obj, label, extra, ms){
+  if (!S.onLine){
+    srvOpFlash('offline', label, '命令未发出（WS 未就绪），稍后再试');
+    return false;
+  }
+  const id = srvOpNewId();
+  const op = {label: label, extra: extra, timer: null};
+  op.timer = setTimeout(() => {
+    delete srvOpAcct[id];
+    srvOpFlash('timeout', label, extra);   /* 2.109：TTL 到期无终态 ⇒ 如实「待确认」 */
+  }, SRV_OP_TTL);
+  srvOpAcct[id] = op;
+  const d = obj || {};
+  d.id = id;
+  sendJson(d);
+  srvOpFlash('sent', label, extra, ms);
   return true;
 }
 /* 2.90：rcpt 收口——按动作 id 取在途操作，补 ③（accepted/running）与

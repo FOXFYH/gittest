@@ -110,8 +110,7 @@ function bindTapNoBlur(btn, fn){
 }
 bindTapNoBlur(el.take, () => {    // 1.53：取回残留——TRAE 输入框文本取回本端+清空
   if (srvNeedOnline('取回残留')) return;
-  srvOpFlash('sent', '取回残留');    // 2.85：②（input_take_out 才收口）
-  sendCmd('input_take');
+  srvOpSend('input_take', null, '取回残留');    // 2.109：②＋rcpt ③④（input_take_out 另回填）
 });
 bindTapNoBlur(el.copy, () => {    // 1.76：一键复制输入框内容（放大态小工具）
   const t = el.ent.value;
@@ -187,14 +186,12 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
   与记忆有变化才设置 */
   if (S.task_lock){
     taskDlgClose();
-    srvOpFlash('sent', '新建对话', '「' + S.task_lock + '」');   // 2.85：②
-    sendCmd('new_task_in', S.task_lock);
+    srvOpSend('new_task_in', S.task_lock, '新建对话', '「' + S.task_lock + '」');   // 2.109：②＋rcpt ③④
     return;
   }
   if (S.task_cur && S.task_cur !== S.task_mem){
     el.td_stat.textContent = srvOpText('sent', '设置工作目录');
-    srvOpFlash('sent', '设置工作目录');                        // 2.85：②（task_dlg_ok 才收口）
-    sendCmd('task_dir_set', S.task_cur);
+    srvOpSend('task_dir_set', S.task_cur, '设置工作目录');                        // 2.109：②＋rcpt ③④
   } else {
     taskDlgClose();
     flash('✅ 新建任务就绪', 'var(--green)');   /* 无命令下发＝本地就绪，非服务端信号 */
@@ -204,7 +201,7 @@ el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 TRAE 输入区
   直接关；普通模式 Esc×2 关 TRAE 输入区 */
   const wasLock = S.task_lock;
   taskDlgClose();
-  if (!wasLock) sendCmd('task_dlg_cancel', null);
+  if (!wasLock) srvOpSend('task_dlg_cancel', null, '取消新建任务');   // 2.109：②＋rcpt ③④
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
@@ -232,8 +229,8 @@ el.file.onchange = async () => {
   }
   S.attach_pending = arr.map(f => f.n);     // 反馈①：灰 chips 占位
   renderAttach([]);
-  srvOpFlash('sent', '附加附件', arr.length + ' 个文件');   // 2.85：②（attach_done 才收口）
-  sendJson({t: 'attach_files', files: arr});
+  /* 2.109：非 cmd 帧统一四态出口——②＋服务端 rcpt ③④（attach_done 事件仍回填结果）。 */
+  srvOpSendJson({t: 'attach_files', files: arr}, '附加附件', arr.length + ' 个文件');
 };
 
 /* —— 1.07：导出功能整体移除（用户要求网页版不要导出）：
@@ -244,8 +241,7 @@ el.file.onchange = async () => {
 
 el.refresh_pts.onclick = () => {         /* 刷新积分：委托服务端立刻查一次 */
   if (srvNeedOnline('刷新积分')) return;
-  srvOpFlash('sent', '刷新积分');        // 2.85：②（points 事件才收口）
-  sendCmd('points', null);              // 服务端 _cmd_points → points 事件回
+  srvOpSend('points', null, '刷新积分');  // 2.109：②＋rcpt ③④（points 事件另回填）
 };
 
 /* 1.61：抽成函数——顶栏状态文字与抽屉里「设置页」都可进入诊断页 */
