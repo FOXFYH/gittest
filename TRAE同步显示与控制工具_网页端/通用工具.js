@@ -313,20 +313,39 @@ function resolveTimes(msgs){
   const out = [];
   let last = '';                          // 紧邻上一句人类提问的时间（无真值＝''）
   for (const m of msgs){
-    let t = '';
+    /* 2.102（老板 2026-10-20 13:11「AI 每一条对话都会有一个 ID，ID 上面带时间」）：
+       **mid 前 8 位十六进制＝Unix 秒**（实测：AI 行 mid `6ad6e17517ef…`
+       → 0x6ad6e175 = 1792467317 → 北京时间 2026-10-20 11:35:17，与该行 tm 完全一致）
+       ⇒ **AI 行也有自己的时间**，不再沿用上一句提问时间。AI 行优先取 mid。 */
+    let t = _midTime(m);
     if (m[0] === 'u'){
-      const d = msgDidOf(m[1]);           // ① 首行 DID（兼容折叠单行）
-      if (d) t = didToStr(d);
-      else if (m[2]) t = String(m[2]);    // ② 账本源 tm / TRAE DOM 真值
-      else if (m.length > 5 && m[5]) t = String(m[5]);   // ③ 服务端 2.52 盖章
+      if (!t){ const d = msgDidOf(m[1]); if (d) t = didToStr(d); }  // ① 首行 DID（兼容折叠单行）
+      if (!t && m[2]) t = String(m[2]);    // ② 账本源 tm / TRAE DOM 真值
+      if (!t && m.length > 5 && m[5]) t = String(m[5]);   // ③ 服务端 2.52 盖章
       /* else：拿不到真实时间 ⇒ 空（不显示，绝不打 NOW） */
       last = t;
-    } else {
-      t = last;                           // AI 沿用其紧邻提问时间（无真值＝空）
+    } else if (!t){
+      t = last;                           // AI 无 mid 真值时才沿用其紧邻提问时间
     }
     out.push(t);
   }
   return out;
+}
+/* 2.102：从 mid 解出该条【自身】的时间——mid 前 8 位十六进制＝Unix 秒（UTC），
+   转本地时间字符串（格式对齐账本 tm：YYYY-MM-DD HH:MM:SS）。
+   非十六进制/长度不足/秒数超出 2017~2039 合理区间 ⇒ 返回 ''（当作无真值）。 */
+function _midTime(m){
+  try {
+    const s = String((m && m.length > 6) ? (m[6] || '') : '');
+    const h = s.slice(0, 8);
+    if (!/^[0-9a-fA-F]{8}$/.test(h)) return '';
+    const sec = parseInt(h, 16);
+    if (!(sec > 1500000000 && sec < 2200000000)) return '';
+    const d = new Date(sec * 1000);
+    const p = n => (n < 10 ? '0' : '') + n;
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+         + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  } catch(e){ return ''; }
 }
 function 稳定键(sid, title){
   /* 2026-10-16 用户口径（绑定改终身号）：会话「稳定性键」——完整 SID 每日会变，
