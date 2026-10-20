@@ -3,11 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>任务面板 · 手机遥控页 v0.14</title>
+<title>任务面板 · 手机遥控页 v0.15</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.14
+  版本：0.15
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
+  v0.15（2026-10-20）三个 js 引用加 ?v=<版本> 防浏览器缓存（起因＝实测：用户选「宿舍」后仍跑旧版 js、
+    新版 0.08「选中即严格归属」未生效；定位为 html 里三处脚本引用无版本号 → 浏览器命中旧缓存文件）。
   v0.14（2026-10-19）新增【服务器切换】（起因＝用户 2026-10-19 双机口径：家里/宿舍各一台服务器
     在争抢应答，需网页版切「谁应答」）：顶栏「刷新」与「口令」之间加【服务器】下拉——选项＝
     自动发现在线服务器（`服务器报到` 帧，显示「名称（实例号）· 在线/离线」，按实例号去重）＋
@@ -169,7 +171,7 @@
 </head>
 <body>
 <header id="顶栏">
-  <div class="题">任务面板 <span class="版本">v0.14</span> <span id="角色" class="角色">连接中…</span></div>
+  <div class="题">任务面板 <span class="版本">v0.15</span> <span id="角色" class="角色">连接中…</span></div>
   <div class="顶操作">
     <button id="按钮_发布任务" class="主钮">发布任务</button>
     <button id="按钮_刷新" class="次钮">刷新</button>
@@ -228,8 +230,8 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js"></script>
-<script src="网页模块/卡片.js"></script>
-<script src="网页模块/面板.js"></script>
+<script src="网页模块/接口.js?v=0.08"></script>
+<script src="网页模块/卡片.js?v=0.08"></script>
+<script src="网页模块/面板.js?v=0.14"></script>
 </body>
 </html>
