@@ -105,6 +105,15 @@ body.fmsg #msgs{padding-top:22px;}
    400/13px/#171717/lh20（不再按 user/agent 蓝绿分色）。 */
 .msg{background:none; border-radius:0; padding:0; margin:0 0 24px;}
 .msg.agent{padding:12px 12px 12px 16px;}
+/* 2.95（老板 2026-10-20 08:10「我的蓝色卡片呢」·恢复用户消息蓝色底纹卡片）——
+   2.91「视觉对齐」把 .msg 一律改扁平（background:none/border-radius:0/padding:0），
+   连「我」自己发出的那张卡片的蓝底也一并去掉了。现只对【用户消息】恢复底纹卡：
+   · 数值取网页版历史版（v1.61~2.90）的 .msg.user —— 浅蓝底 var(--ubg)=#e8f1fb /
+     圆角 8px / 内边距 5px 10px（与占位卡 .msg.pend 同规格，两类卡观感一致）。
+   · ⚠ CDP 实测 TRAE 原版用户气泡实为【灰】rgba(115,115,115,.12) / 圆角 16px（非蓝），
+     与老板「蓝色底纹」口径不同；此处按老板口径取蓝卡，AI 行仍扁平（照原版）。
+   · 该规则与 .msg.pend 同选择器权重（2 类），.msg.pend 在其后（L226）覆盖同值属性，无冲突。 */
+.msg.user{background:var(--ubg); border-radius:8px; padding:5px 10px;}
 .msg .who{font-weight:400; font-size:13px; color:#171717; line-height:20px;}
 /* 2.09：时间戳改成「可被压缩、挤不下就省略号」——这样当 .who 一行放不下
    时，先牺牲时间显示，保证右侧那排操作按钮（📋复制/✎重编/↩回退/🗑删除）
