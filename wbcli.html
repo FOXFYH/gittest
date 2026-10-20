@@ -3896,7 +3896,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.03';   /* 2.03：三处 UI/功能对齐 TRAE 侧（老板 2026-10-19 口径）——
+const VER = '2.04';   /* 2.04：📂 本地文件查看器「选路径点 ➕ 没反应」根治（老板 2026-10-20 令）——
+   病根：选路径回传只依赖 window.opener.postMessage，手机端由宿主 window.open 常落新标签、
+   opener 丢失 ⇒ 点 ➕ 无处可发、窗口照关，宿主毫无反应。改法：① 查看器侧行尾 ➕ 恒亮（直开
+   也能用）；② 新增「公共段 + INS」频道 FOX 帧回传主路，本端连同一频道收帧后按 mode 插入输入区 /
+   回填工作目录；公共段取同源查看器页落的 localStorage 键 fvwr_channel（绝不硬编码）；
+   ③ 保留 postMessage 兼容路；同路径 3 秒内只认一次防双路重复；按 h 角色过滤防打扰另一端。
+   配套查看器 1.15 / TRAE 网页端 2.108。
+   2.03：三处 UI/功能对齐 TRAE 侧（老板 2026-10-19 口径）——
    ①输入框放大态新增「急」加急按钮（对齐 TRAE T63，功能同步）：勾上后本条若
      进托管队列，网页端立即补发 queue_sendnow（服务端把该条提到队首、中止当前轮
      并立刻放出）＝插队立即发送、不干等队尾；未勾＝原行为一字不变；不落持久配置。
@@ -5449,8 +5456,11 @@ el.dclose.onclick = drawerClose;
    改一处（公共服务）两端（WB / 其它宿主）同时生效。 —— */
 const FVWR_URL = 'https://foxfyh.github.io/gittest/fileview/index.html';
 function fvwrOpen(mode){                 // 命名窗口打开（不带 noopener，保住 opener）
-  window.open(FVWR_URL + '?h=workbuddy&pick=1&mode=' + (mode || 'ins'),
-              'fvwrPick');
+  try {
+    fvwrPickChanListen();               // 2.04：开查看器前(重)连选路径收帧频道
+    window.open(FVWR_URL + '?h=workbuddy&pick=1&mode=' + (mode || 'ins'),
+                'fvwrPick');
+  } catch(e){ flash('⚠ 打开文件查看器失败'); }
 }
 function fvwrInsert(path){               // ins：插入输入区（原 benchIns 逻辑）
   const cur = el.ent.value.trim();
@@ -5463,11 +5473,44 @@ function fvwrPickDir(path){              // newdir：回填新建任务工作目
   el.td_stat.textContent = '已选目录，点「创建」开始任务';
   flash('已选工作目录', 'var(--green)');
 }
-window.addEventListener('message', e => {   // viewer 回传路径 → 按 mode 回填
-  const d = e.data || {};
-  if (d.type !== 'fvwr_pick' || !d.path) return;
+/* 2.04：选路径回传两条来路共用同一落点——① window.opener.postMessage（兼容路）；
+   ② 「公共段 + INS」频道 FOX 帧（主路，不依赖 opener，手机端 opener 丢失也能到）。
+   同一路径 3 秒内只认第一次，避免双路重复插入。 */
+let _fvwrLastPath = '', _fvwrLastTs = 0;
+function fvwrPickApply(d){
+  if (!d || d.type !== 'fvwr_pick' || !d.path) return;
+  if (d.h && d.h !== '*' && d.h !== 'workbuddy') return;   // 只服务本角色（不打扰另一端）
+  const now = Date.now();
+  if (d.path === _fvwrLastPath && now - _fvwrLastTs < 3000) return;   // 双路去重
+  _fvwrLastPath = d.path; _fvwrLastTs = now;
   if (d.mode === 'newdir') fvwrPickDir(d.path);
   else fvwrInsert(d.path);
+}
+window.addEventListener('message', e => { fvwrPickApply(e && e.data); });   // 路① postMessage
+/* 路②「公共段 + INS」频道收帧：公共段取同源查看器页落的 localStorage 键
+   fvwr_channel（与查看器页同源 foxfyh.github.io/gittest，共享），绝不硬编码。 */
+let _fvwrInsWs = null;
+function fvwrPickFrameBody(raw){
+  if (!raw) return null;
+  const m = /^【FOXID:\d{14}[a-z]{8}\d{10}=cut\(\d{3}\/\d{3}\)】/.exec(raw);
+  const body = m ? raw.slice(m[0].length) : raw;
+  if (!body || body[0] !== '{') return null;
+  try { return JSON.parse(body); } catch(e){ return null; }
+}
+function fvwrPickChanListen(){
+  let base = '';
+  try { base = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
+  if (!base) return;                     // 无公共段：频道路不可用（postMessage 仍可用）
+  const ch = base + 'INS';               // 选路径专用后缀，与查看器约定一致
+  if (_fvwrInsWs){ try { _fvwrInsWs.close(); } catch(e){} }
+  try { _fvwrInsWs = new WebSocket(WS_URL_TMPL.replace('%s', ch)); }
+  catch(e){ _fvwrInsWs = null; return; }
+  _fvwrInsWs.onmessage = ev => { const d = fvwrPickFrameBody(ev.data); if (d) fvwrPickApply(d); };
+  _fvwrInsWs.onclose = () => { _fvwrInsWs = null; setTimeout(fvwrPickChanListen, 4000); };
+}
+fvwrPickChanListen();                                        // 开页即听
+window.addEventListener('storage', e => {                    // 查看器另一端落了公共段
+  if (e.key === 'fvwr_channel') fvwrPickChanListen();
 });
 el.fvwr.onclick = () => fvwrOpen('ins');
 
