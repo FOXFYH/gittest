@@ -427,8 +427,31 @@ function hasSidIn(v, sid){
    去重（同一锚定不重复发）+ ≥300ms 节流（连点合并、只发最后一次）；异常一律吞掉，
    绝不因此报错。调用点：会话列表.js（用户点会话换锚）、adoptSnap（首次自动锚定/
    锚定标题·完整sid变更）、电脑名册.js（切服务端清锚→sid:''）。 */
+/* 2.100（老板 2026-10-20 12:16 口径）：锚定【持久化】——刷新、退出再进入、掉线重连
+   后继续锚定「当前会话」，绝不套用更旧的、绝不回退上一个会话（老板 10:01：
+   「切换＝锚定，失败也不回退」）。存 localStorage（键不含版本号 ⇒ 换代不清锚）。 */
+const LS_ANCHOR = 'trae_webm_anchor';
+function anchorPersist(){
+  try {
+    if (S.anchorSid || S.anchorFull || S.anchorTitle)
+      localStorage.setItem(LS_ANCHOR, JSON.stringify(
+        {key: S.anchorSid || '', title: S.anchorTitle || '',
+         full: S.anchorFull || '', ts: Date.now()}));
+    else localStorage.removeItem(LS_ANCHOR);
+  } catch(e){}
+}
+function anchorRestore(){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_ANCHOR) || 'null');
+    if (!o || !o.key) return false;
+    S.anchorSid = o.key || ''; S.anchorTitle = o.title || '';
+    S.anchorFull = o.full || ''; S.anchor_gone = '';
+    return true;
+  } catch(e){ return false; }
+}
 let anchorRepT = 0, anchorRepSig = null;
 function anchorReport(){
+  try { anchorPersist(); } catch(e){}   /* 2.100：锚定一变即落盘（含清锚） */
   clearTimeout(anchorRepT);
   anchorRepT = setTimeout(() => {
     try {
@@ -462,7 +485,11 @@ function _msgsMonotonic(v, old){
     const ov = (old && Array.isArray(old.msgs)) ? old.msgs : null;
     if (!nv || !ov || !ov.length) return;
     const empty = !nv.length;
-    const shrink = nv.length < ov.length && (ov.length - nv.length) >= 2;
+    /* 2.100（老板 2026-10-20 12:14 硬原则「永远不许新的被老的覆盖」）：变短判据由
+       「少 ≥2」收紧为「少 ≥1」——服务端虚拟列表只采可见窗口、`抓取轮询._单调保护`
+       的陈旧帧，常恰好只少「刚进来的那 1 条新回复」（旧 ≥2 阈值正好漏掉这一条）；
+       放行它 ⇒ 新回复被上一拍旧正文顶掉（老板实测「新内容被老内容覆盖」）。 */
+    const shrink = nv.length < ov.length && (ov.length - nv.length) >= 1;
     if (!empty && !shrink){ S.msgs_guard_since = 0; return; }
     const now = Date.now();
     if (S.msgs_act_at && now - S.msgs_act_at < 2000){
@@ -609,8 +636,22 @@ function renderAll(){
   const _lf = S.liveFrame;
   const _storeMsgs = (_locked && _lf && Array.isArray(_lf.msgs) && _lf.msgs.length)
       ? _lf.msgs : null;
+  /* 2.100（老板 2026-10-20 12:14 硬原则）：持屏闸只在「尚无新内容」时生效——一旦
+     锚定会话【自己的快照正文】已比存帧更新（非切换前旧正文、尾部更靠后），立即让位，
+     绝不拿旧存帧顶掉已到的新内容。 */
+  const _spu = S.switch_pend;
+  const _snapIsTarget = (_spu && _spu.lockTarget)
+      ? !sameConvBody((S.snap || {}).msgs, _spu.prevMsgs) : true;
+  const _curNow = _locked ? curMsgs() : null;
+  const _tailKeyOf = a => (a && a.length) ? _msgKey(a[a.length - 1]) : '';
+  const _targetNewer = !!(_storeMsgs && _curNow && _curNow.length
+      && _snapIsTarget && _curNow.length >= _storeMsgs.length
+      && _tailKeyOf(_curNow) !== _tailKeyOf(_storeMsgs));
   if (_locked){
-    if (_storeMsgs){                       /* (a) 目标最新存帧（历史）上屏 */
+    if (_targetNewer){                     /* 已有更新 → 立即让位（不上旧存帧 a） */
+      renderMsgs(_curNow, snap.finish, opts0, snap.ask || null, snap.pend || []);
+      S.swHold = false;
+    } else if (_storeMsgs){                /* (a) 目标最新存帧（历史）上屏 */
       renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
       S.swPPainted = true;
     } else if (!S.swFrameReady

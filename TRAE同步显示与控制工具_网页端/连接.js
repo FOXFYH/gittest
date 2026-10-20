@@ -152,6 +152,11 @@ function cliLogin(reason){
   if (!ws || ws.readyState !== 1){ loggedIn = false; return; }
   lastAct = Date.now();
   loggedIn = true;
+  /* 2.100（老板 2026-10-20 12:14/12:16）：登录/掉线重连后——
+     ① 首份「完整版快照」到达即落盘一次（不受 10 秒节流；缓存.js snapIdbTick 认此旗标）；
+     ② 若本地有持久化锚定，首拍补发一次 switch（继续锚定当前会话）。 */
+  S.idbFirstFull = 1;
+  S.anchor_reask = 1;
   sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
   lastBeatOk = Date.now();
   clearInterval(hbTimer);

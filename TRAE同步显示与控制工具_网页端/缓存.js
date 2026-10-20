@@ -253,7 +253,7 @@ const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
 const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
 const WEB_ROUNDS_KEEP = 3;               /* 2.59：单帧/本地历史只留最近 3 轮（用户 2026-10-07）；原为尾部 40 条 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
-let _idbP = null, _idbLastAt = 0;
+let _idbP = null, _idbLastAt = 0, _idbLastFp = null;
 function idbOpen(){
   if (_idbP) return _idbP;
   _idbP = new Promise((res, rej) => {
@@ -297,7 +297,10 @@ function _idbFrame(){
 /* 2.98（标准《快照缓存策略》§二/二之一）：落盘＝「两次落盘最小间隔 10 秒」的
    节流（不是固定周期到点才落）——只要「上次落盘已超 10 秒」且有完整快照即可落。
    调用点：每 10 秒轮询一拍 ＋ 新快照到达即触发（事件总线.js 快照分支）＋ 关键动作
-   强制（liveClear／切走）。 */
+   强制（liveClear／切走）。
+   2.100（老板 2026-10-20 12:14 口径，追加）：切换／掉线重新登录后的【首份完整快照】
+   到达即【立即落盘一次】（不受 10 秒节流——「这么新的东西不落盘？」）；其后才回到
+   「≥ 10 秒、且有更新才落盘」。 */
 function snapIdbTick(force){
   /* 2.57B：切换在途——此刻 S.snap 正文仍属旧会话 A，绝不能在锚定已指向 B 时
      把它当 B 的存帧落地（否则会把 A 的内容毒化成 B 的缓存）。 */
@@ -316,10 +319,17 @@ function snapIdbTick(force){
   const sid = (S.anchorSid || curSid() || '');
   if (!sid) return;
   const now = Date.now();
-  /* 2.98：节流＝「上次落盘已超 10 秒即可再次落盘」（纯时间判据；不再要求内容变化
-     ——旧 5 秒闸 + 指纹去重已移除）。force=true（关键动作）绕过节流立即落。 */
-  if (force !== true && now - _idbLastAt < 10000) return;
-  _idbLastAt = now;
+  /* 2.100（老板 12:14）：① 旗标 S.idbFirstFull＝切换/重连后首份完整快照 ⇒ 立即落
+     （不受节流；上面几道闸已保证本拍正文属当前锚定会话、不是脏帧）；
+     ② force=true（liveClear 真帧到手／切走）同样立即落；
+     ③ 其后 ⇒ 「≥ 10 秒 且 有更新（指纹变化）才落盘」。 */
+  const _full = !!(s.msgs && s.msgs.length);
+  const _first = !!S.idbFirstFull && _full;
+  if (force !== true && !_first && now - _idbLastAt < 10000) return;
+  const _fp = msgsFp(_idbFrame().msgs);
+  if (force !== true && !_first && _fp === _idbLastFp) return;   /* 有更新才落盘 */
+  if (_first) S.idbFirstFull = 0;
+  _idbLastAt = now; _idbLastFp = _fp;
   const key = cacheKeyNow();
   _idbReq('snap_conv', 'readwrite', st => st.put(
     {sk: key + '|' + sid, key: key, port: S.port, sid: sid,

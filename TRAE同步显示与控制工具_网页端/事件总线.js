@@ -123,6 +123,15 @@ function onEv(kind, v){
         }
         /* 2.67：超时不再在此按指钟判——由 switchReArm 的 60s 定时器负责 */
       }
+      /* 2.100（老板 2026-10-20 12:16）：刷新/重连后「继续锚定当前会话，继续向服务器
+         提要求」——首拍若发现服务端选中行≠本地持久化锚定，补发一次 switch（只发一次）。 */
+      if (S.anchor_reask){
+        S.anchor_reask = 0;
+        const _aSel = 稳定键(selSidOf(v), selTitleOf(v));
+        if (S.anchorFull && S.anchorSid && _aSel && _aSel !== S.anchorSid){
+          try { sendCmd('switch', S.anchorFull); } catch(e){}
+        }
+      }
       renderAll();
       /* 2.98（标准§二之一「不是等刻度」）：新快照到达即触发一次落盘检查——
          距上次落盘已满 10 秒就立刻落（不必等 10 秒轮询那一拍）。 */
