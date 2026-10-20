@@ -1,6 +1,31 @@
 'use strict';
-const FPC_REG = /\(@fox-play1\s*\)([\s\S]*?)(?:\(@fox-play2\s*\)|$)/g;
+/* 2.106（老板 2026-10-20 17:52「语音小卡片前后缀缺闭合」）：三套 FOX 标记
+   （play / ask / 新卡三段）的解析口径一律改为「缺闭合标记 ⇒ 不识别为卡片（当普通正文）」
+   ＋ 记一条告警。目的：让「漏后缀」从静默通过变成立刻可见，给 AI 反馈、能自我纠正。
+   旧口径「有头就认（结尾可缺、可到消息末尾）」已废。 */
+const FPC_REG = /\(@fox-play1\s*\)([\s\S]*?)\(@fox-play2\s*\)/g;
+const _FPC_HEAD = /\(@fox-play1\s*\)/g, _FPC_TAIL = /\(@fox-play2\s*\)/g;
+/* 缺闭合探测：同一文本里「头标出现次数 > 尾标出现次数」即视为有缺闭合（头多于尾）。 */
+function _foxUnclosed(txt, headRe, tailRe){
+  const s = String(txt || '');
+  const h = (s.match(headRe) || []).length;
+  if (!h) return false;
+  return h > (s.match(tailRe) || []).length;
+}
+/* 缺闭合告警（10s 节流，防刷屏）：走 console + 诊断日志 + 一次性横幅，让问题立刻可见。 */
+const _foxWarnT = {};
+function foxClosedWarn(kind, head, tail){
+  const now = Date.now();
+  if (now - (_foxWarnT[kind] || 0) < 10000) return;
+  _foxWarnT[kind] = now;
+  const msg = '检测到 ' + head + ' 但缺 ' + tail;
+  try { console.warn('[fox标记] ' + msg); } catch(e){}
+  if (typeof diagLog === 'function'){ try { diagLog('⚠ ' + msg, 'bad'); } catch(e){} }
+  if (typeof flash === 'function') flash('⚠ ' + msg, 'var(--orange)', 6000);
+}
 function foxPlayCards(txt, out){
+  if (_foxUnclosed(txt, _FPC_HEAD, _FPC_TAIL))
+    foxClosedWarn('play', '(@fox-play1)', '(@fox-play2)');
   return String(txt || '').replace(FPC_REG, (m, p1) => {
     const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
     if (!seg) return '';
@@ -13,9 +38,12 @@ function foxPlayCards(txt, out){
    向用户提问时（跨会话路由器时代主要面向「AI 问 AI」），把问题用这对标签
    包起来，网页端就把它渲染成**醒目的琥珀色提问卡**（比正文更抢眼，用户能
    一眼看到并及时作答），并复用语音卡那套 ▶ 播放/TTS 通道，可直接听题。
-   与 foxPlayCards **同构**：有头就认（结尾可缺、可到消息末尾），末尾残标剪掉。 */
-const FAC_REG = /\(@fox-ask1\s*\)([\s\S]*?)(?:\(@fox-ask2\s*\)|$)/g;
+   2.106：与 foxPlayCards 同口径——须「成对闭合」（缺闭合 ⇒ 不识别为卡片）。 */
+const FAC_REG = /\(@fox-ask1\s*\)([\s\S]*?)\(@fox-ask2\s*\)/g;
+const _FAC_HEAD = /\(@fox-ask1\s*\)/g, _FAC_TAIL = /\(@fox-ask2\s*\)/g;
 function foxAskCards(txt, out){
+  if (_foxUnclosed(txt, _FAC_HEAD, _FAC_TAIL))
+    foxClosedWarn('ask', '(@fox-ask1)', '(@fox-ask2)');
   return String(txt || '').replace(FAC_REG, (m, p1) => {
     const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
     if (!seg) return '';
@@ -28,11 +56,14 @@ function foxAskCards(txt, out){
    FOX 标记包夹：系统 (@fox-sys1)…(@fox-sys2) / 用户 (@fox-usr1)…(@fox-usr2) /
    公司 (@fox-co1)…(@fox-co2)。网页端把三段合成**一张折叠小卡片**：平时只显示一排
    小标签（系统 ▸ / 用户 ▸ / 公司 ▸），点一个标签就展开该段内容、再点收起。
-   与语音卡/提问卡**同构**：有头就认（结尾可缺、可到消息末尾），末尾残标剪掉；
+   2.106：与语音卡/提问卡同口径——须「成对闭合」（缺闭合 ⇒ 不识别为卡片）；
    与 fox-play / fox-ask 两套老标记互不干扰（标记名不同，各自独立摘取）。 */
-const FSC_REG = /\(@fox-sys1\s*\)([\s\S]*?)(?:\(@fox-sys2\s*\)|$)/g;
-const FUC_REG = /\(@fox-usr1\s*\)([\s\S]*?)(?:\(@fox-usr2\s*\)|$)/g;
-const FCC_REG = /\(@fox-co1\s*\)([\s\S]*?)(?:\(@fox-co2\s*\)|$)/g;
+const FSC_REG = /\(@fox-sys1\s*\)([\s\S]*?)\(@fox-sys2\s*\)/g;
+const FUC_REG = /\(@fox-usr1\s*\)([\s\S]*?)\(@fox-usr2\s*\)/g;
+const FCC_REG = /\(@fox-co1\s*\)([\s\S]*?)\(@fox-co2\s*\)/g;
+const _FSC_HEAD = /\(@fox-sys1\s*\)/g, _FSC_TAIL = /\(@fox-sys2\s*\)/g;
+const _FUC_HEAD = /\(@fox-usr1\s*\)/g, _FUC_TAIL = /\(@fox-usr2\s*\)/g;
+const _FCC_HEAD = /\(@fox-co1\s*\)/g, _FCC_TAIL = /\(@fox-co2\s*\)/g;
 /* 三段「头标」——用于定位最早出现处：卡片就渲染在原标记所在位置 */
 const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1'];
 /* 卡片开合状态 + 内容登记：快照每秒重画，开合要撑过重画 → 记在模块级表里（键＝三段内容指纹） */
@@ -52,6 +83,12 @@ function _fhGrab(txt, re){
   return {rest: rest, t: v};
 }
 function foxHintCards(txt, out){
+  if (_foxUnclosed(txt, _FSC_HEAD, _FSC_TAIL))
+    foxClosedWarn('hint-sys', '(@fox-sys1)', '(@fox-sys2)');
+  if (_foxUnclosed(txt, _FUC_HEAD, _FUC_TAIL))
+    foxClosedWarn('hint-usr', '(@fox-usr1)', '(@fox-usr2)');
+  if (_foxUnclosed(txt, _FCC_HEAD, _FCC_TAIL))
+    foxClosedWarn('hint-co', '(@fox-co1)', '(@fox-co2)');
   let s = String(txt || '');
   let idx = -1;
   FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });

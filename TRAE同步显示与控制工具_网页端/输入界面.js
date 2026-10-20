@@ -142,7 +142,9 @@ function refreshSendBtn(){               // 1.01：生成中打字 → 插话三
     el.send.disabled = true;
     return;
   }
-  if (!S.ready){ setSendBtn(false, false); return; }
+  /* 2.106（B·老板 17:26）：本地闸门撤除——不再以 S.ready（online＝「发送键在不在
+     DOM」的瞬态量）禁用发送。未就绪只「提示」、由执行侧（服务端动作队列）最终判定，
+     见 renderState 的连续性门槛分支。 */
   if (S.gen && el.ent.value.trim()){     // 生成中打字：橙色插话
     el.send.textContent = '插话';
     el.send.classList.remove('stopmode');
@@ -194,19 +196,41 @@ function notReadyState(){
   return {txt: 'TRAE 界面未就绪', col: 'var(--red)'};
 }
 let _nrTxt = '';            /* 2.66：最近一次写入的「未就绪」文案（防抢一次性提示） */
+let _stTxt = '';            /* 2.106：最近一次 renderState 写入的状态栏文案——供定期复核（防抢一次性提示） */
+/* 2.106（B·老板 17:26）：未就绪「连续性门槛」——online=false 连续满此值才提示
+   （参考同项目 LOGIN_WARN_MS），避免「重渲/切会话/遮罩」单拍瞬态闪烁误报。 */
+const NOT_READY_WARN_MS = 60000;
+/* 2.106：选中的服务端是否「久无来向消息」（> SRV_DEAD_MS，或从没听过它）——真离线，
+   非瞬态；用于把「UI 未就绪」（走连续性门槛）与「服务端不在线」区分开。 */
+function _srvDead(){
+  const s = S.servers[S.cur];
+  const ts = (s && s.ts) || 0;
+  return !ts || Date.now() - ts > SRV_DEAD_MS;
+}
 function renderState(snap){
   S.gen = false;
-  S.ready = !!(snap && snap.online);
-  if (!S.ready){
+  const _online = !!(snap && snap.online);
+  S.ready = _online;
+  /* 2.106（B）：online=false 连续性计时——只驱动「提示门槛」，不再作发言闸门。 */
+  if (_online) S.notReadySince = 0;
+  else if (!S.notReadySince) S.notReadySince = Date.now();
+
+  /* 真离线（本端没连中转 / 没选服务端 / 服务端久无响应）——如实即时提示（非瞬态误报）；
+     但【不再本地禁发言】（2.106 B）：真离线时发送由 srvNeedOnline 如实拦下（命令不发出）。 */
+  if (!_online && (!S.onLine || !S.cur || _srvDead())){
     const nr = notReadyState();
-    _nrTxt = nr.txt;
+    _nrTxt = nr.txt; _stTxt = nr.txt;
     el.state.textContent = nr.txt;
     el.state.style.color = nr.col;
-    setSendBtn(false, false);
-    fbarSync();                            // 1.62：全屏状态条跟随
+    refreshSendBtn();                        // 2.106：不再 setSendBtn(false,false)
+    fbarSync();                              // 1.62：全屏状态条跟随
     return;
   }
   _nrTxt = '';
+  /* 2.106（C·老板 15:57「横幅四维状态必须准确」）：横幅「忙/闲」仍以 snap.sendIdle 为
+     单一取数（服务端快照结构【无「状态灯」字段】——仅 convs 行内携会话灯，本端已有；
+     见回报）；服务端 X3-1 已把 sendIdle 纳入指纹去重键、并在「忙↔闲」翻转瞬间强制
+     放行一帧 ⇒ 忙→闲可自行翻转。X3-3：不再细分「等待/停顿」，只据 sendIdle 出生成态。 */
   const idle = snap.sendIdle, inp = snap.inputText || '',
         tail = snap.tail;
   if (!idle && !inp){                        // 生成中
@@ -234,16 +258,21 @@ function renderState(snap){
     el.state.style.color = 'var(--blue)';
     setSendBtn(false, true);
   }
+  /* 2.106（B）：online=false 满连续性门槛 → 只「提示」可能在重连/界面切换中（不再禁发言，
+     最终判定权交执行侧/服务端动作队列）。未满门槛 ⇒ 照常显示上面四态，单拍瞬态不闪报。 */
+  if (!_online && S.notReadySince
+      && (Date.now() - S.notReadySince) >= NOT_READY_WARN_MS
+      && !S.switch_pend && !S.inputBusy){
+    el.state.textContent = '⚠ 可能在重连/界面切换中…（已提交服务器判定）';
+    el.state.style.color = 'var(--orange)';
+  }
   /* 2.67 切换过程状态机：状态栏按在途阶段分档显示真实过程（用户 2026-10-07）。
-     connecting/waiting/switching/ok/fail；成功后 2s 由 switchOk 交回状态灯。 */
+     2.106（A）：切换在途（非成功/失败终态）统一显示「正在获取「目标」的快照…」。 */
   if (S.switch_pend){
     const ph = S.switch_pend.phase || 'switching';
     if (ph === 'connecting'){
       el.state.textContent = '正在连接 WS…';
       el.state.style.color = 'var(--orange)';
-    } else if (ph === 'waiting'){
-      el.state.textContent = '等待服务器回应…';
-      el.state.style.color = 'var(--blue)';
     } else if (ph === 'ok'){
       el.state.textContent = '切换成功';
       el.state.style.color = 'var(--green)';
@@ -251,7 +280,8 @@ function renderState(snap){
       el.state.textContent = '切换失败';
       el.state.style.color = 'var(--red)';
     } else {
-      el.state.textContent = '正在切换中…';
+      const _tt = (S.switch_pend.title || curTitle() || '').trim();
+      el.state.textContent = '正在获取「' + _tt + '」的快照…';
       el.state.style.color = 'var(--blue)';
     }
   }
@@ -265,6 +295,7 @@ function renderState(snap){
      横幅从未亮过；现补键修活，并按用户要求加「持续门槛」：
      连续未登录满 60 秒才算确诊（与服务端钉钉报警同一门槛，瞬断不误报）。 */
   renderLoginBar(snap);
+  _stTxt = el.state.textContent;             // 2.106：记下本函数刚写的文案，供定期复核/忙闲翻转
   fbarSync();                              // 1.62：全屏状态条镜像 #statebar
 }
 /* 1.77：未登录横幅判定——60 秒持续门槛 + 每 5 秒复核 */
@@ -284,13 +315,12 @@ function renderLoginBar(snap){
   el.loginbar.classList.add('on');
 }
 setInterval(() => renderLoginBar(S.snap), 5000);   /* 持续复核：满 1 分钟自动亮 */
-/* 2.66：未就绪文案定期复核——服务端静默/离线时没有快照驱动 renderState，
-   横幅会一直停在旧文字（如刚切到离线服务端时的「界面未就绪」，或反之服务端
-   已掉线却仍写着「未就绪」）。每 5 秒重算一次：仅当「仍未就绪」且「当前横幅
-   正是我们刚写的未就绪文案」（＝没有别的一次性提示/错误在显示）时才刷新。 */
+/* 2.66：状态栏定期复核（2.106 扩充）——服务端静默/离线时没有快照驱动 renderState，
+   横幅会一直停在旧文字；且「未就绪连续性门槛」到点、以及「忙→闲」（H6）都需要在
+   两次快照之间也能自行翻转。每 5 秒重算一次：仅当「当前横幅正是本函数刚写的那句」
+   （＝没有别的一次性提示/错误在显示）时才刷新。 */
 setInterval(() => {
-  if (S.ready) return;
-  if (!_nrTxt || el.state.textContent !== _nrTxt) return;
+  if (!_stTxt || el.state.textContent !== _stTxt) return;
   renderState(S.snap);
 }, 5000);
 

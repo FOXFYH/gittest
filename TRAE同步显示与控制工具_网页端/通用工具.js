@@ -675,11 +675,10 @@ function renderAll(){
   /* 2.57B：切换在途不并入账本（账本可能仍是旧会话的），只认存帧/空。
      2.89：过渡期锁死目标会话（_liveLockOn）——网页端自己发起切到 B 后，B 的
      真内容未上屏前一律取 B 的帧，快照里仍是 A 的正文绝不上屏。
-     2.97（老板 2026-10-20 09:34）：切换在途正文只允许两次上屏——
-     (a) 目标「最新一次存帧（历史）」→(b) 目标「当前全量最新帧」；其余来源
-     （空帧/预取/账本中间态）不得各自独立上屏：目标全量帧未到前的空帧一律
-     「保持现画面」（不因空帧再变一次脸）。目标存帧(IDB)读取在途时也「维持现画面」，
-     读回为空才诚实留白（保持 2.57B）——全程绝不把旧会话 A 的正文当新面孔重画。 */
+     2.106（老板 2026-10-20 17:29「切换即清屏」）：发起切换【立刻清屏】——screen
+     只允许「目标落地快照 / 已确认的目标真内容 / 留白」三种，绝不再用「持屏」按住
+     旧会话 A 的画面（旧 2.97「维持现画面重放」已废）；swHold 仅在目标快照上屏后
+     用于防中间态闪回（保 2.89 防交叉闪现）。见下方分支。 */
   const _locked = _liveLockOn();
   const _lf = S.liveFrame;
   const _storeMsgs = (_locked && _lf && Array.isArray(_lf.msgs) && _lf.msgs.length)
@@ -695,44 +694,48 @@ function renderAll(){
   /* 2.105（03-P3）：让位判定放宽为「尾部消息身份不同即让位」——去掉旧的
      `_curNow.length >= _storeMsgs.length` 条数限制。原判据在锚定会话发生【合法删除/
      回退（变短）】时不满足 `>=` ⇒ 不让位 ⇒ 页面继续显示「比真实更旧/更长」的旧存帧；
-     真帧若更短、尾部身份不同，同样必须立即让位（绝不用旧存帧顶掉已到的新内容）。 */
-  const _targetNewer = !!(_storeMsgs && _curNow && _curNow.length
+     真帧若更短、尾部身份不同，同样必须立即让位（绝不用旧存帧顶掉已到的新内容）。
+     2.106：curMsgs 已在「切换在途且快照正文仍属旧会话」时切断回落（返回 []），
+     故 _curNow 非空即「已确认是目标」，让位永不误放旧会话 A。 */
+  const _targetNewer = !!(_curNow && _curNow.length
       && _snapIsTarget
-      && _tailKeyOf(_curNow) !== _tailKeyOf(_storeMsgs));
+      && _tailKeyOf(_curNow) !== _tailKeyOf(_storeMsgs || []));
+  /* 2.106：目标落地快照上屏 → 置 swPPainted/swHold（此后再出现中间态方可原样重放防闪回）。 */
+  const _markSwPainted = () => { S.swPPainted = true; S.swHold = true; };
+  const _replayLast = () => renderMsgs(S.msgs_last[0], S.msgs_last[1],
+      S.msgs_last[2], S.msgs_last[3], S.msgs_last[4]);
   if (_locked){
-    if (_targetNewer){                     /* 已有更新 → 立即让位（不上旧存帧 a） */
+    /* 2.106（A·老板 2026-10-20 17:29「切换即清屏，只显目标快照，无则空白」）：
+       切换在途正文只允许「目标落地快照 / 已确认的目标真内容 / 留白」三种，绝不重放旧会话 A：
+       ① 目标真内容已到（_targetNewer，携已确认目标身份）→ 立即让位上屏（保 2.100）；
+       ② 否则有目标落地快照 → 顶它（这就是老板要的「看着快照减少烦躁」）；
+       ③ 目标真帧已在快照里（arrived）→ 顶上（2.101 防刷新/重连补发 switch 后整屏长留白）；
+       ④ 目标快照上过屏后才有中间态 → 原样重放它（防闪回，保 2.89）；
+       ⑤ 其余 → 清屏留白（【绝不放】旧会话正文）。 */
+    if (_targetNewer){
       renderMsgs(_curNow, snap.finish, opts0, snap.ask || null, snap.pend || []);
-      S.swHold = false;
-    } else if (_storeMsgs){                /* (a) 目标最新存帧（历史）上屏 */
+      _markSwPainted();
+    } else if (_storeMsgs){
       renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
-      S.swPPainted = true;
-    } else if (!S.swFrameReady
-               && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
-      /* 存帧读取在途：原样重放上次实参＝指纹相同不重画（维持现画面，不刷空） */
-      renderMsgs(S.msgs_last[0], S.msgs_last[1], S.msgs_last[2],
-                 S.msgs_last[3], S.msgs_last[4]);
-    } else {                               /* 2.101：锁死期若存帧为空，绝不长期留白 */
-      /* 老板 2026-10-20 12:50「原版人眼可见＝网页版必须可见」：若快照正文确属
-         锚定会话（_snapIsTarget）且非空 ⇒ 直接上屏，避免「刷新/重连补发 switch →
-         锁死 → 存帧为空 → 整屏空白」；仅在确属旧会话正文时才诚实留白（2.57B）。 */
-      const _tgtMsgs = (_snapIsTarget && Array.isArray(snap.msgs) && snap.msgs.length)
-          ? snap.msgs : null;
-      if (_tgtMsgs){
-        renderMsgs(_tgtMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
-        S.swPPainted = true; S.swHold = false;
-      } else {
-        renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
-      }
+      _markSwPainted();
+    } else if (_spu && _spu.arrived
+               && Array.isArray((S.snap || {}).msgs) && S.snap.msgs.length){
+      renderMsgs(S.snap.msgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
+      _markSwPainted();
+    } else if (S.swPPainted && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
+      _replayLast();                           /* 目标快照已上过屏：中间态重放它，防闪回 */
+    } else {
+      renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
     }
   } else {
     const _cur = curMsgs();
     if (_cur.length){                      /* (b) 目标当前全量最新帧上屏 → 松开持屏 */
       renderMsgs(_cur, snap.finish, opts0, snap.ask || null, snap.pend || []);
       S.swHold = false;
-    } else if (S.swHold && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
-      /* 切换在途且目标全量帧未到：保持现画面（原样重放上次实参＝指纹相同不重画） */
-      renderMsgs(S.msgs_last[0], S.msgs_last[1], S.msgs_last[2],
-                 S.msgs_last[3], S.msgs_last[4]);
+    } else if (S.swHold && S.swPPainted
+               && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
+      /* 2.106：仅「已上屏目标快照之后」才原样重放（防闪回）；此前一律不重放旧会话 */
+      _replayLast();
     } else {
       renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
     }

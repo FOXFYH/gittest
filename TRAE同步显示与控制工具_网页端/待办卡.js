@@ -402,11 +402,13 @@ function pendSwitchSet(title, sid, ref, opt){
                    prevAnchor: (opt && opt.prevAnchor) || null,
                    prevMsgs: (S.snap && Array.isArray(S.snap.msgs))
                              ? S.snap.msgs.slice() : null};
-  /* 2.97（老板 2026-10-20 09:34）：网页端自己发起的切换，起「持屏」并清掉上一轮
-     遗留的存帧——正文在目标全量帧上屏前只允许 (a) 存帧 →(b) 全量两次，其余保持现画面。 */
+  /* 2.106（老板 2026-10-20 17:29「切换即清屏」）：网页端自己发起的切换，
+     【不再起「持屏」】（持屏＝刻意按住旧会话画面，正是「卡着当前的、卡很久」的根因）——
+     立刻清屏留白，只等目标落地快照顶上；目标无存帧 ⇒ 一直留白。
+     swHold 只在「目标落地快照已上屏之后」由 renderAll 置真（防中间态闪回）。 */
   if (S.switch_pend.lockTarget){
-    S.swHold = true; S.liveFrame = null;
-    S.swPPainted = false; S.swFrameReady = false;   /* 存帧读取在途；未上过目标存帧 → 不持屏 A */
+    S.swHold = false; S.liveFrame = null;            /* 2.106：不再起持屏阻止清屏 */
+    S.swPPainted = false; S.swFrameReady = false;    /* 目标落地快照读取在途 → 清屏留白 */
   }
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   switchReArm();                        /* v2.67：起补发/超时 */

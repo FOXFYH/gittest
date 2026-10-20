@@ -198,7 +198,22 @@ function _msgKey(m){
   const t = String((m && m[1]) || '').replace(/\s+/g, '').slice(0, 24);
   return ((m && m[0]) || '') + '\u0001' + t;
 }
+function _swSnapIsTargetNow(sp){
+  /* 2.106（A4）：切换在途，这拍快照正文是否已【确认为目标】——判据＝正文非空、
+     且切换发起时记有旧正文基线（prevMsgs），且二者消息身份不同（sameConvBody 假）。
+     prevMsgs 缺失 / 正文为空 / 与旧正文同身份 ⇒ 均视为「仍是旧会话」，一律切断回落。 */
+  const sm = (S.snap || {}).msgs;
+  return !!(Array.isArray(sm) && sm.length
+      && Array.isArray(sp && sp.prevMsgs)
+      && !sameConvBody(sm, sp.prevMsgs));
+}
 function curMsgs(){
+  /* 2.106（A4·老板 17:29「切走即弃旧」）：切换在途、目标正文尚未到达 ⇒ 一律不再以
+     旧会话 S.snap.msgs／本地账本为骨架拼正文（切断对「要离开的会话 A」的回落）；
+     正文改由 renderAll 的「目标落地快照」分支顶出（无则留白）。livePend/切换在途皆属此列。 */
+  const _sp = S.switch_pend;
+  if ((S.livePend || (_sp && _sp.lockTarget && !_sp.arrived))
+      && !_swSnapIsTargetNow(_sp)) return [];
   /* 2.54：快照为权威尾部，账本只补更早。原实现（2.49）在账本比快照长时以账本为骨架，
      账本里的重复/乱序行会让「连续多条 AI 回答而无对应问句」上屏（无头回复）。
      改为：在账本里从后往前找与快照首行同键的位置 cut，账本 [0,cut) 视为更早历史拼在
@@ -372,41 +387,35 @@ function snapIdbTick(force){
   if (_first) S.idbFirstFull = 0;
   _idbLastAt = now; _idbLastFp = _fp;
   const key = cacheKeyNow();
-  _idbReq('snap_conv', 'readwrite', st => st.put(
-    {sk: key + '|' + sid, key: key, port: S.port, sid: sid,
-     title: curTitle(), ts: now, lastAccess: now, frame: _idbFrame()}
-  )).catch(() => {});
+  /* 2.106（A·老板 17:29「落地快照只留一份、切换专用」）：由「按会话各存一份
+     （键 key|sid）」收敛为【单份最新】——每次落盘先 clear 再 put 本拍最新，
+     全库恒只此一份；切换时用它顶上，不属于目标则留白（见 snapIdbGet）。 */
+  _idbReq('snap_conv', 'readwrite', st => {
+    st.clear();
+    st.put({sk: key + '|@snap', key: key, port: S.port, sid: sid,
+            title: curTitle(), ts: now, frame: _idbFrame()});
+    return null;
+  }).catch(() => {});
   _idbReq('snap_list', 'readwrite', st => st.put(
     {sk: key, key: key, ts: now, convs: s.convs,
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
   )).catch(() => {});
 }
 function snapIdbGet(sid, title){
-  /* 2.105（03-P1）：主键＝`VER|srvVer|sid`。改名/非 4 位数字 SID 时，稳定键会随名称/
-     临时 sid 漂移 ⇒ 按 sid 取不到。记录里本就写有 title（put 时一并落），故再【按 title
-     反查】兜底读取（同 cacheKey、同 title 即命中；sid 命中优先），避免这类会话丢缓存。 */
+  /* 2.106（A·老板 17:29）：落地快照已收敛为【单份最新】（键 `cacheKey|@snap`）。
+     读取时只有这份「唯一切换专用快照」确属目标会话才返回（按稳定键 sid 或标题命中，
+     改名/非数字 SID 亦不丢，03-P1）；否则 ⇒ null（调用方按「无存帧」处理 ⇒ 留白等待，
+     绝不回填旧会话）。 */
   if (!sid) return Promise.reject(new Error('无 sid'));
   const key = cacheKeyNow();
-  return _idbReq('snap_conv', 'readonly', st => st.get(key + '|' + sid))
-    .then(rec => rec ? rec : _idbFindByTitle(key, title));
-}
-/* 2.105（03-P1）：按 cacheKey＋title 反查存帧（不依赖 sid 键）。命中即返回该记录，
-   扫完/未命中/出错 ⇒ null（调用方按「无存帧」处理，绝不报错、绝不阻断）。 */
-function _idbFindByTitle(key, title){
   const t = String(title || '').trim();
-  if (!t) return Promise.resolve(null);
-  let hit = null;
-  return _idbReq('snap_conv', 'readonly', st => {
-    const rq = st.openCursor();
-    rq.onsuccess = () => {
-      const c = rq.result;
-      if (!c || hit) return;                 /* 已命中/到底：停 */
-      const o = c.value || {};
-      if (o.key === key && String(o.title || '').trim() === t) hit = o;
-      else c.continue();
-    };
-    return rq;
-  }).then(() => hit, () => null);
+  return _idbReq('snap_conv', 'readonly', st => st.get(key + '|@snap'))
+    .then(rec => {
+      if (!rec) return null;
+      const rs = String(rec.sid || ''), rt = String(rec.title || '').trim();
+      if ((sid && rs === sid) || (t && rt === t)) return rec;
+      return null;                     /* 不属于目标 ⇒ 留白 */
+    }, () => null);
 }
 function snapIdbListGet(){
   return _idbReq('snap_list', 'readonly', st => st.get(cacheKeyNow()));
