@@ -80,6 +80,11 @@ const S = {
   /* 2.89（老板 2026-10-20）：冻结到期后的「待刷新」标记（1=已超 ANCHOR_FREEZE_MS
      仍被抢，已节流补拉锚定历史；正文一律保留 old.msgs 不覆盖，见 adoptSnap）。 */
   anchor_need_refresh: 0,
+  /* 2.94（老板 2026-10-20 07:38）：快照 msgs 单调护栏状态——msgs_guard_since=同一
+     「空帧/明显变短」形态的起始时刻（恢复正常即清零）；msgs_act_at=最近一次收到
+     msg_act（回退/删除完成）的时刻，其 2s 内放行变短（合法删除不误伤）。
+     见 通用工具.js _msgsMonotonic / adoptSnap。 */
+  msgs_guard_since: 0, msgs_act_at: 0,
   /* 本专项 B3：直播帧等待态——livePend=正在等直播帧的锚定 sid；
      liveGot=本次切换是否已拿到直播帧（拿到后本地旧帧不再回铺） */
   livePend: '', liveGot: false,

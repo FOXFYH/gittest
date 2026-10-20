@@ -438,6 +438,36 @@ function anchorReport(){
    锚定会话自己的本地账本，见下方 adoptSnap），避免「桌面早已切回/更新，网页却永久钉
    在旧内容」。取值须大于一次借框时长，故给 15s。 */
 const ANCHOR_FREEZE_MS = 15000;
+/* 2.94（老板 2026-10-20 07:38「已上屏的记录过一会又消失」·最高优先）：快照 msgs
+   单调护栏。真因：服务端每拍快照 msgs 非单调——虚拟列表只采「可见窗口」，切换/
+   借框/流式重渲染的瞬时空窗被原样广播（实测同秒四拍 8→0→0→4→8、10↔8 反复），
+   而网页端把每拍 msgs 当权威尾部、指纹一变即 innerHTML='' 整段重画 ⇒ 已上屏的
+   行当场消失。此处对【同一锚定会话、非切换在途】的来拍做「不覆盖」保护：
+   来拍 msgs 为空、或比现有 old.msgs 明显变短（条数少 ≥2）时保留现有正文。
+   为不误伤合法删除/回退：① 收到 msg_act（回退/删除完成）后 2s 内一律放行变短；
+   ② 同一「短帧」形态持续超过 MSGS_MONO_MS（2.5s，远大于瞬时空窗）也放行。
+   只挡「空帧/明显变短」，单条合法删除（少 1 条）不在此列、本就放行。 */
+const MSGS_MONO_MS = 2500;
+function _msgsMonotonic(v, old){
+  try {
+    const nv = Array.isArray(v.msgs) ? v.msgs : null;
+    const ov = (old && Array.isArray(old.msgs)) ? old.msgs : null;
+    if (!nv || !ov || !ov.length) return;
+    const empty = !nv.length;
+    const shrink = nv.length < ov.length && (ov.length - nv.length) >= 2;
+    if (!empty && !shrink){ S.msgs_guard_since = 0; return; }
+    const now = Date.now();
+    if (S.msgs_act_at && now - S.msgs_act_at < 2000){
+      S.msgs_guard_since = 0; return;         /* ① 合法删除/回退：放行变短 */
+    }
+    if (!S.msgs_guard_since) S.msgs_guard_since = now;
+    if (now - S.msgs_guard_since < MSGS_MONO_MS){
+      v.msgs = ov;                            /* 瞬时空窗/明显变短：不覆盖 */
+    } else {
+      S.msgs_guard_since = 0;                 /* 持续短帧：认作合法删除，放行 */
+    }
+  } catch(e){}
+}
 function adoptSnap(v){
   /* 用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
      对话」——别人在电脑版操作别的会话（含会话路由器的临时占用），网页版
@@ -484,6 +514,9 @@ function adoptSnap(v){
   if (!stolen && !anchorGone){
     S.anchor_stale_since = 0; S.anchor_stale_n = 0;   /* 桌面回到锚定：清时效 */
     S.anchor_need_refresh = 0;                        /* 2.89：回锚即清「待刷新」 */
+    /* 2.94：同一锚定会话、非切换在途 → msgs 单调护栏（防瞬时空窗把已上屏的行抹掉） */
+    if (S.anchorSid && inKey === S.anchorSid && !S.switch_pend)
+      _msgsMonotonic(v, old);
     return v;
   }
   /* 2.89（老板 2026-10-20 紧急 · AI 行消失最高优先）：冻结到期不再拿锚定账本盖掉

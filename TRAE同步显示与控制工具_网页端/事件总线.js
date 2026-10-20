@@ -398,6 +398,9 @@ function onEv(kind, v){
       });
       break;
     case 'msg_act':                        // 1.06：回退/删除完成 (kind, mi)
+      /* 2.94：记下「回退/删除完成」时刻——其 2s 内 msgs 变短属合法，通用工具.js
+         _msgsMonotonic 护栏在此期间放行（不让单调护栏把合法删除挡成「删不掉」）。 */
+      S.msgs_act_at = Date.now();
       flash(v[0] === 'revert'
         ? '已回退到第 ' + (v[1] + 1) + ' 条「我」的消息之前'
         : '已删除第 ' + (v[1] + 1) + ' 条「我」的消息', 'var(--green)');
