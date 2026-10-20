@@ -25,7 +25,10 @@ const SRV_PHASE = {
   accepted:['服务器已受理…',   'var(--blue)'],   /* 2.90：rcpt stage=accepted → ③ */
   ack:     ['服务器开始执行…', 'var(--blue)'],   /* rcpt stage=running → ③ */
   ok:      ['成功',            'var(--green)'],
-  fail:    ['失败',            'var(--red)']
+  fail:    ['失败',            'var(--red)'],
+  /* 2.105（02-P1-1）：服务端 cmdq 为内存队列，连续动作/重启会丢在途动作 ⇒ 无终态。
+     网页端不得永远停在「等待/执行中」，超时如实报「待确认」（服务端持久化由他人负责）。 */
+  timeout: ['待确认（长时间无终态回帧，动作可能已丢失）', 'var(--orange)']
 };
 function srvOpText(phase, label, extra){
   const p = SRV_PHASE[phase] || SRV_PHASE.sent;
@@ -318,6 +321,15 @@ function resolveTimes(msgs){
        → 0x6ad6e175 = 1792467317 → 北京时间 2026-10-20 11:35:17，与该行 tm 完全一致）
        ⇒ **AI 行也有自己的时间**，不再沿用上一句提问时间。AI 行优先取 mid。 */
     let t = _midTime(m);
+    /* 2.105（⑨·时间一致性）：mid 解出的时间与该行【DOM/账本真值】m[2]（非空完整
+       时间）交叉校验——B 组实测 mid→时间 vs 账本 tm 全库 15.4% 不一致（多为 1s~数秒、
+       长尾 2751s，部分 mid 非创建时间戳）⇒ 两者皆完整且相差 > MID_TIME_DRIFT_S 时，
+       以 m[2]（TRAE DOM / 账本 tm）为准；两者皆无 ⇒ 后续各取源规则落到空。 */
+    if (t && m[2]){
+      const _a = _timeSec(t), _b = _timeSec(m[2]);
+      if (isFinite(_a) && isFinite(_b) && Math.abs(_a - _b) > MID_TIME_DRIFT_S)
+        t = String(m[2]);
+    }
     if (m[0] === 'u'){
       if (!t){ const d = msgDidOf(m[1]); if (d) t = didToStr(d); }  // ① 首行 DID（兼容折叠单行）
       if (!t && m[2]) t = String(m[2]);    // ② 账本源 tm / TRAE DOM 真值
@@ -346,6 +358,17 @@ function _midTime(m){
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
          + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   } catch(e){ return ''; }
+}
+/* 2.105（⑨）：mid 解出时间与 DOM/账本真值 m[2] 的允许偏差（秒）。B 组实测不一致
+   多为 1s~数秒、长尾 2751s；超过此阈值即认定 mid 非该条创建时间戳 ⇒ 以 m[2] 为准。 */
+const MID_TIME_DRIFT_S = 300;
+function _timeSec(ts){
+  /* 'YYYY-MM-DD HH:MM:SS'（含 T 分隔）→ Unix 秒；不完整/非法 ⇒ NaN（不参与比较）。 */
+  const s = String(ts == null ? '' : ts).trim();
+  if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(s)) return NaN;
+  const p = s.split(/[- :T]/);
+  const v = Math.floor(new Date(+p[0], +p[1] - 1, +p[2], +p[3], +p[4], +p[5]).getTime() / 1000);
+  return isFinite(v) ? v : NaN;
 }
 function 稳定键(sid, title){
   /* 2026-10-16 用户口径（绑定改终身号）：会话「稳定性键」——完整 SID 每日会变，
@@ -529,6 +552,12 @@ function adoptSnap(v){
      做法：来拍快照的选中会话 != 锚定会话时，冻结正文类字段（msgs/
      inputText/ask/attach/tail…），只并入会话列表，并把选中标志改写到
      锚定行——curTitle/curSid/ensureHist/renderAll 全按锚定走，零改动。 */
+  /* 2.105（最高优先·框架帧）：来帧若【无 msgs 数组】（框架帧/登录轻启动版，含
+     snapN=-1）⇒ 只更新会话列表/状态/锚定，正文【绝不动】——保留上一拍已上屏的
+     msgs。否则 S.snap.msgs 落到非数组 ⇒ curMsgs 回落账本 ⇒ 已上屏行消失（8→3）。 */
+  if (!Array.isArray(v.msgs) && S.snap && Array.isArray(S.snap.msgs)){
+    v.msgs = S.snap.msgs;
+  }
   const inSid = selSidOf(v), inTitle = selTitleOf(v);
   const inKey = 稳定键(inSid, inTitle);          /* 选中会话的稳定性键＝终身号 */
   /* 未锚定（首拍）：吸附到当前选中会话（锚定键＝终身号；另记完整 sid 兜底） */
@@ -663,8 +692,12 @@ function renderAll(){
       ? !sameConvBody((S.snap || {}).msgs, _spu.prevMsgs) : true;
   const _curNow = _locked ? curMsgs() : null;
   const _tailKeyOf = a => (a && a.length) ? _msgKey(a[a.length - 1]) : '';
+  /* 2.105（03-P3）：让位判定放宽为「尾部消息身份不同即让位」——去掉旧的
+     `_curNow.length >= _storeMsgs.length` 条数限制。原判据在锚定会话发生【合法删除/
+     回退（变短）】时不满足 `>=` ⇒ 不让位 ⇒ 页面继续显示「比真实更旧/更长」的旧存帧；
+     真帧若更短、尾部身份不同，同样必须立即让位（绝不用旧存帧顶掉已到的新内容）。 */
   const _targetNewer = !!(_storeMsgs && _curNow && _curNow.length
-      && _snapIsTarget && _curNow.length >= _storeMsgs.length
+      && _snapIsTarget
       && _tailKeyOf(_curNow) !== _tailKeyOf(_storeMsgs));
   if (_locked){
     if (_targetNewer){                     /* 已有更新 → 立即让位（不上旧存帧 a） */

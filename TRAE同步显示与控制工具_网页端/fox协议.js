@@ -322,6 +322,22 @@ function didNow(){
   return String(d.getFullYear()) + p(d.getMonth() + 1) + p(d.getDate())
        + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
 }
+/* 2.105（02-P0-2）：会话级动作发帧必须带目标会话 sid（不再只靠 arg 夹带）。
+   · SESS_CMDS：作用于【当前会话】、且 arg 本身不带 sid 的动作（终止生成/排队条/撤回/
+     提问卡…）——目标＝当前锚定会话 sid；**取不到目标就【拒发】**（如实提示，绝不发空目标）。
+   · SESS_CMDS_ARG：作用于列表/记录【某一指定会话】的动作——目标优先取 arg 里的完整 sid。
+   （switch/route_send 目标本就在 arg 里，且已由调用方传 convSid，不在此表内。） */
+const SESS_CMDS = { stop_gen:1, rewind:1, 'del':1, pend_del:1, pend_edit:1, pend_sendnow:1,
+  ask_pick:1, ask_other:1, ask_submit:1, ask_cancel:1, ask_prev:1, pick_opt:1,
+  input_take:1, attach_rm:1 };
+const SESS_CMDS_ARG = { conv_del:1, conv_pin:1, conv_rename:1, note_set:1 };
+function _sessSid(arg, convSid){
+  if (convSid) return convSid;
+  if (Array.isArray(arg))
+    for (const x of arg)
+      if (typeof x === 'string' && /^[0-9A-Za-z_-]{8,}$/.test(x)) return x;
+  return (typeof curSid === 'function' ? curSid() : '') || S.anchorFull || '';
+}
 function sendCmd(c, a, did, convSid, id){
   /* 2.17：发送/插话统一改走「会话路由器」——带着目标会话稳定 sid 自动
      找上门，到点才临时占用 TRAE 输入框发一条、发完立刻走人（不再长期
@@ -357,6 +373,17 @@ function sendCmd(c, a, did, convSid, id){
   const d = {t:'cmd', c:c, a:a};
   if (did) d.did = did;
   if (id)  d.id  = id;      /* 2.90：动作 id（供 rcpt 四步回执配对） */
+  /* 2.105（02-P0-2）：会话级动作发帧一律带目标会话 sid。
+     · SESS_CMDS：目标＝当前锚定会话 sid；取不到 ⇒ 【拒发】并如实提示（绝不发空目标）。
+     · SESS_CMDS_ARG：目标优先取 arg 里的完整 sid；取不到退回当前锚定会话（有则带）。 */
+  if (SESS_CMDS[c] || SESS_CMDS_ARG[c]){
+    const sid = _sessSid(a, convSid);
+    if (!sid && SESS_CMDS[c]){
+      try { flash('⚠ 尚无目标会话，该动作未发送', 'var(--orange)'); } catch(e){}
+      return;                                  /* 无目标 ⇒ 网页端自己就不发 */
+    }
+    if (sid) d.sid = sid;
+  }
   sendJson(d);
 }
 

@@ -31,7 +31,12 @@ function onEv(kind, v){
          正文由登录后第一拍常规快照轮询补齐）。此时若直接 S.snap=v，
          消息区会因 msgs 缺失闪成空白再跳回正文（大会话尤其明显）。
          故框架版只刷列表/模型/状态，正文用旧值兜底，免闪空。 */
-      if (v.msgs === undefined && S.snap && Array.isArray(S.snap.msgs)){
+      /* 2.105（老板 2026-10-20 15:43「头晕脑胀」主因·最高优先）：判据由「仅 msgs 缺失」
+         放宽为「msgs 不是数组」——服务端框架版快照 `_light_snap` 会把 msgs 头整个拿走
+         （`pop('msgs')`），也可能送来 null/非数组；旧判据漏掉这些形态 ⇒ S.snap.msgs 落到
+         非数组 ⇒ curMsgs 回落账本（行数骤减，实测 8→3）。⇒ 来帧若【无 msgs 数组】一律
+         只更新会话列表/状态/锚定，正文【保留上一拍已上屏的 msgs】。 */
+      if (!Array.isArray(v.msgs) && S.snap && Array.isArray(S.snap.msgs)){
         v.msgs = S.snap.msgs;
       }
       /* 本专项 B3：先记下这拍快照「桌面当前选中行」——它就是直播帧的归属

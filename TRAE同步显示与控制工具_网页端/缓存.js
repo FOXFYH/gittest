@@ -94,8 +94,10 @@ function histCacheWrite(conv, ver, have_seq, msgs){
   } catch(e){}
 }
 function ledToArr(r){
+  /* 2.105（②）：账本行补 index6＝mid（原始记录自带 mid；index5 留空＝无服务端盖章），
+     供 curMsgs 尾部追加「按 mid 优先去重」，并与快照行同口径取时间。 */
   return [r.role === 'u' ? 'u' : 'a', r.text || '', r.tm || '',
-          r.can_rev ? 1 : 0, r.can_del ? 1 : 0];
+          r.can_rev ? 1 : 0, r.can_del ? 1 : 0, '', r.mid || ''];
 }
 /* —— 请求式历史 —— */
 function reqHist(conv, have_seq, ver){
@@ -224,13 +226,29 @@ function curMsgs(){
      "快照尾部之后有新行"时追加**（不前置、不抢位置）；位置最终由 2.103 的「按 mid 时间升序」兜底。 */
   let out = snapMsgs.slice();
   /* 补缺失的新行：账本尾部时间晚于快照尾部时，只【追加】快照里没有的账本行
-     （按「角色+正文指纹」去重），不覆盖、不删除快照已有的行。 */
+     （2.105 起按 mid 优先去重），不覆盖、不删除快照已有的行。 */
   const snapTail = String((snapMsgs[snapMsgs.length - 1] || [])[5] || '');
   const ledTail  = String((led[led.length - 1] || [])[2] || '');
   if (snapTail && ledTail && ledTail > snapTail){
-    const have = new Set(out.map(_msgKey));
-    const add = led.filter(m => String(m[2] || '') > snapTail
-                                && !have.has(_msgKey(m)));
+    /* 2.105（②·老板 2026-10-20：A 组 0001 网页端比原版多 1 行）：「角色+正文指纹(前24字)」
+       在正文被截断/微改时对不上 ⇒ 同一 AI 终答被重复追加。改为【按 mid（index6）优先去重、
+       _msgKey 兜底】——mid 是消息唯一身份，命中即视为已有（绝不产生重复行）；仍只【追加】、
+       绝不删除/覆盖快照已有行；追加过程中同批账本行也据同一集合互相去重。 */
+    const haveMid = new Set(), haveKey = new Set();
+    for (const m of out){
+      const id = String((m && m[6]) || '');
+      if (id) haveMid.add(id);
+      haveKey.add(_msgKey(m));
+    }
+    const add = [];
+    for (const m of led){
+      if (!(String(m[2] || '') > snapTail)) continue;
+      const id = String((m && m[6]) || '');
+      if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
+      if (id) haveMid.add(id);
+      haveKey.add(_msgKey(m));
+      add.push(m);
+    }
     if (add.length) out = out.concat(add);
   }
   /* 2.103（老板 2026-10-20 13:36「网页版排序有问题：最近一次人问与 AI 答被顶到历史里，
@@ -363,9 +381,32 @@ function snapIdbTick(force){
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
   )).catch(() => {});
 }
-function snapIdbGet(sid){
+function snapIdbGet(sid, title){
+  /* 2.105（03-P1）：主键＝`VER|srvVer|sid`。改名/非 4 位数字 SID 时，稳定键会随名称/
+     临时 sid 漂移 ⇒ 按 sid 取不到。记录里本就写有 title（put 时一并落），故再【按 title
+     反查】兜底读取（同 cacheKey、同 title 即命中；sid 命中优先），避免这类会话丢缓存。 */
   if (!sid) return Promise.reject(new Error('无 sid'));
-  return _idbReq('snap_conv', 'readonly', st => st.get(cacheKeyNow() + '|' + sid));
+  const key = cacheKeyNow();
+  return _idbReq('snap_conv', 'readonly', st => st.get(key + '|' + sid))
+    .then(rec => rec ? rec : _idbFindByTitle(key, title));
+}
+/* 2.105（03-P1）：按 cacheKey＋title 反查存帧（不依赖 sid 键）。命中即返回该记录，
+   扫完/未命中/出错 ⇒ null（调用方按「无存帧」处理，绝不报错、绝不阻断）。 */
+function _idbFindByTitle(key, title){
+  const t = String(title || '').trim();
+  if (!t) return Promise.resolve(null);
+  let hit = null;
+  return _idbReq('snap_conv', 'readonly', st => {
+    const rq = st.openCursor();
+    rq.onsuccess = () => {
+      const c = rq.result;
+      if (!c || hit) return;                 /* 已命中/到底：停 */
+      const o = c.value || {};
+      if (o.key === key && String(o.title || '').trim() === t) hit = o;
+      else c.continue();
+    };
+    return rq;
+  }).then(() => hit, () => null);
 }
 function snapIdbListGet(){
   return _idbReq('snap_list', 'readonly', st => st.get(cacheKeyNow()));
@@ -484,7 +525,7 @@ function snapIdbShow(sid, title){
      原实现先 renderAll() 空帧、再异步补缓存，中间那版空版面会把消息区
      scrollTop 夹回 0 并抛 scroll 事件，成为「自动跳顶 + 拉历史」的源头。
      现在：有存帧 → 一次性铺上（全程不经过空帧）；无存帧 → 只留白一次等直播帧。 */
-  snapIdbGet(sid).then(rec => {
+  snapIdbGet(sid, title).then(rec => {
     S.swFrameReady = true;                      /* 2.97：存帧读取已结（有/无皆算结） */
     if (S.liveGot) return;                      /* 直播帧已到，别用旧帧盖真画面 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
