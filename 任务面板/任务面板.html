@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.20">
+<meta name="任务面板版本" content="0.21">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。 */
 (function () {
@@ -48,14 +48,31 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.20</title>
+<title>任务面板 · 手机遥控页 v0.21</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.20
+  版本：0.21
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.21（2026-10-20）用户口径纠正：**按钮一排 + 【展开】看正文 + 【细分】跳新页面**（原话：
+    「全部的按钮设计成一排就好了。新建的时候，让填入标题和正文 正文字数限制 1 万字。标题限制
+    100 个字。设计一个正文按钮，点击以后卡片就开始展示正文。……拆分下级的按钮改为细分这么一个
+    按钮。一律都是点击这个按钮，又来到一个全新的页面。就像进入一个新的文件夹。你现在给我设置成
+    伸缩式的，免进入新页面，在同一个页面就能看到下级。我要的不是这个效果，我要的是直接跳转到一个
+    新页面，在那个新页面里面可以新建下级」；随后补正「那个按钮叫展开就行了……以后我展开以后不
+    只有正文，还会有更多丰富的选项」）：
+    · **按钮排一排**：【展开｜详情｜备注｜细分｜呼叫AI｜删除】六个钮**不换行、等分卡宽**（字号收小，
+      完整名称留在 title 提示里）。
+    · **【展开】**（不叫「正文」）：点开＝卡内展示正文并解除高度上限（以后还会在这里放更多内容），
+      再点收起；无正文时如实提示「本卡没有正文」。
+    · **【细分】＝跳页**：点击**整页切换到该卡的下级页面**（像进入一个新文件夹），页内摆同样的卡、
+      可【返回上级】、可用左上【新建】或页内【＋ 新建下级】在本页加卡；不再同页伸缩。
+    · **新建填标题＋正文**：标题 `maxlength=100`、正文 `maxlength=10000`，输入框实时显示「n/上限」；
+      新建清单与新建下级一致。
+    · 删除/备注/呼叫AI 逻辑沿用 0.20；顶栏仍只一个网页版版本号，服务器版本在【设置】里。
+    本轮三处版本号（title／注释／顶栏）＋ meta 同步升 0.21，四个 js 引用的 `?v=` 一并改 0.21。
   v0.20（2026-10-20）用户口径纠正：**「卡片就一张」——全站只有一种卡 + 递归容器**（上一版做成
     “主页扁清单卡 + 内页任务小卡”两种卡，主页扁卡没有按钮排，用户看到“连删除按钮都没了”）：
     · **一张卡＝一个节点**，一级（总管清单）/任务/子任务**全层级共用同一个 `建卡(节点,层级)`**：
@@ -237,8 +254,13 @@
     overflow: hidden; font-family: inherit; font-size: 15px; color: #1c2430; padding: 12px;
   }
   .卡.展开 .内容 { flex: 0 0 auto; overflow: visible; }
-  .按钮排 { display: flex; gap: 6px; padding: 0 8px 8px; flex-wrap: wrap; flex: 0 0 auto; }
-  .卡 .小钮 { font-size: 12px; padding: 5px 9px; min-height: 30px; }
+  /* 按钮排（0.21 用户口径：全部按钮【一排】，不换行、等分卡宽；完整名称见 title 提示） */
+  .按钮排 { display: flex; gap: 4px; padding: 0 6px 8px; flex-wrap: nowrap; flex: 0 0 auto; }
+  .卡 .按钮排 .小钮 {
+    flex: 1 1 0; min-width: 0; font-size: 12px; padding: 5px 2px; min-height: 30px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .按钮排 .小钮.选中 { background: #dceaff; border-color: #2b5fb0; color: #2b5fb0; }
   /* 【AI 回复 (n)】：黑字＝总数；未读＝蓝字；有未读 → 按钮加 .有新（蓝描边） */
   .回复钮 .总 { color: #222; font-weight: 600; }
   .回复钮 .未读 { color: #2b5fb0; font-weight: 700; }
@@ -296,22 +318,28 @@
   .类型组 { display: flex; gap: 10px; }
   .类型组 .大类钮.选中 { background: #2b5fb0; color: #fff; border-color: #2b5fb0; }
   /* ===== 0.20 唯一卡片 + 递归容器（全层级同一张卡） ===== */
-  /* 一级卡（总管清单）稍作强调；其下各层同款、底色略浅，缩进由 .子容器 提供 */
+  /* 一级卡（总管清单）稍作强调；其下各层同款、底色略浅 */
   .卡.层1 { border-color: #b9cbe6; box-shadow: 0 2px 6px rgba(43,95,176,.12); }
   .卡.层2, .卡.层3, .卡.层4, .卡.层5, .卡.层6 { background: #fbfcfe; }
   .卡.完成 .卡标题 { text-decoration: line-through; color: #889; }
   /* 标题占两行位置；手动【展开 ▾】后取消截断 */
   .卡.展开 .卡标题 { display: block; overflow: visible; -webkit-line-clamp: unset; }
-  .卡 .内容 { font-size: 14px; padding: 8px 12px 2px; }
-  /* 递归容器：就在本卡下方、缩进一格；里面摆同样的卡 */
-  .子容器 {
-    margin: 0 0 0 16px; padding-left: 10px;
-    border-left: 2px solid #cfdcee;
-    display: flex; flex-direction: column; gap: 10px;
+  /* 正文框（0.21：默认【收起】，点【展开】才展示；展开后 .卡.展开 .正文框 解除隐藏） */
+  .正文框 {
+    display: none; flex: 0 0 auto; font-size: 14px; color: #1c2430;
+    padding: 6px 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
   }
-  .容器头 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .容器题 { font-size: 12px; font-weight: 700; color: #667; }
-  .容器头 .小钮 { font-size: 12px; padding: 4px 9px; min-height: 30px; }
+  .卡.展开 .正文框 { display: block; }
+  /* 下级页面（0.21 细分＝跳新页面，像进新文件夹） */
+  #节点页 .区 { margin-bottom: 0; }
+  .节点页头 {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 12px;
+    background: #fff; border: 1px solid #dfe4ec; border-radius: 10px; flex-wrap: wrap;
+  }
+  .节点页题 { font-size: 15px; font-weight: 700; color: #1c2430; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .节点页新建 { margin-left: auto; flex: 0 0 auto; background: #2b5fb0; color: #fff; border-color: #2b5fb0; font-weight: 700; }
+  /* 计数：新建时的标题/正文字数 */
+  .字计 { font-size: 12px; color: #889; margin: 2px 0 0; text-align: right; }
   .确认文 { font-size: 15px; color: #333; line-height: 1.6; margin: 4px 0 0; }
   /* 卡片宽＝容器 100%，窄屏自然随视口收窄，不再需要 --卡边长 兜底 */
   @media (min-width: 700px) {
@@ -325,7 +353,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.20</span>
+    <span class="版本">v0.21</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -346,15 +374,25 @@
   </div>
 </div>
 <main>
-  <!-- 主页＝顶层容器（“我的清单”）：里面摆一级卡（一本总管清单＝一张完整的卡）。
-       点一级卡的【拆分子任务】在其下方展开递归容器，容器里摆同样的卡（任务）……不限层数。 -->
+  <!-- 主页＝我的清单：摆一级卡（一本总管清单＝一张完整的卡）。
+       点卡上的【细分】＝整页切到该卡的下级页面（见 #节点页），像进入一个新文件夹。 -->
   <section id="主页" class="区">
     <h2 class="区标题">我的清单 <span id="清单计数" class="计数"></span></h2>
     <div id="顶层容器" class="任务列表"><div class="空样">加载中…</div></div>
   </section>
+
+  <!-- 下级页面（0.21 细分＝跳页）：页头可返回上级 / 在本页新建下级；容器里摆同样的卡 -->
+  <section id="节点页" class="区 隐藏">
+    <div class="节点页头">
+      <button id="按钮_返回上级" class="小钮">← 返回上级</button>
+      <span id="节点页_题" class="节点页题">—</span>
+      <button id="节点页_新建" class="小钮 节点页新建">＋ 新建下级</button>
+    </div>
+    <div id="节点容器" class="任务列表"><div class="空样">加载中…</div></div>
+  </section>
 </main>
 
-<!-- 新建清单弹窗（左上角【新建】：选类型——当前只有「总管清单」→ 输入清单名称 → 创建） -->
+<!-- 新建清单弹窗（主页左上角【新建】：选类型——当前只有「总管清单」→ 填标题＋正文 → 创建） -->
 <div id="新建清单弹窗" class="遮罩 隐藏">
   <div class="弹窗">
     <h3>新建</h3>
@@ -362,9 +400,13 @@
     <div id="新建_类型" class="类型组">
       <button type="button" class="大类钮 选中" data-类="总管清单">总管清单</button>
     </div>
-    <label class="字段" for="新建_名称">清单名称</label>
-    <input id="新建_名称" type="text" autocomplete="off" placeholder="如：2026-10 家务流水"
+    <label class="字段" for="新建_标题">标题</label>
+    <input id="新建_标题" type="text" autocomplete="off" maxlength="100" placeholder="如：2026-10 家务流水"
            style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
+    <p id="新建_标题数" class="字计">0/100</p>
+    <label class="字段" for="新建_正文">正文</label>
+    <textarea id="新建_正文" maxlength="10000" placeholder="补充说明（可留空）"></textarea>
+    <p id="新建_正文数" class="字计">0/10000</p>
     <p style="font-size:13px;color:#889;margin:8px 0 0;">创建后自动带上类型名（总管清单）。</p>
     <div class="弹窗底">
       <button id="新建_取消" class="次钮">取消</button>
@@ -372,17 +414,17 @@
     </div>
   </div>
 </div>
-<!-- 加卡弹窗：新建任务（标题＋详情）/ 分子任务（只有标题） -->
+<!-- 加卡弹窗：新建任务（清单一层）/ 新建下级（任意层），都要填标题＋正文 -->
 <div id="加卡弹窗" class="遮罩 隐藏">
   <div class="弹窗">
     <h3 id="加卡_题">新建任务</h3>
     <label class="字段" for="加卡_标题">标题</label>
-    <input id="加卡_标题" type="text" autocomplete="off" placeholder="一句话说清这张卡要做什么"
+    <input id="加卡_标题" type="text" autocomplete="off" maxlength="100" placeholder="一句话说清这张卡要做什么"
            style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
-    <div id="加卡_详情行">
-      <label class="字段" for="加卡_详情">详情</label>
-      <textarea id="加卡_详情" placeholder="补充说明（可留空）"></textarea>
-    </div>
+    <p id="加卡_标题数" class="字计">0/100</p>
+    <label class="字段" for="加卡_正文">正文</label>
+    <textarea id="加卡_正文" maxlength="10000" placeholder="补充说明（可留空）"></textarea>
+    <p id="加卡_正文数" class="字计">0/10000</p>
     <div class="弹窗底">
       <button id="加卡_取消" class="次钮">取消</button>
       <button id="加卡_确定" class="主钮">确定</button>
@@ -436,9 +478,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.20"></script>
-<script src="网页模块/卡片.js?v=0.20"></script>
-<script src="网页模块/清单页.js?v=0.20"></script>
-<script src="网页模块/面板.js?v=0.20"></script>
+<script src="网页模块/接口.js?v=0.21"></script>
+<script src="网页模块/卡片.js?v=0.21"></script>
+<script src="网页模块/清单页.js?v=0.21"></script>
+<script src="网页模块/面板.js?v=0.21"></script>
 </body>
 </html>
