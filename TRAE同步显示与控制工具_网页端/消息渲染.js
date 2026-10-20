@@ -101,6 +101,9 @@ function thinkBarHtml(b){
 
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
+  /* 2.97：记下本次实参——切换「持屏」期（通用工具.js renderAll）原样重放，
+     保证不出现「空帧/中间态」等额外面孔（同一 key 会被本函数上方指纹直接跳过）。 */
+  S.msgs_last = [msgs, finish, opts, ask, pend];
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
      与 opts（选项卡答完即销毁） */
   let key = msgs.map(m => m[0] + ':' + m[1] + ':' + (m[3] || 0)

@@ -338,6 +338,7 @@ function switchClear(){
   const sp = S.switch_pend; if (!sp) return false;
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
+  S.swHold = false;         /* 2.97：切换收口 → 松开持屏，回落真快照 */
   /* 2.89（老板 2026-10-20）：切换【失败】收口回退到「切换前的 A」——恢复锚定
      （标题/选中态）与切换前正文；成功（phase==='ok'）不回退，继续 B。
      仅网页端自己发起的切换（lockTarget）才有 prevAnchor/prevMsgs。 */
@@ -376,6 +377,7 @@ function switchAbort(){
   const sp = S.switch_pend; if (!sp) return false;
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
+  S.swHold = false;         /* 2.97：一并松开持屏 */
   return true;
 }
 function pendSwitchSet(title, sid, ref, opt){
@@ -406,6 +408,12 @@ function pendSwitchSet(title, sid, ref, opt){
                    prevAnchor: (opt && opt.prevAnchor) || null,
                    prevMsgs: (S.snap && Array.isArray(S.snap.msgs))
                              ? S.snap.msgs.slice() : null};
+  /* 2.97（老板 2026-10-20 09:34）：网页端自己发起的切换，起「持屏」并清掉上一轮
+     遗留的存帧——正文在目标全量帧上屏前只允许 (a) 存帧 →(b) 全量两次，其余保持现画面。 */
+  if (S.switch_pend.lockTarget){
+    S.swHold = true; S.liveFrame = null;
+    S.swPPainted = false; S.swFrameReady = false;   /* 存帧读取在途；未上过目标存帧 → 不持屏 A */
+  }
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   switchReArm();                        /* v2.67：起补发/超时 */
   renderAll();

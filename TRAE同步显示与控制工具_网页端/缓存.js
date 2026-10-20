@@ -310,6 +310,10 @@ function snapIdbTick(force){
      写进 IDB」污染「切回秒显」。 */
   if (S.switch_pend && S.switch_pend.lockTarget
       && !S.switch_pend.arrived) return;
+  /* 存帧自检闸（切会话/归还）：过渡期「锁死目标会话」（含 2.93 情形——arrived 已置
+     真、但撤锁当下 S.snap 正文仍属切换前旧会话）时，S.snap 正文不属锚定会话，
+     绝不把它当锚定会话的存帧写进 IDB、污染「切回秒显」。判据与 _liveLockOn 同源头。 */
+  if (typeof _liveLockOn === 'function' && _liveLockOn()) return;
   const s = S.snap || {};
   if (!Array.isArray(s.convs) || !s.convs.length) return;   /* 还没快照 */
   const sid = (S.anchorSid || curSid() || '');
@@ -419,6 +423,7 @@ function snapIdbShow(sid, title){
      scrollTop 夹回 0 并抛 scroll 事件，成为「自动跳顶 + 拉历史」的源头。
      现在：有存帧 → 一次性铺上（全程不经过空帧）；无存帧 → 只留白一次等直播帧。 */
   snapIdbGet(sid).then(rec => {
+    S.swFrameReady = true;                      /* 2.97：存帧读取已结（有/无皆算结） */
     if (S.liveGot) return;                      /* 直播帧已到，别用旧帧盖真画面 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
     if (S.livePrefetch) return;                 /* 2.67：服务端已预取该会话正文帧，别用本地存帧覆盖 */
@@ -426,6 +431,7 @@ function snapIdbShow(sid, title){
     renderAll();
   }).catch(() => {
     /* 读取失败也要铺一次，免卡在上一会话画面 */
+    S.swFrameReady = true;                      /* 2.97：读取失败也算「结」→ 无存帧则留白（2.57B） */
     if (!S.liveGot && (S.anchorSid || '') === sid) renderAll();
   });
 }

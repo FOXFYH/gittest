@@ -502,7 +502,16 @@ function adoptSnap(v){
   if (S.switch_pend){
     const tgt = S.switch_pend.sid
         ? 稳定键(S.switch_pend.sid, S.switch_pend.title) : '';
-    if (!tgt || tgt === inKey) return v;
+    if (!tgt || tgt === inKey){
+      /* 2.97（老板 2026-10-20 09:34）：切换在途、这拍正是目标会话时，对目标正文也做
+         「不空/不明显变短」保护——基线＝当前【已上屏的目标正文】（仅当它已不是切换前
+         旧会话 A 时才比），防虚拟列表窗口抖动把已上屏的目标帧抹成空/短帧（额外面孔）。 */
+      if (S.switch_pend.lockTarget && S.anchorSid && inKey === S.anchorSid
+          && Array.isArray(S.switch_pend.prevMsgs) && S.switch_pend.prevMsgs.length
+          && !sameConvBody((S.snap || {}).msgs, S.switch_pend.prevMsgs))
+        _msgsMonotonic(v, S.snap || {});
+      return v;
+    }
   }
   const old = S.snap || {};
   /* 2.88：选中行彻底认不出（inSid/inTitle 皆空，如列表中间态/组头行）时也不再
@@ -582,9 +591,41 @@ function renderAll(){
     });
   /* 2.57B：切换在途不并入账本（账本可能仍是旧会话的），只认存帧/空。
      2.89：过渡期锁死目标会话（_liveLockOn）——网页端自己发起切到 B 后，B 的
-     真内容未上屏前一律取 B 的帧，快照里仍是 A 的正文绝不上屏。 */
-  renderMsgs(_liveLockOn() ? (snap.msgs || []) : curMsgs(), snap.finish,
-             opts0, snap.ask || null, snap.pend || []);
+     真内容未上屏前一律取 B 的帧，快照里仍是 A 的正文绝不上屏。
+     2.97（老板 2026-10-20 09:34）：切换在途正文只允许两次上屏——
+     (a) 目标「最新一次存帧（历史）」→(b) 目标「当前全量最新帧」；其余来源
+     （空帧/预取/账本中间态）不得各自独立上屏：目标全量帧未到前的空帧一律
+     「保持现画面」（不因空帧再变一次脸）。目标存帧(IDB)读取在途时也「维持现画面」，
+     读回为空才诚实留白（保持 2.57B）——全程绝不把旧会话 A 的正文当新面孔重画。 */
+  const _locked = _liveLockOn();
+  const _lf = S.liveFrame;
+  const _storeMsgs = (_locked && _lf && Array.isArray(_lf.msgs) && _lf.msgs.length)
+      ? _lf.msgs : null;
+  if (_locked){
+    if (_storeMsgs){                       /* (a) 目标最新存帧（历史）上屏 */
+      renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
+      S.swPPainted = true;
+    } else if (!S.swFrameReady
+               && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
+      /* 存帧读取在途：原样重放上次实参＝指纹相同不重画（维持现画面，不刷空） */
+      renderMsgs(S.msgs_last[0], S.msgs_last[1], S.msgs_last[2],
+                 S.msgs_last[3], S.msgs_last[4]);
+    } else {                               /* 存帧已读回且为空：诚实留白（2.57B，不上屏 A） */
+      renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
+    }
+  } else {
+    const _cur = curMsgs();
+    if (_cur.length){                      /* (b) 目标当前全量最新帧上屏 → 松开持屏 */
+      renderMsgs(_cur, snap.finish, opts0, snap.ask || null, snap.pend || []);
+      S.swHold = false;
+    } else if (S.swHold && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
+      /* 切换在途且目标全量帧未到：保持现画面（原样重放上次实参＝指纹相同不重画） */
+      renderMsgs(S.msgs_last[0], S.msgs_last[1], S.msgs_last[2],
+                 S.msgs_last[3], S.msgs_last[4]);
+    } else {
+      renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
+    }
+  }
   renderState(snap);
   revertRefill(snap);              // 1.62：撤回后把被撤回的话补回输入框
   renderAttach(snap.attach || []);
