@@ -193,10 +193,94 @@ function ensureHist(){
   renderAll();                                  /* 秒显（快照未到达前） */
   reqHist(title, S.histHave, S.histVer);        /* 游标增量补新/重建 */
 }
+/* 2.112（X2-2/X2-4）：正式 mid＝十六进制串（前 8 位＝Unix 秒）；`temp-agent-…`
+   这类非 hex 一律视为「生成期临时号」，不得当正式身份参与去重/对齐/排序。 */
+function _midIsFormal(id){
+  return /^[0-9a-fA-F]{8}/.test(String(id || ''));
+}
 function _msgKey(m){
-  /* 2.54：消息身份指纹——角色 + 正文去空白后前 24 字。 */
+  /* 2.54：消息身份指纹——角色 + 正文去空白后前 24 字。
+     2.112（X2-4）：改为 **mid（index6）优先**——mid 是系统唯一身份，原「角色＋正文
+     前 24 字」会把两段正文相同的消息错并/错位（重复行或丢行）。mid 缺、或仍是
+     `temp-agent-…` 临时号时才退回「角色＋正文前 24 字」。 */
+  const id = String((m && m.length > 6 && m[6]) || '');
+  if (_midIsFormal(id)) return 'M\u0001' + id;
   const t = String((m && m[1]) || '').replace(/\s+/g, '').slice(0, 24);
   return ((m && m[0]) || '') + '\u0001' + t;
+}
+/* ===== 2.112（X2-2）：临时号 → 正式 mid 的「就地换号」登记 =====
+   同一会话内按「角色＋正文去空白前 48 字」记住已见过的正式 mid；若同一行还挂着
+   `temp-agent-…` 临时号，就把正式 mid 补回该行（只换 index6，不新增行、不删除行、
+   不移动其它行）。会话切换即清空，绝不跨会话串号。
+   注意：只处理明确的临时号（^temp-），「空 mid 行」不换号——避免把两条正文相同的
+   无号消息错并成一条。 */
+let _midFpConv = '', _midFpMap = {}, _midFpN = 0;
+const MID_FP_MAX = 400;
+function _rowFp(m){
+  const t = String((m && m[1]) || '').replace(/\s+/g, '').slice(0, 48);
+  return ((m && m[0]) || '') + '\u0001' + t;
+}
+function _midFpReset(){
+  const conv = (typeof curTitle === 'function') ? curTitle() : '';
+  if (conv !== _midFpConv){ _midFpConv = conv; _midFpMap = {}; _midFpN = 0; }
+}
+function _midCollect(list){
+  _midFpReset();
+  if (!Array.isArray(list)) return;
+  for (const m of list){
+    const id = String((m && m[6]) || '');
+    if (!_midIsFormal(id)) continue;
+    const f = _rowFp(m);
+    if (!f || _midFpMap[f] || _midFpN >= MID_FP_MAX) continue;
+    _midFpMap[f] = id; _midFpN++;
+  }
+}
+function _midIsTemp(id){
+  return /^temp-/i.test(String(id || ''));
+}
+function _midPromote(list){
+  _midFpReset();
+  if (!Array.isArray(list)) return list;
+  for (let i = 0; i < list.length; i++){
+    const m = list[i];
+    if (!m) continue;
+    const id = String(m[6] || '');
+    if (!_midIsTemp(id)) continue;                 /* 只给「临时号」就地换正式号 */
+    const f = _midFpMap[_rowFp(m)];
+    if (!f) continue;
+    const r = m.slice();
+    r[6] = f;                                      /* 同行换号：行数不变 */
+    list[i] = r;
+  }
+  return list;
+}
+/* ===== 2.112（X2-1/X2-2/X2-3）：严格全序排序 =====
+   ① 有正式 mid 的行：按 mid 时间升序（同秒按原顺序）——顺序只由系统 ID 决定；
+   ② 无 mid 的行（含 temp-agent 临时号、pane/非选中会话缺 mid、账本缺号）：
+      **一律置顶**，保持其相互间的原相对次序，并在行上打 m[7]=1（渲染层标「时间未知」）；
+   ③ ⇒ 任何输入序列都得到确定的全序，无 mid 行永远抢不到「最新」位置（原 2.103 的
+      「有 mid 按时间、无 mid 保持原位」不是全序，正是「老记录跑到最新位」的根因）。 */
+function _markNoMid(m){
+  if (!m || typeof m.slice !== 'function') return m;
+  const r = m.slice();
+  r[7] = 1;
+  return r;
+}
+function orderMsgs(list){
+  try {
+    if (!Array.isArray(list) || !list.length) return list;
+    if (typeof _midTime !== 'function' || typeof _timeSec !== 'function') return list;
+    _midCollect(list);
+    const src = _midPromote(list.slice());
+    const arr = src.map((m, i) => ({m: m, i: i, s: _timeSec(_midTime(m))}));
+    const known = [], unk = [];
+    for (const x of arr){
+      if (isFinite(x.s) && x.s > 0) known.push(x); else unk.push(x);
+    }
+    if (!known.length) return arr.map(x => _markNoMid(x.m));   /* 全无 mid：原序＋标时间未知 */
+    known.sort((a, b) => (a.s - b.s) || (a.i - b.i));
+    return unk.map(x => _markNoMid(x.m)).concat(known.map(x => x.m));
+  } catch(e){ return list; }
 }
 function _swSnapIsTargetNow(sp){
   /* 2.106（A4）：切换在途，这拍快照正文是否已【确认为目标】——判据＝正文非空、
@@ -220,8 +304,10 @@ function curMsgs(){
      快照之前；找不到或就在开头则只用快照（宁缺不乱）。 */
   const snapMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
   const led = (S.histMsgs && S.histMsgs.length) ? S.histMsgs : null;
-  if (!led) return snapMsgs || [];
-  if (!snapMsgs || !snapMsgs.length) return led;
+  /* 2.112（X2-1/X2-3）：任何返回路径都必须走同一条「严格全序」排序，
+     绝不让「没有账本」或「只有账本」的会话按出现顺序乱插。 */
+  if (!led) return orderMsgs(snapMsgs || []);
+  if (!snapMsgs || !snapMsgs.length) return orderMsgs(led);
   /* 2.89（老板 2026-10-20 紧急）：账本「补尾」收紧为**只补不删**——旧 2.88 在
      账本尾部时间更晚时直接 `return led.slice()`，会把快照里存在、账本里缺失的行
      （尤其 AI 行——账本只记终答、常缺 AI 行）整段抹掉 ⇒ 页面「AI 行突然消失」。
@@ -239,11 +325,16 @@ function curMsgs(){
      你赋予了手机网页版自由，它自己拼贴老消息去抢位置」）：**取消"账本更早段前置拼贴"**——
      正文**一律以快照（＝本地/权威帧，也就是原版人眼可见的那几条）为准**，账本**只在
      "快照尾部之后有新行"时追加**（不前置、不抢位置）；位置最终由 2.103 的「按 mid 时间升序」兜底。 */
-  let out = snapMsgs.slice();
+  /* 2.112（X2-2）：两源先去重前统一「临时号 → 正式 mid」——否则同一行（快照里还是
+     `temp-agent-…`、账本里已是正式 mid）会因身份不同而被当成两条重复追加。 */
+  _midCollect(snapMsgs); _midCollect(led);
+  const snapP = _midPromote(snapMsgs.slice());
+  const ledP  = _midPromote(led.slice());
+  let out = snapP.slice();
   /* 补缺失的新行：账本尾部时间晚于快照尾部时，只【追加】快照里没有的账本行
      （2.105 起按 mid 优先去重），不覆盖、不删除快照已有的行。 */
-  const snapTail = String((snapMsgs[snapMsgs.length - 1] || [])[5] || '');
-  const ledTail  = String((led[led.length - 1] || [])[2] || '');
+  const snapTail = String((snapP[snapP.length - 1] || [])[5] || '');
+  const ledTail  = String((ledP[ledP.length - 1] || [])[2] || '');
   if (snapTail && ledTail && ledTail > snapTail){
     /* 2.105（②·老板 2026-10-20：A 组 0001 网页端比原版多 1 行）：「角色+正文指纹(前24字)」
        在正文被截断/微改时对不上 ⇒ 同一 AI 终答被重复追加。改为【按 mid（index6）优先去重、
@@ -256,7 +347,7 @@ function curMsgs(){
       haveKey.add(_msgKey(m));
     }
     const add = [];
-    for (const m of led){
+    for (const m of ledP){
       if (!(String(m[2] || '') > snapTail)) continue;
       const id = String((m && m[6]) || '');
       if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
@@ -266,26 +357,10 @@ function curMsgs(){
     }
     if (add.length) out = out.concat(add);
   }
-  /* 2.103（老板 2026-10-20 13:36「网页版排序有问题：最近一次人问与 AI 答被顶到历史里，
-     而更老的却被放在最新的位置」）：**网页端不得自行决定顺序**——一律按**该条系统 ID（mid）
-     的时间升序**排（mid 前 8 位＝Unix 秒，见 通用工具.js `_midTime`）；无 mid 的行保持
-     其原相对位置（稳定排序）。⇒ 纠正「账本更早段前置」可能造成的"最新一轮被塞进历史段"。 */
-  try {
-    if (typeof _midTime === 'function' && out.length){
-      const _sec = m => {
-        const t = _midTime(m);                       /* 'YYYY-MM-DD HH:MM:SS' 或 '' */
-        if (!t) return 0;
-        const p = t.split(/[- :]/);
-        return Math.floor(new Date(+p[0], +p[1] - 1, +p[2], +p[3], +p[4], +p[5]).getTime() / 1000) || 0;
-      };
-      const arr = out.map((m, i) => ({m, i, s: _sec(m)}));
-      if (arr.some(x => x.s)){
-        arr.sort((a, b) => (a.s && b.s) ? (a.s - b.s) : (a.i - b.i));
-        out = arr.map(x => x.m);
-      }
-    }
-  } catch(e){}
-  return out;
+  /* 2.103（老板 2026-10-20 13:36）：网页端不得自行决定顺序——一律按系统 ID（mid）
+     的时间升序排。2.112（X2-1/X2-3）：改为**严格全序**——无 mid 的行统一置顶并标
+     「时间未知」（见 orderMsgs），绝不让它抢「最新」的位置。仍只【追加】、不删行。 */
+  return orderMsgs(out);
 }
 
 /* ========== 1.90：文本转语音小卡片 ========== */
@@ -306,7 +381,15 @@ const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
 const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
 const WEB_ROUNDS_KEEP = 3;               /* 2.59：单帧/本地历史只留最近 3 轮（用户 2026-10-07）；原为尾部 40 条 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
-let _idbP = null, _idbLastAt = 0, _idbLastFp = null;
+/* 2.112（插队·老板 21:35「明明有快照却白屏」）：落盘节流/指纹【按会话】记忆——
+   原全局单值 _idbLastAt/_idbLastFp 会让「刚切到的 B」被「刚看过的 A」的指纹
+   误判为「无变化」而漏落盘。 */
+let _idbP = null;
+const _idbLastAtBy = {}, _idbLastFpBy = {};
+/* 2.112：内存里每个会话最近一份存帧（键＝cacheKey|sid）——点会话即同步上屏（0ms），
+   再异步读 IDB 校正；这才是「明明有快照就必须立刻拿出来给我看」。 */
+const _frameMem = {};
+function _frameMemKey(sid){ return cacheKeyNow() + '|' + sid; }
 function idbOpen(){
   if (_idbP) return _idbP;
   _idbP = new Promise((res, rej) => {
@@ -375,22 +458,26 @@ function snapIdbTick(force){
   /* 2.100（老板 12:14）：① 旗标 S.idbFirstFull＝切换/重连后首份完整快照 ⇒ 立即落
      （不受节流；上面几道闸已保证本拍正文属当前锚定会话、不是脏帧）；
      ② force=true（liveClear 真帧到手／切走）同样立即落；
-     ③ 其后 ⇒ 「≥ 10 秒 且 有更新（指纹变化）才落盘」。 */
+     ③ 其后 ⇒ 「该会话 ≥ 10 秒 且 有更新（指纹变化）才落盘」。 */
+  const _sk = _frameMemKey(sid);
   const _full = !!(s.msgs && s.msgs.length);
   const _first = !!S.idbFirstFull && _full;
-  if (force !== true && !_first && now - _idbLastAt < 10000) return;
-  const _fp = msgsFp(_idbFrame().msgs);
-  if (force !== true && !_first && _fp === _idbLastFp) return;   /* 有更新才落盘 */
+  if (force !== true && !_first && now - (_idbLastAtBy[_sk] || 0) < 10000) return;
+  const frame = _idbFrame();
+  const _fp = msgsFp(frame.msgs);
+  if (force !== true && !_first && _fp === _idbLastFpBy[_sk]) return;   /* 有更新才落盘 */
   if (_first) S.idbFirstFull = 0;
-  _idbLastAt = now; _idbLastFp = _fp;
+  _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
+  _frameMem[_sk] = frame;               /* 2.112：内存帧同步可用（切回秒显） */
   const key = cacheKeyNow();
-  /* 2.106（A·老板 17:29「落地快照只留一份、切换专用」）：由「按会话各存一份
-     （键 key|sid）」收敛为【单份最新】——每次落盘先 clear 再 put 本拍最新，
-     全库恒只此一份；切换时用它顶上，不属于目标则留白（见 snapIdbGet）。 */
+  /* 2.112（插队·老板 21:35 + 09:43 原话「不管多少份，永远只有一份…快照只求新」）：
+     **按会话各存一份、同一会话覆盖**（键 `key|sid`，不再 st.clear() 全库只留一个）——
+     原 2.106 的「全局单份」是对「每会话只留最新一份」的误读，导致切到别的会话必然
+     查不到存帧 ⇒ 白屏。顺带清掉旧的错误单份键 `key|@snap`（一次性迁移）。 */
   _idbReq('snap_conv', 'readwrite', st => {
-    st.clear();
-    st.put({sk: key + '|@snap', key: key, port: S.port, sid: sid,
-            title: curTitle(), ts: now, frame: _idbFrame()});
+    st.delete(key + '|@snap');
+    st.put({sk: _sk, key: key, port: S.port, sid: sid,
+            title: curTitle(), ts: now, frame: frame});
     return null;
   }).catch(() => {});
   _idbReq('snap_list', 'readwrite', st => st.put(
@@ -398,20 +485,37 @@ function snapIdbTick(force){
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
   )).catch(() => {});
 }
+function _idbGetByTitle(key, t){
+  /* 2.105/2.112：按标题反查兜底（改名/非数字 SID 不丢存帧）；同标题取 ts 最新一条。 */
+  return idbOpen().then(db => new Promise(res => {
+    const tx = db.transaction('snap_conv', 'readonly');
+    const rq = tx.objectStore('snap_conv').openCursor();
+    let hit = null;
+    rq.onsuccess = () => {
+      const c = rq.result;
+      if (!c) return;
+      const v = c.value || {};
+      if (v.key === key && String(v.title || '').trim() === t
+          && (!hit || (v.ts || 0) > (hit.ts || 0))) hit = v;
+      c.continue();
+    };
+    tx.oncomplete = () => res(hit);
+    tx.onerror = () => res(null);
+    tx.onabort = () => res(null);
+  })).catch(() => null);
+}
 function snapIdbGet(sid, title){
-  /* 2.106（A·老板 17:29）：落地快照已收敛为【单份最新】（键 `cacheKey|@snap`）。
-     读取时只有这份「唯一切换专用快照」确属目标会话才返回（按稳定键 sid 或标题命中，
-     改名/非数字 SID 亦不丢，03-P1）；否则 ⇒ null（调用方按「无存帧」处理 ⇒ 留白等待，
-     绝不回填旧会话）。 */
+  /* 2.112（插队·老板 21:35）：恢复「按会话各存一份」——按 `key|sid` 取该会话自己的
+     最新存帧（同会话覆盖，天然只留一份）；取不到再按 title 反查兜底。
+     只有确属目标会话才返回；否则 ⇒ null（调用方留白等待，绝不回填旧会话）。 */
   if (!sid) return Promise.reject(new Error('无 sid'));
   const key = cacheKeyNow();
   const t = String(title || '').trim();
-  return _idbReq('snap_conv', 'readonly', st => st.get(key + '|@snap'))
+  return _idbReq('snap_conv', 'readonly', st => st.get(key + '|' + sid))
     .then(rec => {
-      if (!rec) return null;
-      const rs = String(rec.sid || ''), rt = String(rec.title || '').trim();
-      if ((sid && rs === sid) || (t && rt === t)) return rec;
-      return null;                     /* 不属于目标 ⇒ 留白 */
+      if (rec && (!rec.sid || String(rec.sid) === String(sid))) return rec;
+      if (!t) return null;
+      return _idbGetByTitle(key, t);
     }, () => null);
 }
 function snapIdbListGet(){
@@ -531,11 +635,23 @@ function snapIdbShow(sid, title){
      原实现先 renderAll() 空帧、再异步补缓存，中间那版空版面会把消息区
      scrollTop 夹回 0 并抛 scroll 事件，成为「自动跳顶 + 拉历史」的源头。
      现在：有存帧 → 一次性铺上（全程不经过空帧）；无存帧 → 只留白一次等直播帧。 */
+  /* 2.112（插队·老板 21:35「明明有快照却白屏/不先给我看」）：内存里已有该会话最近
+     存帧 ⇒ **同步立刻上屏**（同一次点击任务内完成，浏览器根本来不及画出白屏），
+     再异步读 IDB 校正；内存没有才等 IDB 那一次异步读取（极短暂白）。 */
+  const _mk = _frameMemKey(sid);
+  const _mem = _frameMem[_mk] || null;
+  if (_mem && Array.isArray(_mem.msgs) && _mem.msgs.length){
+    S.liveFrame = _mem;
+    S.swFrameReady = true;                      /* 存帧已上屏（读取闸视为已结） */
+    renderAll();
+  }
   snapIdbGet(sid, title).then(rec => {
     S.swFrameReady = true;                      /* 2.97：存帧读取已结（有/无皆算结） */
+    if (rec && rec.frame) _frameMem[_mk] = rec.frame;   /* 校正内存帧 */
     if (S.liveGot) return;                      /* 直播帧已到，别用旧帧盖真画面 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
     if (S.livePrefetch) return;                 /* 2.67：服务端已预取该会话正文帧，别用本地存帧覆盖 */
+    if (_mem) return;                           /* 2.112：内存帧已上屏（且更新），不拿 IDB 旧帧回盖 */
     S.liveFrame = (rec && rec.frame) || null;   /* 有存帧 → 一次性上屏 */
     renderAll();
   }).catch(() => {

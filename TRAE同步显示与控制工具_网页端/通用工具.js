@@ -21,7 +21,11 @@ function flash(msg, color, ms){
      各模块（含 2.67 切换状态机——参照物）一律转调，杜绝各写各的文案漂移。 */
 const SRV_PHASE = {
   offline: ['正在连接 WS…',   'var(--orange)'],
-  sent:    ['等待服务器回应…', 'var(--blue)'],
+  /* 2.112（Y12）：动作已提交、服务端尚未回 rcpt accepted ⇒ 明确「已提交 · 排队中…」，
+     不再让用户对着「等待服务器回应…」干等。四步口径不变：
+     ①offline → ②queued/sent → ③accepted/running → ④ok/fail（＋timeout 待确认）。 */
+  queued:  ['已提交 · 排队中…', 'var(--blue)'],
+  sent:    ['已提交 · 排队中…', 'var(--blue)'],   /* 2.112：②步统一口径（原「等待服务器回应…」） */
   accepted:['服务器已受理…',   'var(--blue)'],   /* 2.90：rcpt stage=accepted → ③ */
   ack:     ['服务器开始执行…', 'var(--blue)'],   /* rcpt stage=running → ③ */
   ok:      ['成功',            'var(--green)'],
@@ -64,7 +68,9 @@ function srvOpSend(cmd, arg, label, extra, ms){
     return false;
   }
   const id = srvOpNewId();
-  const op = {label: label, extra: extra, timer: null};
+  /* 2.112（Y12）：stage 记在途阶段——queued＝已提交、尚未收到 rcpt accepted；
+     输入界面.js 的 renderState 据此在状态栏常显「已提交 · 排队中…」（防被快照刷掉）。 */
+  const op = {label: label, extra: extra, timer: null, stage: 'queued', at: Date.now()};
   /* 2.109（02-P1-1/2.105 落地）：TTL 到期仍未收到任何终态回帧 ⇒ 不再静默删除，
      如实播报「待确认（长时间无终态回帧，动作可能已丢失）」，绝不永远停在
      「等待/执行中」。收到终态（srvOpAck）会 clearTimeout 并删表项，不误报。 */
@@ -74,7 +80,7 @@ function srvOpSend(cmd, arg, label, extra, ms){
   }, SRV_OP_TTL);
   srvOpAcct[id] = op;
   sendCmd(cmd, arg, null, null, id);
-  srvOpFlash('sent', label, extra, ms);    /* ②：已发出，等待服务器回应 */
+  srvOpFlash('queued', label, extra, ms);    /* ②：已提交，排队中（等 rcpt accepted） */
   return true;
 }
 /* 2.109：非 cmd 帧（t:'boot'/'switch_box'/'attach_files'）的统一四态出口——
@@ -87,7 +93,7 @@ function srvOpSendJson(obj, label, extra, ms){
     return false;
   }
   const id = srvOpNewId();
-  const op = {label: label, extra: extra, timer: null};
+  const op = {label: label, extra: extra, timer: null, stage: 'queued', at: Date.now()};
   op.timer = setTimeout(() => {
     delete srvOpAcct[id];
     srvOpFlash('timeout', label, extra);   /* 2.109：TTL 到期无终态 ⇒ 如实「待确认」 */
@@ -96,7 +102,7 @@ function srvOpSendJson(obj, label, extra, ms){
   const d = obj || {};
   d.id = id;
   sendJson(d);
-  srvOpFlash('sent', label, extra, ms);
+  srvOpFlash('queued', label, extra, ms);   /* 2.112（Y12）：已提交 · 排队中… */
   return true;
 }
 /* 2.90：rcpt 收口——按动作 id 取在途操作，补 ③（accepted/running）与
@@ -104,14 +110,24 @@ function srvOpSendJson(obj, label, extra, ms){
 function srvOpAck(id, stage, msg){
   const op = srvOpAcct[id];
   if (!op) return false;
-  if (stage === 'accepted'){ srvOpFlash('accepted', op.label, op.extra); return true; }
-  if (stage === 'running'){  srvOpFlash('ack',      op.label, op.extra); return true; }
+  if (stage === 'accepted'){ op.stage = 'accepted'; srvOpFlash('accepted', op.label, op.extra); return true; }
+  if (stage === 'running'){  op.stage = 'running';  srvOpFlash('ack',      op.label, op.extra); return true; }
   if (stage === 'done' || stage === 'fail'){
     clearTimeout(op.timer);
     delete srvOpAcct[id];
     if (stage === 'done') srvOpFlash('ok',   op.label, op.extra);
     else                  srvOpFlash('fail', op.label, msg);
     return true;
+  }
+  return false;
+}
+/* 2.112（Y12）：是否还有「已提交、排队中（未受理）」的在途动作——供 输入界面.js
+   renderState 在快照之间常显「已提交 · 排队中…」，避免被每秒快照刷回其它状态。
+   accepted/running/done/fail/timeout 皆不再算排队中（按原四态推进）。 */
+function srvOpQueuedPending(){
+  for (const k in srvOpAcct){
+    const op = srvOpAcct[k];
+    if (op && (op.stage === 'queued' || op.stage === 'sent')) return true;
   }
   return false;
 }

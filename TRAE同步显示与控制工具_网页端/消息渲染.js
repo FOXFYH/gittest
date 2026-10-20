@@ -105,9 +105,10 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      保证不出现「空帧/中间态」等额外面孔（同一 key 会被本函数上方指纹直接跳过）。 */
   S.msgs_last = [msgs, finish, opts, ask, pend];
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
-     与 opts（选项卡答完即销毁） */
+     与 opts（选项卡答完即销毁）；2.112（X2-1）：纳入「时间未知」标记 m[7]
+     （无 mid 行置顶并标注，标记变化必须重画）。 */
   let key = msgs.map(m => m[0] + ':' + m[1] + ':' + (m[3] || 0)
-                              + (m[4] || 0)).join('#');
+                              + (m[4] || 0) + ':' + (m[7] || 0)).join('#');
   if (finish)
     key += '#fin:' + (finish.inLast ? 'L' : '-') + '|'
            + (finish.files || []).join('|') + '~'
@@ -195,12 +196,13 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       }
     }
     /* 2.91：视觉对齐「原版」——说话人文案 TRAE→TraeWork。
-       2.93（老板 2026-10-20 07:14「我和 AI 各自的回复卡片都没显示时间」）：
-       时间戳 .tm 改为【用户行与 AI 行都挂】（原版 AI 行不带时间、且 hover 才显；
-       老板实际需求＝看得到时间，故与「原版 hover 才显」口径不同——手机端无 hover，
-       等于双方都看不到；见 样式.css .tm 改为常显）。 */
+       2.93：时间戳 .tm 用户行与 AI 行都挂。
+       2.112（X2-1）：无 mid 的行（由 缓存.js orderMsgs 统一置顶）标注「时间未知」，
+       绝不用本地时刻/继承时刻冒充该行真实时间。 */
     let h = '<div class="who">' + (user ? '我' : 'TraeWork')
-          + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
+          + (m[7]
+              ? '<span class="tm" style="color:var(--gray)">时间未知</span>'
+              : (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : ''))
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
           + '</div>' + bodyHtml;
     d.innerHTML = h;

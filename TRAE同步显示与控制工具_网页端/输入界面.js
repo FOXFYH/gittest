@@ -285,6 +285,21 @@ function renderState(snap){
       el.state.style.color = 'var(--blue)';
     }
   }
+  /* 2.112（Y12·老板：动作已提交却干等无语）：在途动作尚未收到 rcpt accepted ⇒
+     状态栏常显「已提交 · 排队中…」（每 5 秒复核循环保证不被快照刷掉）；
+     accepted/running/done/fail 一到即由 srvOpAck 推进原四态，本分支自动让位。
+     发送消息走的不是 srvOpSend，另按占位卡 state='sending'（已发出、未受理）兜底，
+     只在其新鲜期（20s）内提示，之后交回原状态栏，绝不永久占位。 */
+  let _qSent = (typeof srvOpQueuedPending === 'function') && srvOpQueuedPending();
+  if (!_qSent && Array.isArray(S.pending)){
+    for (const p of S.pending){
+      if (p && p.state === 'sending' && Date.now() - (p.ts || 0) < 20000){ _qSent = true; break; }
+    }
+  }
+  if (!S.switch_pend && !S.inputBusy && _qSent){
+    el.state.textContent = SRV_PHASE.queued[0];
+    el.state.style.color = SRV_PHASE.queued[1];
+  }
   /* 2.46：后台借框占用——置顶提示并禁用发送，挡住人类操作 */
   if (S.inputBusy){
     el.state.textContent = '⏳ ' + S.inputBusy + ' 正在借用输入框，请稍后';
