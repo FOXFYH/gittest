@@ -185,9 +185,12 @@ function convMenuOpen(title, sid, sKey){
       }
       if (act === 'del'){
         ov.remove();
-        if (!confirm('删除会话「' + title + '」？\n删除后不可恢复。')) return;
-        /* 2.90：统一走 srvOpSend（未连 WS ⇒ ①且不发出；连上 ⇒ ②＋rcpt ③④）。 */
-        srvOpSend('conv_del', sid ? [sid, title] : title, '删除会话');
+        /* 2.110（老板 2026-10-20 20:04：「从网页版删不了，连个弹窗都没有」）：
+           原用浏览器原生 confirm() 二次确认——移动端内置浏览器 / 部分 WebView 会
+           【静默屏蔽】confirm（不弹框、直接返回 false），于是 `if(!confirm(...)) return`
+           悄悄退出：既无确认框、也从不发 conv_del（实测坐实）。改为本端自绘确认层
+           （同 2.87 重命名就地弹层做法）：开层即反馈，点「删除」才走 srvOpSend 四态。*/
+        delConfirmOpen(title, sid);
         return;
       }
       ov.remove();
@@ -286,6 +289,47 @@ function renameFail(reason){
   clearTimeout(重命名在途.timer);
   重命名在途 = null;
   srvOpFlash('fail', '重命名', String(reason || '').slice(0, 40));
+}
+
+/* ============ 2.110：删除会话就地确认层 + 四态反馈 ============
+   起因（老板 2026-10-20 20:04）：「从网页版删不了，连个弹窗都没有」。
+   断点＝本文件原用浏览器原生 confirm()：移动端内置浏览器 / 部分 WebView 会
+   【静默屏蔽】confirm（不弹框、直接返回 false），于是 `if(!confirm(...)) return`
+   悄悄退出——既无确认框、也从不发 conv_del。改为本端自绘确认层（同 2.87 重命名
+   就地弹层），任何时候都可见可交互；点「删除」后走四态：① 未连 WS→「正在连接
+   WS…」② 已发出→「等待服务器回应…」③ rcpt accepted/running「服务器已受理/开始
+   执行…」④ rcpt done→「成功」/ fail→「失败（原因）」或超时「待确认」。*/
+function delConfirmOpen(title, sid){
+  const old = $('delmask');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'delmask';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;'
+    + 'background:rgba(0,0,0,.45);display:flex;align-items:center;'
+    + 'justify-content:center;';
+  ov.innerHTML = '<div id="delbox" style="background:#fff;border-radius:12px;'
+    + 'padding:16px;width:86%;max-width:420px;box-shadow:0 8px 30px rgba(0,0,0,.3);">'
+    + '<div style="font-weight:bold;font-size:15px;margin-bottom:10px;">'
+    + '🗑 删除会话</div>'
+    + '<div style="font-size:14px;line-height:1.5;margin-bottom:12px;">'
+    + '确认删除会话「' + esc(title) + '」？<br>删除后不可恢复。</div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button id="delcancel" style="flex:1;padding:10px;border:1px solid '
+      + 'var(--bd,#ccc);border-radius:8px;background:#f6f6f6;">取消</button>'
+    + '<button id="delok" style="flex:1;padding:10px;border:0;border-radius:8px;'
+      + 'background:var(--red,#c62828);color:#fff;font-weight:bold;">删除</button>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  /* 开层即反馈——「点了没反馈」到此为止（此前 confirm 被屏蔽时连这句都没有）。 */
+  flash('删除会话「' + title + '」：点「删除」确认', 'var(--red)');
+  const close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  $('delcancel').onclick = close;
+  $('delok').onclick = () => {
+    close();
+    /* 2.90：统一走 srvOpSend（未连 WS ⇒ ①且不发出；连上 ⇒ ②＋rcpt ③④）。 */
+    srvOpSend('conv_del', sid ? [sid, title] : title, '删除会话');
+  };
 }
 
 /* ============ 1.09：待确认项（空窗期反馈） ============
