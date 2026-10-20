@@ -229,6 +229,25 @@ function curMsgs(){
                                 && !have.has(_msgKey(m)));
     if (add.length) out = out.concat(add);
   }
+  /* 2.103（老板 2026-10-20 13:36「网页版排序有问题：最近一次人问与 AI 答被顶到历史里，
+     而更老的却被放在最新的位置」）：**网页端不得自行决定顺序**——一律按**该条系统 ID（mid）
+     的时间升序**排（mid 前 8 位＝Unix 秒，见 通用工具.js `_midTime`）；无 mid 的行保持
+     其原相对位置（稳定排序）。⇒ 纠正「账本更早段前置」可能造成的"最新一轮被塞进历史段"。 */
+  try {
+    if (typeof _midTime === 'function' && out.length){
+      const _sec = m => {
+        const t = _midTime(m);                       /* 'YYYY-MM-DD HH:MM:SS' 或 '' */
+        if (!t) return 0;
+        const p = t.split(/[- :]/);
+        return Math.floor(new Date(+p[0], +p[1] - 1, +p[2], +p[3], +p[4], +p[5]).getTime() / 1000) || 0;
+      };
+      const arr = out.map((m, i) => ({m, i, s: _sec(m)}));
+      if (arr.some(x => x.s)){
+        arr.sort((a, b) => (a.s && b.s) ? (a.s - b.s) : (a.i - b.i));
+        out = arr.map(x => x.m);
+      }
+    }
+  } catch(e){}
   return out;
 }
 
