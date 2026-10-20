@@ -2,7 +2,8 @@
 /* 2.107（老板 2026-10-20 18:26/18:28）：三套 FOX 标记（play / ask / 新卡三段）同口径——
    头标之后按此优先级找收尾边界：① 先判是不是「下一个完整头标」（如 (@fox-play1)/(@fox-ask1)/
    第三套头标）⇒ 不是后缀：当前卡在此截断、并从该处另起一张新卡（同条消息可出多张卡）；
-   ② 再判是不是「后缀标记的前三个字符 `(@f`」（且不构成完整头标）⇒ 合法收尾；
+   ② 再判是不是「后缀标记的前三个字符 `(@f`」（且不构成完整头标）⇒ 合法收尾，并把残标
+      一并吞到 `)`／行尾／下一个头标，避免残片留在正文；
    ③ 整段再无 `(@f` ⇒ 取头标之后【第一个空行】断句收尾（不再吞到消息末尾）；
    ④ 连空行都没有（单行到底）⇒ 不识别为卡片（当普通正文）并记一条告警。
    开头标记须写全（如 `(@fox-play1)`）。 */
@@ -34,10 +35,19 @@ function _foxScanCards(text, headRe, onSeg){
     const iHead = mHead ? mHead.index : -1;
     const iAtf = rest.indexOf('(@f');                /* 下一个后缀前三字符 `(@f` */
     if (iAtf >= 0 && (iHead < 0 || iAtf < iHead)){
-      /* ② `(@f` 合法后缀：消费尾标（整枚后缀标记若在则整枚消费，否则只消费三字符） */
+      /* ② `(@f` 合法后缀：消费残标——自 `(@f` 起吞到「最先到达的自然终点」：`)`（含）／
+         换行前／下一个完整头标处（截断、不消费头标）／文末；避免残片（如 ox-play2）留在正文。 */
       const end = h1 + iAtf;
-      const tm = /^\(@f[^)\n]*\)/.exec(s.slice(end));
-      const ce = end + (tm ? tm[0].length : 3);
+      const tail = s.slice(end);
+      const jParen = tail.indexOf(')');
+      const jNl = tail.indexOf('\n');
+      const mNext = _foxAllHeadRe().exec(tail);
+      const jHead = mNext ? mNext.index : -1;
+      const cand = [tail.length];
+      if (jParen >= 0) cand.push(jParen + 1);
+      if (jNl >= 0) cand.push(jNl);
+      if (jHead >= 0) cand.push(jHead);
+      const ce = end + Math.min.apply(null, cand);
       const seg = s.slice(h1, end).trim();
       if (seg) outStr += onSeg(seg);
       pos = ce; headRe.lastIndex = ce;

@@ -16,16 +16,24 @@ const FVWR_URL = 'https://foxfyh.github.io/gittest/fileview/index.html';
    命名窗口 'fvwrPick' 保留 opener 关系（查看器靠 window.opener 回传）。 */
 function fvwrOpen(mode){
   try {
+    fvwrPickChanListen();           // 2.108：开查看器前(重)连选路径收帧频道
     window.open(FVWR_URL + '?h=trae&pick=1&mode=' + encodeURIComponent(mode),
                 'fvwrPick');
   } catch (e){ flash('⚠ 打开文件查看器失败'); }
 }
 
 /* 接收公共查看器选中回传：{type:'fvwr_pick', path, mode, h}。
-   参照原 benchIns（插入输入框）/ benchPick（回填工作目录）的等价写法。 */
-window.addEventListener('message', e => {
-  const d = e && e.data;
+   参照原 benchIns（插入输入框）/ benchPick（回填工作目录）的等价写法。
+   2.108：两条来路共用同一落点——① window.opener.postMessage（兼容路）；
+   ② 「公共段 + INS」频道 FOX 帧（主路，不依赖 opener，手机端 opener 丢失也
+   能到）。同一路径 3 秒内只认第一次，避免双路重复插入。 */
+let _fvwrLastPath = '', _fvwrLastTs = 0;
+function fvwrPickApply(d){
   if (!d || d.type !== 'fvwr_pick' || !d.path) return;
+  if (d.h && d.h !== '*' && d.h !== 'trae') return;   // 只服务本角色（不打扰另一端）
+  const now = Date.now();
+  if (d.path === _fvwrLastPath && now - _fvwrLastTs < 3000) return;   // 双路去重
+  _fvwrLastPath = d.path; _fvwrLastTs = now;
   if (d.mode === 'newdir'){
     S.task_cur = d.path;                    // 回填（不立即建任务）
     taskDlgRender();
@@ -36,6 +44,34 @@ window.addEventListener('message', e => {
     el.ent.value = (cur ? cur + ' ' : '') + d.path;
     flash('已插入路径', 'var(--green)');
   }
+}
+window.addEventListener('message', e => { fvwrPickApply(e && e.data); });   // 路① postMessage
+
+/* 路②「公共段 + INS」频道收帧：公共段取同源查看器页落的 localStorage 键
+   fvwr_channel（与查看器页同源 foxfyh.github.io/gittest，共享），绝不硬编码。
+   收到 FOX 帧体 JSON 后转交同一落点 fvwrPickApply。帧很短，恒单段。 */
+let _fvwrInsWs = null;
+function fvwrPickFrameBody(raw){
+  if (!raw) return null;
+  const m = /^【FOXID:\d{14}[a-z]{8}\d{10}=cut\(\d{3}\/\d{3}\)】/.exec(raw);
+  const body = m ? raw.slice(m[0].length) : raw;
+  if (!body || body[0] !== '{') return null;
+  try { return JSON.parse(body); } catch(e){ return null; }
+}
+function fvwrPickChanListen(){
+  let base = '';
+  try { base = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
+  if (!base) return;                     // 无公共段：频道路不可用（postMessage 仍可用）
+  const ch = base + 'INS';               // 选路径专用后缀，与查看器约定一致
+  if (_fvwrInsWs){ try { _fvwrInsWs.close(); } catch(e){} }
+  try { _fvwrInsWs = new WebSocket(WS_URL_TMPL.replace('%s', ch)); }
+  catch(e){ _fvwrInsWs = null; return; }
+  _fvwrInsWs.onmessage = ev => { const d = fvwrPickFrameBody(ev.data); if (d) fvwrPickApply(d); };
+  _fvwrInsWs.onclose = () => { _fvwrInsWs = null; setTimeout(fvwrPickChanListen, 4000); };
+}
+fvwrPickChanListen();                                        // 开页即听
+window.addEventListener('storage', e => {                    // 查看器另一端落了公共段
+  if (e.key === 'fvwr_channel') fvwrPickChanListen();
 });
 
 /* 2.10：放大态小工具（⇩ 取回 / 📋 复制）「点了没反应」根治。
