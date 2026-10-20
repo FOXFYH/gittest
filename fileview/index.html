@@ -97,6 +97,8 @@ const PICK=_q1("pick")==="1";          // 选路径模式：由宿主网页打�
 const PICK_MODE=_q1("mode")||"ins";    // 回传用途：ins=插入输入框 / newdir=回填工作目录
 function baseChan(v){v=(v||"").trim();return v.slice(-CHANNEL_TAG.length)===CHANNEL_TAG?v.slice(0,-CHANNEL_TAG.length):v;}
 function joinChan(base){base=baseChan(base);return base?base+CHANNEL_TAG:"";}
+const PICK_TAG="INS";                   // 选路径回传专属后缀：真频道 = 公共段 + INS（1.15）
+function pickChan(base){base=baseChan(base);return base?base+PICK_TAG:"";}
 let CHANNEL_IN=baseChan(_raw("__CHANNEL__"))||_q1("channel")||localStorage.getItem("fvwr_channel")||"";
 let CHANNEL=joinChan(CHANNEL_IN);
 let API_KEY=_raw("__APIKEY__")||_q1("api")||localStorage.getItem("fvwr_api")||DEF_API;
@@ -255,12 +257,12 @@ function rowEl(name,isDir,path,size,mtime){
   op.className="op"; op.textContent="⋮"; op.title="此文件/文件夹的操作";
   op.onclick=ev=>{ ev.stopPropagation(); openItemSheet({name:name,isDir:isDir,path:path,size:size,mtime:mtime}); };
   d.appendChild(op);
-  if(PICK){                       // 选路径模式：行尾 ➕ 直接把该路径回传宿主页
-    const b=document.createElement("span");
-    b.className="pk"; b.textContent="➕"; b.title="选中此项（回传路径给宿主页）";
-    b.onclick=ev=>{ ev.stopPropagation(); pickBack(path); };
-    d.appendChild(b);
-  }
+  // 1.15：行尾 ➕ 恒亮（不再限 pick 模式）——任何模式点它都把该路径回传宿主输入框，
+  //   保证「用户直接打开查看器也能用」。
+  const b=document.createElement("span");
+  b.className="pk"; b.textContent="➕"; b.title="选中此项（把路径回传给宿主页）";
+  b.onclick=ev=>{ ev.stopPropagation(); pickBack(path); };
+  d.appendChild(b);
   return d;
 }
 function openDir(path){
@@ -338,9 +340,33 @@ function goHome(){ if(inReader)reading=null; probe(); }
 // 由宿主决定用途（插入输入框 / 回填工作目录），随后自动关闭本窗口。
 function pickBack(path){
   if(!path){ alert("请先进入一个文件夹，再点 ✅ 选定"); return; }
-  try{ if(window.opener && !window.opener.closed)
-        window.opener.postMessage({type:"fvwr_pick", path:path, mode:PICK_MODE, h:HOST}, "*"); }catch(e){}
-  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);
+  const obj={type:"fvwr_pick", path:path, mode:PICK_MODE, h:HOST};
+  /* ① 兼容路：宿主同源窗口（有 opener）→ 直接 postMessage（老方案，保留） */
+  let openerOk=false;
+  try{ if(window.opener && !window.opener.closed){ window.opener.postMessage(obj, "*"); openerOk=true; } }catch(e){}
+  /* ② 主路（1.15）：频道承载——把路径以 FOX 帧广播到「公共段 + INS」专用频道，
+     宿主网页版连同一频道收帧后插入本端输入框。不依赖 opener，可跨页/跨设备。 */
+  pickChanSend(obj);
+  if(openerOk){
+    setTimeout(()=>{ try{ window.close(); }catch(e){} }, 150);   // 老行为：回传后关窗
+  } else {
+    toast("已把路径经频道发给宿主（"+(HOST||"standalone")+"）");  // 直开无 opener：留在原地，方便继续浏览
+  }
+}
+/* 1.15：把选路径帧广播到「公共段 + INS」频道。短连接、发完即关（省流），
+   帧体 JSON = {type:'fvwr_pick', path, mode, h}；公共段取自 localStorage/输入，绝不硬编码。 */
+function pickChanSend(obj){
+  const ch=pickChan(CHANNEL_IN);
+  if(!ch) return;
+  let w; try{ w=new WebSocket("wss://free.blr2.piesocket.com/v3/"+ch+"?api_key="+API_KEY); }
+  catch(e){ return; }
+  const items=foxWrap(JSON.stringify(obj));
+  let closed=false;
+  const shut=()=>{ if(closed) return; closed=true; try{ w.close(); }catch(e){} };
+  w.onopen=()=>{ items.forEach((it,i)=>setTimeout(()=>{ try{ w.send(it); }catch(e){} }, i*30));
+                 setTimeout(shut, 900); };
+  w.onerror=()=>{};
+  setTimeout(shut, 2500);
 }
 
 // ============ 文件操作 ============
@@ -434,9 +460,9 @@ el("shade").onclick=closeSheet;
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.14");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.15");
 document.getElementById("stHost").textContent=HOST||"standalone";
-if(PICK){ el("btnPick").style.display=""; }   // 选路径模式：亮出 ✅ 头钮
+el("btnPick").style.display="";   // 1.15：✅ 头钮恒亮——任何模式都能把「当前目录」回传宿主
 function showSetup(){
   el("setup").style.display="block";
   el("stChan").value=CHANNEL_IN||"";
@@ -451,7 +477,12 @@ function showSetup(){
     connect();
   };
 }
-function boot(){ if(!CHANNEL){ setStatus("off","待配置"); showSetup(); } else { connect(); } }
+function boot(){
+  // 1.15：把当前「公共段」落 localStorage（键 fvwr_channel），供同源宿主网页版读取后
+  //   拼「公共段 + INS」频道来收选路径帧；公开页本身仍不硬编码任何频道号。
+  if(CHANNEL_IN){ try{ localStorage.setItem("fvwr_channel", CHANNEL_IN); }catch(e){} }
+  if(!CHANNEL){ setStatus("off","待配置"); showSetup(); } else { connect(); }
+}
 boot();
 </script>
 </body>
