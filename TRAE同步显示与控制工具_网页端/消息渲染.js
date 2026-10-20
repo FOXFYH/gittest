@@ -89,12 +89,12 @@ function thinkBarHtml(b){
   const cnt = (b.lines || []).join('\n');
   const body = cnt.trim() ? '<div class="fbc">' + _mdBody(cnt) + '</div>' : '';
   if (b.t === 'sub'){
-    return '<div class="subhd"><div class="fbhd">' + ic
+    return '<div class="subhd open"><div class="fbhd">' + ic
       + '<span class="subt">' + esc(b.title) + '</span>'
       + (b.subtitle ? '<span class="subs">' + esc(b.subtitle) + '</span>' : '')
       + '</div>' + body + '</div>';
   }
-  return '<div class="foldbar"><div class="fbhd">' + ic
+  return '<div class="foldbar open"><div class="fbhd">' + ic
     + '<span class="fbt">' + esc(b.title) + '</span>'
     + '</div>' + body + '</div>';
 }

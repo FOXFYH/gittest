@@ -659,8 +659,18 @@ function renderAll(){
       /* 存帧读取在途：原样重放上次实参＝指纹相同不重画（维持现画面，不刷空） */
       renderMsgs(S.msgs_last[0], S.msgs_last[1], S.msgs_last[2],
                  S.msgs_last[3], S.msgs_last[4]);
-    } else {                               /* 存帧已读回且为空：诚实留白（2.57B，不上屏 A） */
-      renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
+    } else {                               /* 2.101：锁死期若存帧为空，绝不长期留白 */
+      /* 老板 2026-10-20 12:50「原版人眼可见＝网页版必须可见」：若快照正文确属
+         锚定会话（_snapIsTarget）且非空 ⇒ 直接上屏，避免「刷新/重连补发 switch →
+         锁死 → 存帧为空 → 整屏空白」；仅在确属旧会话正文时才诚实留白（2.57B）。 */
+      const _tgtMsgs = (_snapIsTarget && Array.isArray(snap.msgs) && snap.msgs.length)
+          ? snap.msgs : null;
+      if (_tgtMsgs){
+        renderMsgs(_tgtMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
+        S.swPPainted = true; S.swHold = false;
+      } else {
+        renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
+      }
     }
   } else {
     const _cur = curMsgs();
