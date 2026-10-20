@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.19">
+<meta name="任务面板版本" content="0.20">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。 */
 (function () {
@@ -48,14 +48,32 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.19</title>
+<title>任务面板 · 手机遥控页 v0.20</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.19
+  版本：0.20
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.20（2026-10-20）用户口径纠正：**「卡片就一张」——全站只有一种卡 + 递归容器**（上一版做成
+    “主页扁清单卡 + 内页任务小卡”两种卡，主页扁卡没有按钮排，用户看到“连删除按钮都没了”）：
+    · **一张卡＝一个节点**，一级（总管清单）/任务/子任务**全层级共用同一个 `建卡(节点,层级)`**：
+      卡头（类型标签：一级＝总管清单／其下＝任务／更下＝子任务，＋编号）＋标题占两行位置（超出截断、
+      可手动展开）＋详情（收起态，点【查看详细情况】看全）＋底部按钮排【查看详细情况｜快速备注
+      (未开始/进行中/已完成/已放弃)｜拆分子任务｜呼叫 AI 负责本卡片｜删除｜展开 ▾ / 收起 ▴】。
+      **一级卡也是完整卡**，按钮排一个不少。
+    · **递归容器**：每张卡的【拆分子任务】在本卡下方、缩进一格展开/收起一个容器，容器里摆**同样的卡**
+      （其子节点）；子卡还能再拆……不限层数；容器空时显示「（暂无子任务，点【拆分子任务】加一张）」。
+    · **主页＝顶层容器**（标题“我的清单”）：里面摆一级卡；左上【新建】→ 选类型（当前只有「总管清单」）
+      → 填名称 → 创建，创建的就是一张一级卡。
+    · **删除**：每张卡（含一级卡）都有【删除】；一级卡删除＝连同整棵子树；确认弹窗改为**页面内自绘**
+      （遮罩＋是/否），不再用 window.confirm（手机上不好用、可能被浏览器拦）。
+    · 顶栏只显示【一个版本号（网页版版本）】；右上角【设置】内放服务器选择与服务器版本；保留【返回主页】。
+      保留：频道口令、服务器选择与归属过滤、版本自动清缓存、`?v=`、四段投递胶囊、满宽/高度上限＝
+      自身宽/截断/手动展开、角色底色（人蓝/AI绿/AI黄）。状态兼容：任务 T 用 `状态`；子点 P 有 `状态`
+      就用、无则用 `完成` 映射（true→已完成、false→未开始）。
+    本轮三处版本号（title／注释／顶栏）＋ meta 同步升 0.20，四个 js 引用的 `?v=` 一并改 0.20。
   v0.19（2026-10-20）用户口径「清单流水账」大重构（服务端 网页服务.py 0.12 已就绪）：
     **主页＝清单小方块堆叠**（长方形扁卡片，可无限向下）——每块显示 **清单名称＋类型（总管清单）**（带
     任务数/未完成数），点它进该清单；**左上角【新建】**（弹窗选类型——当前只有「总管清单」→ 输入清单名称
@@ -262,26 +280,7 @@
   #顶栏 .题 { justify-content: flex-start; }
   .题名 { font-size: 17px; font-weight: 700; }
   .新建钮 { background: #fff; color: #2b5fb0; border-color: #fff; font-weight: 700; }
-  /* 主页：清单小方块堆叠（长方形扁卡片，可无限向下） */
-  .清单列表 { display: flex; flex-direction: column; gap: 10px; }
-  .清单卡 {
-    width: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    background: #fff; border: 1px solid #d7dde7; border-radius: 10px; padding: 13px 14px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.06); cursor: pointer;
-  }
-  .清单卡:active { background: #f2f7ff; }
-  .清单卡 .名 { font-size: 16px; font-weight: 700; color: #1c2430; flex: 1 1 auto; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .清单卡 .类 { font-size: 12px; background: #eef1f5; color: #556; border-radius: 4px; padding: 2px 7px; }
-  .清单卡 .数 { font-size: 13px; color: #667; }
-  .清单卡 .未 { color: #b00020; font-weight: 700; }
-  .清单卡 .箭 { color: #9aa4b2; font-size: 18px; }
-  /* 清单内页头 */
-  .清单页头 { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; flex-wrap: wrap; }
-  .清单页题 { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
-  .内页_清单名 { font-size: 17px; font-weight: 700; color: #1c2430; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap; }
-  .内页_清单类型 { font-size: 12px; background: #eef1f5; color: #556; border-radius: 4px; padding: 2px 7px; }
+  /* 主页＝顶层容器；一级卡与内层卡同款（见文末 0.20 样式） */
   /* 卡内标题（占两行位置） */
   .卡标题 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden; font-size: 15px; font-weight: 600; color: #1c2430; padding: 10px 12px 0;
@@ -296,6 +295,24 @@
   /* 弹窗内的类型按钮组（新建清单） */
   .类型组 { display: flex; gap: 10px; }
   .类型组 .大类钮.选中 { background: #2b5fb0; color: #fff; border-color: #2b5fb0; }
+  /* ===== 0.20 唯一卡片 + 递归容器（全层级同一张卡） ===== */
+  /* 一级卡（总管清单）稍作强调；其下各层同款、底色略浅，缩进由 .子容器 提供 */
+  .卡.层1 { border-color: #b9cbe6; box-shadow: 0 2px 6px rgba(43,95,176,.12); }
+  .卡.层2, .卡.层3, .卡.层4, .卡.层5, .卡.层6 { background: #fbfcfe; }
+  .卡.完成 .卡标题 { text-decoration: line-through; color: #889; }
+  /* 标题占两行位置；手动【展开 ▾】后取消截断 */
+  .卡.展开 .卡标题 { display: block; overflow: visible; -webkit-line-clamp: unset; }
+  .卡 .内容 { font-size: 14px; padding: 8px 12px 2px; }
+  /* 递归容器：就在本卡下方、缩进一格；里面摆同样的卡 */
+  .子容器 {
+    margin: 0 0 0 16px; padding-left: 10px;
+    border-left: 2px solid #cfdcee;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .容器头 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .容器题 { font-size: 12px; font-weight: 700; color: #667; }
+  .容器头 .小钮 { font-size: 12px; padding: 4px 9px; min-height: 30px; }
+  .确认文 { font-size: 15px; color: #333; line-height: 1.6; margin: 4px 0 0; }
   /* 卡片宽＝容器 100%，窄屏自然随视口收窄，不再需要 --卡边长 兜底 */
   @media (min-width: 700px) {
     main { max-width: 760px; margin: 0 auto; }
@@ -306,8 +323,9 @@
 <header id="顶栏">
   <div class="题">
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
+    <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.19</span>
+    <span class="版本">v0.20</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -328,22 +346,11 @@
   </div>
 </div>
 <main>
-  <!-- 主页＝清单小方块堆叠（长方形扁卡片，可无限向下） -->
+  <!-- 主页＝顶层容器（“我的清单”）：里面摆一级卡（一本总管清单＝一张完整的卡）。
+       点一级卡的【拆分子任务】在其下方展开递归容器，容器里摆同样的卡（任务）……不限层数。 -->
   <section id="主页" class="区">
     <h2 class="区标题">我的清单 <span id="清单计数" class="计数"></span></h2>
-    <div id="清单列表" class="清单列表"><div class="空样">加载中…</div></div>
-  </section>
-  <!-- 清单内页：小卡片列表（一张小卡＝一个任务；可无限下钻子卡） -->
-  <section id="清单页" class="区 隐藏">
-    <div class="清单页头">
-      <button id="按钮_返回主页" class="小钮">← 返回主页</button>
-      <div class="清单页题">
-        <span id="内页_清单名" class="内页_清单名">—</span>
-        <span id="内页_清单类型" class="内页_清单类型"></span>
-      </div>
-      <button id="按钮_新建任务" class="小钮">＋ 新建任务</button>
-    </div>
-    <div id="任务列表" class="任务列表"><div class="空样">加载中…</div></div>
+    <div id="顶层容器" class="任务列表"><div class="空样">加载中…</div></div>
   </section>
 </main>
 
@@ -429,9 +436,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.19"></script>
-<script src="网页模块/卡片.js?v=0.19"></script>
-<script src="网页模块/清单页.js?v=0.19"></script>
-<script src="网页模块/面板.js?v=0.19"></script>
+<script src="网页模块/接口.js?v=0.20"></script>
+<script src="网页模块/卡片.js?v=0.20"></script>
+<script src="网页模块/清单页.js?v=0.20"></script>
+<script src="网页模块/面板.js?v=0.20"></script>
 </body>
 </html>
