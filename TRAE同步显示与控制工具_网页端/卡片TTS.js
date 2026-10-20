@@ -1,70 +1,93 @@
 'use strict';
-/* 2.106（老板 2026-10-20 17:52「语音小卡片前后缀缺闭合」）：三套 FOX 标记
-   （play / ask / 新卡三段）的解析口径一律改为「缺闭合标记 ⇒ 不识别为卡片（当普通正文）」
-   ＋ 记一条告警。目的：让「漏后缀」从静默通过变成立刻可见，给 AI 反馈、能自我纠正。
-   旧口径「有头就认（结尾可缺、可到消息末尾）」已废。 */
-const FPC_REG = /\(@fox-play1\s*\)([\s\S]*?)\(@fox-play2\s*\)/g;
-const _FPC_HEAD = /\(@fox-play1\s*\)/g, _FPC_TAIL = /\(@fox-play2\s*\)/g;
-/* 缺闭合探测：同一文本里「头标出现次数 > 尾标出现次数」即视为有缺闭合（头多于尾）。 */
-function _foxUnclosed(txt, headRe, tailRe){
-  const s = String(txt || '');
-  const h = (s.match(headRe) || []).length;
-  if (!h) return false;
-  return h > (s.match(tailRe) || []).length;
-}
-/* 缺闭合告警（10s 节流，防刷屏）：走 console + 诊断日志 + 一次性横幅，让问题立刻可见。 */
+/* 2.107（老板 2026-10-20 18:26/18:28）：三套 FOX 标记（play / ask / 新卡三段）同口径——
+   头标之后按此优先级找收尾边界：① 先判是不是「下一个完整头标」（如 (@fox-play1)/(@fox-ask1)/
+   第三套头标）⇒ 不是后缀：当前卡在此截断、并从该处另起一张新卡（同条消息可出多张卡）；
+   ② 再判是不是「后缀标记的前三个字符 `(@f`」（且不构成完整头标）⇒ 合法收尾；
+   ③ 整段再无 `(@f` ⇒ 取头标之后【第一个空行】断句收尾（不再吞到消息末尾）；
+   ④ 连空行都没有（单行到底）⇒ 不识别为卡片（当普通正文）并记一条告警。
+   开头标记须写全（如 `(@fox-play1)`）。 */
+const _FOX_ALL_HEAD = '\\(@fox-(?:play1|ask1|sys1|usr1|co1)\\s*\\)';
+function _foxAllHeadRe(){ return new RegExp(_FOX_ALL_HEAD, 'g'); }
+/* 未识别告警（10s 节流）：console + 诊断日志 + 一次性横幅，让问题立刻可见。 */
 const _foxWarnT = {};
 function foxClosedWarn(kind, head, tail){
   const now = Date.now();
   if (now - (_foxWarnT[kind] || 0) < 10000) return;
   _foxWarnT[kind] = now;
-  const msg = '检测到 ' + head + ' 但缺 ' + tail;
+  const msg = '检测到 ' + head + ' 但未找到收尾边界（' + tail + '），已按普通正文显示';
   try { console.warn('[fox标记] ' + msg); } catch(e){}
   if (typeof diagLog === 'function'){ try { diagLog('⚠ ' + msg, 'bad'); } catch(e){} }
   if (typeof flash === 'function') flash('⚠ ' + msg, 'var(--orange)', 6000);
 }
-function foxPlayCards(txt, out){
-  if (_foxUnclosed(txt, _FPC_HEAD, _FPC_TAIL))
-    foxClosedWarn('play', '(@fox-play1)', '(@fox-play2)');
-  return String(txt || '').replace(FPC_REG, (m, p1) => {
-    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
-    if (!seg) return '';
-    out.push(seg);
-    return '@@FPC' + (out.length - 1) + '@@';
-  });
+/* 通用扫描器：把某「头标」的卡片逐张摘出（按上述优先级找收尾）；onSeg(seg) 返回该段替换串。
+   返回处理后的文本；unclosed=true 表示有头标且无任何合法收尾（未识别为卡片）。 */
+function _foxScanCards(text, headRe, onSeg){
+  const s = String(text == null ? '' : text);
+  let outStr = '', pos = 0, unclosed = false;
+  headRe.lastIndex = 0;
+  let hm;
+  while ((hm = headRe.exec(s))){
+    const h0 = hm.index, h1 = h0 + hm[0].length;
+    outStr += s.slice(pos, h0);
+    const rest = s.slice(h1);
+    const mHead = _foxAllHeadRe().exec(rest);       /* 下一个完整头标（零宽边界，不消费） */
+    const iHead = mHead ? mHead.index : -1;
+    const iAtf = rest.indexOf('(@f');                /* 下一个后缀前三字符 `(@f` */
+    if (iAtf >= 0 && (iHead < 0 || iAtf < iHead)){
+      /* ② `(@f` 合法后缀：消费尾标（整枚后缀标记若在则整枚消费，否则只消费三字符） */
+      const end = h1 + iAtf;
+      const tm = /^\(@f[^)\n]*\)/.exec(s.slice(end));
+      const ce = end + (tm ? tm[0].length : 3);
+      const seg = s.slice(h1, end).trim();
+      if (seg) outStr += onSeg(seg);
+      pos = ce; headRe.lastIndex = ce;
+    } else if (iHead >= 0){
+      /* ① 下一个完整头标 ⇒ 当前卡在此截断；不消费头标（从该处另起一张新卡） */
+      const end = h1 + iHead;
+      const seg = s.slice(h1, end).trim();
+      if (seg) outStr += onSeg(seg);
+      pos = end; headRe.lastIndex = end;
+    } else {
+      /* ③ 整段再无 `(@f` ⇒ 第一个空行断句收尾 */
+      const bm = /\n[ \t]*\n/.exec(rest);
+      if (bm){
+        const end = h1 + bm.index;
+        const seg = s.slice(h1, end).trim();
+        if (seg) outStr += onSeg(seg);
+        pos = end + bm[0].length; headRe.lastIndex = pos;
+      } else {
+        /* ④ 单行到底、无后缀、无空行 ⇒ 不识别为卡片（当正文）＋告警 */
+        unclosed = true;
+        outStr += s.slice(h0, h1);
+        pos = h1; headRe.lastIndex = h1;
+      }
+    }
+  }
+  outStr += s.slice(pos);
+  return {text: outStr, unclosed: unclosed};
 }
-/* ========== 2.21：AI 提问卡（用户 2026-10-01 规定） ========== */
-/* 识别标志正则：( @fox-ask1 ) 开头、( @fox-ask2 ) 结尾包夹。用途——AI 要
-   向用户提问时（跨会话路由器时代主要面向「AI 问 AI」），把问题用这对标签
-   包起来，网页端就把它渲染成**醒目的琥珀色提问卡**（比正文更抢眼，用户能
-   一眼看到并及时作答），并复用语音卡那套 ▶ 播放/TTS 通道，可直接听题。
-   2.106：与 foxPlayCards 同口径——须「成对闭合」（缺闭合 ⇒ 不识别为卡片）。 */
-const FAC_REG = /\(@fox-ask1\s*\)([\s\S]*?)\(@fox-ask2\s*\)/g;
-const _FAC_HEAD = /\(@fox-ask1\s*\)/g, _FAC_TAIL = /\(@fox-ask2\s*\)/g;
+function foxPlayCards(txt, out){
+  const r = _foxScanCards(txt, /\(@fox-play1\s*\)/g,
+    seg => { out.push(seg); return '@@FPC' + (out.length - 1) + '@@'; });
+  if (r.unclosed) foxClosedWarn('play', '(@fox-play1)', '(@f / 空行');
+  return r.text;
+}
+/* ========== 2.21：AI 提问卡（用户 2026-10-01 规定） ==========
+   (@fox-ask1) 开头、(@fox-ask2) 结尾包夹：AI 提问时用它把问题包起来，
+   网页端渲染成琥珀色提问卡（比正文更抢眼），复用语音卡 ▶ 播放/TTS 通道可直接听题。
+   2.107：与 foxPlayCards 同一收尾判定。 */
 function foxAskCards(txt, out){
-  if (_foxUnclosed(txt, _FAC_HEAD, _FAC_TAIL))
-    foxClosedWarn('ask', '(@fox-ask1)', '(@fox-ask2)');
-  return String(txt || '').replace(FAC_REG, (m, p1) => {
-    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
-    if (!seg) return '';
-    out.push(seg);
-    return '@@FAC' + (out.length - 1) + '@@';
-  });
+  const r = _foxScanCards(txt, /\(@fox-ask1\s*\)/g,
+    seg => { out.push(seg); return '@@FAC' + (out.length - 1) + '@@'; });
+  if (r.unclosed) foxClosedWarn('ask', '(@fox-ask1)', '(@f / 空行');
+  return r.text;
 }
 /* ========== 2.77：专属提示词「三段折叠小卡片」（用户 2026-10-18 规定） ==========
    会话专属提示词由服务端 decorate（TRAE会话提示词管理器 1.32）拆成三段、各用一对
    FOX 标记包夹：系统 (@fox-sys1)…(@fox-sys2) / 用户 (@fox-usr1)…(@fox-usr2) /
    公司 (@fox-co1)…(@fox-co2)。网页端把三段合成**一张折叠小卡片**：平时只显示一排
    小标签（系统 ▸ / 用户 ▸ / 公司 ▸），点一个标签就展开该段内容、再点收起。
-   2.106：与语音卡/提问卡同口径——须「成对闭合」（缺闭合 ⇒ 不识别为卡片）；
-   与 fox-play / fox-ask 两套老标记互不干扰（标记名不同，各自独立摘取）。 */
-const FSC_REG = /\(@fox-sys1\s*\)([\s\S]*?)\(@fox-sys2\s*\)/g;
-const FUC_REG = /\(@fox-usr1\s*\)([\s\S]*?)\(@fox-usr2\s*\)/g;
-const FCC_REG = /\(@fox-co1\s*\)([\s\S]*?)\(@fox-co2\s*\)/g;
-const _FSC_HEAD = /\(@fox-sys1\s*\)/g, _FSC_TAIL = /\(@fox-sys2\s*\)/g;
-const _FUC_HEAD = /\(@fox-usr1\s*\)/g, _FUC_TAIL = /\(@fox-usr2\s*\)/g;
-const _FCC_HEAD = /\(@fox-co1\s*\)/g, _FCC_TAIL = /\(@fox-co2\s*\)/g;
-/* 三段「头标」——用于定位最早出现处：卡片就渲染在原标记所在位置 */
+   2.107：三段各自按与语音卡/提问卡相同的收尾判定摘取（标记名不同，互不干扰）。 */
 const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1'];
 /* 卡片开合状态 + 内容登记：快照每秒重画，开合要撑过重画 → 记在模块级表里（键＝三段内容指纹） */
 const _fh_state = {};      /* key -> {open:bool, which:'sys'|'usr'|'co'|''} */
@@ -72,31 +95,29 @@ const _fh_data = {};       /* key -> {sys,usr,co} */
 function foxHintKey(hz){
   return (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001' + (hz.co || '');
 }
-function _fhGrab(txt, re){
-  /* 摘出该段内容（只留最后一个命中，与语音卡同口径），并从文本里剪掉整段（含标记） */
-  let v = '';
-  const rest = String(txt || '').replace(re, (m, p1) => {
-    const seg = String(p1 || '').replace(/\(@[^)]*$/, '').trim();
-    if (seg) v = seg;
-    return '';
-  });
-  return {rest: rest, t: v};
-}
 function foxHintCards(txt, out){
-  if (_foxUnclosed(txt, _FSC_HEAD, _FSC_TAIL))
-    foxClosedWarn('hint-sys', '(@fox-sys1)', '(@fox-sys2)');
-  if (_foxUnclosed(txt, _FUC_HEAD, _FUC_TAIL))
-    foxClosedWarn('hint-usr', '(@fox-usr1)', '(@fox-usr2)');
-  if (_foxUnclosed(txt, _FCC_HEAD, _FCC_TAIL))
-    foxClosedWarn('hint-co', '(@fox-co1)', '(@fox-co2)');
-  let s = String(txt || '');
+  const s0 = String(txt || '');
   let idx = -1;
-  FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
-  if (idx < 0) return s;                       /* 无头标 → 原样（不误伤别的标记） */
-  const head = s.slice(0, idx), tail = s.slice(idx);
-  const a = _fhGrab(tail, FSC_REG), b = _fhGrab(a.rest, FUC_REG), c = _fhGrab(b.rest, FCC_REG);
-  const hz = {sys: a.t, usr: b.t, co: c.t};
-  if (!hz.sys && !hz.usr && !hz.co) return s;  /* 只有残标、无有效内容 → 原样 */
+  FH_HEADS.forEach(p => { const i = s0.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
+  if (idx < 0) return s0;                       /* 无头标 → 原样（不误伤别的标记） */
+  const head = s0.slice(0, idx);
+  let t = s0.slice(idx);
+  const segs = {sys: [], usr: [], co: []};
+  let unclosed = false;
+  const grab = (re, key) => {
+    const r = _foxScanCards(t, re, seg => { segs[key].push(seg); return ''; });
+    if (r.unclosed) unclosed = true;
+    t = r.text;
+  };
+  grab(/\(@fox-sys1\s*\)/g, 'sys');
+  grab(/\(@fox-usr1\s*\)/g, 'usr');
+  grab(/\(@fox-co1\s*\)/g, 'co');
+  const hz = {sys: segs.sys.length ? segs.sys[segs.sys.length - 1] : '',
+              usr: segs.usr.length ? segs.usr[segs.usr.length - 1] : '',
+              co:  segs.co.length  ? segs.co[segs.co.length - 1]  : ''};
+  if (unclosed && !hz.sys && !hz.usr && !hz.co)
+    foxClosedWarn('hint', '(@fox-sys1/@fox-usr1/@fox-co1)', '(@f / 空行');
+  if (!hz.sys && !hz.usr && !hz.co) return s0;  /* 只有残标、无有效内容 → 原样 */
   out.push(hz);
   const h = head.replace(/\s+$/, '');
   return (h ? h + '\n' : '') + '@@FHC' + (out.length - 1) + '@@';
@@ -151,8 +172,11 @@ function foxHintBind(root){
 /* 剥掉三段标记（「取回/重编」我发出的消息时用：把服务端追加的专属词段忽略，还原纯正文）——
    消掉整段（含标记与内容），并剪掉多余空行；不动别的标记（play/ask）。 */
 function stripHintMarks(txt){
-  return String(txt || '')
-    .replace(FSC_REG, '').replace(FUC_REG, '').replace(FCC_REG, '')
+  let s = String(txt || '');
+  s = _foxScanCards(s, /\(@fox-sys1\s*\)/g, () => '').text;
+  s = _foxScanCards(s, /\(@fox-usr1\s*\)/g, () => '').text;
+  s = _foxScanCards(s, /\(@fox-co1\s*\)/g, () => '').text;
+  return s
     .replace(/\(@fox-(?:sys|usr|co)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
 }
