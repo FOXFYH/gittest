@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.16">
+<meta name="任务面板版本" content="0.17">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。 */
 (function () {
@@ -48,14 +48,18 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.16</title>
+<title>任务面板 · 手机遥控页 v0.17</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.16
+  版本：0.17
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.17（2026-10-20）用户口径「本款不拆客户端/服务端、**对外只显示一个版本号**」：顶栏**只留网页端
+    自身版本号**（v0.17）；角色脚标去掉并列的「已连接 · v<服务端版本>」（网页模块\面板.js 0.15 已改，
+    连上后只显「已连接」），**不再额外显示网页服务/服务端版本**——对外版本号以【本页 html 版本】为唯一口径。
+    本轮三处版本号（title／注释／顶栏）＋ <meta name="任务面板版本"> 同步升 0.17，三个 js 引用的 ?v= 一并改为 0.17。
   v0.16（2026-10-20）用户口径「只要手机网页版升版本号，除了口令，其他缓存都自动清掉」：本页 <head> 首载执行——
     ① 版本对齐清缓存：若 localStorage 里 `任务面板_版本` ≠ 本页 meta 版本 → 遍历 localStorage
        只保留【口令键】（实查 接口.js 第 52 行 `口令存储键='任务面板_口令'`），其余 `任务面板_*`
@@ -228,7 +232,7 @@
 </head>
 <body>
 <header id="顶栏">
-  <div class="题">任务面板 <span class="版本">v0.16</span> <span id="角色" class="角色">连接中…</span></div>
+  <div class="题">任务面板 <span class="版本">v0.17</span> <span id="角色" class="角色">连接中…</span></div>
   <div class="顶操作">
     <button id="按钮_发布任务" class="主钮">发布任务</button>
     <button id="按钮_刷新" class="次钮">刷新</button>
@@ -287,8 +291,8 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.08"></script>
-<script src="网页模块/卡片.js?v=0.08"></script>
-<script src="网页模块/面板.js?v=0.14"></script>
+<script src="网页模块/接口.js?v=0.17"></script>
+<script src="网页模块/卡片.js?v=0.17"></script>
+<script src="网页模块/面板.js?v=0.17"></script>
 </body>
 </html>
