@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.17">
+<meta name="任务面板版本" content="0.19">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。 */
 (function () {
@@ -48,17 +48,37 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.17</title>
+<title>任务面板 · 手机遥控页 v0.19</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.17
+  版本：0.19
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.19（2026-10-20）用户口径「清单流水账」大重构（服务端 网页服务.py 0.12 已就绪）：
+    **主页＝清单小方块堆叠**（长方形扁卡片，可无限向下）——每块显示 **清单名称＋类型（总管清单）**（带
+    任务数/未完成数），点它进该清单；**左上角【新建】**（弹窗选类型——当前只有「总管清单」→ 输入清单名称
+    →创建、自动带类型名）；**右上角【设置】**（服务器选择归它、服务器/本地版版本号显示在设置里）；
+    **顶栏只显示「网页版版本」一个**（v0.19、与本页 meta 一致，主页不并列两个版本号）；能收进设置的就收进
+    设置、主页保持干净。**清单内页**：小卡片列表、**一张小卡＝一个任务**——**标题占两行位置**＋详情，
+    底部一排按钮【查看详细情况】/【快速备注】(未开始·进行中·已完成·已放弃)/【分子任务】/【呼叫 AI 负责
+    本卡片】/〔删除〕，页面有【返回主页】。**树状·可无限拆分**：【分子任务】展开子卡（与主卡同构、略缩进
+    略窄），子卡自己还能再展开子卡、不限层数。**每张卡（含各级子任务）都可单独【呼叫 AI 负责本卡片】**：
+    点它才弹窗选 AI（端/对话/终身号，同旧发布弹窗的选端/选对话），确认后调 `接口.呼叫AI(节点,执行者)`；
+    卡片胶囊四段（连接 WS 中 → 等待服务器回应 → 服务器已接收 → 投递成功；失败＝发送失败/发送未确认），
+    应答驱动前三段、再用「任务详情」轮询 `卡片状态`（已送达→投递成功）收口。新增 `网页模块\清单页.js`
+    （0.01）承载清单页；`面板.js`（0.17）只做装配/设置/服务器/口令；`接口.js`（0.09）封装清单库路由。
+    保留：频道口令、服务器选择与归属过滤、版本自动清缓存、`?v=` 防缓存、满宽/高度上限＝自身宽/截断/
+    手动展开、人蓝/AI绿/AI黄 底色样式。本轮三处版本号（title／注释／顶栏）＋ meta 同步升 0.19，四个 js
+    引用的 `?v=` 一并改 0.19。
+  v0.18（2026-10-20）用户修订口径：**主页顶栏只显示【网页版版本】**（v0.18）；**服务器（本地）版本
+    **收进【设置】菜单**显示（**不在主页并列**）；新增**右上角「设置」菜单**——收纳**服务器选择**（含在线/
+    离线小标）、**口令**钮与**版本**（「网页版 v… | 服务器 v…」）；主页顶栏不再直挂服务器选择与口令钮。
   v0.17（2026-10-20）用户口径「本款不拆客户端/服务端、**对外只显示一个版本号**」：顶栏**只留网页端
     自身版本号**（v0.17）；角色脚标去掉并列的「已连接 · v<服务端版本>」（网页模块\面板.js 0.15 已改，
-    连上后只显「已连接」），**不再额外显示网页服务/服务端版本**——对外版本号以【本页 html 版本】为唯一口径。
+    连上后只显「已连接」），**不再额外显示网页服务/服务端版本**（**0.18 用户修订**：服务器版本**未删**，
+    改收进【设置】菜单显示）——主页顶栏对外版本号以【本页 html 版本】为唯一口径。
     本轮三处版本号（title／注释／顶栏）＋ <meta name="任务面板版本"> 同步升 0.17，三个 js 引用的 ?v= 一并改为 0.17。
   v0.16（2026-10-20）用户口径「只要手机网页版升版本号，除了口令，其他缓存都自动清掉」：本页 <head> 首载执行——
     ① 版本对齐清缓存：若 localStorage 里 `任务面板_版本` ≠ 本页 meta 版本 → 遍历 localStorage
@@ -136,6 +156,19 @@
   .服务器态.在线 { background: #d8f5dc; color: #1a7a2e; }
   .服务器态.离线 { background: #ffe0e0; color: #b00020; }
   .服务器态.自动 { background: rgba(255,255,255,.22); color: #fff; }
+  /* 右上角「设置」菜单（0.18）：收纳服务器选择 / 口令 / 版本；主页只留网页版版本 */
+  .设置钮 { margin-left: auto; }
+  .设置面板 {
+    position: fixed; top: 96px; right: 12px; z-index: 40; width: min(92vw, 340px);
+    background: #fff; color: #222; border: 1px solid #ccd4e0; border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px 12px;
+  }
+  .设置行 { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; }
+  .设置行 + .设置行 { border-top: 1px solid #eef1f5; }
+  .设置标 { color: #667; width: 52px; flex: 0 0 auto; }
+  .设置值 { color: #223; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .设置面板 .服务器选 { max-width: none; flex: 1 1 auto; }
+  .设置面板 .服务器态.自动 { background: #e6ecf5; color: #334; }
   /* 主体 */
   main { padding: 12px; }
   .区 { margin-bottom: 18px; }
@@ -224,6 +257,45 @@
   /* 提示条 */
   .提示 { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
           background: #1c2430; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: 90vw; }
+  /* ===== 0.19 清单流水账：主页清单堆叠 / 清单内页 / 树状子卡 / 呼叫AI ===== */
+  /* 顶栏：左【新建】· 中题名+网页版版本 · 右【设置】 */
+  #顶栏 .题 { justify-content: flex-start; }
+  .题名 { font-size: 17px; font-weight: 700; }
+  .新建钮 { background: #fff; color: #2b5fb0; border-color: #fff; font-weight: 700; }
+  /* 主页：清单小方块堆叠（长方形扁卡片，可无限向下） */
+  .清单列表 { display: flex; flex-direction: column; gap: 10px; }
+  .清单卡 {
+    width: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: #fff; border: 1px solid #d7dde7; border-radius: 10px; padding: 13px 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); cursor: pointer;
+  }
+  .清单卡:active { background: #f2f7ff; }
+  .清单卡 .名 { font-size: 16px; font-weight: 700; color: #1c2430; flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .清单卡 .类 { font-size: 12px; background: #eef1f5; color: #556; border-radius: 4px; padding: 2px 7px; }
+  .清单卡 .数 { font-size: 13px; color: #667; }
+  .清单卡 .未 { color: #b00020; font-weight: 700; }
+  .清单卡 .箭 { color: #9aa4b2; font-size: 18px; }
+  /* 清单内页头 */
+  .清单页头 { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; flex-wrap: wrap; }
+  .清单页题 { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+  .内页_清单名 { font-size: 17px; font-weight: 700; color: #1c2430; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .内页_清单类型 { font-size: 12px; background: #eef1f5; color: #556; border-radius: 4px; padding: 2px 7px; }
+  /* 卡内标题（占两行位置） */
+  .卡标题 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; font-size: 15px; font-weight: 600; color: #1c2430; padding: 10px 12px 0;
+    line-height: 1.4; min-height: 2.8em; }
+  .卡副 { font-size: 12px; color: #667; padding: 3px 12px 0; }
+  .卡.点卡 .卡标题 { font-size: 14px; }
+  .卡.点卡.完成 .卡标题 { text-decoration: line-through; color: #889; }
+  /* 树状子卡组：与主卡同构、略缩进略窄 */
+  .子卡组 { margin: 8px 0 0 14px; display: flex; flex-direction: column; gap: 8px;
+    border-left: 2px solid #e2e8f2; padding-left: 10px; }
+  .子卡组 .卡 { background: #fbfcfe; }
+  /* 弹窗内的类型按钮组（新建清单） */
+  .类型组 { display: flex; gap: 10px; }
+  .类型组 .大类钮.选中 { background: #2b5fb0; color: #fff; border-color: #2b5fb0; }
   /* 卡片宽＝容器 100%，窄屏自然随视口收窄，不再需要 --卡边长 兜底 */
   @media (min-width: 700px) {
     main { max-width: 760px; margin: 0 auto; }
@@ -232,45 +304,111 @@
 </head>
 <body>
 <header id="顶栏">
-  <div class="题">任务面板 <span class="版本">v0.17</span> <span id="角色" class="角色">连接中…</span></div>
-  <div class="顶操作">
-    <button id="按钮_发布任务" class="主钮">发布任务</button>
-    <button id="按钮_刷新" class="次钮">刷新</button>
-    <label class="服务器盒" for="服务器_选择"><span class="服务器题">服务器</span>
-      <select id="服务器_选择" class="服务器选" title="选择只应答你的服务器（自动发现/自动/手动）"></select>
-      <span id="服务器_态" class="服务器态 自动">自动</span>
-    </label>
-    <button id="按钮_口令" class="小钮">口令</button>
+  <div class="题">
+    <button id="按钮_新建" class="小钮 新建钮">新建</button>
+    <span class="题名">任务面板</span>
+    <span class="版本">v0.19</span>
+    <span id="角色" class="角色">连接中…</span>
+    <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
 </header>
+<div id="设置面板" class="设置面板 隐藏">
+  <div class="设置行">
+    <span class="设置标">版本</span>
+    <span class="设置值">网页版 <span id="设置_网页版版本">–</span>　|　服务器 <span id="设置_服务器版本">–</span></span>
+  </div>
+  <div class="设置行">
+    <span class="设置标">服务器</span>
+    <select id="服务器_选择" class="服务器选" title="选择只应答你的服务器（自动发现/自动/手动）"></select>
+    <span id="服务器_态" class="服务器态 自动">自动</span>
+  </div>
+  <div class="设置行">
+    <span class="设置标">口令</span>
+    <button id="按钮_口令" class="小钮">重设口令</button>
+  </div>
+</div>
 <main>
-  <section class="区">
-    <h2 class="区标题">端列表 <span id="端计数" class="计数"></span></h2>
-    <div id="端列表" class="端列表"><div class="空样">加载中…</div></div>
+  <!-- 主页＝清单小方块堆叠（长方形扁卡片，可无限向下） -->
+  <section id="主页" class="区">
+    <h2 class="区标题">我的清单 <span id="清单计数" class="计数"></span></h2>
+    <div id="清单列表" class="清单列表"><div class="空样">加载中…</div></div>
   </section>
-  <section class="区">
-    <h2 class="区标题">任务卡片 <span id="任务计数" class="计数"></span></h2>
+  <!-- 清单内页：小卡片列表（一张小卡＝一个任务；可无限下钻子卡） -->
+  <section id="清单页" class="区 隐藏">
+    <div class="清单页头">
+      <button id="按钮_返回主页" class="小钮">← 返回主页</button>
+      <div class="清单页题">
+        <span id="内页_清单名" class="内页_清单名">—</span>
+        <span id="内页_清单类型" class="内页_清单类型"></span>
+      </div>
+      <button id="按钮_新建任务" class="小钮">＋ 新建任务</button>
+    </div>
     <div id="任务列表" class="任务列表"><div class="空样">加载中…</div></div>
   </section>
 </main>
 
-<div id="发布弹窗" class="遮罩 隐藏">
+<!-- 新建清单弹窗（左上角【新建】：选类型——当前只有「总管清单」→ 输入清单名称 → 创建） -->
+<div id="新建清单弹窗" class="遮罩 隐藏">
   <div class="弹窗">
-    <h3>发布任务</h3>
-    <label class="字段" for="发布_内容">任务内容</label>
-    <textarea id="发布_内容" placeholder="写清要让 AI 做什么…"></textarea>
+    <h3>新建</h3>
+    <label class="字段">类型</label>
+    <div id="新建_类型" class="类型组">
+      <button type="button" class="大类钮 选中" data-类="总管清单">总管清单</button>
+    </div>
+    <label class="字段" for="新建_名称">清单名称</label>
+    <input id="新建_名称" type="text" autocomplete="off" placeholder="如：2026-10 家务流水"
+           style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
+    <p style="font-size:13px;color:#889;margin:8px 0 0;">创建后自动带上类型名（总管清单）。</p>
+    <div class="弹窗底">
+      <button id="新建_取消" class="次钮">取消</button>
+      <button id="新建_确定" class="主钮">创建</button>
+    </div>
+  </div>
+</div>
+<!-- 加卡弹窗：新建任务（标题＋详情）/ 分子任务（只有标题） -->
+<div id="加卡弹窗" class="遮罩 隐藏">
+  <div class="弹窗">
+    <h3 id="加卡_题">新建任务</h3>
+    <label class="字段" for="加卡_标题">标题</label>
+    <input id="加卡_标题" type="text" autocomplete="off" placeholder="一句话说清这张卡要做什么"
+           style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
+    <div id="加卡_详情行">
+      <label class="字段" for="加卡_详情">详情</label>
+      <textarea id="加卡_详情" placeholder="补充说明（可留空）"></textarea>
+    </div>
+    <div class="弹窗底">
+      <button id="加卡_取消" class="次钮">取消</button>
+      <button id="加卡_确定" class="主钮">确定</button>
+    </div>
+  </div>
+</div>
+<!-- 呼叫 AI 弹窗（选端/选对话/终身号，同旧发布弹窗流程） -->
+<div id="呼弹窗" class="遮罩 隐藏">
+  <div class="弹窗">
+    <h3>呼叫 AI 负责本卡片</h3>
+    <p style="font-size:13px;color:#556;margin:0 0 6px;">目标卡片：<b id="呼_节点">—</b></p>
     <label class="字段">AI 大类</label>
-    <div id="发布_大类" class="大类">
+    <div id="呼_大类" class="大类">
       <button type="button" class="大类钮" data-类="WorkBuddy">WorkBuddy</button>
       <button type="button" class="大类钮" data-类="Trae">Trae</button>
     </div>
     <label class="字段">选择端（该大类下所有可扫描到的端）</label>
-    <div id="发布_端" class="选择框"><div class="空样">请先选大类</div></div>
+    <div id="呼_端" class="选择框"><div class="空样">请先选大类</div></div>
     <label class="字段">选择对话</label>
-    <div id="发布_对话" class="选择框"><div class="空样">请先选端</div></div>
+    <div id="呼_对话" class="选择框"><div class="空样">请先选端</div></div>
     <div class="弹窗底">
-      <button id="发布_取消" class="次钮">取消</button>
-      <button id="发布_确认" class="主钮">发布</button>
+      <button id="呼_取消" class="次钮">取消</button>
+      <button id="呼_确认" class="主钮">呼叫</button>
+    </div>
+  </div>
+</div>
+<!-- 快速备注弹窗（未开始/进行中/已完成/已放弃） -->
+<div id="备注弹窗" class="遮罩 隐藏">
+  <div class="弹窗">
+    <h3>快速备注 · <span id="备注_节点">—</span></h3>
+    <div id="备注_组" class="选择框"></div>
+    <div class="弹窗底">
+      <button id="备注_取消" class="次钮">取消</button>
     </div>
   </div>
 </div>
@@ -291,8 +429,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.17"></script>
-<script src="网页模块/卡片.js?v=0.17"></script>
-<script src="网页模块/面板.js?v=0.17"></script>
+<script src="网页模块/接口.js?v=0.19"></script>
+<script src="网页模块/卡片.js?v=0.19"></script>
+<script src="网页模块/清单页.js?v=0.19"></script>
+<script src="网页模块/面板.js?v=0.19"></script>
 </body>
 </html>
