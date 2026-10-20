@@ -1,6 +1,6 @@
 /* ============================================================
  * 【任务面板】网页模块 · 清单页.js
- * 版本：0.07
+ * 版本：0.09
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
  *   · 主页＝【我的清单】：摆一级卡（＝一本总管清单，就是一张完整的卡）。
  *   · **一张卡＝一个节点**，全层级共用同一个 `建卡(节点, 层级)`：
@@ -32,6 +32,12 @@
  *   3) 收口（第四段）双通道：①监听【投递结果】广播帧；②轮询 `任务详情(T).卡片状态` /
  *      `点详情(P).点.卡片状态`（`_点视图` 暂未暴露 `卡片状态`，小点以 ① 广播帧为准）。
  * 维护记录：
+ *   · 0.09（2026-10-20）按用户口径：「系统清单不是要派出的任务，主要是系统性规范，不需要遵从 AI 通用
+ *     提示词规范」＋「用的是同一张卡片代码，创建系统清单时自动屏蔽掉两个按钮」。仍**只有一张卡**，
+ *     `建卡()` 仅在 `在系统清单()` 为真时**少放【备注】【呼叫AI】两颗钮**；
+ *     系统清单本身及其全部下级（同一支）一律不出现这两颗钮；总管清单不受影响。
+ *   · 0.08（2026-10-20）按用户口径新增清单类型 **「系统清单」**：新建弹窗类型组可选（总管清单/系统清单，
+ *     默认总管），创建时随 `接口.清单新建(名称,正文,类型)` 发出；卡片副行照常显示所选类型。
  *   · 0.05（2026-10-20）**自动模式优先新版**（修「正文时有时无」的另一半）：未选服务器（自动）时，
  *     ①订阅「服务器报到」——在线最高版本升高（如新版上台）→ 自动重载一次；
  *     ②装配 6 秒后校正一次：若最近应答那台版本低于在线最高版本 → 重载（只校正一次，避免来回刷）。
@@ -57,7 +63,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.07';
+  var 版本 = '0.09';
 
   // ---------------- 状态 ----------------
   var 清单缓存 = [];         // 清单摘要列表（[{编号,名称,类型,详情,任务数,未完成数}]）
@@ -412,20 +418,31 @@
 
     var 备 = 钮('备注', '小钮', function () { 开备注(节点, 层级); });
     备.title = '快速备注（未开始/进行中/已完成/已放弃）';
-    排.appendChild(备);
+    if (!在系统清单(节点)) 排.appendChild(备);
 
     var 分 = 钮('细分', '小钮', function () { 进节点(节点, 层级); });
     分.title = '细分：进入这张卡的下级页面';
     排.appendChild(分);
 
-    var 呼 = 钮('呼叫AI', '小钮', function () { 开呼(节点, 层级); });
-    呼.title = '呼叫 AI 负责本卡片';
-    排.appendChild(呼);
+    // 系统清单＝系统性规范归档，**不是要派出的任务**（用户 2026-10-20 口径）→ 不给【呼叫AI】
+    if (!在系统清单(节点)) {
+      var 呼 = 钮('呼叫AI', '小钮', function () { 开呼(节点, 层级); });
+      呼.title = '呼叫 AI 负责本卡片';
+      排.appendChild(呼);
+    }
 
     排.appendChild(钮('删除', '小钮', function () { 删卡(节点, 层级); }));
     卡.appendChild(排);
 
     return 卡;
+  }
+
+  // 0.09：当前卡是否属于「系统清单」（规范归档，不派任务 → 屏蔽 呼叫AI/备注）
+  //   全层级仍共用同一张卡 `建卡()`，只在按钮排按清单类型少放两颗钮（改一处影响两种清单）。
+  function 在系统清单(节点) {
+    if (节点 && 节点.种 === '清单') return 节点.类型 === '系统清单';
+    var 顶 = 页栈[0];
+    return !!(顶 && 顶.节点 && 顶.节点.类型 === '系统清单');
   }
 
   function 建副行(节点) {
@@ -884,24 +901,31 @@
     if ($('新建_正文')) $('新建_正文').value = '';
     刷新新建计数();
     var 组 = $('新建_类型');
-    if (组) Array.prototype.forEach.call(组.children, function (b) { if (b.classList) b.classList.add('选中'); });
+    if (组) Array.prototype.forEach.call(组.children, function (b, i) {
+      if (b.classList) b.classList.toggle('选中', i === 0);   // 默认选第一项（总管清单）
+    });
     if ($('新建清单弹窗')) $('新建清单弹窗').classList.remove('隐藏');
     try { if ($('新建_标题')) $('新建_标题').focus(); } catch (e) { }
   }
   function 新建类型() {
     var 组 = $('新建_类型');
-    if (!组 || !组.children.length) return '总管清单';
-    return (组.children[0].getAttribute('data-类') || '总管清单');
+    if (!组) return '总管清单';
+    var 选 = null;
+    Array.prototype.forEach.call(组.children, function (b) {
+      if (b.classList && b.classList.contains('选中')) 选 = b;
+    });
+    return (选 && 选.getAttribute('data-类')) || '总管清单';
   }
   function 定新建清单() {
     var 名 = String(($('新建_标题') && $('新建_标题').value) || '').trim();
     if (!名) { 提示('请填写标题'); return; }
     if (!有接口()) { 提示('接口未就绪'); return; }
     var 文 = String(($('新建_正文') && $('新建_正文').value) || '');
+    var 类 = 新建类型();
     var 定 = $('新建_确定');
     if (定 && 定.disabled) return;
     if (定) 定.disabled = true;
-    global.接口.清单新建(名, 文).then(function (r) {
+    global.接口.清单新建(名, 文, 类).then(function (r) {
       if (r && r.ok === false) { 提示('新建失败：' + ((r && r.err) || '')); return; }
       var c = (r && r.清单) || {};
       if ($('新建清单弹窗')) $('新建清单弹窗').classList.add('隐藏');
@@ -982,6 +1006,16 @@
     if ($('节点页_新建')) $('节点页_新建').addEventListener('click', 点新建);
     if ($('新建_取消')) $('新建_取消').addEventListener('click', function () { $('新建清单弹窗').classList.add('隐藏'); });
     if ($('新建_确定')) $('新建_确定').addEventListener('click', 定新建清单);
+    if ($('新建_类型')) {
+      Array.prototype.forEach.call($('新建_类型').children, function (b) {
+        b.addEventListener('click', function () {
+          Array.prototype.forEach.call($('新建_类型').children, function (x) {
+            if (x.classList) x.classList.remove('选中');
+          });
+          b.classList.add('选中');
+        });
+      });
+    }
     if ($('新建_标题')) $('新建_标题').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 定新建清单(); } });
     if ($('新建_标题')) $('新建_标题').addEventListener('input', 刷新新建计数);
     if ($('新建_正文')) $('新建_正文').addEventListener('input', 刷新新建计数);
