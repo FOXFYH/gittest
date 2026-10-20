@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.25">
+<meta name="任务面板版本" content="0.27">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,20 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.25</title>
+<title>任务面板 · 手机遥控页 v0.27</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.25
+  版本：0.27
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.27（2026-10-20）按用户口径：**系统清单不是派出任务**（只是系统性规范）→ 用**同一张卡代码**，
+    在系统清单这支里自动少放【备注】【呼叫AI】两颗钮；总管清单照旧六钮。顶栏三处版本号＋meta＋
+    四个 `?v=` 同步升 0.27。
+  v0.26（2026-10-20）**清单分类新增「系统清单」**（用户口径：「清单的分类，除了总管清单，再新加一种，
+    叫做系统清单」）：新建弹窗的类型组加第二颗钮；创建时把所选类型发给服务端（`list_new.类型`），
+    卡片副行照常显示「类型：××」。顶栏三处版本号＋meta＋四个 `?v=` 同步升 0.26。
   v0.25（2026-10-20）**首载先等服务器报到**（配合 清单页.js 0.07）：自动模式下首屏取数前最多等 3 秒，
     确认各家版本后再发请求，从根上避免旧版（家里 0.12）抢先应答导致正文丢失。
     顶栏三处版本号＋meta＋四个 `?v=` 同步升 0.25。
@@ -373,7 +379,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.25</span>
+    <span class="版本">v0.27</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -419,6 +425,7 @@
     <label class="字段">类型</label>
     <div id="新建_类型" class="类型组">
       <button type="button" class="大类钮 选中" data-类="总管清单">总管清单</button>
+      <button type="button" class="大类钮" data-类="系统清单">系统清单</button>
     </div>
     <label class="字段" for="新建_标题">标题</label>
     <input id="新建_标题" type="text" autocomplete="off" maxlength="100" placeholder="如：2026-10 家务流水"
@@ -498,9 +505,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.25"></script>
-<script src="网页模块/卡片.js?v=0.25"></script>
-<script src="网页模块/清单页.js?v=0.25"></script>
-<script src="网页模块/面板.js?v=0.25"></script>
+<script src="网页模块/接口.js?v=0.27"></script>
+<script src="网页模块/卡片.js?v=0.27"></script>
+<script src="网页模块/清单页.js?v=0.27"></script>
+<script src="网页模块/面板.js?v=0.27"></script>
 </body>
 </html>
