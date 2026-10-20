@@ -6,7 +6,11 @@
    2.72：📂 输入行按钮与「新建任务」选文件夹，改为 window.open 打开公共
    查看器（?h=trae&pick=1&mode=ins|newdir），经
    window.opener.postMessage({type:'fvwr_pick',path,mode,h:'trae'}) 回传后
-   插入聊天输入框 / 回填工作目录（参照原 benchIns / benchPick 的等价写法）。 */
+   插入聊天输入框 / 回填工作目录（参照原 benchIns / benchPick 的等价写法）。
+   2.111（老板 2026-10-20 20:44「现在我要新建的话也没效果」）：新建面板加
+   「首条消息」框（#td_msg），「创建」除了开草稿还按序发 new_task_send——
+   TRAE 的会话行只在首条消息发出后才出现，只开草稿＝列表零变化（真因）；
+   不填首条消息则如实提示，不再假装「就绪」。 */
 
 /* 公共独立服务「网页版本地文件查看器」网页地址（与 WorkBuddy 等宿主共用同一份） */
 const FVWR_URL = 'https://foxfyh.github.io/gittest/fileview/index.html';
