@@ -110,7 +110,15 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.95';   /* 2.95（老板 2026-10-20 08:10「我的蓝色卡片呢？修复了吗部署了吗」）：
+const VER = '2.96';   /* 2.96（老板 2026-10-20 08:37「去看一下 WorkBuddy 的网页版，
+                       它人类卡片和 AI 卡片中间是有间隔的，并且各自的卡片都有倒角」）：
+                       照 WB 网页版（wbcli.html）CDP 实测对齐——① .msg 行间距 24px→8px
+                       （照 WB 间距 8px，人类卡与 AI 卡之间留出间隔）；② .msg.agent 补底色
+                       var(--abg)=#ecf5ec ＋ 圆角 8px（WB 实测 AI 卡：#ecf5ec / radius 8px /
+                       pad 5px 10px / margin-bottom 8px）——AI 行不再是「无倒角的裸文本块」。
+                       人类卡 .msg.user 蓝底（2.95）保留不动；未动 2.89~2.95 的逻辑。
+                       改 样式.css / 诊断.js；入口 html 版本同步拉平 2.96。
+   2.95（老板 2026-10-20 08:10「我的蓝色卡片呢？修复了吗部署了吗」）：
                        真因：2.91「视觉对齐·扁平化」把 .msg 容器一律改扁平
                        （background:none / border-radius:0 / padding:0），把「我」自己
                        发出的那张【蓝色底纹卡片】也一并去掉（只剩无底纹的裸文本行）。
