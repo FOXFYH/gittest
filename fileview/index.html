@@ -340,7 +340,8 @@ function goHome(){ if(inReader)reading=null; probe(); }
 // 由宿主决定用途（插入输入框 / 回填工作目录），随后自动关闭本窗口。
 function pickBack(path){
   if(!path){ alert("请先进入一个文件夹，再点 ✅ 选定"); return; }
-  const obj={type:"fvwr_pick", path:path, mode:PICK_MODE, h:HOST};
+  const obj={type:"fvwr_pick", path:path, mode:PICK_MODE,
+             h:(HOST&&HOST!=="standalone")?HOST:"*"};   // 1.16：直开无角色=广播给所有在听宿主
   /* ① 兼容路：宿主同源窗口（有 opener）→ 直接 postMessage（老方案，保留） */
   let openerOk=false;
   try{ if(window.opener && !window.opener.closed){ window.opener.postMessage(obj, "*"); openerOk=true; } }catch(e){}
@@ -460,7 +461,7 @@ el("shade").onclick=closeSheet;
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.15");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.16");
 document.getElementById("stHost").textContent=HOST||"standalone";
 el("btnPick").style.display="";   // 1.15：✅ 头钮恒亮——任何模式都能把「当前目录」回传宿主
 function showSetup(){
