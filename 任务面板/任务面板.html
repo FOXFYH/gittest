@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.24">
+<meta name="任务面板版本" content="0.25">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,17 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.24</title>
+<title>任务面板 · 手机遥控页 v0.25</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.24
+  版本：0.25
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.25（2026-10-20）**首载先等服务器报到**（配合 清单页.js 0.07）：自动模式下首屏取数前最多等 3 秒，
+    确认各家版本后再发请求，从根上避免旧版（家里 0.12）抢先应答导致正文丢失。
+    顶栏三处版本号＋meta＋四个 `?v=` 同步升 0.25。
   v0.24（2026-10-20）**自动模式校正加强**（配合 清单页.js 0.06）：报到帧可能晚于首次取数，
     「校正一次」改为最多 3 次（间隔 5 秒）直到确认应答方为最新版，避免家里旧版 0.12 抢先应答后一直沿用。
     顶栏三处版本号＋meta＋四个 `?v=` 同步升 0.24。
@@ -370,7 +373,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.24</span>
+    <span class="版本">v0.25</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -495,9 +498,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.24"></script>
-<script src="网页模块/卡片.js?v=0.24"></script>
-<script src="网页模块/清单页.js?v=0.24"></script>
-<script src="网页模块/面板.js?v=0.24"></script>
+<script src="网页模块/接口.js?v=0.25"></script>
+<script src="网页模块/卡片.js?v=0.25"></script>
+<script src="网页模块/清单页.js?v=0.25"></script>
+<script src="网页模块/面板.js?v=0.25"></script>
 </body>
 </html>
