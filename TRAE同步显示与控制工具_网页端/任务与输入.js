@@ -144,6 +144,7 @@ function taskDlgOpen(lock){         /* 1.11：lock=文件夹组名 → 锁定模
   S.task_lock = lock || null;
   S.task_mem = '';
   S.task_cur = '';
+  const m = $('td_msg'); if (m) m.value = '';    /* 2.111：首条消息每开即空 */
   taskDlgRender();
   el.td_stat.textContent = S.task_lock
     ? '点「创建」在文件夹内新建对话' : '正在展开新建任务…';
@@ -183,18 +184,32 @@ function taskPickDir(){            // 选择/重选 → 公共查看器选目录
 el.td_none.onclick = () => taskPickDir();
 el.td_re.onclick = () => taskPickDir();
 el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目录
-  与记忆有变化才设置 */
+  与记忆有变化才设置。2.111：把「首条消息」真正发进草稿——TRAE 的会话行
+  只在首条消息发出后才出现在侧栏；只点新建 = 零变化，就是老板说的「没效果」。
+  发帧顺序＝cmdq 顺序：new_task_in/dlg（开草稿）→ task_dir_set（可选）→
+  new_task_send（发首条），服务端 _cmd_new_task_send 有「必须仍在草稿」护栏。 */
+  const mEl = $('td_msg');
+  const msg = ((mEl && mEl.value) || '').trim();
+  const first = msg ? (didNow() + '\n' + msg) : '';   /* 与正常发送同口径：首行 DID */
   if (S.task_lock){
     taskDlgClose();
     srvOpSend('new_task_in', S.task_lock, '新建对话', '「' + S.task_lock + '」');   // 2.109：②＋rcpt ③④
+    if (first) srvOpSend('new_task_send', first, '新建任务', '首条消息');
     return;
   }
-  if (S.task_cur && S.task_cur !== S.task_mem){
+  const dirChanged = !!(S.task_cur && S.task_cur !== S.task_mem);
+  if (dirChanged){
     el.td_stat.textContent = srvOpText('sent', '设置工作目录');
     srvOpSend('task_dir_set', S.task_cur, '设置工作目录');                        // 2.109：②＋rcpt ③④
   } else {
     taskDlgClose();
-    flash('✅ 新建任务就绪', 'var(--green)');   /* 无命令下发＝本地就绪，非服务端信号 */
+  }
+  if (first){
+    srvOpSend('new_task_send', first, '新建任务', '首条消息');
+  } else if (!dirChanged){
+    /* 2.111：不再假装「✅ 就绪」——如实说清为什么列表还没多一条 */
+    flash('已展开 TRAE 新任务：在输入框写内容并发送，才会在会话列表生成新会话',
+          'var(--blue)', 6000);
   }
 };
 el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 TRAE 输入区
