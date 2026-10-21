@@ -382,13 +382,17 @@ var 最近备注 = "启动";
 (function 单实例握手() {
     try {
         var j = JSON.parse(files.read(状态文件));
-        if (!(j && j.心跳 && Date.now() - j.心跳 < 6000)) return;      // ①3 老的已死 → 接管
+        // 老的已死 / 已经说了"我要退出（或换版）" → 直接接管，别为一个正在死的人白等 3 秒
+        if (!(j && j.心跳 && Date.now() - j.心跳 < 6000) || (j.意愿 && j.意愿 !== "跑")) return;
         try { files.write(命令文件, JSON.stringify({ 命令: "唤前" })); } catch (e0) {}
         for (var i = 0; i < 12; i++) {                                  // 最多等 3 秒
             sleep(250);
             var k = null;
             try { k = JSON.parse(files.read(状态文件)); } catch (e1) {}
-            if (!k || !k.心跳 || Date.now() - k.心跳 > 6000) { 记("握手：老的已退出 → 本实例接管"); return; }
+            if (!k || !k.心跳 || Date.now() - k.心跳 > 6000 || (k.意愿 && k.意愿 !== "跑")) {
+                记("握手：老的已退出 → 本实例接管");
+                return;
+            }
             if (k.前台 === 1) {                                          // ① 老的已亮到前面
                 已让位 = true;
                 记("握手：老的已回到前台 → 本实例退场（不建界面）");
