@@ -28,7 +28,7 @@ const FVWR_MASK_ID = 'fvwr_mask';
 function fvwrBaseChan(){
   let b = '';
   try { b = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
-  if (!b){ try { b = (chanGet(cSel) || '').trim(); } catch(e){} }
+  if (!b){ try { b = (chanGet() || '').trim(); } catch(e){} }   // 缺省=当前选中频道
   return b;
 }
 function fvwrEnsureChannel(){
@@ -36,7 +36,7 @@ function fvwrEnsureChannel(){
   try { have = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
   if (have) return have;
   let b = '';
-  try { b = (chanGet(cSel) || '').trim(); } catch(e){}
+  try { b = (chanGet() || '').trim(); } catch(e){}   // 缺省=当前选中频道
   if (b){ try { localStorage.setItem('fvwr_channel', b); } catch(e){} }
   return b;
 }
