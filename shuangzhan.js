@@ -119,7 +119,7 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v2.10";   // v2.10：三站各一个常驻 WebView —— 切换只换"谁可见"，不再 loadUrl，页面状态/滚动位置/输入内容全保留；顺手补 记事.json 漏存 P 站
+var APP_VERSION = "v2.11";   // v2.11：【回滚 v2.10 的三 WebView】——它在本机 APK 环境里直接白屏（登录页打不开）；退回单 WebView，切站恢复 loadUrl
                              // v2.09：治「点快捷方式一打开就弹回桌面」——后台自杀哨兵＋撞锁先问"它在不在前台"（后台的旧实例直接接管）＋让位不再挂 60 秒
                              // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
@@ -286,12 +286,10 @@ var 布局异常 = "";
 
 var 主XML =
     '<frame>' +
-    // ★ v2.10：三个 WebView 常驻叠放，切站只改"谁可见"（不再 loadUrl → 不刷新、不丢滚动/输入）
-    '<frame id="web根" w="*" h="*">' +
-    '  <webview id="webT" w="*" h="*"/>' +
-    '  <webview id="webW" w="*" h="*"/>' +
-    '  <webview id="webP" w="*" h="*"/>' +
-    '</frame>' +
+    // ★ v2.11：退回【单个 WebView】。v2.10 的"三个 WebView 常驻叠放"在 APK 环境里直接白屏
+    //   （2026-10-21 用户实测：双站登录页打不开，一片白）。AutoX 的 webview 在打包/热更环境里
+    //   只稳一个，多开不报错但不出画面——这类"不报错就是白"的坑没法靠 try/catch 兜，只能退回。
+    '<webview id="web" w="*" h="*"/>' +
     '<frame id="设罩" w="*" h="*">' +
     '  <vertical w="*" h="*" gravity="center">' +
     '    <vertical id="设卡" w="700px" h="wrap_content">' +
