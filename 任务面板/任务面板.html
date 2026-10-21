@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.38">
+<meta name="任务面板版本" content="0.39">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,18 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.38</title>
+<title>任务面板 · 手机遥控页 v0.39</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.38
+  版本：0.39
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.39（2026-10-21）按用户口径区分小绿卡的归属：**小绿卡只出现在卡片正文**，AI 回复的正文不出现；
+    AI 要表示某项需求已达成 → 用 `green_state` 改卡片正文里那张小绿卡的状态，不必重复写。
+    回复正文输入框提示语写明「不要重复小绿卡」，派发文本由《清单存储》0.15 带上这段引导。
+    配合 清单页.js 0.19 / 清单存储.py 0.15 / CLI 0.15。
   v0.38（2026-10-21）按用户口径（22:52 / 22:54 / 22:55）：
     ①**正文顶部小绿卡**——一行一项（`- [ ]`／`- [~]`／`- [x]`／`- [-]`），绿色小卡一行一张，
       尾部状态灯可点改（未完成/进行中/已完成/放弃）；展开后附格式说明。
@@ -508,7 +512,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.38</span>
+    <span class="版本">v0.39</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -640,9 +644,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.38"></script>
-<script src="网页模块/卡片.js?v=0.38"></script>
-<script src="网页模块/清单页.js?v=0.38"></script>
-<script src="网页模块/面板.js?v=0.38"></script>
+<script src="网页模块/接口.js?v=0.39"></script>
+<script src="网页模块/卡片.js?v=0.39"></script>
+<script src="网页模块/清单页.js?v=0.39"></script>
+<script src="网页模块/面板.js?v=0.39"></script>
 </body>
 </html>
