@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.40">
+<meta name="任务面板版本" content="0.41">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,17 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.40</title>
+<title>任务面板 · 手机遥控页 v0.41</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.40
+  版本：0.41
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.41（2026-10-21）按用户口径调整【朗读】钮：朗读钮移进「清单大白话」标题行内（框内顶部），
+    不再挤占输入框宽度；点标题文字「清单大白话」或点【朗读】钮都能朗读。
+    配合 清单页.js 0.21。
   v0.40（2026-10-21）按用户口径**统一术语**：卡片一侧一律叫 **清单大白话 / 清单正文**（框小标题、
     新建/加卡字段名、输入提示）；AI 回复一侧一律叫 **回复大白话 / 回复正文**（回复标题、最近回复块、
     两个输入框、校验提示）。数据字段名不变。配合 清单页.js 0.20 / 清单存储.py 0.16 / CLI 0.16。
@@ -441,21 +444,19 @@
   .节点页新建 { margin-left: auto; flex: 0 0 auto; background: #2b5fb0; color: #fff; border-color: #2b5fb0; font-weight: 700; }
   /* 计数：新建时的标题/正文字数 */
   .字计 { font-size: 12px; color: #889; margin: 2px 0 0; text-align: right; }
-  /* 大白话（标题下的简述）＋朗读（浏览器本地 TTS）——收起时**只显示【朗读】钮**；
-     大白话文字**展开后才展示**（用户 2026-10-21 口径：「那个朗读的大白话，在展开的时候才展示」）。 */
-  .大白话行 { display: flex; align-items: flex-start; gap: 6px; padding: 4px 12px 2px; }
+  /* 大白话（标题下的简述）——收起时隐藏，展开后才展示（用户 2026-10-21 口径）。
+     0.41：标题行「清单大白话」＋【朗读】钮都放在框内顶部，不再挤占输入框宽度；
+     点标题文字或点【朗读】钮都能朗读。 */
+  .大白话行 { display: block; padding: 4px 12px 2px; }
   .大白话 { display: none; }
-  /* 0.37：大白话展开后也装框——与 AI 回复区的块同一套外观（浅底＋细边＋圆角＋小标题） */
-  .卡.展开 .大白话 { display: block; flex: 1 1 auto; min-width: 0; font-size: 13px; color: #334;
-    line-height: 1.5; white-space: pre-wrap; word-break: break-word;
-    background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 8px 10px; }
-  .卡.展开 .大白话::before {
-    content: '清单大白话'; display: block; font-size: 12px; font-weight: 700; color: #2b5fb0; margin-bottom: 2px;
-  }
-  .朗钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 26px;
+  .卡.展开 .大白话 { display: block; font-size: 13px; color: #334;
+    line-height: 1.5; background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 8px 10px; }
+  .卡白题 { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .卡白名 { font-size: 12px; font-weight: 700; color: #2b5fb0; cursor: pointer; }
+  .朗钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 24px;
     background: #eef4ff; border-color: #b8d0f5; color: #2b5fb0; }
   /* 0.18 卡片自己的大白话/正文：可改输入框（学回复窗口的两个框；展开后才出现） */
-  .卡白输 { width: 100%; box-sizing: border-box; border: none; background: transparent;
+  .卡白输 { display: block; width: 100%; box-sizing: border-box; border: none; background: transparent;
     resize: vertical; min-height: 44px; font-family: inherit; font-size: 13px; color: #334;
     line-height: 1.5; padding: 0; }
   .卡文输 { width: 100%; box-sizing: border-box; border: none; background: transparent;
@@ -515,7 +516,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.40</span>
+    <span class="版本">v0.41</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -647,9 +648,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.40"></script>
-<script src="网页模块/卡片.js?v=0.40"></script>
-<script src="网页模块/清单页.js?v=0.40"></script>
-<script src="网页模块/面板.js?v=0.40"></script>
+<script src="网页模块/接口.js?v=0.41"></script>
+<script src="网页模块/卡片.js?v=0.41"></script>
+<script src="网页模块/清单页.js?v=0.41"></script>
+<script src="网页模块/面板.js?v=0.41"></script>
 </body>
 </html>
