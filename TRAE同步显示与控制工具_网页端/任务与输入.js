@@ -15,14 +15,93 @@
 /* 公共独立服务「网页版本地文件查看器」网页地址（与 WorkBuddy 等宿主共用同一份） */
 const FVWR_URL = 'https://foxfyh.github.io/gittest/fileview/index.html';
 
-/* 打开公共查看器选路径：mode='ins' 选中即插入聊天输入框；
-   mode='newdir' 选中即回填「新建任务」工作目录。
-   命名窗口 'fvwrPick' 保留 opener 关系（查看器靠 window.opener 回传）。 */
-function fvwrOpen(mode){
+/* 2.115（老板 2026-10-21 08:18「我现在手机网页版不行」）：
+   移动端真机复现后，病根不在 window.open（真触摸实测返回正常、并非被拦），
+   而在查看器页在手机上没记住「频道公共段」——它直接盖一层全屏「连接设置」，
+   列表为空 ⇒ 行尾 ➕ 根本无从点起，看着就是"点了没反应"。
+   改法：① 开查看器前，把宿主自己的频道名补进同源 localStorage.fvwr_channel
+   （与查看器手工填的是同一把钥匙；公开页仍不写死任何频道号）；
+   ② 改用同页全屏 iframe 内嵌查看器（不再依赖 window.open，手机浏览器
+   也拦不住），回传走「同源直连 + 频道」双保险，✕ 关闭即回原页；
+   ③ iframe 建不起来才退回原 window.open。 */
+const FVWR_MASK_ID = 'fvwr_mask';
+function fvwrBaseChan(){
+  let b = '';
+  try { b = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
+  if (!b){ try { b = (chanGet(cSel) || '').trim(); } catch(e){} }
+  return b;
+}
+function fvwrEnsureChannel(){
+  let have = '';
+  try { have = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
+  if (have) return have;
+  let b = '';
+  try { b = (chanGet(cSel) || '').trim(); } catch(e){}
+  if (b){ try { localStorage.setItem('fvwr_channel', b); } catch(e){} }
+  return b;
+}
+function fvwrClosePick(){
+  const m = $(FVWR_MASK_ID);
+  if (m){ try { m.remove(); } catch(e){} }
+}
+function fvwrIframeOpen(mode){
+  if (!document.body) return false;
   try {
-    fvwrPickChanListen();           // 2.108：开查看器前(重)连选路径收帧频道
+    fvwrClosePick();
+    const m = document.createElement('div');
+    m.id = FVWR_MASK_ID;
+    m.style.cssText = 'position:fixed;inset:0;z-index:2000;background:#fff;'
+      + 'display:flex;flex-direction:column;';
+    const bar = document.createElement('div');
+    bar.style.cssText = 'flex:none;display:flex;align-items:center;gap:8px;'
+      + 'padding:calc(8px + env(safe-area-inset-top)) 10px 8px;'
+      + 'background:#1565c0;color:#fff;font-size:14px;';
+    const t = document.createElement('b');
+    t.textContent = '📂 ' + (mode === 'newdir' ? '选择文件夹' : '选择文件/目录');
+    t.style.cssText = 'flex:none;';
+    const hint = document.createElement('span');
+    hint.textContent = '首次若提示「连接设置」，填与 TRAE 设置页相同的频道即可，填一次永久记住';
+    hint.style.cssText = 'flex:1;font-size:11px;opacity:.85;line-height:1.3;';
+    const x = document.createElement('button');
+    x.type = 'button'; x.textContent = '✕'; x.title = '关闭并返回';
+    x.style.cssText = 'flex:none;width:38px;height:38px;border:0;border-radius:19px;'
+      + 'background:rgba(255,255,255,.18);color:#fff;font-size:18px;';
+    x.onclick = fvwrClosePick;
+    bar.appendChild(t); bar.appendChild(hint); bar.appendChild(x);
+    const f = document.createElement('iframe');
+    f.style.cssText = 'flex:1;width:100%;border:0;background:#fff;';
+    f.src = FVWR_URL + '?h=trae&pick=1&mode=' + encodeURIComponent(mode);
+    f.onload = () => {
+      /* 同源窗口：把查看器的 pickBack 再包一层——不依赖 opener，也一定
+         落进本页；回传成功后自动收起遮罩回到原页。 */
+      try {
+        const w = f.contentWindow;
+        if (w && typeof w.pickBack === 'function' && !w.__fvwrWrapped){
+          const orig = w.pickBack;
+          w.__fvwrWrapped = true;
+          w.pickBack = function(path){
+            try { orig.call(w, path); } catch(e){}
+            try { fvwrPickApply({type:'fvwr_pick', path:path, mode:mode, h:'trae'}); } catch(e){}
+            fvwrClosePick();
+          };
+        }
+      } catch(e){}
+    };
+    f.onerror = () => { fvwrClosePick(); try { window.open(f.src, 'fvwrPick'); } catch(e){} };
+    m.appendChild(bar); m.appendChild(f);
+    document.body.appendChild(m);
+    return true;
+  } catch(e){ return false; }
+}
+/* 打开公共查看器选路径：mode='ins' 选中即插入聊天输入框；
+   mode='newdir' 选中即回填「新建任务」工作目录。 */
+function fvwrOpen(mode){
+  fvwrEnsureChannel();              // 2.115：先补齐公共段，查看器不再弹「连接设置」
+  fvwrPickChanListen();             // 2.108：开查看器前(重)连选路径收帧频道
+  if (fvwrIframeOpen(mode)) return; // 2.115：优先同页内嵌
+  try {
     window.open(FVWR_URL + '?h=trae&pick=1&mode=' + encodeURIComponent(mode),
-                'fvwrPick');
+                'fvwrPick');        // 兜底：内嵌不可用才开新窗口
   } catch (e){ flash('⚠ 打开文件查看器失败'); }
 }
 
@@ -48,6 +127,7 @@ function fvwrPickApply(d){
     el.ent.value = (cur ? cur + ' ' : '') + d.path;
     flash('已插入路径', 'var(--green)');
   }
+  fvwrClosePick();       // 2.115：内嵌查看器选中后自动收起，回到原页
 }
 window.addEventListener('message', e => { fvwrPickApply(e && e.data); });   // 路① postMessage
 
@@ -63,8 +143,7 @@ function fvwrPickFrameBody(raw){
   try { return JSON.parse(body); } catch(e){ return null; }
 }
 function fvwrPickChanListen(){
-  let base = '';
-  try { base = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
+  const base = fvwrBaseChan();           // 2.115：记忆缺失时用宿主自家频道名兜底
   if (!base) return;                     // 无公共段：频道路不可用（postMessage 仍可用）
   const ch = base + 'INS';               // 选路径专用后缀，与查看器约定一致
   if (_fvwrInsWs){ try { _fvwrInsWs.close(); } catch(e){} }
@@ -136,8 +215,9 @@ bindTapNoBlur(el.urgent, () => {
         S.urgent ? 'var(--red)' : 'var(--gray)', 1500);
 });
 
-/* 2.72：📂 输入行按钮——打开公共查看器选路径（mode=ins）插入输入框 */
-el.bench.onclick = () => fvwrOpen('ins');
+/* 2.72：📂 输入行按钮——打开公共查看器选路径（mode=ins）插入输入框
+   2.115：改走 bindTapNoBlur（按下即响应），手机 tap 不再依赖 click 时序 */
+bindTapNoBlur(el.bench, () => fvwrOpen('ins'));
 
 /* —— 1.08：新建任务弹窗（对齐服务端 v1.10 TaskDlg 两态渲染；
    原入口并入——new_task_dir 链路服务端保留但本端不再发送） —— */
