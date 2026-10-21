@@ -64,22 +64,53 @@ importClass(android.webkit.WebChromeClient);
 //   （应用专属外部目录，**不需要任何权限**，而且电脑端能直接读）。
 //   以后任何异常都不用截图，我远程读这个文件就知道崩在哪一步。
 // ================================================================
-var 底座版本 = "v2.08";
+var 底座版本 = "v2.15";
 var 日志路径 = "";
+var 私有根 = "";
+try { 私有根 = String(context.getFilesDir().getAbsolutePath()); } catch (e) {}
+var 缓存文件 = 私有根 + "/最新.js";     // 热更脚本落点（APK 私有目录，只有本 App 能读写）
+var 健康文件 = 私有根 + "/健康.json";   // ★ v2.15：上一轮"跑起来没有"的体检记录，外壳靠它判坏版
 
 (function 定日志位() {
     try { 日志路径 = String(context.getExternalFilesDir(null)) + "/启动日志.txt"; } catch (e) {}
     if (!日志路径) { try { 日志路径 = String(context.getFilesDir().getAbsolutePath()) + "/启动日志.txt"; } catch (e2) {} }
 })();
 
+var 公共日志 = "";   // ★ v2.15：由本体把「痕迹目录」回填进来（之前直接读 痕迹目录 是读不到的——它在 本体() 里是局部变量，所以 v2.12 的公共日志其实一直没写出去）
 function 记(s) {
     var 行 = "[" + new Date().toLocaleString() + "] " + s + "\n";
     try { files.append(日志路径, 行); } catch (e) {}
     // ★ v2.12：同时写一份到公共痕迹目录 —— APK 私有目录（Android/data/...）电脑端和助手都读不到（EACCES），
     //   以前出白屏只能靠猜。现在远程直接读 /脚本/痕迹/软件痕迹/双站切换器/启动日志.txt。
     try {
-        if (typeof 痕迹目录 !== "undefined" && 痕迹目录) files.append(痕迹目录 + "启动日志.txt", 行);
+        if (公共日志) files.append(公共日志 + "启动日志.txt", 行);
     } catch (e2) {}
+}
+
+// ★ v2.15 体检记录：{版本, 成功, 阶段, 时间}
+//   外壳在 eval 之前先写"失败"，新版把界面真正建起来之后自己改"成功"。
+//   下一轮启动若看到"版本=X 且 成功≠true"→ 说明这次跑 X 是白屏/崩的 → 直接弃用，绝不重演。
+function 读健康() { try { return JSON.parse(files.read(健康文件)); } catch (e) { return null; } }
+function 写健康(o) { try { files.write(健康文件, JSON.stringify(o)); } catch (e) {} }
+
+// ★ v2.15 坏版名单：被判过"白屏病版"的版本号记在这里，之后不再自动下载它
+//   （否则外壳弃用 → 老版又下载回来 → 又白 → 死循环）。
+var 坏版文件 = 私有根 + "/坏版名单.json";
+function 记坏版(v) {
+    try {
+        var a = [];
+        try { a = JSON.parse(files.read(坏版文件)); } catch (e0) {}
+        if (!(a instanceof Array)) a = [];
+        if (a.indexOf(String(v)) < 0) a.push(String(v));
+        while (a.length > 20) a.shift();
+        files.write(坏版文件, JSON.stringify(a));
+    } catch (e) {}
+}
+function 是坏版(v) {
+    try {
+        var a = JSON.parse(files.read(坏版文件));
+        return !!(a instanceof Array && a.indexOf(String(v)) >= 0);
+    } catch (e) { return false; }
 }
 
 记("======== 启动 · 底座 " + 底座版本 + " ========");
@@ -89,9 +120,7 @@ function 记(s) {
 //      不会污染底座、也不会互相踩（踩了就会两套界面叠在一起，已在真机复现过）。
 //   ② 用返回值告诉外面"我接手了没有"，而不是用变量——变量会被新版的同名 var 覆盖。
 function 跑热更() {
-    var 缓存 = "";
-    try { 缓存 = String(context.getFilesDir().getAbsolutePath()) + "/最新.js"; }
-    catch (e) { 记("取私有目录失败：" + e); return false; }
+    var 缓存 = 缓存文件;
     try {
         if (!files.exists(缓存)) { 记("无热更缓存 → 用底座本体"); return false; }
         var s = files.read(缓存);
@@ -102,6 +131,21 @@ function 跑热更() {
             return false;
         }
         var 新 = m[1], 旧 = 底座版本.replace(/^v/, "");
+
+        // ★★ v2.15【外壳自愈·关键】上一轮跑这个版本时界面根本没建起来（健康.成功≠true）
+        //    ＝ 那是个"白屏病版"（v2.10/v2.11 就是）。直接判坏版、改名留证、弃用，
+        //    本次退回底座自带的那份（能亮的）。用户只会觉得"这次回到稍旧版"，
+        //    绝不会再被坏脚本锁死在白屏里反复开门。
+        var h = 读健康();
+        if (h && String(h.版本) === 新 && h.成功 !== true) {
+            记("★ 上一轮跑 v" + 新 + " 未成功（阶段=" + (h.阶段 || "?") + "）→ 判坏版，弃用");
+            记坏版(新);
+            try { files.rename(缓存, 私有根 + "/坏版_" + 新 + ".js"); }
+            catch (eR) { try { files.remove(缓存); } catch (eR2) {} }
+            写健康({ 版本: 新, 成功: false, 阶段: "已判坏版弃用", 时间: Date.now() });
+            return false;
+        }
+
         var a = 新.split("."), b = 旧.split(".");
         var 更大 = false;
         for (var i = 0; i < 3; i++) {
@@ -111,12 +155,17 @@ function 跑热更() {
         }
         记("热更缓存 v" + 新 + " / 底座 v" + 旧 + " / 更大=" + 更大 + " / " + s.length + "字");
         if (!更大 || s.length < 3000) { 记("不用热更 → 用底座本体"); return false; }
+
+        // 先记"失败"，新版把界面建起来后自己改成"成功"——中间炸了，下一轮就能认出来
+        写健康({ 版本: 新, 成功: false, 阶段: "eval前", 时间: Date.now() });
         eval(s);                       // ← 新版在这个函数作用域里整份跑完（含它自己的界面）
         记("热更完成：已按 v" + 新 + " 运行");
         return true;
     } catch (e) {
         记("★热更失败：" + e + " ｜" + (e && e.stack ? String(e.stack).split("\n")[0] : ""));
-        try { files.remove(缓存); } catch (e2) {}
+        try { files.rename(缓存, 私有根 + "/坏版_异常.js"); }
+        catch (e0) { try { files.remove(缓存); } catch (e2) {} }
+        写健康({ 版本: "", 成功: false, 阶段: "热更异常:" + e, 时间: Date.now() });
         return false;
     }
 }
@@ -125,7 +174,8 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v2.13";   // v2.13：白屏修根（初始化退回单 WebView，不再去找已被删掉的 webT/webW/webP）＋白屏看门狗（12秒说话）＋控件没建出来就删掉坏的热更缓存退回自带版＋日志双写公共痕迹目录
+var APP_VERSION = "v2.15";   // v2.15：★外壳自愈（健康.json 体检：上一轮白屏的版本下次开机直接弃用，外壳永不被坏脚本锁死）＋设置面板加「修复白屏」（一键弃用热更缓存、退回自带版）＋白屏看门狗自动重试并弹面板＋启动标记"运行来源"
+                             // v2.13：白屏修根（初始化退回单 WebView，不再去找已被删掉的 webT/webW/webP）＋白屏看门狗（12秒说话）＋控件没建出来就删掉坏的热更缓存退回自带版＋日志双写公共痕迹目录
                              // v2.09：治「点快捷方式一打开就弹回桌面」——后台自杀哨兵＋撞锁先问"它在不在前台"（后台的旧实例直接接管）＋让位不再挂 60 秒
                              // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
@@ -144,6 +194,17 @@ var 站点说明 = { T: "TRAE 网页版(AI)", W: "WorkBuddy 网页版", P: "任�
 var 私有目录 = "";
 try { 私有目录 = String(context.getFilesDir().getAbsolutePath()); } catch (e) {}
 
+// ★ v2.15：给外壳的体检记录（外壳启动时看它判"上一版是不是白屏病版"）
+//   成功＝界面真正建出来了（WebView 有、竖条有）；白屏病版（v2.10/v2.11）永远到不了这一步。
+function 记健康(成功, 阶段) {
+    try {
+        files.write(健康文件, JSON.stringify({
+            版本: APP_VERSION.replace(/^v/, ""), 成功: !!成功, 阶段: 阶段 || "",
+            页面OK: !!页面OK, 时间: Date.now()
+        }));
+    } catch (e) {}
+}
+
 // ★ v1.20：痕迹优先落规范位置（/脚本/痕迹/软件痕迹/双站切换器/）；
 //   没有"所有文件访问"权限时自动退回 APK 自己的私有目录——程序照样能用，绝不因此起不来。
 var 痕迹目录 = (function () {
@@ -158,6 +219,7 @@ var 痕迹目录 = (function () {
     }
     return 私有目录 + "/痕迹/";
 })();
+公共日志 = 痕迹目录;   // ★ v2.15：把痕迹目录交给外壳的 记()，公共日志这才真写得出去
 var 记事文件 = 痕迹目录 + "记事.json";
 var 状态文件 = 痕迹目录 + "状态.json";
 var 命令文件 = 痕迹目录 + "命令.txt";
@@ -206,11 +268,17 @@ function 检查更新(手动) {
             if (src.length < 3000 || src.indexOf("APP_VERSION") < 0) throw new Error("更新文件不正常");
             var v = 源里版本(src);
             if (!v) throw new Error("读不出版本号");
-            if (!版本更大(v, APP_VERSION)) {
+            if (是坏版(v)) {
+                说 = "跳过 v" + v + "（这个版本被判过白屏坏版）";
+                好 = true;
+                记("检查更新：" + 说);
+            } else if (!版本更大(v, APP_VERSION)) {
                 说 = "已是最新 " + APP_VERSION;
                 好 = true;
             } else {
                 files.write(新版缓存, src);
+                var 回 = files.read(新版缓存) || "";
+                if (String(回).length < 3000) throw new Error("写入校验失败");
                 说 = "新版 v" + v + " 已下载，下次打开自动生效";
                 好 = true;
                 最近备注 = "已下载新版 v" + v;
@@ -307,6 +375,7 @@ var 主XML =
     '      <text id="btn检查" text="检查更新" w="*" h="64px" marginTop="16px" textColor="#FFFFFF" gravity="center"/>' +
     '      <text id="btn清缓" text="清缓存重载" w="*" h="64px" marginTop="10px" textColor="#FFFFFF" gravity="center"/>' +
     '      <text id="btn复位" text="条位复位" w="*" h="64px" marginTop="10px" textColor="#FFFFFF" gravity="center"/>' +
+    '      <text id="btn修复" text="修复白屏（弃用热更缓存）" w="*" h="64px" marginTop="10px" textColor="#FFD54F" gravity="center"/>' +
     '      <text id="btn生效" text="重启应用（生效）" w="*" h="64px" marginTop="10px" textColor="#FFD54F" gravity="center"/>' +
     '      <text id="btn关设" text="关闭" w="*" h="64px" marginTop="10px" textColor="#FFFFFF" gravity="center"/>' +
     '      <text id="btn退出" text="退出应用" w="*" h="58px" marginTop="16px" textColor="#FF8A80" gravity="center"/>' +
@@ -375,6 +444,7 @@ function 配视(v, k) {
                 if (三视 && k !== 当前站) return;
                 页面OK = true;
                 最近备注 = 站点说明[当前站] + " 加载完成";
+                try { 记健康(true, "页面完成"); } catch (e) {}
                 落状态(true);
             },
             onReceivedError: function (view, errorCode, description, failingUrl) {
@@ -719,7 +789,7 @@ function 涂设置() {
     字号(ui.设址, 28);
     字号(ui.设更新, 32);
     字号(ui.设脚, 24);
-    [ui.btn检查, ui.btn清缓, ui.btn复位, ui.btn关设, ui.btn退出].forEach(function (b) {
+    [ui.btn检查, ui.btn清缓, ui.btn复位, ui.btn修复, ui.btn关设, ui.btn退出].forEach(function (b) {
         字号(b, 34);
         底(b, 13, android.graphics.Color.argb(255, 0x1C, 0x1C, 0x1C), "#60FFFFFF");
     });
@@ -744,6 +814,7 @@ function 绑设置() {
             try { ui.btn检查.on("click", function () { threads.start(function () { 检查更新(true); }); }); } catch (e) {}
             try { ui.btn清缓.on("click", function () { threads.start(清缓存重载); }); } catch (e) {}
             try { ui.btn复位.on("click", function () { threads.start(条位复位); }); } catch (e) {}
+            try { ui.btn修复.on("click", function () { threads.start(修复白屏); }); } catch (e) {}
             try { ui.btn关设.on("click", function () { 关设置(); }); } catch (e) {}
             try { ui.btn退出.on("click", function () { threads.start(确认退出); }); } catch (e) {}
             try { ui.btn生效.on("click", function () { threads.start(立即生效); }); } catch (e) {}
@@ -759,6 +830,31 @@ function 清缓存重载() {
     最近备注 = "清缓存重载";
     try { ui.run(function () { try { wv.loadUrl(站URL(当前站)); } catch (e) {} }); } catch (e) {}
     try { toast("已清缓存，正在重载"); } catch (e) {}
+}
+
+// ★ v2.15：一键修白屏 —— 热更版是"白屏病版"时，用户不用去系统设置清数据：
+//   点它 → 把 最新.js 改名留证 → 关掉应用 → 再打开就是 APK 自带版（能亮的），
+//   自带版随后会自动下载最新的好版本。
+function 修复白屏() {
+    关设置();
+    var 说 = "没有热更缓存（当前就是自带版本）";
+    try {
+        var 缓 = 私有目录 + "/最新.js";
+        if (files.exists(缓)) {
+            var v = 源里版本(files.read(缓));
+            try { files.rename(缓, 私有目录 + "/坏版_" + (v || "未知") + "_" + Date.now() + ".js"); }
+            catch (e1) { files.remove(缓); }
+            说 = "已弃用热更版 v" + (v || "?") + "，重新打开即是自带版本";
+        }
+    } catch (e) {}
+    if (!页面OK) 记坏版(APP_VERSION.replace(/^v/, ""));   // 真的是白屏才拉黑；误点（页面其实好的）只清缓存，不拉黑
+    try { 写健康({ 版本: "", 成功: false, 阶段: "手动修复", 时间: Date.now() }); } catch (e2) {}
+    最近备注 = 说;
+    记("手动修复：" + 说);
+    try { toast(说); } catch (e3) {}
+    sleep(800);
+    记事.意愿 = "换版"; 存记事();
+    用户退出("换版");
 }
 
 function 条位复位() {
@@ -880,6 +976,7 @@ function 落状态(立刻) {
     if (已让位) return;
     var s = {
         版本: APP_VERSION,
+        来源: (APP_VERSION.replace(/^v/, "") === String(底座版本).replace(/^v/, "") ? "自带" : "热更"),
         当前站: 当前站,
         当前URL: 站URL(当前站),
         页面OK: 页面OK,
@@ -1008,6 +1105,16 @@ try { ui.run(function () { try { 亮出(当前站); } catch (e) {} }); } catch (
 try { 开竖条(); } catch (e) {}
 落状态(true);
 
+// ★★ v2.15：给外壳报"健康"——界面真的建出来了才算数。
+//   白屏病版（v2.10/v2.11 那种 wv=null 的）永远走不到这一行 → 外壳下一轮开机就把它弃用。
+if (wv) {
+    try { 记健康(true, "界面已建"); } catch (e) {}
+    记("界面已建：wv=有 · 竖条=" + (条 ? "有" : "无") + " · 已向外壳报健康");
+} else {
+    try { 记健康(false, "界面已建但 WebView 为空"); } catch (e) {}
+    记("★界面已建但 WebView 为空 → 已向外壳报不健康");
+}
+
 // ★ v2.13：缓存自毁 —— 万一热更缓存本身是个"白屏病版"（v2.10/v2.11 那种控件建不出来的），
 //   光靠下一版覆盖有时来不及（用户看到的一直是白）。控件根本没建出来＝铁证，直接把缓存删掉，
 //   下次打开就退回 APK 自带的那份（能显示的），绝不把用户锁死在白屏里。
@@ -1016,19 +1123,44 @@ threads.start(function () {
         sleep(12000);
         if (已结束 || 已让位) return;
         if (页面OK) return;
+
+        // 第一段：12 秒还没出页面 —— 但凡有 WebView，先自己重载一次（多数是网络抖）
         var 因 = wv ? "页面 12 秒未加载完成" : "WebView 没建出来（界面只剩白底）";
         记("看门狗：" + 因 + " · 站=" + 当前站 + " · URL=" + 站URL(当前站));
-        try { toast("白屏自检：" + 因 + "（点 ↻ 重试）"); } catch (e) {}
         最近备注 = "看门狗：" + 因;
         落状态(true);
-        if (!wv) {
+        try { toast("白屏自检：" + 因); } catch (e) {}
+        if (wv) {
+            sleep(1000);
+            try { ui.run(function () { try { wv.loadUrl(站URL(当前站)); } catch (e) {} }); } catch (e) {}
+            记("看门狗：已自动重载一次");
+            try { toast("已自动重载一次…"); } catch (e) {}
+        } else {
+            // 控件根本建不出来＝铁证是坏版：立刻弃用，别等下一轮
+            记坏版(APP_VERSION.replace(/^v/, ""));
             try {
-                var 缓 = String(context.getFilesDir().getAbsolutePath()) + "/最新.js";
-                files.remove(缓);
-                记("看门狗：已删除热更缓存，下次打开退回 APK 自带版本");
-                try { toast("已清掉坏的热更缓存，下次打开用自带版本"); } catch (e0) {}
-            } catch (e1) { 记("看门狗：删缓存失败 " + e1); }
+                files.rename(新版缓存, 私有目录 + "/坏版_" + APP_VERSION.replace(/^v/, "") + "_" + Date.now() + ".js");
+            } catch (e1) {
+                try { files.remove(新版缓存); } catch (e2) {}
+            }
+            记("看门狗：已弃用热更缓存（下次打开退回 APK 自带版本）");
         }
+
+        // 第二段：再过 18 秒（累计 30 秒）还是白 —— 把设置面板顶上来，修复按钮就摆在他眼前
+        sleep(18000);
+        if (已结束 || 已让位 || 页面OK) return;
+        记("看门狗：累计 30 秒仍未出页面，弹出设置面板");
+        最近备注 = "白屏 30 秒：请点「修复白屏」";
+        try {
+            ui.run(function () {
+                try { ui.设标题.setText("网页没打开"); } catch (e) {}
+                try { ui.设站.setText("当前：" + 站点说明[当前站]); } catch (e) {}
+                try { ui.设更新.setText("点「修复白屏」退回自带版本，或点 ↻ 重试"); } catch (e) {}
+                try { ui.设更新.setTextColor(0xFFFFD54F); } catch (e) {}
+                try { ui.设罩.setVisibility(0); } catch (e) {}
+            });
+            设开 = true;
+        } catch (e) {}
     } catch (e) {}
 });
 
