@@ -258,6 +258,20 @@
   function 首载() {
     载角色();
     try { if (global.清单页 && global.清单页.载入主页) global.清单页.载入主页(true); } catch (e) { }
+    补设置(0);      // 0.20：连接建立后再补一次落盘设置（GitHub Pages 上只能走 WS）
+  }
+  function 补设置(次) {
+    var 选 = { 实例号: '' };
+    try { 选 = global.接口.选中服务器() || 选; } catch (e) { }
+    if (选.实例号 || 次 >= 3) return;
+    setTimeout(function () {
+      拉落地设置().then(function () {
+        var 新 = { 实例号: '' };
+        try { 新 = global.接口.选中服务器() || 新; } catch (e) { }
+        if (新.实例号) 重载数据();
+        else 补设置(次 + 1);
+      });
+    }, 3000);
   }
 
   // ---------------- 启动装配 ----------------
