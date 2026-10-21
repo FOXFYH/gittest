@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.37">
+<meta name="任务面板版本" content="0.38">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,21 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.37</title>
+<title>任务面板 · 手机遥控页 v0.38</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.37
+  版本：0.38
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.38（2026-10-21）按用户口径（22:52 / 22:54 / 22:55）：
+    ①**正文顶部小绿卡**——一行一项（`- [ ]`／`- [~]`／`- [x]`／`- [-]`），绿色小卡一行一张，
+      尾部状态灯可点改（未完成/进行中/已完成/放弃）；展开后附格式说明。
+      「正文超过 3000 字才拆下级卡片」只是提醒、不是硬性规定。
+    ②**卡片自己的大白话/正文可改**——展开后是输入框＋计数＋【保存修改】，与回复两框同款；改了涨版本号。
+    ③**没 AI 负责时回复两框收起**成一条「展开 AI 回复框」；已有 AI 负责则保持展开。
+    配合 清单页.js 0.18 / 接口.js 0.18 / 网页服务.py 0.22 / 清单存储.py 0.14。
   v0.37（2026-10-21）按用户口径：**展开后的文本一视同仁地装框**（「主卡的正文、主卡的大白话，那些也要有框」）——
     正文、大白话展开后与 AI 回复区的块同一套外观（浅底＋细边＋圆角＋小标题「正文」「大白话」）。
     仅改样式，不动数据与逻辑；配套 清单页.js 0.17 / 接口.js 0.17 不变。
@@ -440,6 +447,36 @@
   }
   .朗钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 26px;
     background: #eef4ff; border-color: #b8d0f5; color: #2b5fb0; }
+  /* 0.18 卡片自己的大白话/正文：可改输入框（学回复窗口的两个框；展开后才出现） */
+  .卡白输 { width: 100%; box-sizing: border-box; border: none; background: transparent;
+    resize: vertical; min-height: 44px; font-family: inherit; font-size: 13px; color: #334;
+    line-height: 1.5; padding: 0; }
+  .卡文输 { width: 100%; box-sizing: border-box; border: none; background: transparent;
+    resize: vertical; min-height: 76px; font-family: inherit; font-size: 14px; color: #1c2430;
+    line-height: 1.5; padding: 0; }
+  .卡文存 { display: none; margin: 2px 12px 6px; }
+  .卡.展开 .卡文存 { display: inline-block; }
+  /* 正文顶部的小绿卡（一行一张；尾部状态灯可点改） */
+  .绿卡区 { display: none; margin: 6px 12px 2px; }
+  .卡.展开 .绿卡区 { display: flex; flex-direction: column; gap: 4px; }
+  .绿卡区.空 { display: none !important; }
+  .绿卡行 { display: flex; align-items: center; gap: 8px; background: #eaf7ee;
+    border: 1px solid #bfe3cb; border-radius: 8px; padding: 5px 8px; }
+  .绿卡文 { flex: 1 1 auto; min-width: 0; font-size: 13px; color: #245c39; line-height: 1.45;
+    word-break: break-word; white-space: pre-wrap; }
+  .绿卡灯 { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; min-height: 24px; border-radius: 999px;
+    border: 1px solid #b7d6c2; background: #fff; color: #245c39; }
+  .绿卡灯.灯未 { background: #fff7e6; border-color: #f0d79b; color: #8a6112; }
+  .绿卡灯.灯行 { background: #e8f1ff; border-color: #a9c8f2; color: #24528f; }
+  .绿卡灯.灯完 { background: #def3e4; border-color: #8fd0a6; color: #1c6b36; }
+  .绿卡灯.灯弃 { background: #f2f3f5; border-color: #d8dbe1; color: #7a828e; }
+  .绿卡说明 { display: none; margin: 4px 12px 6px; font-size: 11px; color: #889; line-height: 1.5; }
+  .卡.展开 .绿卡说明 { display: block; }
+  /* 没 AI 负责时，回复两框收起成一条「展开 AI 回复框」；有 AI 则保持展开 */
+  .AI回复盒 { display: none; }
+  .AI回复盒.开 { display: block; }
+  .AI折条 { display: block; width: 100%; margin: 6px 0 2px; padding: 6px 8px; text-align: left;
+    font-size: 12px; background: #f4f7fb; border: 1px dashed #c9d6e6; border-radius: 8px; color: #2b5fb0; }
   /* 展开后的 AI 指派区 + 回复窗口（用户 2026-10-21 口径）：只在该卡展开时显示 */
   .AI区 { display: none; margin: 8px 12px 4px; border-top: 1px dashed #e2e8f2; padding-top: 6px; }
   .卡.展开 .AI区 { display: block; }
@@ -471,7 +508,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.37</span>
+    <span class="版本">v0.38</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -603,9 +640,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.37"></script>
-<script src="网页模块/卡片.js?v=0.37"></script>
-<script src="网页模块/清单页.js?v=0.37"></script>
-<script src="网页模块/面板.js?v=0.37"></script>
+<script src="网页模块/接口.js?v=0.38"></script>
+<script src="网页模块/卡片.js?v=0.38"></script>
+<script src="网页模块/清单页.js?v=0.38"></script>
+<script src="网页模块/面板.js?v=0.38"></script>
 </body>
 </html>
