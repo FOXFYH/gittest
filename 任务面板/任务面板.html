@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.32">
+<meta name="任务面板版本" content="0.33">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,19 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.32</title>
+<title>任务面板 · 手机遥控页 v0.33</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.32
+  版本：0.33
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.33（2026-10-21）三条用户口径：
+    ①**标题上限 30→60 字**（新建/加卡两个弹窗的 maxlength 与计数同步 0/60）；
+    ②**大白话文字收起时不显示、展开后才展示**；【朗读】钮仍常驻卡片上（想听随手点）；
+    ③**【细分】钮带数量**：有几个下级就写成「细分 (n)」。配合 清单页.js 0.14。
+    顶栏三处版本号＋meta＋四个 `?v=` 同步升 0.33。
   v0.32（2026-10-21）按用户口径给**每张卡加「版本号」**（「每张卡片都要有版本号的概念。一出来就是
     版本号为 1。有修改的话，就每次加 1。指的是标题、正文的修改」）：卡头在编号/世代号之后加**绿色
     `v<n>` 版本徽标**，详情弹层加「版本号」行；建卡即 v1，**标题或正文**每改一次 +1（只改大白话/
@@ -397,12 +402,12 @@
   .节点页新建 { margin-left: auto; flex: 0 0 auto; background: #2b5fb0; color: #fff; border-color: #2b5fb0; font-weight: 700; }
   /* 计数：新建时的标题/正文字数 */
   .字计 { font-size: 12px; color: #889; margin: 2px 0 0; text-align: right; }
-  /* 大白话（标题下的简述）＋朗读（浏览器本地 TTS） */
+  /* 大白话（标题下的简述）＋朗读（浏览器本地 TTS）——收起时**只显示【朗读】钮**；
+     大白话文字**展开后才展示**（用户 2026-10-21 口径：「那个朗读的大白话，在展开的时候才展示」）。 */
   .大白话行 { display: flex; align-items: flex-start; gap: 6px; padding: 4px 12px 2px; }
-  .大白话 { flex: 1 1 auto; min-width: 0; font-size: 13px; color: #334; line-height: 1.5;
-    white-space: pre-wrap; word-break: break-word;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .卡.展开 .大白话 { display: block; overflow: visible; -webkit-line-clamp: unset; }
+  .大白话 { display: none; }
+  .卡.展开 .大白话 { display: block; flex: 1 1 auto; min-width: 0; font-size: 13px; color: #334;
+    line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .朗钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 26px;
     background: #eef4ff; border-color: #b8d0f5; color: #2b5fb0; }
   /* 详情页等弹窗：底部按钮【恒定显示】（滚动不带走） */
@@ -421,7 +426,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.32</span>
+    <span class="版本">v0.33</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -469,10 +474,10 @@
       <button type="button" class="大类钮 选中" data-类="总管清单">总管清单</button>
       <button type="button" class="大类钮" data-类="系统清单">系统清单</button>
     </div>
-    <label class="字段" for="新建_标题">标题（≤30 字）</label>
-    <input id="新建_标题" type="text" autocomplete="off" maxlength="30" placeholder="如：2026-10 家务流水"
+    <label class="字段" for="新建_标题">标题（≤60 字）</label>
+    <input id="新建_标题" type="text" autocomplete="off" maxlength="60" placeholder="如：2026-10 家务流水"
            style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
-    <p id="新建_标题数" class="字计">0/30</p>
+    <p id="新建_标题数" class="字计">0/60</p>
     <label class="字段" for="新建_大白话">大白话简述（≤500 字，可在卡片上朗读）</label>
     <textarea id="新建_大白话" maxlength="500" placeholder="用日常话讲清这张卡要干什么"></textarea>
     <p id="新建_大白话数" class="字计">0/500</p>
@@ -490,10 +495,10 @@
 <div id="加卡弹窗" class="遮罩 隐藏">
   <div class="弹窗">
     <h3 id="加卡_题">新建任务</h3>
-    <label class="字段" for="加卡_标题">标题（≤30 字）</label>
-    <input id="加卡_标题" type="text" autocomplete="off" maxlength="30" placeholder="一句话说清这张卡要做什么"
+    <label class="字段" for="加卡_标题">标题（≤60 字）</label>
+    <input id="加卡_标题" type="text" autocomplete="off" maxlength="60" placeholder="一句话说清这张卡要做什么"
            style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
-    <p id="加卡_标题数" class="字计">0/30</p>
+    <p id="加卡_标题数" class="字计">0/60</p>
     <label class="字段" for="加卡_大白话">大白话简述（≤500 字，可在卡片上朗读）</label>
     <textarea id="加卡_大白话" maxlength="500" placeholder="用日常话讲清这张卡要干什么"></textarea>
     <p id="加卡_大白话数" class="字计">0/500</p>
@@ -553,9 +558,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.32"></script>
-<script src="网页模块/卡片.js?v=0.32"></script>
-<script src="网页模块/清单页.js?v=0.32"></script>
-<script src="网页模块/面板.js?v=0.32"></script>
+<script src="网页模块/接口.js?v=0.33"></script>
+<script src="网页模块/卡片.js?v=0.33"></script>
+<script src="网页模块/清单页.js?v=0.33"></script>
+<script src="网页模块/面板.js?v=0.33"></script>
 </body>
 </html>
