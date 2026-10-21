@@ -1,7 +1,10 @@
 /* ============================================================
  * 【任务面板】网页模块 · 接口.js
- * 版本：0.17
+ * 版本：0.18
  * 职责：网页版与服务器的通信层——由 fetch(/api/*) 改为 WebSocket（WS）请求层。
+ *   · 0.18（2026-10-21）新增 `绿卡状态(编号,项,状态)` → `green_state`（正文顶部小绿卡的状态灯：
+ *     未完成/进行中/已完成/放弃；服务端 0.22《清单存储》0.14，正文原文不动、不涨卡片版本号）；
+ *     新增 `清单改(编号,名称,详情,大白话)` → `list_edit`（清单卡也能改正文/大白话，改了涨版本号）。
  *   · 0.13（2026-10-20）新增 设置读取()/设置保存(设置)（settings_get/settings_set，网页设置落盘）。
  *   · 0.12（2026-10-20）按用户口径新增清单类型「系统清单」：`清单新建(名称,详情,类型)` 把类型发到
  *     `list_new.类型`（总管清单/系统清单，服务端 0.16）。
@@ -70,7 +73,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.17';
+  var 版本 = '0.18';
 
   /* ---------------- 可配置常量（页面里可覆盖） ----------------
    * §19 对外页面安全：**频道号当口令**——连接频道 = 固定前缀 + 口令，【源码不写死频道名】。
@@ -234,9 +237,21 @@
     'task_state':   { 路径: '/api/task_state',    方法: 'POST' },
     'task_del':     { 路径: '/api/task_del',      方法: 'POST' },
     'point_new':    { 路径: '/api/point_new',     方法: 'POST' },
+    'point_get':    { 路径: '/api/point_get',     方法: 'GET' },
+    'point_edit':   { 路径: '/api/point_edit',    方法: 'POST' },
     'point_toggle': { 路径: '/api/point_toggle',  方法: 'POST' },
     'point_del':    { 路径: '/api/point_del',     方法: 'POST' },
-    'call_ai':      { 路径: '/api/call_ai',       方法: 'POST' }
+    'call_ai':      { 路径: '/api/call_ai',       方法: 'POST' },
+    /* 0.18 补齐本机 HTTP 回退表（此前只有 WS 能走这些路由，本机调试一旦断 WS 就报「未知接口」） */
+    'list_edit':    { 路径: '/api/list_edit',     方法: 'POST' },
+    'card_hist':    { 路径: '/api/card_hist',     方法: 'GET' },
+    'move_targets': { 路径: '/api/move_targets',  方法: 'GET' },
+    'card_move':    { 路径: '/api/card_move',     方法: 'POST' },
+    'card_merge':   { 路径: '/api/card_merge',    方法: 'POST' },
+    'card_reply':   { 路径: '/api/card_reply',    方法: 'POST' },
+    'green_state':  { 路径: '/api/green_state',   方法: 'POST' },
+    'settings_get': { 路径: '/api/settings_get',  方法: 'GET' },
+    'settings_set': { 路径: '/api/settings_set',  方法: 'POST' }
   };
 
   /* ---------------- 小工具 ---------------- */
@@ -677,6 +692,13 @@
     清单改名: function (编号, 名称) {
       return 调用('list_rename', { no: 编号, 编号: 编号, 名称: 名称 || '' });
     },
+    // 清单改正文/大白话（清单卡也能像回复框一样改；改了涨版本号）
+    清单改: function (编号, 名称, 详情, 大白话) {
+      return 调用('list_edit', { no: 编号, 编号: 编号,
+                                  名称: (名称 === undefined ? null : 名称),
+                                  详情: (详情 === undefined ? null : 详情),
+                                  大白话: (大白话 === undefined ? null : 大白话) });
+    },
     // 清单删除（连同其任务与小点）
     清单删除: function (编号) { return 调用('list_del', { no: 编号, 编号: 编号 }); },
 
@@ -735,6 +757,10 @@
     卡片回复: function (编号, 大白话, 正文, 作者) {
       return 调用('card_reply', { no: 编号, 编号: 编号, 大白话: 大白话 || '',
                                   正文: 正文 || '', 作者: 作者 || '' });
+    },
+    // 正文顶部小绿卡的状态灯（未完成/进行中/已完成/放弃；正文原文不动、不涨版本号）
+    绿卡状态: function (编号, 项, 状态) {
+      return 调用('green_state', { no: 编号, 编号: 编号, 项: 项 || '', 状态: 状态 || '' });
     },
 
     /* 呼叫AI(节点, 执行者)：第一参数＝节点 `T…`（任务）/`P…`（小点/子任务），**每张卡片都能单独呼叫**；
