@@ -123,9 +123,9 @@ body.fmsg #msgs{padding-top:22px;}
    · ⚠ CDP 实测 TRAE 原版用户气泡实为【灰】rgba(115,115,115,.12) / 圆角 16px（非蓝），
      与老板「蓝色底纹」口径不同；此处按老板口径取蓝卡，AI 行仍扁平（照原版）。
    · 该规则与 .msg.pend 同选择器权重（2 类），.msg.pend 在其后（L226）覆盖同值属性，无冲突。 */
-/* 2.114（老板 2026-10-21 07:32）：「人类的总要描边，它自带的那个最底下的那个小尾巴不用描边」——
+/* 2.114（老板 2026-10-21 07:32）：「人类的总要描边」——
    · 人类消息卡（.msg.user）**恒描边**：实线 1px、浅蓝描边（与蓝底 var(--ubg)=#e8f1fb 同族，不抢眼）。
-   · 「自带的小尾巴」＝本端自带的**占位小卡片 .msg.pend** ⇒ **去描边**（见下方 .msg.pend）。 */
+   · 「自带的小尾巴」原判为占位卡并去描边 ⇒ **2.116 已按老板 15:34 新令改回虚线框**（见下方 .msg.pend）。 */
 .msg.user{background:var(--ubg); border-radius:8px; padding:5px 10px; border:1px solid #c3d8ee;}
 .msg .who{font-weight:400; font-size:13px; color:#171717; line-height:20px;}
 /* 2.09：时间戳改成「可被压缩、挤不下就省略号」——这样当 .who 一行放不下
@@ -243,9 +243,12 @@ body.fmsg #msgs{padding-top:22px;}
   overflow:visible;}
 /* ── 1.09：待确认占位气泡（空窗期反馈）── */
 /* 2.91：容器已扁平（.msg padding:0/圆角0）→ 占位卡自补内边距/圆角，保持卡样 */
-/* 2.114（老板 2026-10-21 07:32）：占位小卡片＝「自带的小尾巴」⇒ **不描边**（原虚线去掉） */
+/* 2.116（老板 2026-10-21 15:34）：「语言占位小卡片…应该加框，加虚线框」——
+   2.114「自带的小尾巴不用描边」**就此作废**：占位小卡片恢复**虚线框**（色取本项目既有虚线框
+   --qpanel 的 #b0bec5，与排队条同族）；.msg.user 的实线描边不动（老板 07:32 口径仍有效）。
+   失败态 .msg.pend.bad 仍以红虚线覆盖（见下方 border-color 规则）。 */
 .msg.pend{background:var(--ubg); border-radius:8px; padding:5px 10px;
-  border:none;}
+  border:1px dashed #b0bec5;}
 .msg.pend .body{color:#5a6b7d;}
 /* 2.93（老板 2026-10-20 07:10）：占位卡显示老板自己的时间，用【自己的元素】
    .ptm（与 .tm 规则分开），且常显。 */
