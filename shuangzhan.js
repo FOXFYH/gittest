@@ -73,7 +73,13 @@ var 日志路径 = "";
 })();
 
 function 记(s) {
-    try { files.append(日志路径, "[" + new Date().toLocaleString() + "] " + s + "\n"); } catch (e) {}
+    var 行 = "[" + new Date().toLocaleString() + "] " + s + "\n";
+    try { files.append(日志路径, 行); } catch (e) {}
+    // ★ v2.12：同时写一份到公共痕迹目录 —— APK 私有目录（Android/data/...）电脑端和助手都读不到（EACCES），
+    //   以前出白屏只能靠猜。现在远程直接读 /脚本/痕迹/软件痕迹/双站切换器/启动日志.txt。
+    try {
+        if (typeof 痕迹目录 !== "undefined" && 痕迹目录) files.append(痕迹目录 + "启动日志.txt", 行);
+    } catch (e2) {}
 }
 
 记("======== 启动 · 底座 " + 底座版本 + " ========");
@@ -119,7 +125,7 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v2.11";   // v2.11：【回滚 v2.10 的三 WebView】——它在本机 APK 环境里直接白屏（登录页打不开）；退回单 WebView，切站恢复 loadUrl
+var APP_VERSION = "v2.12";   // v2.12：【白屏真凶·已修】v2.11 只回滚了布局、没回滚初始化逻辑——ui.webT 在主布局里不存在→抛异常→视图.T=null→wv=null→从没 loadUrl→纯白；现在先认 ui.web；另加白屏看门狗 + 日志双写公共痕迹目录
                              // v2.09：治「点快捷方式一打开就弹回桌面」——后台自杀哨兵＋撞锁先问"它在不在前台"（后台的旧实例直接接管）＋让位不再挂 60 秒
                              // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
@@ -364,13 +370,15 @@ function 配视(v, k) {
     try {
         v.setWebViewClient(new JavaAdapter(WebViewClient, {
             onPageFinished: function (view, url) {
-                if (k !== 当前站) return;    // 后台那个站加载完，不干扰当前站的状态
+                // ★ v2.12：单视图共用同一个控件，k 会一直等于"第一次绑的那个站"；
+                //   所以单视图下不再按 k 过滤，否则当前站在别处时状态永远 false（假失败）。
+                if (三视 && k !== 当前站) return;
                 页面OK = true;
-                最近备注 = 站点说明[k] + " 加载完成";
+                最近备注 = 站点说明[当前站] + " 加载完成";
                 落状态(true);
             },
             onReceivedError: function (view, errorCode, description, failingUrl) {
-                if (k !== 当前站) return;
+                if (三视 && k !== 当前站) return;
                 页面OK = false;
                 最近备注 = "加载失败:" + description;
                 落状态(true);
@@ -382,10 +390,12 @@ function 配视(v, k) {
 
 // 只做两件事：把 k 站显示出来（别的藏起）、首次才 loadUrl。**切换本身不重载。**
 function 亮出(k) {
-    if (!三视) {                                  // 兜底单视图：只能覆盖式加载
+    if (!三视) {                                  // 单视图：覆盖式加载
         wv = 视图.T || wv;
-        if (!wv) return;
-        try { wv.loadUrl(站URL(k)); } catch (e) {}
+        if (!wv) { 记("亮出失败：wv 为空，站点 " + k); return; }
+        var u = 站URL(k);
+        记("单视图加载 " + k + " → " + u);
+        try { wv.loadUrl(u); } catch (e) { 记("loadUrl 异常：" + e); }
         return;
     }
     var 键 = ["T", "W", "P"];
@@ -404,19 +414,38 @@ function 亮出(k) {
     }
 }
 
-try {
-    if (ui.webT && ui.webW && ui.webP) {
-        三视 = true;
-        视图.T = 配视(ui.webT, "T");
-        视图.W = 配视(ui.webW, "W");
-        视图.P = 配视(ui.webP, "P");
-        try { ui.webW.setVisibility(4); ui.webP.setVisibility(4); } catch (e) {}   // 先把后台两站藏掉（首帧前完成，看不到闪）
-    } else if (ui.web) {
+// ★ v2.12【白屏真凶·已修】：v2.11 只回滚了布局，这里还留着 v2.10 的"先探测三视图"逻辑——
+//   主布局里已经没有 webT/webW/webP 了，`ui.webT` 在 APK 环境里直接抛异常 →
+//   整个 if 块崩进 catch → 视图.T 永远是 null → wv=null → 【从来没调过 loadUrl】→ 纯白屏，一声不响。
+//   现在顺序反过来：**先认单视图 ui.web（v2.09 验证过的那条路）**，只有真的拿到三个才走三视。
+(function 初始化视图() {
+    var 单 = null;
+    try { 单 = ui.web; } catch (e) { 单 = null; }
+    if (单) {
         三视 = false;
-        视图.T = 配视(ui.web, "T");
+        视图.T = 配视(单, "T");
+        wv = 视图.T;
+        记("视图初始化：单 WebView");
+        return;
     }
-} catch (e) { 三视 = false; 记("多视图初始化异常：" + e); }
-wv = 视图[当前站] || 视图.T;
+    // 没拿到 ui.web 才去问三视（每个都单独 try，绝不让探测失败拖垮初始化）
+    var a = null, b = null, c = null;
+    try { a = ui.webT; } catch (e1) {}
+    try { b = ui.webW; } catch (e2) {}
+    try { c = ui.webP; } catch (e3) {}
+    if (a && b && c) {
+        三视 = true;
+        视图.T = 配视(a, "T"); 视图.W = 配视(b, "W"); 视图.P = 配视(c, "P");
+        try { b.setVisibility(4); c.setVisibility(4); } catch (e4) {}
+        wv = 视图.T;
+        记("视图初始化：三 WebView");
+        return;
+    }
+    三视 = false;
+    记("视图初始化失败：ui.web / ui.webT 都拿不到");
+})();
+wv = wv || 视图[当前站] || 视图.T;
+if (!wv) { 布局异常 = (布局异常 ? 布局异常 + " ‖ " : "") + "WebView 没建出来"; }
 try { 设初始样式(); } catch (e) {}
 
 function 切站(k, 强制) {
@@ -964,12 +993,37 @@ try {
 if (布局异常) {
     最近备注 = 布局异常;
     try { toast("界面异常：" + String(布局异常).substring(0, 90)); } catch (e) {}
+    // ★ v2.12：如果是 WebView 根本没建出来，绝不许留一片白 —— 直接把设置卡片顶上来写明原因
+    try {
+        if (String(布局异常).indexOf("WebView") >= 0) {
+            ui.run(function () {
+                try { ui.设标题.setText("界面异常：网页控件没建出来"); } catch (e) {}
+                try { ui.设站.setText(String(布局异常).substring(0, 120)); } catch (e) {}
+                try { ui.设罩.setVisibility(0); } catch (e) {}
+            });
+        }
+    } catch (e) {}
 }
 try { ui.run(function () { try { 亮出(当前站); } catch (e) {} }); } catch (e) {}
 try { 开竖条(); } catch (e) {}
 落状态(true);
+
+// ★ v2.12：白屏看门狗 —— 用户铁律「触发必回音」：打开后 12 秒还没加载出页面，必须给个说法，不许一声不响白到底。
+threads.start(function () {
+    try {
+        sleep(12000);
+        if (已结束 || 已让位) return;
+        if (页面OK) return;
+        var 因 = wv ? "页面 12 秒未加载完成" : "WebView 没建出来（界面只剩白底）";
+        记("看门狗：" + 因 + " · 站=" + 当前站 + " · URL=" + 站URL(当前站));
+        try { toast("白屏自检：" + 因 + "（点 ↻ 重试）"); } catch (e) {}
+        最近备注 = "看门狗：" + 因;
+        落状态(true);
+    } catch (e) {}
+});
+
 检查更新();
-记("本体启动完成 · 当前站=" + 当前站 + " · 三视图=" + (三视 ? "是" : "否") + " · 布局异常=" + (布局异常 || "无"));
+记("本体启动完成 · 当前站=" + 当前站 + " · 三视图=" + (三视 ? "是" : "否") + " · wv=" + (wv ? "有" : "无") + " · 布局异常=" + (布局异常 || "无"));
 
 }   // ===== 本体() 结束 =====
 
