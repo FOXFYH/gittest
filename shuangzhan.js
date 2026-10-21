@@ -119,7 +119,9 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "双站切换器";
-var APP_VERSION = "v2.08";   // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
+var APP_VERSION = "v2.10";   // v2.10：三站各一个常驻 WebView —— 切换只换"谁可见"，不再 loadUrl，页面状态/滚动位置/输入内容全保留；顺手补 记事.json 漏存 P 站
+                             // v2.09：治「点快捷方式一打开就弹回桌面」——后台自杀哨兵＋撞锁先问"它在不在前台"（后台的旧实例直接接管）＋让位不再挂 60 秒
+                             // v2.00：底座式热更（同引擎 eval，去掉 execScriptFile+exit 的一闪而过）；启动日志落外部目录。
 
 // ★ 两个网站的地址。以后换地址只改这两行（或用 记事.json 的 站点 字段覆盖，不用改代码）。
 var 默认站点 = {
@@ -225,7 +227,7 @@ var 记事 = { 当前站: "T", 条X: -1, 条Y: -1, 意愿: "跑", 站点: {} };
     try {
         var j = JSON.parse(files.read(记事文件));
         if (j && typeof j === "object") {
-            if (j.当前站 === "T" || j.当前站 === "W") 记事.当前站 = j.当前站;
+            if (j.当前站 === "T" || j.当前站 === "W" || j.当前站 === "P") 记事.当前站 = j.当前站;   // ★ v2.10：补 P（v2.07 加第三站时漏了，重启后回不到任务面板）
             if (typeof j.条X === "number") 记事.条X = j.条X;
             if (typeof j.条Y === "number") 记事.条Y = j.条Y;
             if (j.站点 && typeof j.站点 === "object") 记事.站点 = j.站点;
@@ -253,9 +255,15 @@ threads.start(function () {
     try {
         var j = JSON.parse(files.read(状态文件));
         if (!(j && j.心跳 && Date.now() - j.心跳 < 5000)) return;
+        // ★ v2.09：活着的那个【不在前台】＝后台空壳（以前就是它让你"一点快捷方式就弹回桌面"）。
+        //   现在反过来：本实例是用户刚点的，直接接管，并叫它退位。
+        if (j.前台 !== 1) {
+            try { files.write(命令文件, JSON.stringify({ 命令: "退位" })); } catch (e0) {}
+            return;
+        }
         sleep(1500);
         var j2 = JSON.parse(files.read(状态文件));
-        if (j2 && j2.心跳 && Date.now() - j2.心跳 < 5000) {
+        if (j2 && j2.心跳 && Date.now() - j2.心跳 < 5000 && j2.前台 === 1) {
             已让位 = true;
             try { activity.finish(); } catch (e2) {}
             exit();
@@ -278,7 +286,12 @@ var 布局异常 = "";
 
 var 主XML =
     '<frame>' +
-    '<webview id="web" w="*" h="*"/>' +
+    // ★ v2.10：三个 WebView 常驻叠放，切站只改"谁可见"（不再 loadUrl → 不刷新、不丢滚动/输入）
+    '<frame id="web根" w="*" h="*">' +
+    '  <webview id="webT" w="*" h="*"/>' +
+    '  <webview id="webW" w="*" h="*"/>' +
+    '  <webview id="webP" w="*" h="*"/>' +
+    '</frame>' +
     '<frame id="设罩" w="*" h="*">' +
     '  <vertical w="*" h="*" gravity="center">' +
     '    <vertical id="设卡" w="700px" h="wrap_content">' +
@@ -333,28 +346,80 @@ try {
     try { alert("界面异常（已降级为简版）", 布局异常); } catch (e3) {}
 }
 
-var wv = ui.web;
-try { 设初始样式(); } catch (e) {}
-var settings = wv.getSettings();
-settings.setJavaScriptEnabled(true);   // 网页要跑自己的逻辑
-settings.setDomStorageEnabled(true);   // ★ 登录态在 localStorage，不开就每次重登
-settings.setUseWideViewPort(true);     // 跟随网页 viewport
-settings.setLoadWithOverviewMode(true);
-settings.setSupportZoom(false);
-settings.setTextZoom(100);             // 不跟系统字体缩放，免得排版乱
+// ★ v2.10：三个 WebView 常驻（切站只换可见性，不重载）；主布局起不来时自动退回单 WebView 老路
+var 视图 = { T: null, W: null, P: null };
+var 已载 = { T: false, W: false, P: false };
+var 三视 = false;
+var wv = null;              // 当前站的 WebView（全文沿用这个名字）
 
-wv.setWebViewClient(new JavaAdapter(WebViewClient, {
-    onPageFinished: function (view, url) {
-        页面OK = true;
-        最近备注 = "页面加载完成";
-        落状态(true);
-    },
-    onReceivedError: function (view, errorCode, description, failingUrl) {
-        页面OK = false;
-        最近备注 = "加载失败:" + description;
-        落状态(true);
+function 配视(v, k) {
+    if (!v) return null;
+    try {
+        var s = v.getSettings();
+        s.setJavaScriptEnabled(true);   // 网页要跑自己的逻辑
+        s.setDomStorageEnabled(true);   // ★ 登录态在 localStorage，不开就每次重登
+        s.setUseWideViewPort(true);     // 跟随网页 viewport
+        s.setLoadWithOverviewMode(true);
+        s.setSupportZoom(false);
+        s.setTextZoom(100);             // 不跟系统字体缩放，免得排版乱
+    } catch (e) {}
+    try {
+        v.setWebViewClient(new JavaAdapter(WebViewClient, {
+            onPageFinished: function (view, url) {
+                if (k !== 当前站) return;    // 后台那个站加载完，不干扰当前站的状态
+                页面OK = true;
+                最近备注 = 站点说明[k] + " 加载完成";
+                落状态(true);
+            },
+            onReceivedError: function (view, errorCode, description, failingUrl) {
+                if (k !== 当前站) return;
+                页面OK = false;
+                最近备注 = "加载失败:" + description;
+                落状态(true);
+            }
+        }));
+    } catch (e) {}
+    return v;
+}
+
+// 只做两件事：把 k 站显示出来（别的藏起）、首次才 loadUrl。**切换本身不重载。**
+function 亮出(k) {
+    if (!三视) {                                  // 兜底单视图：只能覆盖式加载
+        wv = 视图.T || wv;
+        if (!wv) return;
+        try { wv.loadUrl(站URL(k)); } catch (e) {}
+        return;
     }
-}));
+    var 键 = ["T", "W", "P"];
+    for (var i = 0; i < 键.length; i++) {
+        var v = 视图[键[i]];
+        if (!v) continue;
+        try { v.setVisibility(键[i] === k ? 0 : 4); } catch (e) {}   // 0=VISIBLE 4=INVISIBLE（INVISIBLE 保留布局，切回瞬间出图）
+    }
+    wv = 视图[k] || wv;
+    if (!已载[k]) {
+        已载[k] = true;
+        记("首次加载 " + k + " → " + 站URL(k));
+        try { wv.loadUrl(站URL(k)); } catch (e) {}
+    } else {
+        页面OK = true;                            // 早就加载好了，不会再触发 onPageFinished
+    }
+}
+
+try {
+    if (ui.webT && ui.webW && ui.webP) {
+        三视 = true;
+        视图.T = 配视(ui.webT, "T");
+        视图.W = 配视(ui.webW, "W");
+        视图.P = 配视(ui.webP, "P");
+        try { ui.webW.setVisibility(4); ui.webP.setVisibility(4); } catch (e) {}   // 先把后台两站藏掉（首帧前完成，看不到闪）
+    } else if (ui.web) {
+        三视 = false;
+        视图.T = 配视(ui.web, "T");
+    }
+} catch (e) { 三视 = false; 记("多视图初始化异常：" + e); }
+wv = 视图[当前站] || 视图.T;
+try { 设初始样式(); } catch (e) {}
 
 function 切站(k, 强制) {
     关设置();
@@ -364,9 +429,12 @@ function 切站(k, 强制) {
     存记事();
     页面OK = false;
     最近备注 = "切到" + 站点说明[k];
-    try { ui.run(function () { 画当前站(); }); } catch (e) {}   // 切完立刻把"更深的那颗"换过去
+    // ★ v2.10：不再 loadUrl —— 三站各自常驻，切过去只是"把它显示出来"，页面原封不动（滚动位置、输入框、播放进度全在）
     try {
-        ui.run(function () { try { wv.loadUrl(站URL(k)); } catch (e) {} });
+        ui.run(function () {
+            try { 亮出(k); } catch (e) {}
+            try { 画当前站(); } catch (e) {}
+        });
     } catch (e) {}
     拉回自己();
     落状态(true);
@@ -701,6 +769,10 @@ try { 活动类 = String(activity.getClass().getName()); } catch (e) {}
 function 包名() {
     try { return context.getPackageName(); } catch (e) { return ""; }
 }
+// ★ v2.09：我的窗口还在不在前台（纯 Activity 方法，不依赖无障碍）
+function 我在前台() {
+    try { return !!activity.hasWindowFocus(); } catch (e) { return true; }
+}
 function 拉回自己() {
     if (已结束 || 已让位) return;
     var 包 = 包名();
@@ -737,16 +809,41 @@ function 让位退出() {
     已让位 = true;
     try { 隐藏条(); } catch (e) {}
     try { activity.finish(); } catch (e) {}
-    for (var i = 0; i < 60; i++) {          // 挂住等 AutoX 随 Activity 销毁终止本脚本（绝不主动 exit，见 TRAE v1.11 教训）
-        try { sleep(1000); } catch (e) { return; }
-    }
-    try { exit(); } catch (e) {}            // 兜底（正常走不到）
+    // ★ v2.09：原来在这里「挂 60 秒」等 AutoX 收尸 —— 那 60 秒就是标准空壳
+    //   （没窗口、引擎还活着），下次点快捷方式撞上它 → 新实例认输 → 一眼弹回桌面。
+    try { sleep(1200); } catch (e) {}
+    try { exit(); } catch (e) {}
+}
+// ★ v2.09：收摊——真退出（给"后台空壳"和"被接管的旧实例"用）
+function 收摊退出(原因) {
+    if (已让位) return;
+    已结束 = true;
+    最近备注 = "收摊：" + 原因;
+    try { 落状态(true); } catch (e) {}
+    已让位 = true;
+    try { 隐藏条(); } catch (e) {}
+    try { activity.finish(); } catch (e) {}
+    try { sleep(400); } catch (e) {}
+    try { exit(); } catch (e) {}
 }
 
+// ★ v2.09：撞见"另一个我"时先问一句：它在前台吗？
+//   在前台＝真窗口（用户就是想切回它）→ 提它上来，本实例让位；
+//   不在前台＝后台空壳 → 本实例（用户刚点的）直接接管，并给它下退位令。
+function 别的我在前台() {
+    try {
+        var j = JSON.parse(files.read(状态文件));
+        return !!(j && j.心跳 && (Date.now() - j.心跳) < 6000 && j.前台 === 1);
+    } catch (e) { return false; }
+}
 if (_别的我() >= 1) {
-    try { files.write(命令文件, JSON.stringify({ 命令: "唤前" })); } catch (e) {}   // 让活实例真提前台
-    try { toast("「" + APP_NAME + "」已在运行，已切回"); } catch (e) {}
-    让位退出();
+    if (别的我在前台()) {
+        try { files.write(命令文件, JSON.stringify({ 命令: "唤前" })); } catch (e) {}
+        try { toast("「" + APP_NAME + "」已在运行，已切回"); } catch (e) {}
+        让位退出();
+    } else {
+        try { files.write(命令文件, JSON.stringify({ 命令: "退位" })); } catch (e) {}
+    }
 }
 
 // ================================================================
@@ -764,6 +861,7 @@ function 落状态(立刻) {
         布局异常: 布局异常,
         意愿: 已结束 ? "退出" : "跑",
         心跳: Date.now(),
+        前台: 我在前台() ? 1 : 0,   // ★ v2.09：新一代判"空壳"靠它——后台的旧实例不再能挡住新实例
         备注: 最近备注
     };
     try { files.write(状态文件, JSON.stringify(s)); } catch (e) {}
@@ -783,6 +881,7 @@ function 查命令() {
     else if (c === "开W" || c === "W") { threads.start(function () { 切站("W", true); }); }
     else if (c === "开P" || c === "P") { threads.start(function () { 切站("P", true); }); }
     else if (c === "唤前") { threads.start(function () { 拉回自己(); }); }
+    else if (c === "退位" || c === "让位") { threads.start(function () { 收摊退出("被新实例接管"); }); }
     else if (c === "刷新") { threads.start(function () { 刷新页(); }); }
     else if (c === "设置") { threads.start(function () { 开设置(); }); }
     else if (c === "关设") { threads.start(function () { 关设置(); }); }
@@ -793,6 +892,32 @@ function 查命令() {
 
 setInterval(function () { 落状态(false); }, 5000);   // 心跳：壳靠"心跳断没断"判断要不要拉新
 setInterval(function () { try { 查命令(); } catch (e) {} }, 1000);
+
+// ================================================================
+// ★ v2.09：后台自杀哨兵 —— 根治「点快捷方式一打开就弹回桌面」
+//   病因：退到桌面后【人没了、引擎还活着】，还照样跳心跳 → 下次点快捷方式时
+//        新实例误判"老的在跑" → 认输退出 → 你只看到窗口闪一下回桌面。
+//   治法：没窗口 / 长时间不在前台 → 自己真退出，空壳活不过十几秒。
+// ================================================================
+var 离台刻 = 0;
+threads.start(function () {
+    var 不可见限 = 15000;
+    while (true) {
+        try {
+            if (已让位 || 已结束) return;
+            var 结束 = false;
+            try { 结束 = !!activity.isFinishing(); } catch (e1) { 结束 = true; }
+            if (结束) { 收摊退出("窗口已销毁"); return; }
+            if (我在前台()) 离台刻 = 0;
+            else if (!离台刻) 离台刻 = Date.now();
+            if (离台刻 && (Date.now() - 离台刻) > 不可见限) {
+                收摊退出("不在前台 " + Math.round((Date.now() - 离台刻) / 1000) + " 秒");
+                return;
+            }
+        } catch (e) {}
+        sleep(1000);
+    }
+});
 
 // ================================================================
 // 六、返回键与退出
@@ -842,11 +967,11 @@ if (布局异常) {
     最近备注 = 布局异常;
     try { toast("界面异常：" + String(布局异常).substring(0, 90)); } catch (e) {}
 }
-try { wv.loadUrl(站URL(当前站)); } catch (e) {}
+try { ui.run(function () { try { 亮出(当前站); } catch (e) {} }); } catch (e) {}
 try { 开竖条(); } catch (e) {}
 落状态(true);
 检查更新();
-记("本体启动完成 · 当前站=" + 当前站 + " · 布局异常=" + (布局异常 || "无"));
+记("本体启动完成 · 当前站=" + 当前站 + " · 三视图=" + (三视 ? "是" : "否") + " · 布局异常=" + (布局异常 || "无"));
 
 }   // ===== 本体() 结束 =====
 
