@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.36">
+<meta name="任务面板版本" content="0.37">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,17 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.36</title>
+<title>任务面板 · 手机遥控页 v0.37</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.36
+  版本：0.37
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.37（2026-10-21）按用户口径：**展开后的文本一视同仁地装框**（「主卡的正文、主卡的大白话，那些也要有框」）——
+    正文、大白话展开后与 AI 回复区的块同一套外观（浅底＋细边＋圆角＋小标题「正文」「大白话」）。
+    仅改样式，不动数据与逻辑；配套 清单页.js 0.17 / 接口.js 0.17 不变。
   v0.36（2026-10-21）按用户口径：**展开后的面板加「AI 指派区 + 回复窗口」**——已呼叫 AI 的卡，
     展开后显示交给哪台服务器（昵称）/哪个对话（昵称）、终身号、交付时间、交付状态；
     下方给一个回复窗口：大白话总结（≤500 字）+ 正文（≤1 万字），带字数计数与提交。
@@ -401,12 +404,19 @@
   .卡.完成 .卡标题 { text-decoration: line-through; color: #889; }
   /* 标题占两行位置；手动【展开 ▾】后取消截断 */
   .卡.展开 .卡标题 { display: block; overflow: visible; -webkit-line-clamp: unset; }
-  /* 正文框（0.21：默认【收起】，点【展开】才展示；展开后 .卡.展开 .正文框 解除隐藏） */
+  /* 正文框（0.21：默认【收起】，点【展开】才展示；展开后 .卡.展开 .正文框 解除隐藏）
+     0.37：与 AI 回复区的「大白话总结 / 正文」**一视同仁**，展开后也装进同样的框（浅底＋细边＋圆角＋小标题） */
   .正文框 {
     display: none; flex: 0 0 auto; font-size: 14px; color: #1c2430;
     padding: 6px 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
   }
-  .卡.展开 .正文框 { display: block; }
+  .卡.展开 .正文框 {
+    display: block; margin: 8px 12px 4px; padding: 8px 10px;
+    background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px;
+  }
+  .卡.展开 .正文框::before {
+    content: '正文'; display: block; font-size: 12px; font-weight: 700; color: #2b5fb0; margin-bottom: 2px;
+  }
   /* 下级页面（0.21 细分＝跳新页面，像进新文件夹） */
   #节点页 .区 { margin-bottom: 0; }
   .节点页头 {
@@ -421,8 +431,13 @@
      大白话文字**展开后才展示**（用户 2026-10-21 口径：「那个朗读的大白话，在展开的时候才展示」）。 */
   .大白话行 { display: flex; align-items: flex-start; gap: 6px; padding: 4px 12px 2px; }
   .大白话 { display: none; }
+  /* 0.37：大白话展开后也装框——与 AI 回复区的块同一套外观（浅底＋细边＋圆角＋小标题） */
   .卡.展开 .大白话 { display: block; flex: 1 1 auto; min-width: 0; font-size: 13px; color: #334;
-    line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+    background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 8px 10px; }
+  .卡.展开 .大白话::before {
+    content: '大白话'; display: block; font-size: 12px; font-weight: 700; color: #2b5fb0; margin-bottom: 2px;
+  }
   .朗钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 26px;
     background: #eef4ff; border-color: #b8d0f5; color: #2b5fb0; }
   /* 展开后的 AI 指派区 + 回复窗口（用户 2026-10-21 口径）：只在该卡展开时显示 */
@@ -456,7 +471,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.36</span>
+    <span class="版本">v0.37</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -588,9 +603,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.36"></script>
-<script src="网页模块/卡片.js?v=0.36"></script>
-<script src="网页模块/清单页.js?v=0.36"></script>
-<script src="网页模块/面板.js?v=0.36"></script>
+<script src="网页模块/接口.js?v=0.37"></script>
+<script src="网页模块/卡片.js?v=0.37"></script>
+<script src="网页模块/清单页.js?v=0.37"></script>
+<script src="网页模块/面板.js?v=0.37"></script>
 </body>
 </html>
