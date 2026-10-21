@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.35">
+<meta name="任务面板版本" content="0.36">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,19 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.35</title>
+<title>任务面板 · 手机遥控页 v0.36</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.35
+  版本：0.36
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.36（2026-10-21）按用户口径：**展开后的面板加「AI 指派区 + 回复窗口」**——已呼叫 AI 的卡，
+    展开后显示交给哪台服务器（昵称）/哪个对话（昵称）、终身号、交付时间、交付状态；
+    下方给一个回复窗口：大白话总结（≤500 字）+ 正文（≤1 万字），带字数计数与提交。
+    配合 清单页.js 0.17 / 接口.js 0.17 / 网页服务.py 0.21 / 清单存储.py 0.13。
+    顶栏三处版本号＋meta＋四个 `?v=` 同步升 0.36。
   v0.35（2026-10-21）两条用户口径：
     ①详情页太浪费 → **改名【属性】**，短字段合并成一行（编号/版本/类型、状态/卡片状态、父节点/所属任务）；
     ②属性页提供**历史版本查询**：新卡各版 + **合并前旧卡的分支**（按旧卡号切换查看）。
@@ -420,6 +425,21 @@
     line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .朗钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 26px;
     background: #eef4ff; border-color: #b8d0f5; color: #2b5fb0; }
+  /* 展开后的 AI 指派区 + 回复窗口（用户 2026-10-21 口径）：只在该卡展开时显示 */
+  .AI区 { display: none; margin: 8px 12px 4px; border-top: 1px dashed #e2e8f2; padding-top: 6px; }
+  .卡.展开 .AI区 { display: block; }
+  .AI题 { font-size: 12px; font-weight: 700; color: #2b5fb0; margin: 8px 0 4px; }
+  .AI行 { display: flex; gap: 8px; font-size: 12px; line-height: 1.6; }
+  .AI名 { flex: 0 0 112px; color: #889; }
+  .AI值 { flex: 1 1 auto; color: #1c2430; word-break: break-word; }
+  .AI块 { margin: 4px 0 6px; background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px 8px; }
+  .AI块 .AI名 { margin-bottom: 2px; }
+  .AI块 .AI值 { white-space: pre-wrap; }
+  .AI输 { width: 100%; font-family: inherit; font-size: 14px; border: 1px solid #c4ccd8;
+    border-radius: 8px; padding: 8px; min-height: 64px; }
+  .AI输长 { min-height: 120px; }
+  .AI计 { display: block; text-align: right; font-size: 11px; color: #889; margin: 2px 0 6px; }
+  .AI提 { display: block; margin: 6px 0 2px; }
   /* 详情页等弹窗：底部按钮【恒定显示】（滚动不带走） */
   .弹窗底 { position: sticky; bottom: -16px; margin-top: 16px; padding: 10px 0;
     background: #fff; box-shadow: 0 -6px 10px rgba(0,0,0,.05); }
@@ -436,7 +456,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.35</span>
+    <span class="版本">v0.36</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -568,9 +588,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.35"></script>
-<script src="网页模块/卡片.js?v=0.35"></script>
-<script src="网页模块/清单页.js?v=0.35"></script>
-<script src="网页模块/面板.js?v=0.35"></script>
+<script src="网页模块/接口.js?v=0.36"></script>
+<script src="网页模块/卡片.js?v=0.36"></script>
+<script src="网页模块/清单页.js?v=0.36"></script>
+<script src="网页模块/面板.js?v=0.36"></script>
 </body>
 </html>
