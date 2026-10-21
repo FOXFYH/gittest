@@ -1,6 +1,6 @@
 /* ============================================================
  * 【任务面板】网页模块 · 面板.js
- * 版本：0.19
+ * 版本：0.20
  * 职责：页面【装配层】——《软件架构设计》§6 手机网页版。
  *   · 顶栏：左【新建】【返回主页】、中题名+【网页版版本（唯一）】+角色、右【设置】。
  *   · 【设置】菜单：收纳 **服务器选择**（含在线/离线小标）＋**口令**钮＋**版本**（「网页版 v… | 服务器 v…」）。
@@ -11,6 +11,10 @@
  *     本层只在首载时调 `清单页.载入主页()`、切服务器后调 `清单页.重载()`、并把 `提示` 借给它用。
  * 说明：纯 DOM，不引外部 CDN。依赖：接口.js、卡片.js、清单页.js（须先加载）。
  * 维护记录：
+ *   · 0.20（2026-10-20）按用户口径：**设置项自动落盘、不随版本升级清理**（「设置这个按钮里面的，
+ *     保存的项目要自动落盘，不随版本换或升级而清理」）——装配时先 `接口.设置读取()` 把服务端
+ *     使用痕迹里存的 口令/服务器选择 补回本地（本地没有才用），切换服务器/确认口令后 `保存设置()`
+ *     自动写回（服务端 `settings_set`，落 任务面板配置.json 的 `网页设置`）。
  *   · 0.19（2026-10-20）**配合「单排按钮 + 展开看正文 + 细分跳页」**（用户 2026-10-20 口径）：
  *     页面主体改由 `清单页.js` 0.03 承载（按钮排一行；【展开】在卡内展示正文；【细分】整页切到
  *     该卡的下级页面；新建填标题≤100＋正文≤10000）；本层装配逻辑不变。顶栏三处版本号与 <meta>、
@@ -42,7 +46,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.19';
+  var 版本 = '0.20';
   var 提示定时 = null;
 
   function $(id) { return document.getElementById(id); }
@@ -165,6 +169,7 @@
       提示('已切换到服务器 ' + (名 || v));
     }
     画服务器();
+    保存设置();
     重载数据();
   }
   function 重载数据() {
@@ -181,6 +186,49 @@
       画服务器();
     }, 5000);
     框.addEventListener('change', 切服务器);
+  }
+
+  // ---------------- 设置落盘（0.20：不随版本升级清理；服务端存 使用痕迹\配置文件） ----------------
+  function 保存设置() {
+    if (!global.接口 || typeof global.接口.设置保存 !== 'function') return;
+    var 口 = '';
+    try { 口 = global.接口.读取口令 ? (global.接口.读取口令() || '') : ''; } catch (e) { }
+    var 服 = { 实例号: '', 名称: '' };
+    try { 服 = global.接口.选中服务器() || 服; } catch (e) { }
+    global.接口.设置保存({ 口令: 口, 服务器: 服 })['catch'](function () { });
+  }
+  function 应用设置(设) {
+    设 = 设 || {};
+    var 口 = String(设.口令 || '');
+    var 本地口 = '';
+    try { 本地口 = global.接口.读取口令 ? (global.接口.读取口令() || '') : ''; } catch (e) { }
+    if (口 && !本地口) { try { global.接口.设置口令(口); } catch (e) { } }
+    var 服 = 设.服务器 || null;
+    if (服 && 服.实例号) {
+      var 现 = { 实例号: '' };
+      try { 现 = global.接口.选中服务器() || 现; } catch (e) { }
+      if (!现.实例号) { try { global.接口.设置服务器(服.实例号, 服.名称 || ''); } catch (e) { } }
+    }
+    画服务器();
+  }
+  function 拉落地设置() {
+    // ① 同源 http(s)（本机/局域网打开）→ 直接 HTTP 读盘，无需口令即可取回
+    var 同源 = (location.protocol === 'http:' || location.protocol === 'https:')
+      && !/github\.io$/i.test(location.hostname);
+    if (同源 && typeof global.fetch === 'function') {
+      return global.fetch('/api/settings_get?ts=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (j && j.ok) 应用设置(j.设置); })
+        ['catch'](function () { return 走WS(); });
+    }
+    return 走WS();
+
+    function 走WS() {
+      if (!global.接口 || typeof global.接口.设置读取 !== 'function') return Promise.resolve();
+      return global.接口.设置读取().then(function (r) {
+        应用设置((r && r.设置) || {});
+      })['catch'](function () { });
+    }
   }
 
   // ---------------- 口令（§19 首登填、本地缓存；频道 = 前缀 + 口令，运行时拼） ----------------
@@ -202,7 +250,8 @@
     if (!v) { 提示('请输入口令'); return; }
     关口令();
     try { global.接口.设置口令(v); } catch (e) { }
-    首载();
+    保存设置();
+    拉落地设置().then(首载);
   }
 
   // ---------------- 首载（口令就绪后载入主页） ----------------
@@ -225,12 +274,16 @@
     }
     var 需 = true;
     try { 需 = !!(global.接口.需要口令 && global.接口.需要口令()); } catch (e) { 需 = true; }
-    if (需) {
-      if ($('角色')) $('角色').textContent = '未连接';
-      开口令(true);
-    } else {
-      首载();
-    }
+    拉落地设置().then(function () {
+      var 还缺 = 需;
+      try { 还缺 = !!(global.接口.需要口令 && global.接口.需要口令()); } catch (e) { 还缺 = 需; }
+      if (还缺) {
+        if ($('角色')) $('角色').textContent = '未连接';
+        开口令(true);
+      } else {
+        首载();
+      }
+    });
   }
 
   if (document.readyState === 'loading') {
