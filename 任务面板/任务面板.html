@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.29">
+<meta name="任务面板版本" content="0.30">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,19 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.29</title>
+<title>任务面板 · 手机遥控页 v0.30</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.29
+  版本：0.30
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.30（2026-10-20）两条用户口径：①**设置按钮不再单独一行**（顶栏 `.题` 改 `nowrap`，题名/角色可省略，
+    设置钮恒在右端同排）；②**设置项自动落盘、不随版本升级清理**（口令/服务器选择经服务端
+    `settings_get/settings_set` 存进 使用痕迹\配置文件\任务面板配置.json 的 `网页设置`，首载自动补回；
+    配合 接口.js 0.13 / 面板.js 0.20 / 网页服务.py 0.17）。
+    顶栏三处版本号＋meta＋四个 `?v=` 同步升 0.30。
   v0.29（2026-10-20）**卡头显示卡片日期（终身代号）**（用户口径：「每张卡片最顶部的那一行，要显示一下
     卡片的日期。20261020-20:20:59 采用这样的格式，精确到秒，同时用它作为卡片的终身代号；卡片需要一个
     串行的代号注册机制，避免注册出一模一样的卡号」）：卡头在编号右侧加灰底小徽标显示 `代号`；
@@ -194,9 +199,12 @@
     position: sticky; top: 0; z-index: 20; background: #2b5fb0; color: #fff;
     padding: 10px 12px; box-shadow: 0 2px 6px rgba(0,0,0,.18);
   }
-  #顶栏 .题 { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  #顶栏 .版本 { font-size: 13px; font-weight: 400; background: rgba(255,255,255,.22); border-radius: 999px; padding: 1px 8px; }
-  #顶栏 .角色 { font-size: 13px; font-weight: 400; background: rgba(255,255,255,.18); border-radius: 999px; padding: 1px 8px; }
+  #顶栏 .题 { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+  #顶栏 .题名 { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #顶栏 .版本 { flex: 0 0 auto; font-size: 13px; font-weight: 400; background: rgba(255,255,255,.22); border-radius: 999px; padding: 1px 8px; }
+  #顶栏 .角色 { flex: 0 1 auto; max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; font-weight: 400; background: rgba(255,255,255,.18); border-radius: 999px; padding: 1px 8px; }
+  #顶栏 .题 > .小钮 { flex: 0 0 auto; font-size: 13px; padding: 6px 10px; min-height: 34px; }
   #顶栏 .顶操作 { margin-top: 10px; display: flex; gap: 10px; }
   /* 按钮（矩形倒角、自适应、文字居中） */
   button {
@@ -389,7 +397,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.29</span>
+    <span class="版本">v0.30</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -515,9 +523,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.29"></script>
-<script src="网页模块/卡片.js?v=0.29"></script>
-<script src="网页模块/清单页.js?v=0.29"></script>
-<script src="网页模块/面板.js?v=0.29"></script>
+<script src="网页模块/接口.js?v=0.30"></script>
+<script src="网页模块/卡片.js?v=0.30"></script>
+<script src="网页模块/清单页.js?v=0.30"></script>
+<script src="网页模块/面板.js?v=0.30"></script>
 </body>
 </html>
