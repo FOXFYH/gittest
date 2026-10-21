@@ -248,19 +248,25 @@ function renderMsgs(msgs, finish, opts, ask, pend){
           return;
         }
         if (k === 'rewind'){
-          if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
-            + '其后全部对话（含 AI 回复）将一并移除。')) return;
-          /* 2.109：统一四态出口——②＋rcpt ③④（msg_act 事件另回填结果） */
-          srvOpSend(k, mi, '回退');
+          /* 2.117：手机端原生 confirm 被静默屏蔽 ⇒ 自绘确认层（老板 15:44 排队条同病） */
+          uiConfirm('↩ 回退到这条消息之前',
+            '回退到第 ' + (mi + 1) + ' 条「我」的消息之前？<br>'
+            + '其后全部对话（含 AI 回复）将一并移除。', '回退', () => {
+              /* 2.109：统一四态出口——②＋rcpt ③④（msg_act 事件另回填结果） */
+              srvOpSend(k, mi, '回退');
+              /* 1.62：撤回发起后记下时刻——TRAE 会把被撤回的那条话放回它
+                 自己的输入框，等下一次快照读到再回填本端（见 revertRefill） */
+              S.revertPend = Date.now();
+            });
         } else {
-          if (!confirm('删除第 ' + (mi + 1) + ' 条「我」的消息？\n'
-            + '其对应的 AI 回复会一并删除。')) return;
-          /* 2.109：统一四态出口——②＋rcpt ③④（msg_act 事件另回填结果） */
-          srvOpSend(k, mi, '删除消息');
+          uiConfirm('🗑 删除这条消息',
+            '删除第 ' + (mi + 1) + ' 条「我」的消息？<br>'
+            + '其对应的 AI 回复会一并删除。', '删除', () => {
+              /* 2.109：统一四态出口——②＋rcpt ③④（msg_act 事件另回填结果） */
+              srvOpSend(k, mi, '删除消息');
+            });
         }
-        /* 1.62：撤回发起后记下时刻——TRAE 会把被撤回的那条话放回它
-           自己的输入框，等下一次快照读到再回填本端（见 revertRefill） */
-        if (k === 'rewind') S.revertPend = Date.now();
+        /* 1.62：撤回发起后记下时刻（2.117 起移入确认回调，取消时不误记） */
       };
     });
     el.msgs.appendChild(d);
@@ -421,11 +427,16 @@ function renderMsgs(msgs, finish, opts, ask, pend){
         const i = parseInt(b.dataset.qi);
         const k = b.dataset.qk;
         if (k === 'del'){
-          if (!confirm('删除排队消息「'
-            + stripHeadDid(pend[i].t || '').slice(0, 40) + '」？\n删除后不会发送。'))
-            return;
-          b.disabled = true;
-          srvOpSend('pend_del', i, '删除排队消息');   // 2.109：②＋rcpt ③④
+          /* 2.117（老板 2026-10-21 15:44「点击删除没反应，不应该马上出弹窗问我删不删？」）：
+             原用原生 confirm——手机端静默屏蔽 ⇒ 点了连弹窗都没有、命令也不发。
+             改自绘确认层：点「删除」立刻弹问，确认后才发 pend_del。 */
+          uiConfirm('🗑 删除排队消息',
+            '确认删除排队消息「'
+            + esc(stripHeadDid(pend[i].t || '').slice(0, 40))
+            + '」？<br>删除后不会发送。', '删除', () => {
+              b.disabled = true;
+              srvOpSend('pend_del', i, '删除排队消息');   // 2.109：②＋rcpt ③④
+            });
         } else if (k === 'edit'){
           b.disabled = true;
           S.qedit = i;                     /* 快照回来后回填输入框 */

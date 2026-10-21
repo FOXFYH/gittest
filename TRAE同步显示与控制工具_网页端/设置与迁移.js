@@ -188,15 +188,23 @@ function switchMigratePrompt(){
     if (!n){ err.textContent = '请输入目标号码（纯数字）'; return; }
     const keep = Math.max(0, parseInt(($('swkeep').value || '').replace(/\D/g, ''), 10) || 0);
     const purge = $('swpurge').checked, mig = $('swmig').checked, vac = $('swvac').checked;
-    if (purge && !confirm('将【清除其它所有账号的对话记录】（只保留当前登录账号），确定？')) return;
-    close();
-    const slog = $('prof_swlog');
-    if (slog){ slog.style.display = 'block'; slog.textContent = '（已提交，等待服务端…）'; }
-    /* 2.109：统一四态出口——②＋rcpt ③④（switch_migrate 事件另回投逐行进度）。 */
-    srvOpSend('switch_migrate',
-              { '目标': n, '轮次': keep, '清理': purge, '压缩': vac, '迁移': mig },
-              '一键换号迁移', '目标 ' + n + ' 号', 6000);
-    S.switch_mig = { on: true, ok: null, log: [] };
+    /* 2.117：手机端原生 confirm 被静默屏蔽 ⇒ 自绘确认层（危险操作必须看清楚再点） */
+    const _run = () => {
+      close();
+      const slog = $('prof_swlog');
+      if (slog){ slog.style.display = 'block'; slog.textContent = '（已提交，等待服务端…）'; }
+      /* 2.109：统一四态出口——②＋rcpt ③④（switch_migrate 事件另回投逐行进度）。 */
+      srvOpSend('switch_migrate',
+                { '目标': n, '轮次': keep, '清理': purge, '压缩': vac, '迁移': mig },
+                '一键换号迁移', '目标 ' + n + ' 号', 6000);
+      S.switch_mig = { on: true, ok: null, log: [] };
+    };
+    if (purge){
+      uiConfirm('⚠ 清除其它账号的对话记录',
+        '将【清除其它所有账号的对话记录】（只保留当前登录账号），确定？', '确定清除', _run);
+      return;
+    }
+    _run();
   };
   $('swok').onclick = go;
   inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) go(); };

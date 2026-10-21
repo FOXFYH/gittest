@@ -164,6 +164,45 @@ function ftoast(msg, color, ms){
 /* 1.72：进全屏不再弹 0.5s 悬浮窗（briefFtoast 已删）——顶部 #fbar
    横幅常驻提示状态，避免两处重复提醒。ftoast 仍保留（撤回结果等用） */
 
+/* ============ 2.117（老板 2026-10-21 15:44）：自绘确认层 uiConfirm ============
+   起因：老板点排队条「🗑 删除」没反应。根因＝本端多处仍用浏览器**原生 confirm()**，
+   而手机内置浏览器 / 部分 WebView 会【静默屏蔽】confirm（不弹框、直接返回 false），
+   于是 `if(!confirm(...)) return` 悄悄退出——既无弹窗、也从不发命令。
+   已在 2.110 给「删除会话」改过自绘确认层；本次把其余 5 处（回退/删除消息/
+   删除排队消息/清空定时/清除他账号记录）统一收口到本函数，手机上一定能看到弹层。
+   · bodyHtml 允许调用方传入已 esc 的正文 ＋ 静态 <br>；
+   · 点「取消」/点遮罩外部 = 关闭不执行；点确认 = 关层后执行 onOk。 */
+function uiConfirm(head, bodyHtml, okText, onOk){
+  const old = $('uimask');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'uimask';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);'
+    + 'display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML = '<div style="background:#fff;border-radius:12px;padding:16px;'
+    + 'width:86%;max-width:420px;box-shadow:0 8px 30px rgba(0,0,0,.3);">'
+    + '<div style="font-weight:bold;font-size:15px;margin-bottom:10px;">'
+    + esc(head) + '</div>'
+    + '<div style="font-size:14px;line-height:1.5;margin-bottom:12px;">'
+    + (bodyHtml || '') + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;">'
+    + '<button id="uimask_cancel" style="padding:7px 14px;border-radius:8px;'
+    + 'border:1px solid #cfd8e3;background:#fff;font-size:14px;">取消</button>'
+    + '<button id="uimask_ok" style="padding:7px 14px;border-radius:8px;'
+    + 'border:1px solid var(--blue);background:var(--blue);color:#fff;font-size:14px;">'
+    + esc(okText || '确定') + '</button>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  $('uimask_cancel').onclick = close;
+  ov.onclick = (e) => { if (e.target === ov) close(); };
+  $('uimask_ok').onclick = () => {
+    close();
+    try { if (onOk) onOk(); } catch (e) {}
+  };
+  return ov;
+}
+
 /* 1.27：积分预警 toast——页面中上部大字提醒，2 秒后自动消失
    （不走 statebar，那会被下一条快照状态覆盖） */
 let warnTimer = null;

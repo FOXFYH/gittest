@@ -176,11 +176,14 @@ function 自激活_面板(sid, title){
                   SRV_PHASE.sent[1]);
   }));
   tail.appendChild(bsBtn('🗑 取消本会话全部定时', 'danger', () => {
-    if (!confirm('清空本会话的全部定时自我激活任务？')) return;
-    if (srvNeedOnline('取消定时')) return;
-    /* 2.109：统一四态出口——②＋rcpt ③④。 */
-    srvOpSend('sched_clear', sid, '清空定时');
-    自激活_下发确认({kind:'clear', sid, desc:'本会话全部定时'});
+    /* 2.117：手机端原生 confirm 被静默屏蔽 ⇒ 自绘确认层 */
+    uiConfirm('🗑 取消本会话全部定时',
+      '清空本会话的全部定时自我激活任务？', '清空', () => {
+        if (srvNeedOnline('取消定时')) return;
+        /* 2.109：统一四态出口——②＋rcpt ③④。 */
+        srvOpSend('sched_clear', sid, '清空定时');
+        自激活_下发确认({kind:'clear', sid, desc:'本会话全部定时'});
+      });
   }));
   box.appendChild(tail);
 }
