@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.27">
+<meta name="任务面板版本" content="0.28">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,16 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.27</title>
+<title>任务面板 · 手机遥控页 v0.28</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.27
+  版本：0.28
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.28（2026-10-20）卡片头部小标签与节点页标题**按清单自身的类型显示**（总管清单/系统清单），
+    不再一律写「总管清单」；配合 清单页.js 0.10。顶栏三处版本号＋meta＋四个 `?v=` 同步升 0.28。
   v0.27（2026-10-20）按用户口径：**系统清单不是派出任务**（只是系统性规范）→ 用**同一张卡代码**，
     在系统清单这支里自动少放【备注】【呼叫AI】两颗钮；总管清单照旧六钮。顶栏三处版本号＋meta＋
     四个 `?v=` 同步升 0.27。
@@ -379,7 +381,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.27</span>
+    <span class="版本">v0.28</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -505,9 +507,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.27"></script>
-<script src="网页模块/卡片.js?v=0.27"></script>
-<script src="网页模块/清单页.js?v=0.27"></script>
-<script src="网页模块/面板.js?v=0.27"></script>
+<script src="网页模块/接口.js?v=0.28"></script>
+<script src="网页模块/卡片.js?v=0.28"></script>
+<script src="网页模块/清单页.js?v=0.28"></script>
+<script src="网页模块/面板.js?v=0.28"></script>
 </body>
 </html>
