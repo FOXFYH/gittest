@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.45">
+<meta name="任务面板版本" content="0.46">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,21 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.45</title>
+<title>任务面板 · 手机遥控页 v0.46</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.45
+  版本：0.46
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.46（2026-10-22）按用户口径新增第三种清单类型「**流水账**」并升级小标题按键：
+    ①流水账＝正文不限量，但只能**追评**（每条＝小标题＋小正文，小正文 ≤500 字），不许整体改正文；
+      追评汇合进正文大框，浏览时照旧只列小标题、点哪条展开哪条（默认全收起，条目再多也不铺开）。
+    ②**允许修改历史流水账**勾选框（默认勾选）：勾着可改/删已有条目；取消后只留状态灯，只能继续追评。
+    ③小标题行按键升级：状态灯 +【编】+【删】（所有清单类型通用；流水账关开关时只留状态灯）。
+    ④分页签加第 4 签「流水账」（普通＝树状清单、流水账＝流水账、系统＝系统清单、全部＝不筛）。
+    配合 清单页.js 0.25 / 接口.js 0.20 / 清单存储.py 0.19 / 网页服务.py 0.23 / CLI 0.19。
   v0.45（2026-10-22）按用户口径在**「我的清单」这一行加分类分页签**：普通 / 系统 / 全部（默认全部），
     点一下只筛主页的清单（普通＝树状清单、系统＝系统清单、全部＝不筛），清单缓存仍取全量；
     计数随页写成「共 n 本（普通/系统）」；在「系统」页新建清单默认选系统清单，
@@ -529,6 +536,38 @@
   .绿卡灯.灯弃 { background: #f2f3f5; border-color: #d8dbe1; color: #7a828e; }
   .绿卡说明 { display: none; margin: 4px 3px 6px; font-size: 11px; color: #889; line-height: 1.5; }
   .卡.展开 .绿卡说明 { display: block; }
+  /* 0.46 树状清单的 JSON 层级树：层级颜色系统自动赋予（层1 绿 / 层2 蓝 / 层3 紫 / 层4 橙 / 层5 青，循环）；
+     每深一层左侧缩 2px；第一层带一个小图标「◆」。展开一条＝同时见它的小正文和下级标题。 */
+  .层图 { flex: 0 0 auto; font-size: 10px; color: #1c6b36; }
+  .绿卡行.层色1 { background: #eaf7ee; border-color: #bfe3cb; }
+  .绿卡行.层色1 .绿卡文 { color: #245c39; }
+  .绿卡行.层色2 { background: #e8f1ff; border-color: #a9c8f2; }
+  .绿卡行.层色2 .绿卡文 { color: #24528f; }
+  .绿卡行.层色3 { background: #f2ebff; border-color: #cbb6f2; }
+  .绿卡行.层色3 .绿卡文 { color: #5a3a8f; }
+  .绿卡行.层色4 { background: #fff2e2; border-color: #f0c9a0; }
+  .绿卡行.层色4 .绿卡文 { color: #8a5a12; }
+  .绿卡行.层色5 { background: #e6f7f6; border-color: #a5ded9; }
+  .绿卡行.层色5 .绿卡文 { color: #146b66; }
+  .绿卡子 { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .绿卡正文 { white-space: pre-wrap; word-break: break-word; }
+  /* 0.46 流水账（用户 2026-10-22 口径）：小标题行按键＝状态灯＋【编】＋【删】；
+     「允许修改历史流水账」勾选框（默认勾选）；勾着才显示编/删。 */
+  .绿卡钮 { flex: 0 0 auto; font-size: 11px; padding: 2px 7px; min-height: 24px; border-radius: 999px;
+    border: 1px solid #b7d6c2; background: #fff; color: #245c39; }
+  .绿卡钮.删 { border-color: #f0b4b4; background: #fff5f5; color: #b00020; }
+  .流水开关 { display: flex; align-items: center; gap: 6px; flex-basis: 100%;
+    font-size: 12px; color: #245c39; margin-top: 2px; }
+  .流水开关 input { width: 16px; height: 16px; }
+  /* 追评区（流水账的「编辑」模式）：每条＝小标题（≤60 字）＋小正文（≤500 字） */
+  .追区 { margin: 6px 3px 4px; border-top: 1px dashed #e2e8f2; padding-top: 6px; }
+  .追题 { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 14px;
+    border: 1px solid #c4ccd8; border-radius: 8px; padding: 8px 3px; }
+  .追文 { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 14px;
+    border: 1px solid #c4ccd8; border-radius: 8px; padding: 8px 3px; min-height: 80px; resize: vertical; }
+  .追计 { display: block; text-align: right; font-size: 11px; color: #889; margin: 2px 0 6px; }
+  .追计.超 { color: #c0392b; font-weight: 700; }
+  .追存 { display: inline-block; }
   /* 没 AI 负责时，回复两框收起成一条「展开 AI 回复框」；有 AI 则保持展开 */
   .AI回复盒 { display: none; }
   .AI回复盒.开 { display: block; }
@@ -565,7 +604,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.45</span>
+    <span class="版本">v0.46</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -594,6 +633,7 @@
         <button type="button" class="分页签" data-页="普通">普通</button>
         <button type="button" class="分页签" data-页="系统">系统</button>
         <button type="button" class="分页签 选中" data-页="全部">全部</button>
+        <button type="button" class="分页签" data-页="流水账">流水账</button>
       </span>
     </h2>
     <div id="顶层容器" class="任务列表"><div class="空样">加载中…</div></div>
@@ -618,6 +658,7 @@
     <div id="新建_类型" class="类型组">
       <button type="button" class="大类钮 选中" data-类="树状清单">树状清单</button>
       <button type="button" class="大类钮" data-类="系统清单">系统清单</button>
+      <button type="button" class="大类钮" data-类="流水账">流水账</button>
     </div>
     <label class="字段" for="新建_标题">标题（≤60 字）</label>
     <input id="新建_标题" type="text" autocomplete="off" maxlength="60" placeholder="如：2026-10 家务流水"
@@ -629,7 +670,7 @@
     <label class="字段" for="新建_正文">清单正文（推荐 ≤1500 字，上限 1 万字）</label>
     <textarea id="新建_正文" maxlength="10000" placeholder="细节、附件说明等（可留空）"></textarea>
     <p id="新建_正文数" class="字计">0/10000</p>
-    <p style="font-size:13px;color:#889;margin:8px 0 0;">创建后自动带上类型名（树状清单）。</p>
+    <p id="新建_提示" style="font-size:13px;color:#889;margin:8px 0 0;">创建后自动带上类型名（树状清单）。</p>
     <div class="弹窗底">
       <button id="新建_取消" class="次钮">取消</button>
       <button id="新建_确定" class="主钮">创建</button>
@@ -653,6 +694,23 @@
     <div class="弹窗底">
       <button id="加卡_取消" class="次钮">取消</button>
       <button id="加卡_确定" class="主钮">确定</button>
+    </div>
+  </div>
+</div>
+<!-- 段落编辑弹窗（0.46）：改某一条小标题＋它的那段小正文（流水账小正文 ≤500 字） -->
+<div id="段弹窗" class="遮罩 隐藏">
+  <div class="弹窗">
+    <h3>编辑这一段</h3>
+    <label class="字段" for="段_标题">小标题（≤60 字）</label>
+    <input id="段_标题" type="text" autocomplete="off" maxlength="60"
+           style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
+    <p id="段_标题数" class="字计">0/60</p>
+    <label class="字段" for="段_正文">小正文（≤500 字）</label>
+    <textarea id="段_正文" maxlength="500"></textarea>
+    <p id="段_正文数" class="字计">0/500</p>
+    <div class="弹窗底">
+      <button id="段_取消" class="次钮">取消</button>
+      <button id="段_确定" class="主钮">保存</button>
     </div>
   </div>
 </div>
@@ -703,9 +761,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.45"></script>
-<script src="网页模块/卡片.js?v=0.45"></script>
-<script src="网页模块/清单页.js?v=0.45"></script>
-<script src="网页模块/面板.js?v=0.45"></script>
+<script src="网页模块/接口.js?v=0.46"></script>
+<script src="网页模块/卡片.js?v=0.46"></script>
+<script src="网页模块/清单页.js?v=0.46"></script>
+<script src="网页模块/面板.js?v=0.46"></script>
 </body>
 </html>
