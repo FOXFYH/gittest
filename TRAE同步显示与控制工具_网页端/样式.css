@@ -594,6 +594,12 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 /* 2.48：抽屉「服务端（点击切换操控）」标题行加「↻ 刷新」按钮——服务端
    平时全程静默、互不报状态，只有点此点名（who）才让在线者应答、刷新名册。 */
 .srvhead{display:flex; align-items:center; justify-content:space-between;}
+/* 2.119（老板 2026-10-22 15:20：「左侧菜单两个刷新键…那个大的出现得很突然，把整个宽度
+   都撑大了」）：四个字标题不能再当 flex 里的裸文本（裸文本 min-width:auto 不收缩，
+   窄屏时标题＋两个按钮把抽屉撑破）。标题改 .srvttl 可缩放省略；两个按钮改短标签
+   （↻ 服务端 / ↻ 本会话），并 flex:none 保证只占自身宽度。 */
+.srvttl{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap;}
 .srvbtns{flex:none; display:flex; gap:4px; margin-left:8px;}
 #btn_srvrefresh,#btn_panerefresh{flex:none; margin-left:0; font-size:12px; padding:2px 8px;
   border:1px solid var(--bd); border-radius:12px; background:#fff;
