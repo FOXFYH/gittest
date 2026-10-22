@@ -1,6 +1,6 @@
 /* ============================================================
  * 【任务面板】网页模块 · 清单页.js
- * 版本：0.23
+ * 版本：0.25
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
  *   · 主页＝【我的清单】：摆一级卡（＝一本树状清单，就是一张完整的卡）。
  *   · **一张卡＝一个节点**，全层级共用同一个 `建卡(节点, 层级)`：
@@ -32,6 +32,17 @@
  *   3) 收口（第四段）双通道：①监听【投递结果】广播帧；②轮询 `任务详情(T).卡片状态` /
  *      `点详情(P).点.卡片状态`（`_点视图` 暂未暴露 `卡片状态`，小点以 ① 广播帧为准）。
  * 维护记录：
+ *   · 0.25（2026-10-22）按用户口径新增第三种清单类型「**流水账**」并升级小标题按键：
+ *     ①流水账＝正文不限量、只能**追评**（每条＝小标题＋小正文，小正文 ≤500 字）；正文框的「编辑」
+ *       模式改成**追评区**（标题 ≤60 ＋小正文 ≤500 ＋计数＋【追评】，落库不涨版本号）；
+ *       浏览模式照旧只列全部小标题、点哪条展开哪条（默认全收起，条目再多也不铺开）。
+ *     ②小标题行按键升级：状态灯＋【编】＋【删】——【编】弹「编辑这一段」（改小标题＋小正文，
+ *       涨版本号）；【删】自绘确认后删掉这条（连同小正文，涨版本号）。
+ *     ③流水账正文头多一个「允许修改历史流水账」勾选框（默认勾选）：勾着才显示【编】【删】；
+ *       取消后只能继续追评。写开关不涨版本号。
+ *     ④分页签加第 4 签「流水账」（普通＝树状清单、流水账＝流水账、系统＝系统清单、全部＝不筛）；
+ *       新建弹窗加「流水账」类型钮，流水账新建时禁用正文框并提示建好后逐条追评。
+ *     配合 任务面板.html 0.46 / 接口.js 0.20 / 清单存储.py 0.19 / 网页服务.py 0.23 / CLI 0.19。
  *   · 0.24（2026-10-22）按用户口径在**「我的清单」这一行加分页签**（原话：「最顶部写着我的清单这一行。
  *     来设置一些分页标签，以后来对清单进行分类，现在和分为，普通 系统和全部 三个分页」）：
  *     分页＝普通（树状清单）/ 系统（系统清单）/ 全部（默认，不筛）。`分页过滤()` 只筛显示，
@@ -135,7 +146,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.24';
+  var 版本 = '0.25';
 
   // ---------------- 状态 ----------------
   var 清单缓存 = [];         // 清单摘要列表（[{编号,名称,类型,详情,任务数,未完成数}]）
@@ -151,7 +162,7 @@
   var 加卡_后端 = null;      // 「加卡弹窗」用途：{节点, 层级}
   // 0.24（用户 2026-10-22）：主页「我的清单」这一行的分类分页签——普通 / 系统 / 全部（默认全部）
   var 主页分页 = '全部';
-  var 分页枚举 = ['普通', '系统', '全部'];
+  var 分页枚举 = ['普通', '系统', '全部', '流水账'];
 
   // 投递四段状态机（本页运行时态）：节点编号 -> {态, 卡片状态}
   var 投递态 = {};
@@ -198,6 +209,9 @@
     var s = 文字(v).trim();
     return (!s || s === '总管清单') ? '树状清单' : s;
   }
+  function 是流水账(节点) {
+    return !!(节点 && 节点.种 === '清单' && 清单类型名(节点.类型) === '流水账');
+  }
   // 卡头小标签：一级卡按清单自身类型（树状清单/系统清单），其下按层级（任务/子任务）
   function 标签名(节点, 层级) {
     if (节点 && 节点.种 === '清单') return 清单类型名(节点.类型);
@@ -214,7 +228,7 @@
     return { 种: '清单', 编号: 文字(c.编号), 标题: 文字(c.名称) || '（未命名清单）',
              详情: 文字(c.详情), 大白话: 文字(c.大白话), 状态: '', 完成: false, 卡片状态: 文字(c.卡片状态),
              代号: 文字(c.代号), 版本号: 卡版本(c.版本号),
-             类型: 清单类型名(c.类型),
+             类型: 清单类型名(c.类型), 允许改历史: (c.允许改历史 === undefined ? true : !!c.允许改历史),
              执行者: c.执行者 || {}, 交付时间: 文字(c.交付时间), 回复: c.回复 || null,
              绿卡状态: c.绿卡状态 || {},
              任务数: c.任务数 || 0, 未完成数: c.未完成数 || 0, 父: '' };
@@ -342,11 +356,12 @@
     });
   }
 
-  // 0.24：按当前分页签过滤清单——普通＝树状清单、系统＝系统清单、全部＝不筛
+  // 0.24：按当前分页签过滤清单——普通＝树状清单、流水账＝流水账、系统＝系统清单、全部＝不筛
   function 分页过滤(列表) {
     var 列 = 列表 || [];
     if (主页分页 === '全部') return 列;
-    var 目标 = (主页分页 === '系统') ? '系统清单' : '树状清单';
+    var 目标 = (主页分页 === '系统') ? '系统清单'
+      : (主页分页 === '流水账' ? '流水账' : '树状清单');
     return 列.filter(function (c) { return 清单类型名(c && c.类型) === 目标; });
   }
 
@@ -515,43 +530,129 @@
     if (上 < 文.length) 盒.appendChild(document.createTextNode(文.slice(上)));
   }
 
-  // 浏览模式：只列全部小标题（绿卡）；点小标题展开/收起它的小正文
+  // 0.25（用户 2026-10-22）：树状清单的正文支持 **JSON 层级树**——每个节点都是「小标题＋小正文」，
+  //   节点可挂「子」（不限层）；层级颜色由系统自动赋予，层级越深左侧缩 2px。
+  //   JSON 写法（字段名兼容多种）：
+  //     [{"标题":"第一层","正文":"这一层的说明","子":[{"标题":"第二层","正文":"…"}]}]
+  //   兼容别名：题/小标题/title、文/小正文/text/body、子/下级/children/子节点、状态/态。
+  var JSON题键 = ['标题', '题', '小标题', 'title', 'name'];
+  var JSON文键 = ['正文', '文', '小正文', 'text', 'body', 'content'];
+  var JSON子键 = ['子', '下级', 'children', '子节点', 'items'];
+  function 取键(o, 键们) {
+    for (var i = 0; i < 键们.length; i++) {
+      if (o[键们[i]] !== undefined && o[键们[i]] !== null) return o[键们[i]];
+    }
+    return undefined;
+  }
+  function 树节点化(o) {
+    if (!o || typeof o !== 'object') return null;
+    var 题 = 文字(取键(o, JSON题键)).trim();
+    var 文 = 文字(取键(o, JSON文键));
+    var 子源 = 取键(o, JSON子键);
+    var 子 = [];
+    if (Object.prototype.toString.call(子源) === '[object Array]') {
+      子源.forEach(function (x) { var n = 树节点化(x); if (n) 子.push(n); });
+    }
+    if (!题 && !文.trim() && !子.length) return null;
+    var 态 = 文字(取键(o, ['状态', '态'])).trim();
+    if (绿卡态色[态] === undefined) 态 = '';
+    return { 项: 题, 文: 文, 态: 态, 子: 子 };
+  }
+  // 正文解析：JSON 层级树优先；不是 JSON 就按老的「- [ ] 小标题」平铺格式解析（等价一棵一层树）
+  function 拆树(原文) {
+    var s = String(原文 === undefined ? '' : 原文).trim();
+    if (s && (s.charAt(0) === '[' || s.charAt(0) === '{')) {
+      try {
+        var j = JSON.parse(s);
+        var 根 = [];
+        if (Object.prototype.toString.call(j) === '[object Array]') {
+          j.forEach(function (x) { var n = 树节点化(x); if (n) 根.push(n); });
+        } else {
+          var 一 = 树节点化(j);
+          if (一) 根.push(一);
+        }
+        if (根.length) return { 前: '', 根: 根, 树: true };
+      } catch (e) { /* 不是合法 JSON → 按平铺格式解析 */ }
+    }
+    var 解 = 拆正文(原文);
+    var 平 = 解.组.map(function (g) { return { 项: g.项, 文: g.文, 态: g.态, 子: [] }; });
+    return { 前: 解.前, 根: 平, 树: false };
+  }
+
+  // 浏览模式：只列全部小标题（绿卡）；点小标题＝同时展开它的小正文和它下面的下级标题
   function 画正文(节点, 览, 原文) {
     if (!览) return;
     览.innerHTML = '';
-    var 解 = 拆正文(原文 === undefined ? 节点.详情 : 原文);
+    var 解 = 拆树(原文 === undefined ? 节点.详情 : 原文);
     if (解.前.trim()) {
       var 前盒 = el('div', '正文纯文');
       填文字(前盒, 解.前);
       览.appendChild(前盒);
     }
-    if (!解.组.length) {
+    if (!解.根.length) {
       if (!解.前.trim()) 览.appendChild(空样('（本卡暂无清单正文）'));
       return;
     }
     var 覆盖 = 节点.绿卡状态 || {};
     var 绿区 = el('div', '绿卡区');
-    解.组.forEach(function (g) {
-      var 态 = 覆盖[g.项] || g.态;
-      var 夹 = el('div', '绿卡夹');
-      var 行 = el('div', '绿卡行');
+    画树层(节点, 解.根, 绿区, 1, 览, 原文, 解.树, 覆盖);
+    览.appendChild(绿区);
+  }
+
+  function 画树层(节点, 列, 容器, 层, 览, 原文, 是JSON, 覆盖) {
+    列.forEach(function (g) {
+      var 色 = ((层 - 1) % 5) + 1;          // 层1＝绿、层2＝蓝、层3＝紫、层4＝橙、层5＝青，再循环
+      var 夹 = el('div', '绿卡夹 层' + 色);
+      夹.style.paddingLeft = ((层 - 1) * 2) + 'px';   // 每深一层向左缩 2px（尽量利用宽度）
+      var 行 = el('div', '绿卡行 层色' + 色);
+      if (层 === 1) {
+        var 图 = el('span', '层图', '◆');
+        图.title = '第一层（小图）';
+        行.appendChild(图);
+      }
       行.appendChild(el('span', '绿卡箭', '▸'));
       行.appendChild(el('span', '绿卡文', g.项));
+      var 态 = 覆盖[g.项] || g.态 || '未完成';
       var 灯 = 钮(态, '绿卡灯 ' + (绿卡态色[态] || '态中'), function (ev) {
         ev.stopPropagation();
         开绿卡态(节点, g.项, 灯, 览, 原文);
       });
-      灯.title = '点击改这张小绿卡的状态（当前：' + 态 + '）；点标题展开它的小正文';
+      灯.title = '点击改这张小绿卡的状态（当前：' + 态 + '）；点标题展开它的小正文与下级标题';
       行.appendChild(灯);
-      if (!g.文.trim()) 夹.classList.add('空文');
+      // 0.46（用户 2026-10-22）：小标题按键升级——状态灯之外再加【编】【删】。
+      //   流水账关了「允许修改历史流水账」→ 只留状态灯（只能继续追评）；
+      //   JSON 树状正文不走「按行改段」接口，改正文请切到「编辑」模式整体改。
+      if (!是JSON && (!是流水账(节点) || 节点.允许改历史)) {
+        var 编钮 = 钮('编', '绿卡钮', function (ev) {
+          ev.stopPropagation();
+          开段编辑(节点, g.项, 览, 原文);
+        });
+        编钮.title = '编辑这一条：改小标题和它的小正文（会涨版本号）';
+        行.appendChild(编钮);
+        var 删钮 = 钮('删', '绿卡钮 删', function (ev) {
+          ev.stopPropagation();
+          删这一段(节点, g.项, 览, 原文);
+        });
+        删钮.title = '删掉这一条（连同它的小正文，会涨版本号）';
+        行.appendChild(删钮);
+      }
       var 小文 = el('div', '绿卡小文');
-      填文字(小文, g.文);
+      if (g.文.trim()) {
+        var 文盒 = el('div', '绿卡正文');
+        填文字(文盒, g.文);
+        小文.appendChild(文盒);
+      }
+      if (g.子 && g.子.length) {
+        var 子盒 = el('div', '绿卡子');
+        画树层(节点, g.子, 子盒, 层 + 1, 览, 原文, 是JSON, 覆盖);
+        小文.appendChild(子盒);
+      }
+      if (!g.文.trim() && !(g.子 && g.子.length)) 夹.classList.add('空文');
       行.addEventListener('click', function () { 夹.classList.toggle('开'); });
       夹.appendChild(行);
       夹.appendChild(小文);
-      绿区.appendChild(夹);
+      容器.appendChild(夹);
     });
-    览.appendChild(绿区);
   }
 
   // 点小蓝卡 → 跳到那张卡（按编号前缀定层级，整页进入它的细分页）
@@ -598,6 +699,96 @@
     框.appendChild(组);
     var 底 = el('div', '弹窗底');
     底.appendChild(钮('取消', '次钮', function () { 遮.remove(); }));
+    框.appendChild(底);
+    遮.appendChild(框);
+    遮.addEventListener('click', function (ev) { if (ev.target === 遮) 遮.remove(); });
+    document.body.appendChild(遮);
+  }
+
+  // 0.46：编辑某一条（小标题＋它的小正文）。流水账小正文 ≤500 字，其余照 1 万字。
+  function 卡盒(节点) {
+    try {
+      return document.querySelector('.卡[data-编号="' + (节点.编号 || '') + '"]') || document;
+    } catch (e) { return document; }
+  }
+  function 开段编辑(节点, 项, 览, 原文) {
+    var 题输 = $('段_标题'), 文输 = $('段_正文'), 遮 = $('段弹窗');
+    if (!题输 || !文输 || !遮) { 提示('编辑框缺失'); return; }
+    var 解 = 拆正文(原文 === undefined ? 节点.详情 : 原文);
+    var 目标 = null;
+    解.组.forEach(function (g) { if (g.项 === 项) 目标 = g; });
+    if (!目标) { 提示('找不到这一条：' + 项); return; }
+    var 上限 = 是流水账(节点) ? 500 : 10000;
+    题输.maxLength = 60;
+    题输.value = 项;
+    文输.maxLength = 上限;
+    文输.value = 目标.文;
+    function 刷() {
+      var a = $('段_标题数'), b = $('段_正文数');
+      if (a) a.textContent = String((题输.value || '').length) + '/60';
+      if (b) b.textContent = String((文输.value || '').length) + '/' + 上限;
+    }
+    function 换(ev) {
+      遮.classList.add('隐藏');
+      题输.removeEventListener('input', 刷);
+      文输.removeEventListener('input', 刷);
+      确定.removeEventListener('click', 存); 取消.removeEventListener('click', 换);
+      if (ev) ev.stopPropagation();
+    }
+    function 存() {
+      var 新题 = String(题输.value || '').trim();
+      var 新文 = String(文输.value || '');
+      if (!新题) { 提示('小标题不能为空'); return; }
+      if (新文.length > 上限) { 提示('小正文超长（上限 ' + 上限 + ' 字）'); return; }
+      if (新题 === 项 && 新文 === 目标.文) { 提示('没有改动'); return; }
+      确定.disabled = true;
+      global.接口.改段落(节点.编号, 项, 新题, 新文).then(function (r) {
+        确定.disabled = false;
+        if (r && r.ok === false) { 提示('保存失败：' + ((r && r.err) || '')); return; }
+        节点.详情 = 文字(r && r.详情);
+        if (节点.绿卡状态 && 新题 !== 项) {
+          节点.绿卡状态[新题] = 节点.绿卡状态[项];
+          delete 节点.绿卡状态[项];
+        }
+        节点.版本号 = 卡版本((r && r.版本号) || (卡版本(节点.版本号) + 1));
+        var 徽 = 卡盒(节点).querySelector('[data-版本徽]');
+        if (徽) 徽.textContent = 'v' + 节点.版本号;
+        换();
+        画正文(节点, 览, 节点.详情);
+        提示('已改这一段（v' + 节点.版本号 + '）');
+      })['catch'](function (e) { 确定.disabled = false; 提示('保存失败：' + ((e && e.message) || e)); });
+    }
+    var 确定 = $('段_确定'), 取消 = $('段_取消');
+    题输.addEventListener('input', 刷);
+    文输.addEventListener('input', 刷);
+    确定.addEventListener('click', 存);
+    取消.addEventListener('click', 换);
+    刷();
+    遮.classList.remove('隐藏');
+    try { 题输.focus(); } catch (e) { }
+  }
+
+  // 0.46：删掉某一条（连同它的小正文）——自绘确认，不用 window.confirm
+  function 删这一段(节点, 项, 览, 原文) {
+    var 遮 = el('div', '遮罩');
+    var 框 = el('div', '弹窗');
+    框.appendChild(el('h3', null, '删掉这一条？'));
+    框.appendChild(el('p', '确认文', 项 + '（连同它的小正文一起删，会涨版本号）'));
+    var 底 = el('div', '弹窗底');
+    底.appendChild(钮('取消', '次钮', function () { 遮.remove(); }));
+    底.appendChild(钮('删除', '主钮', function () {
+      遮.remove();
+      global.接口.删段落(节点.编号, 项).then(function (r) {
+        if (r && r.ok === false) { 提示('删除失败：' + ((r && r.err) || '')); return; }
+        节点.详情 = 文字(r && r.详情);
+        if (节点.绿卡状态) delete 节点.绿卡状态[项];
+        节点.版本号 = 卡版本((r && r.版本号) || (卡版本(节点.版本号) + 1));
+        var 徽 = 卡盒(节点).querySelector('[data-版本徽]');
+        if (徽) 徽.textContent = 'v' + 节点.版本号;
+        画正文(节点, 览, 节点.详情);
+        提示('已删除这一条（v' + 节点.版本号 + '）');
+      })['catch'](function (e) { 提示('删除失败：' + ((e && e.message) || e)); });
+    }));
     框.appendChild(底);
     遮.appendChild(框);
     遮.addEventListener('click', function (ev) { if (ev.target === 遮) 遮.remove(); });
@@ -685,75 +876,179 @@
     var 览 = el('div', '正文浏览');
     正.appendChild(览);
 
+    // 0.46（用户 2026-10-22）：**流水账**的「编辑」＝**追评区**（一条一条、每条 ≤500 字地写），
+    //   不给整体 textarea（流水账正文只能追评/删某条，不许整体改）；其余类型照旧纯文本 textarea。
+    var 流水 = 是流水账(节点);
     var 编 = el('div', '正文编辑');
-    var 文输 = el('textarea', '卡文输');
-    文输.maxLength = 10000;
-    文输.value = 原详;
-    文输.placeholder = '清单正文（纯文本）\n一行一个小标题：- [ ] 小标题；小标题下面、到下一个小标题之前，就是它的小正文。';
-    编.appendChild(文输);
-    var 文计 = el('div', '字计 文计', '');
-    编.appendChild(文计);
+    var 文输 = null, 文计 = null, 存 = null;
+    var 追题 = null, 追文 = null, 追题计 = null, 追文计 = null;
+    if (!流水) {
+      文输 = el('textarea', '卡文输');
+      文输.maxLength = 10000;
+      文输.value = 原详;
+      文输.placeholder = '清单正文（纯文本）\n一行一个小标题：- [ ] 小标题；小标题下面、到下一个小标题之前，就是它的小正文。';
+      编.appendChild(文输);
+      文计 = el('div', '字计 文计', '');
+      编.appendChild(文计);
 
-    var 存 = 钮('保存修改', '小钮 卡文存', function () {
-      if (!有接口()) { 提示('接口未就绪'); return; }
-      var 白新 = 文字(白.value), 文新 = 文字(文输.value);
-      if (白新 === 原白 && 文新 === 原详) { 提示('没有改动'); return; }
-      存.disabled = true;
-      var 步;
-      if (节点.种 === '清单') 步 = global.接口.清单改(节点.编号, undefined, 文新, 白新);
-      else if (节点.种 === '任务') 步 = global.接口.任务改(节点.编号, 节点.标题, 文新, 白新);
-      else 步 = global.接口.点改(节点.编号, 节点.标题, 文新, 白新);
-      步.then(function (r) {
-        存.disabled = false;
-        if (r && r.ok === false) { 提示('保存失败：' + ((r && r.err) || '')); return; }
-        节点.大白话 = 白新; 节点.详情 = 文新;
-        原白 = 白新; 原详 = 文新;
-        节点.版本号 = 卡版本(节点.版本号) + 1;
-        var 徽 = 卡.querySelector('[data-版本徽]');
-        if (徽) 徽.textContent = 'v' + 节点.版本号;
-        画正文(节点, 览, 文新);
-        刷计数();
-        提示('已保存（v' + 节点.版本号 + '）');
-      })['catch'](function (e) { 存.disabled = false; 提示('保存失败：' + ((e && e.message) || e)); });
-    });
-    存.dataset.卡文存 = '1';
-    编.appendChild(存);
+      存 = 钮('保存修改', '小钮 卡文存', function () {
+        if (!有接口()) { 提示('接口未就绪'); return; }
+        var 白新 = 文字(白.value), 文新 = 文字(文输.value);
+        if (白新 === 原白 && 文新 === 原详) { 提示('没有改动'); return; }
+        存.disabled = true;
+        var 步;
+        if (节点.种 === '清单') 步 = global.接口.清单改(节点.编号, undefined, 文新, 白新);
+        else if (节点.种 === '任务') 步 = global.接口.任务改(节点.编号, 节点.标题, 文新, 白新);
+        else 步 = global.接口.点改(节点.编号, 节点.标题, 文新, 白新);
+        步.then(function (r) {
+          存.disabled = false;
+          if (r && r.ok === false) { 提示('保存失败：' + ((r && r.err) || '')); return; }
+          节点.大白话 = 白新; 节点.详情 = 文新;
+          原白 = 白新; 原详 = 文新;
+          节点.版本号 = 卡版本(节点.版本号) + 1;
+          var 徽 = 卡.querySelector('[data-版本徽]');
+          if (徽) 徽.textContent = 'v' + 节点.版本号;
+          画正文(节点, 览, 文新);
+          刷计数();
+          提示('已保存（v' + 节点.版本号 + '）');
+        })['catch'](function (e) { 存.disabled = false; 提示('保存失败：' + ((e && e.message) || e)); });
+      });
+      存.dataset.卡文存 = '1';
+      编.appendChild(存);
+    } else {
+      // 允许修改历史流水账（默认勾选）：勾着才显示每条上的【编】【删】；写开关不涨版本号
+      var 开关 = el('label', '流水开关');
+      var 勾 = document.createElement('input');
+      勾.type = 'checkbox';
+      勾.checked = (节点.允许改历史 !== false);
+      勾.title = '勾着可以【编】【删】已有条目；取消后只留状态灯，只能继续追评';
+      勾.addEventListener('click', function (ev) { ev.stopPropagation(); });
+      勾.addEventListener('change', function () {
+        if (!有接口()) { 提示('接口未就绪'); return; }
+        global.接口.允许改历史(节点.编号, 勾.checked).then(function (r) {
+          if (r && r.ok === false) { 提示('设置失败：' + ((r && r.err) || '')); return; }
+          节点.允许改历史 = 勾.checked;
+          画正文(节点, 览, 原详);
+          提示(勾.checked ? '已允许修改历史流水账' : '已禁止修改历史流水账（只能继续追评）');
+        })['catch'](function (e) { 提示('设置失败：' + ((e && e.message) || e)); });
+      });
+      开关.appendChild(勾);
+      开关.appendChild(document.createTextNode('允许修改历史流水账'));
+      正头.appendChild(开关);
+
+      var 追 = el('div', '追区');
+      追.appendChild(el('label', '字段', '本条的标题（≤60 字）'));
+      追题 = el('input', '追题');
+      追题.type = 'text';
+      追题.maxLength = 60;
+      追题.autocomplete = 'off';
+      追题.placeholder = '一句话说清这一条记的是什么';
+      追.appendChild(追题);
+      追题计 = el('div', '追计', '0/60');
+      追.appendChild(追题计);
+      追.appendChild(el('label', '字段', '本条的小正文（≤500 字）'));
+      追文 = el('textarea', '追文');
+      追文.maxLength = 500;
+      追文.placeholder = '这一次要记的内容（≤500 字）；长内容请分成多条追评。';
+      追.appendChild(追文);
+      追文计 = el('div', '追计', '0/500');
+      追.appendChild(追文计);
+
+      var 追存 = 钮('追评', '小钮 追存', function () {
+        if (!有接口()) { 提示('接口未就绪'); return; }
+        var 题 = String(追题.value || '').trim();
+        var 文 = String(追文.value || '');
+        if (!题) { 提示('请填写本条标题'); return; }
+        if (!文.trim()) { 提示('请填写本条小正文'); return; }
+        if (文.length > 500) { 提示('小正文超长（上限 500 字），请分多条追评'); return; }
+        追存.disabled = true;
+        global.接口.追评(节点.编号, 题, 文).then(function (r) {
+          追存.disabled = false;
+          if (r && r.ok === false) { 提示('追评失败：' + ((r && r.err) || '')); return; }
+          节点.详情 = 文字(r && r.详情);
+          原详 = 节点.详情;
+          追题.value = ''; 追文.value = '';
+          追题计.textContent = '0/60'; 追文计.textContent = '0/500';
+          画正文(节点, 览, 原详);
+          刷计数();
+          提示('已追评（共 ' + (r && r.条数 !== undefined ? r.条数 : '?') + ' 条）');
+        })['catch'](function (e) { 追存.disabled = false; 提示('追评失败：' + ((e && e.message) || e)); });
+      });
+      追.appendChild(追存);
+
+      // 流水账的大白话仍可单独改（只写大白话，不碰正文、不涨版本号由服务端判定）
+      var 存白 = 钮('保存大白话', '小钮', function () {
+        if (!有接口()) { 提示('接口未就绪'); return; }
+        var 白新 = 文字(白.value);
+        if (白新 === 原白) { 提示('大白话没有改动'); return; }
+        存白.disabled = true;
+        global.接口.清单改(节点.编号, undefined, undefined, 白新).then(function (r) {
+          存白.disabled = false;
+          if (r && r.ok === false) { 提示('保存失败：' + ((r && r.err) || '')); return; }
+          节点.大白话 = 白新; 原白 = 白新;
+          提示('大白话已保存');
+        })['catch'](function (e) { 存白.disabled = false; 提示('保存失败：' + ((e && e.message) || e)); });
+      });
+      追.appendChild(存白);
+
+      追题.addEventListener('input', function () {
+        追题计.textContent = String((追题.value || '').length) + '/60';
+      });
+      追文.addEventListener('input', function () {
+        var n = (追文.value || '').length;
+        追文计.textContent = n + '/500';
+        追文计.classList.toggle('超', n > 500);
+      });
+      编.appendChild(追);
+    }
     正.appendChild(编);
     卡.appendChild(正);
 
-    // 模式钮：钮上只显示「当前是什么模式」，点一下切换
+    // 模式钮：钮上只显示「当前是什么模式」，点一下切换（流水账＝浏览 / 追评）
     function 定模式(编辑中) {
       if (编辑中) {
         正.classList.add('编辑中');
-        模式.textContent = '编辑';
+        模式.textContent = 流水 ? '追评' : '编辑';
         模式.classList.add('编');
-        模式.title = '当前：编辑模式（纯文本）。点一下回到浏览模式';
+        模式.title = 流水 ? '当前：追评模式。点一下回到浏览模式'
+          : '当前：编辑模式（纯文本）。点一下回到浏览模式';
       } else {
         正.classList.remove('编辑中');
         模式.textContent = '浏览';
         模式.classList.remove('编');
-        模式.title = '当前：浏览模式（只看小标题）。点一下进入编辑模式';
+        模式.title = '当前：浏览模式（只看小标题）。点一下进入' + (流水 ? '追评' : '编辑') + '模式';
       }
     }
     模式.addEventListener('click', function () { 定模式(!正.classList.contains('编辑中')); });
     定模式(false);
 
     // 正文格式说明（用户 2026-10-22：推荐 1500 字；超了拆细分卡、正文留小蓝卡）
-    var 说明 = el('div', '绿卡说明',
-      '清单正文＝一行一个小标题（小绿卡：- [ ] 未完成 / - [~] 进行中 / - [x] 已完成 / - [-] 放弃）＋它的小正文；'
-      + '浏览时只列小标题，点开看小正文。推荐 1500 字以内；超了请 AI 把小正文独立成细分卡，'
-      + '正文里只留 [[卡号]]（小蓝卡，点它跳到那张卡）。');
+    var 说明 = el('div', '绿卡说明', 流水
+      ? '流水账＝正文不限量、只能一条一条追评：每条＝小标题＋小正文（小正文 ≤500 字）；'
+        + '浏览时只列全部小标题，点开看哪条看哪条。【编】改这条、点状态灯改状态、【删】删这条；'
+        + '关掉上面的勾选框后只能继续追评，不能改/删历史条目。'
+      : ('清单正文两种写法：①JSON 层级树（里面每层都是「小标题＋小正文」，层级颜色系统自动配、'
+        + '每深一层左缩 2px）：[{"标题":"第一层","正文":"…","子":[{"标题":"第二层","正文":"…"}]}]；'
+        + '②平铺：一行一个小标题（- [ ] 未完成 / - [~] 进行中 / - [x] 已完成 / - [-] 放弃）＋它的小正文。'
+        + '浏览时只列小标题，点开＝同时展开它的小正文和下级标题；推荐 1500 字以内，'
+        + '超了请 AI 把小正文独立成细分卡、正文里只留 [[卡号]]（小蓝卡）。'));
     卡.appendChild(说明);
 
     function 刷计数() {
       白计.textContent = String((白.value || '').length) + '/500';
+      if (流水) {
+        var k = 拆正文(原详).组.length;
+        文数.textContent = '共 ' + k + ' 条';
+        文数.classList.remove('超');
+        return;
+      }
       var n = (文输.value || '').length;
       文计.textContent = n + '/10000';
       文数.textContent = n + ' 字' + (n > 1500 ? '（超 1500，建议拆卡）' : '');
       文数.classList.toggle('超', n > 1500);
     }
     白.addEventListener('input', 刷计数);
-    文输.addEventListener('input', function () { 画正文(节点, 览, 文输.value); 刷计数(); });
+    if (文输) 文输.addEventListener('input', function () { 画正文(节点, 览, 文输.value); 刷计数(); });
     刷计数();
     画正文(节点, 览, 原详);
 
@@ -766,7 +1061,7 @@
       取正文(节点).then(function (文) {
         if (!文字(文).trim()) return;
         节点.详情 = 文; 原详 = 文;
-        文输.value = 文;
+        if (文输) 文输.value = 文;
         画正文(节点, 览, 文);
         刷计数();
       })['catch'](function () { });
@@ -812,9 +1107,12 @@
     备.title = '快速备注（未开始/进行中/已完成/已放弃）';
     if (!在系统清单(节点)) 排.appendChild(备);
 
-    var 分 = 钮('细分 (' + (parseInt(节点.任务数, 10) || 0) + ')', '小钮', function () { 进节点(节点, 层级); });
-    分.title = '细分：进入这张卡的下级页面（括号里是当前有几个下级）';
-    排.appendChild(分);
+    // 0.25（用户 2026-10-22）：**流水账不给【细分】**——它只能无限追加小绿卡，没有下级卡片
+    if (!流水) {
+      var 分 = 钮('细分 (' + (parseInt(节点.任务数, 10) || 0) + ')', '小钮', function () { 进节点(节点, 层级); });
+      分.title = '细分：进入这张卡的下级页面（括号里是当前有几个下级）';
+      排.appendChild(分);
+    }
 
     // 系统清单＝系统性规范归档，**不是要派出的任务**（用户 2026-10-20 口径）→ 不给【呼叫AI】
     if (!在系统清单(节点)) {
@@ -1599,8 +1897,9 @@
     刷新新建计数();
     var 组 = $('新建_类型');
     if (组) {
-      // 0.24：在「系统」分页建清单 → 默认选中系统清单；其余默认树状清单
-      var 预 = (主页分页 === '系统') ? '系统清单' : '树状清单';
+      // 0.24 / 0.25：在「系统」页建 → 默认系统清单；「流水账」页 → 默认流水账；其余树状清单
+      var 预 = (主页分页 === '系统') ? '系统清单'
+        : (主页分页 === '流水账' ? '流水账' : '树状清单');
       var 命中 = false;
       Array.prototype.forEach.call(组.children, function (b) {
         var 中 = (b.getAttribute('data-类') === 预);
@@ -1611,8 +1910,27 @@
         if (b.classList) b.classList.toggle('选中', i === 0);
       });
     }
+    应新建类型();
     if ($('新建清单弹窗')) $('新建清单弹窗').classList.remove('隐藏');
     try { if ($('新建_标题')) $('新建_标题').focus(); } catch (e) { }
+  }
+  // 0.25：选「流水账」时正文框禁用并提示——流水账建好后只能逐条追评（每条 ≤500 字）
+  function 应新建类型() {
+    var 类 = 新建类型();
+    var 框 = $('新建_正文'), 计 = $('新建_正文数'), 提示行 = $('新建_提示');
+    if (框) {
+      框.disabled = (类 === '流水账');
+      框.style.opacity = (类 === '流水账') ? '0.5' : '';
+      if (类 === '流水账') 框.value = '';
+      框.placeholder = (类 === '流水账')
+        ? '流水账建好后逐条追评（每条＝小标题＋≤500 字小正文），此处不填'
+        : ('清单正文（推荐 ≤1500 字）。一行一个小标题：- [ ] 未完成 / - [~] 进行中 / - [x] 已完成 / - [-] 放弃；'
+          + '小标题下面、到下一个小标题之前，就是它的小正文。');
+    }
+    if (计) 计.textContent = String((类 === '流水账' ? '' : (($('新建_正文') && $('新建_正文').value) || '')).length) + '/10000';
+    if (提示行) 提示行.textContent = (类 === '流水账')
+      ? '流水账：正文不限量，但只能一条一条追评（每条小正文 ≤500 字），此处不用填正文。'
+      : ('创建后自动带上类型名（' + 类 + '）。');
   }
   function 新建类型() {
     var 组 = $('新建_类型');
@@ -1627,9 +1945,9 @@
     var 名 = String(($('新建_标题') && $('新建_标题').value) || '').trim();
     if (!名) { 提示('请填写标题'); return; }
     if (!有接口()) { 提示('接口未就绪'); return; }
-    var 文 = String(($('新建_正文') && $('新建_正文').value) || '');
-    var 白 = String(($('新建_大白话') && $('新建_大白话').value) || '');
     var 类 = 新建类型();
+    var 文 = (类 === '流水账') ? '' : String(($('新建_正文') && $('新建_正文').value) || '');
+    var 白 = String(($('新建_大白话') && $('新建_大白话').value) || '');
     var 定 = $('新建_确定');
     if (定 && 定.disabled) return;
     if (定) 定.disabled = true;
@@ -1639,10 +1957,9 @@
       if ($('新建清单弹窗')) $('新建清单弹窗').classList.add('隐藏');
       var 新类 = 清单类型名(c.清单类型 || 类);
       提示('已新建：' + (c.名称 || 名) + '（' + 新类 + '）');
-      // 0.24：在分类分页里新建了另一类的清单 → 自动切到能看见它的分页
-      if (主页分页 !== '全部' && ((主页分页 === '系统') !== (新类 === '系统清单'))) {
-        定分页(新类 === '系统清单' ? '系统' : '普通');
-      }
+      // 0.24 / 0.25：在分类分页里新建了另一类的清单 → 自动切到能看见它的分页
+      var 目标页 = (新类 === '系统清单') ? '系统' : (新类 === '流水账' ? '流水账' : '普通');
+      if (主页分页 !== '全部' && 主页分页 !== 目标页) 定分页(目标页);
       清单指纹 = '';
       return 清理重复清单(c.编号, c.名称 || 名, c.创建).then(function () { 刷新全量(); });
     })['catch'](function (e) { 提示('新建失败：' + e.message); })
@@ -1732,6 +2049,7 @@
             if (x.classList) x.classList.remove('选中');
           });
           b.classList.add('选中');
+          应新建类型();
         });
       });
     }
@@ -1748,10 +2066,12 @@
     // 0.18：新建/加卡的正文本框提示小绿卡格式（一行一个小标题＋它的小正文）
     // 0.43（用户 2026-10-22）：推荐 1500 字；正文＝小标题＋小正文；拆卡后正文留 [[卡号]]。
     if ($('加卡_正文')) $('加卡_正文').placeholder =
-      '清单正文（推荐 ≤1500 字）。一行一个小标题：- [ ] 未完成 / - [~] 进行中 / - [x] 已完成 / - [-] 放弃；'
+      '清单正文（推荐 ≤1500 字）。可写 JSON 层级树：[{"标题":"第一层","正文":"…","子":[{"标题":"第二层","正文":"…"}]}]；'
+      + '也可平铺：一行一个小标题 - [ ] 未完成 / - [~] 进行中 / - [x] 已完成 / - [-] 放弃，'
       + '小标题下面、到下一个小标题之前，就是它的小正文。';
     if ($('新建_正文')) $('新建_正文').placeholder =
-      '清单正文（推荐 ≤1500 字）。一行一个小标题：- [ ] 未完成 / - [~] 进行中 / - [x] 已完成 / - [-] 放弃；'
+      '清单正文（推荐 ≤1500 字）。可写 JSON 层级树：[{"标题":"第一层","正文":"…","子":[{"标题":"第二层","正文":"…"}]}]；'
+      + '也可平铺：一行一个小标题 - [ ] 未完成 / - [~] 进行中 / - [x] 已完成 / - [-] 放弃，'
       + '小标题下面、到下一个小标题之前，就是它的小正文。';
     if ($('呼_取消')) $('呼_取消').addEventListener('click', 关呼);
     if ($('呼_确认')) $('呼_确认').addEventListener('click', 提交呼);
