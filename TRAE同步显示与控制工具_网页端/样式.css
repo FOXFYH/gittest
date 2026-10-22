@@ -241,6 +241,10 @@ body.fmsg #msgs{padding-top:22px;}
 .qbtns button.go{border-color:var(--blue); color:var(--blue);}
 .qbtns button.del{border-color:#e0b4b4; color:var(--red);}
 .qbtns button:disabled{opacity:.45;}
+/* 2.123（老板 2026-10-22 19:10）：排队条左列＝「两行正文 ＋ 专属提示词折叠卡」，
+   外包一层 .qcol 撑住剩余宽度（折叠卡在正文下面，按钮块仍靠右）。 */
+.qitem .qcol{flex:1; min-width:0;}
+.qitem .qcol .foxhint{margin:4px 0 0;}
 .qitem .qtxt{flex:1; min-width:0; font-size:13px; color:#263238;
   line-height:1.45; word-break:break-word; cursor:pointer;
   display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;

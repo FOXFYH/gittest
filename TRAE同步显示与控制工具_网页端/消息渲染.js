@@ -403,11 +403,23 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     qopenPrune(pend);        /* 2.08：清掉已不在队列里的「展开」标记 */
     pend.forEach((p, i) => {
       /* 2.08：左边文字只显示两行（点一下展开全文），右边一个按钮块：
-         ⚡发送 独占上行，✎ / 🗑 在下行并排、宽度＋间隔＝发送按钮宽度。 */
+         ⚡发送 独占上行，✎ / 🗑 在下行并排、宽度＋间隔＝发送按钮宽度。
+         2.123（老板 2026-10-22 19:10「进输入框的文字会被加后缀…正文那边有折叠
+         显示系统，官方排队小卡片这边也做成一样的」）：复用正文同一套
+         `foxHintCards` 摘出 sys/usr/co 三段，左列改为「两行正文 ＋ 同一张
+         专属提示词折叠卡（系统▸/用户▸/公司▸）」，不再把 (@fox-sys1)… 原样露出。 */
+      const _raw = stripHeadDid(p.t || '');
+      const _hz = [];
+      const _head = foxHintCards(_raw, _hz);
+      const _hasH = _hz.length > 0;
+      const _txt = _hasH ? _head.replace(/\s*@@FHC\d+@@\s*$/, '') : _raw;
       qh += '<div class="qitem">'
+         + '<div class="qcol">'
          + '<div class="qtxt' + (S.qopen[p.t] ? ' open' : '') + '"'
          + ' data-qt="' + i + '" title="点一下展开/收起全文">'
-         + esc(stripHeadDid(p.t)) + '</div>'
+         + esc(_txt) + '</div>'
+         + (_hasH ? foxHintHtml(_hz[0]) : '')
+         + '</div>'
          + '<div class="qbtns">'
          + '<button class="go qsend" data-qi="' + i + '">⚡发送</button>'
          + '<div class="qsub">'
@@ -416,6 +428,8 @@ function renderMsgs(msgs, finish, opts, ask, pend){
          + '</div></div></div>';
     });
     qp.innerHTML = qh;
+    /* 2.123：排队条里的专属提示词折叠卡——与正文同一套点开/收起绑定 */
+    foxHintBind(qp);
     /* 2.08：点左侧文字区＝展开/收起全文（标记记在 S.qopen，重绘后保持） */
     qp.querySelectorAll('.qtxt').forEach(t2 => {
       t2.onclick = () => {
