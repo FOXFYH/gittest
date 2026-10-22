@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.49">
+<meta name="任务面板版本" content="0.50">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,22 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.49</title>
+<title>任务面板 · 手机遥控页 v0.50</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.49
+  版本：0.50
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.50（2026-10-22）用户口径：**小绿卡缩进只发生在左侧、右侧充满，左侧每层只要 2px**——
+    去掉 `画树层()` 里给 `.绿卡夹` 另加的 `paddingLeft`，层级位移全交给 CSS `.绿卡小文` 的
+    2px 左边框，层层累加正好 2px/层（相邻两道竖线间距＝2px）；`.绿卡区/.绿卡小文/.正文框`
+    左右 margin/padding 归零或只留左侧 3px 衬字，绿卡右缘、正文框右缘与卡片内容区齐平。
+    展开层级不变：点开一条＝只见它自己的小正文＋下一级标题，下一级默认闭合，再下一级不展开。
+    实测还发现并修掉一个串层问题：`.绿卡夹.开 .绿卡小文` 是**后代选择器**，父级一开就把全部
+    更深层的小正文一起显示；改为子选择器 `.绿卡夹.开 > .绿卡小文`（箭头旋转同理只认自己的行）。
+    配合 清单页.js 0.29；接口.js / 卡片.js / 面板.js / 网页服务 / 清单存储 / CLI 本轮未改。
   v0.49（2026-10-22）用户口径：**系统清单＝树状清单的阉割版**——同一张卡、同一份 `建卡()` 代码，
     只少【备注】【呼叫AI】（因此没有 AI 指派区/回复框）；其余展开/属性/细分/编辑/正文小绿卡/转卡/
     使用说明/分页分类完全一致，**绝不做两份代码**。本轮只补一条差异：**系统清单正文不限字数**
@@ -483,7 +491,9 @@
     padding: 6px 3px; word-break: break-word; line-height: 1.5;
   }
   .卡.展开 .正文框 {
-    display: block; margin: 8px 3px 4px; padding: 8px 3px;
+    /* 0.50（用户 2026-10-22）：正文区**右侧充满**——左右 margin 归零、右 padding 归零，
+       只留左 3px 让文字不贴边；正文框右缘＝卡片内容区右缘。 */
+    display: block; margin: 8px 0 4px; padding: 8px 0 8px 3px;
     background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px;
   }
   .正文头 { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
@@ -531,18 +541,25 @@
   .卡文存 { display: inline-block; margin: 6px 3px 2px; }
   /* 正文里的小绿卡（0.43 起＝**小标题**：一张小标题带一段小正文，点小标题展开/收起）
      一行一张；尾部状态灯可点改。浏览模式下只显示全部小标题。 */
-  .绿卡区 { display: flex; flex-direction: column; gap: 4px; margin: 2px 3px; }
+  /* 0.50（用户 2026-10-22）：小绿卡区域**左侧每层只缩 2px、右侧充满**——
+     层与层之间的位移只由 `.绿卡小文` 的 2px 左边框决定（JS 不再加 paddingLeft），
+     层层累加正好 2px/层；左右 margin/padding 归零，右侧与正文框右缘齐平。 */
+  .绿卡区 { display: flex; flex-direction: column; gap: 4px; margin: 2px 0; }
   .绿卡区.空 { display: none !important; }
   .绿卡夹 { display: block; }
   .绿卡行 { display: flex; align-items: center; gap: 8px; background: #eaf7ee; cursor: pointer;
     border: 1px solid #bfe3cb; border-radius: 8px; padding: 5px 3px; }
   .绿卡箭 { flex: 0 0 auto; font-size: 11px; color: #4a7a5c; transition: transform .15s; }
-  .绿卡夹.开 .绿卡箭 { transform: rotate(90deg); }
+  .绿卡夹.开 > .绿卡行 .绿卡箭 { transform: rotate(90deg); }
   .绿卡夹.空文 .绿卡箭 { visibility: hidden; }
-  .绿卡小文 { display: none; margin: 2px 3px; padding: 4px 3px 6px;
+  /* 0.50：小正文左右不再缩进（margin/padding 归零），只留 2px 左边框——
+     这 2px 就是**下一级**的左移量：相邻两道竖线间距＝2px。 */
+  .绿卡小文 { display: none; margin: 2px 0; padding: 4px 0 6px 0;
     border-left: 2px solid #bfe3cb; font-size: 13px; color: #2c3a33;
     white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
-  .绿卡夹.开 .绿卡小文 { display: block; }
+  /* 0.50：**只展开自己的小正文**——必须用子选择器 `>`，否则 `.绿卡夹.开` 会命中全部后代小文，
+     一点开就把下面所有层级全打开（实测 v0.49 有此后代选择器串层问题，本轮修掉）。 */
+  .绿卡夹.开 > .绿卡小文 { display: block; }
   /* 小蓝卡＝超链接卡片：正文里单独写 [[卡号]] 就渲染成这张蓝色小卡，点它跳到那张卡 */
   .小蓝卡 { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px;
     background: #e6f0ff; border: 1px solid #a9c8f2; color: #24528f; cursor: pointer; }
@@ -574,8 +591,11 @@
   .绿卡行.层色4 .绿卡文 { color: #8a5a12; }
   .绿卡行.层色5 { background: #e6f7f6; border-color: #a5ded9; }
   .绿卡行.层色5 .绿卡文 { color: #146b66; }
+  /* 0.50：子级容器只留上间距，左右一律不加 margin/padding（右侧充满、左侧靠竖线）。
+     展开一条＝只见它的小正文＋下一级标题，下一级默认闭合（无 .开），再下一级不展开。 */
   .绿卡子 { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-  .绿卡正文 { white-space: pre-wrap; word-break: break-word; }
+  /* 0.50：小正文文字离竖线 3px——只推文字，不增加任何层级位移。 */
+  .绿卡正文 { white-space: pre-wrap; word-break: break-word; padding-left: 3px; }
   /* 0.46 流水账（用户 2026-10-22 口径）：小标题行按键＝状态灯＋【编】＋【删】；
      「允许修改历史流水账」勾选框（默认勾选）；勾着才显示编/删。 */
   .绿卡钮 { flex: 0 0 auto; font-size: 11px; padding: 2px 7px; min-height: 24px; border-radius: 999px;
@@ -631,7 +651,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.49</span>
+    <span class="版本">v0.50</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -788,9 +808,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.49"></script>
-<script src="网页模块/卡片.js?v=0.49"></script>
-<script src="网页模块/清单页.js?v=0.49"></script>
-<script src="网页模块/面板.js?v=0.49"></script>
+<script src="网页模块/接口.js?v=0.50"></script>
+<script src="网页模块/卡片.js?v=0.50"></script>
+<script src="网页模块/清单页.js?v=0.29"></script>
+<script src="网页模块/面板.js?v=0.50"></script>
 </body>
 </html>
