@@ -294,18 +294,18 @@ el.new.onclick = () => {         // 1.08：统一弹窗流程（原两入口并�
   srvOpSend('new_task_dlg', null, '新建任务');   // 2.109：②＋rcpt ③④
 };
 el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 boot
-  drawerClose();                  // 本就先杀再拉——原在线时本地拦下，
-  if (srvNeedOnline('重启/拉起')) return;   // TRAE 卡死救不了）
-  const online = S.snap && S.snap.online;
-  if (!confirm(online
-    ? '要重启当前目标 ' + S.box + ' 的 TRAE 吗？\n'
-      + '（正在生成的任务会中断，重启后自动重连）'
-    : '要请求服务端带调试端口启动当前目标 TRAE 吗？\n'
-      + '（服务端正在运行的该 TRAE 会先关闭）'))
-    return;
+  /* 2.122（老板 2026-10-22 17:56「直接短路到 Py 版上面，主界面也有一个拉起，
+     跟它一样的功能；该弹窗提醒什么，也由 Py 版的往这边传」）：
+     · 本端不再自带确认文案，也不再自己判断开着/没开——一律把 boot 交给服务端，
+       由服务端走与 Py 主界面「拉起」同一个入口（探测运行状态：开着→弹确认后
+       重启；没开→直接带端口启动）。
+     · 需要确认时服务端下发 ev/boot_ask（text 即 Py 版弹窗原文），本端用
+       uiConfirm 原样展示，确认后回 boot_confirm；取消回 boot_cancel。 */
+  drawerClose();
+  if (srvNeedOnline('重启/拉起')) return;   // TRAE 卡死救不了
   S.busy = true;
   /* 2.109：非 cmd 帧统一四态出口——②＋rcpt ③④。 */
-  srvOpSendJson({t: 'boot', box: S.box}, online ? ('重启 ' + S.box) : ('拉起 ' + S.box));
+  srvOpSendJson({t: 'boot', box: S.box}, '拉起 ' + S.box);
 };
 el.box.onchange = () => {                 // 切换目标：在线直接切/离线确认拉起
   const box = el.box.value;

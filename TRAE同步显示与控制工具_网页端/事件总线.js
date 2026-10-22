@@ -340,6 +340,23 @@ function onEv(kind, v){
     case 'notice':                         /* 1.41：服务端提示（如语音键拒点） */
       flash(String(v || ''), 'var(--blue)');
       break;
+    case 'boot_ask': {                     /* 2.122：Py 版「拉起」的确认弹窗——
+        服务端探测到目标 TRAE 正开着，把 Py 主界面弹窗原文（v.text）下发；
+        本端不自拟文案，原样展示。确认回 boot_confirm，取消回 boot_cancel。 */
+      const d = v || {};
+      const box = d.box || '';
+      const html = esc(String(d.text || '')).replace(/\n/g, '<br>');
+      const ov = uiConfirm('拉起', html, '重启', () => {
+        srvOpSendJson({t: 'boot_confirm', box: box}, '拉起 ' + box);
+      });
+      const cancel = () => {
+        ov.remove();
+        if (S.onLine) sendJson({t: 'boot_cancel', box: box});
+      };
+      ov.querySelector('#uimask_cancel').onclick = cancel;
+      ov.onclick = e => { if (e.target === ov) cancel(); };
+      break;
+    }
     case 'input_busy': {                   /* 2.46：后台借框占用（定时自我激活/
         收件箱提醒到点投递）——busy 期间禁用发送并提示，挡住人类操作；服务端
         在借框前后各发一条（true/false），异常也在 finally 里补 false。 */
