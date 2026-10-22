@@ -238,7 +238,11 @@ body.fmsg #fexit{display:block;}
    排队条左列＝「两行正文 ＋ 专属提示词折叠卡」，外包 .qcol 撑住剩余宽度
    （与 TRAE 网页端 2.123 同一套；卡片挂在正文下面，按钮块仍靠右）。 */
 .qitem .qcol{flex:1; min-width:0;}
-.qitem .qcol .foxhint{margin:4px 0 0;}
+/* 2.06（老板 2026-10-22 19:38）：折叠卡（小尾巴）只在展开模式出现，
+   收起的排队项只留两行正文（与 TRAE 网页端 2.124 同一套）。 */
+.qitem .qcol .qfh{display:none; margin:4px 0 0;}
+.qitem .qcol .qtxt.open + .qfh{display:block;}
+.qitem .qcol .qfh .foxhint{margin:0;}
 .qitem .qtxt{flex:1; min-width:0; font-size:13px; color:#263238;
   line-height:1.45; word-break:break-word; cursor:pointer;
   display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
@@ -2315,7 +2319,7 @@ function renderQueue(){
        + '<div class="qtxt' + (S.qopen[id] ? ' open' : '') + '"'
        + ' data-qt="' + i + '" title="点一下展开/收起全文">'
        + esc(_txt) + '</div>'
-       + (_hasH ? foxHintHtml(_hz[0]) : '')
+       + (_hasH ? '<div class="qfh">' + foxHintHtml(_hz[0]) + '</div>' : '')
        + '</div>'
        + '<div class="qbtns">'
        + '<button class="go qsend" data-qid="' + esc(id) + '">⚡发送</button>'
@@ -3914,7 +3918,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.05';   /* 2.05：托管排队条也上「专属提示词三段折叠卡」（老板 2026-10-22 19:10
+const VER = '2.06';   /* 2.06：托管排队条折叠卡改为「只在展开时出现」（老板 2026-10-22 19:38
+   「官方排队条默认只显示最近两行文字，可以展开/收缩；我们的小尾巴只有在展开模式才出现」）——
+   卡片外包 .qfh，默认隐藏，仅 `.qtxt.open + .qfh` 显示；对齐 TRAE 网页端 2.124。
+   2.05：托管排队条也上「专属提示词三段折叠卡」（老板 2026-10-22 19:10
    「我们进入文本框的文字都会被加一个后缀…网页版为它设计了后缀的折叠显示系统，正文那边会
    发挥作用，官方排队小卡片这边还没发挥作用，这边也做成一样的吧」＋「直接复用同一套逻辑」，
    并要求 WorkBuddy 侧一致）——renderQueue 每项改为 `.qcol` 内「两行正文 ＋ 同一张
