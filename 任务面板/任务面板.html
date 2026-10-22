@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.51">
+<meta name="任务面板版本" content="0.52">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,19 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.51</title>
+<title>任务面板 · 手机遥控页 v0.52</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.51
+  版本：0.52
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.52（2026-10-22）用户口径（19:08）：**每个层级的小绿卡颜色必须不同**（原来第 3 层和第 2 层看着一样）
+    ——层级配色循环 **5 种 → 8 种**：层1 绿 / 2 蓝 / 3 紫 / 4 橙 / 5 青 / 6 玫红 / 7 黄（柠檬）/ 8 灰蓝，
+    **8 层两两不同**；**超过 8 层从头循环**（第 9 层＝第 1 色）。补 `.绿卡行.层色6/7/8` 三套样式
+    （浅底＋同色系边框＋深色文字）与对应 `.绿卡文` 深色字；`清单页.js` 的 `画树层()` 改成
+    `((层 - 1) % 8) + 1`。配合 清单页.js 0.31。
   v0.51（2026-10-22）用户口径：①**不再单独显示**展开卡里那段「清单正文两种写法…推荐 1500 字」
     （删掉 `.绿卡说明` 元素与对应 CSS）；②正文写法说明**放进正文框当灰色占位**——非流水清单
     textarea 的 placeholder＝卡片 `使用说明`（多行），正文为空时看到的就是它；浏览模式且正文为空
@@ -584,8 +589,11 @@
   .正文说明 { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.6;
     color: #7d8794; background: #f7f8fa; border: 1px dashed #d5dbe3; border-radius: 8px;
     padding: 8px 9px; margin: 6px 3px 8px; user-select: text; -webkit-user-select: text; }
-  /* 0.46 树状清单的 JSON 层级树：层级颜色系统自动赋予（层1 绿 / 层2 蓝 / 层3 紫 / 层4 橙 / 层5 青，循环）；
-     每深一层左侧缩 2px；第一层带一个小图标「◆」。展开一条＝同时见它的小正文和下级标题。 */
+  /* 0.52（用户 2026-10-22 19:08）：树状清单的 JSON 层级树：层级颜色系统自动赋予，**8 层各不相同**——
+     层1 绿 / 层2 蓝 / 层3 紫 / 层4 橙 / 层5 青 / 层6 玫红 / 层7 黄（柠檬）/ 层8 灰蓝；
+     **超过 8 层从第 1 色重新循环**（第 9 层＝第 1 色，第 10 层＝第 2 色…）。
+     每深一层左侧缩 2px；第一层带一个小图标「◆」。展开一条＝同时见它的小正文和下级标题。
+     每套都沿用「浅底＋同色系边框＋深色文字」，8 个色相肉眼可分。 */
   .层图 { flex: 0 0 auto; font-size: 10px; color: #1c6b36; }
   .绿卡行.层色1 { background: #eaf7ee; border-color: #bfe3cb; }
   .绿卡行.层色1 .绿卡文 { color: #245c39; }
@@ -594,9 +602,16 @@
   .绿卡行.层色3 { background: #f2ebff; border-color: #cbb6f2; }
   .绿卡行.层色3 .绿卡文 { color: #5a3a8f; }
   .绿卡行.层色4 { background: #fff2e2; border-color: #f0c9a0; }
-  .绿卡行.层色4 .绿卡文 { color: #8a5a12; }
+  .绿卡行.层色4 .绿卡文 { color: #7a4e0a; }
   .绿卡行.层色5 { background: #e6f7f6; border-color: #a5ded9; }
-  .绿卡行.层色5 .绿卡文 { color: #146b66; }
+  .绿卡行.层色5 .绿卡文 { color: #0c615c; }
+  /* 0.52 新增：层6 玫红 / 层7 黄（柠檬）/ 层8 灰蓝——与前 5 层两两不同 */
+  .绿卡行.层色6 { background: #ffe9f1; border-color: #f2b0c8; }
+  .绿卡行.层色6 .绿卡文 { color: #97234f; }
+  .绿卡行.层色7 { background: #fdfae0; border-color: #e4d783; }
+  .绿卡行.层色7 .绿卡文 { color: #6b5b04; }
+  .绿卡行.层色8 { background: #eceff7; border-color: #bcc5dc; }
+  .绿卡行.层色8 .绿卡文 { color: #3c4766; }
   /* 0.50：子级容器只留上间距，左右一律不加 margin/padding（右侧充满、左侧靠竖线）。
      展开一条＝只见它的小正文＋下一级标题，下一级默认闭合（无 .开），再下一级不展开。 */
   .绿卡子 { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
@@ -657,7 +672,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.51</span>
+    <span class="版本">v0.52</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -814,9 +829,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.51"></script>
-<script src="网页模块/卡片.js?v=0.51"></script>
-<script src="网页模块/清单页.js?v=0.30"></script>
-<script src="网页模块/面板.js?v=0.51"></script>
+<script src="网页模块/接口.js?v=0.52"></script>
+<script src="网页模块/卡片.js?v=0.52"></script>
+<script src="网页模块/清单页.js?v=0.31"></script>
+<script src="网页模块/面板.js?v=0.52"></script>
 </body>
 </html>
