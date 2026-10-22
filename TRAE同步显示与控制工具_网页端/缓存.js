@@ -100,16 +100,23 @@ function ledToArr(r){
           r.can_rev ? 1 : 0, r.can_del ? 1 : 0, '', r.mid || ''];
 }
 /* —— 请求式历史 —— */
+/* 2.125（老板 2026-10-22 21:21）：给服务端同时送「终身号 + 会话名」——服务端
+   优先按终身号匹配账本（账本自 v2.55 起只按终身号记），匹配不上再退会话名。 */
+function _ltOf(conv){
+  try { return 稳定键(curSid(), conv || ''); } catch(e){ return ''; }
+}
 function reqHist(conv, have_seq, ver){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
   sendJson({t: 'req', id: id, c: 'hist', conv: conv || '',
+            lt: _ltOf(conv),
             have_seq: have_seq | 0, ver: ver | 0});
 }
 function reqHistPrev(conv, from_seq, count){
   const id = ++reqSeq;
   S_reqs[id] = {conv: conv || '', ts: Date.now()};
   sendJson({t: 'req', id: id, c: 'hist_prev', conv: conv || '',
+            lt: _ltOf(conv),
             from_seq: from_seq | 0, count: count | 4});   /* 2.49：每次补 4 条 */
   /* 2.49：兜底——服务端 8 秒没回也别把「正在取回历史记录…」挂死、别锁死防重入。
      2.85：兜底时**同时清 histPullFrom**——否则「近顶分支」见
