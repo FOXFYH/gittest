@@ -442,7 +442,11 @@ body.fmsg #msgs{padding-top:22px;}
 #mask{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:29;
   display:none;}
 #mask.on{display:block;}
-#drawer{position:fixed; left:0; top:0; bottom:0; width:76%; max-width:300px;
+/* 2.121（老板 2026-10-22 17:55「两个刷新键只剩一个了，抽屉宽度得缩回去，跟会话名显示
+   长度匹配即可」）：2.119 为容下并排两个刷新键把上限放到 300px；现服务端行只剩
+   「↻ 服务端」，上限收回 264px ＝ 会话行内衬(14+14)＋状态灯(8)＋间距(6)＋实测最长
+   会话名 221px（真机量得 263px），不再多留空位。 */
+#drawer{position:fixed; left:0; top:0; bottom:0; width:76%; max-width:264px;
   background:#fff; z-index:30; transform:translateX(-102%);
   transition:transform .18s ease; display:flex; flex-direction:column;
   box-shadow:2px 0 10px rgba(0,0,0,.25); overscroll-behavior:contain;}
