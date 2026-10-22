@@ -837,7 +837,7 @@ function openManager(){
       if(!localStorage.getItem(FM_PREFIX+'_device_id'))localStorage.setItem(FM_PREFIX+'_device_id',deviceId());
     }catch(e){}
     fmLoaded=true;
-    fmFrameEl().src='manager/index.html?v='+Date.now();
+    fmFrameEl().src='manager/index.html?v='+APP_VER;
   }else if(fmReady){
     handshake();
   }
