@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.44">
+<meta name="任务面板版本" content="0.45">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,18 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.44</title>
+<title>任务面板 · 手机遥控页 v0.45</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.44
+  版本：0.45
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.45（2026-10-22）按用户口径在**「我的清单」这一行加分类分页签**：普通 / 系统 / 全部（默认全部），
+    点一下只筛主页的清单（普通＝树状清单、系统＝系统清单、全部＝不筛），清单缓存仍取全量；
+    计数随页写成「共 n 本（普通/系统）」；在「系统」页新建清单默认选系统清单，
+    新建的类别与当前页不符会自动切页。配合 清单页.js 0.24。
   v0.44（2026-10-22）按用户口径改名：第一种清单型的准确名字是「**树状清单**」，不再叫「总管清单」——
     新建弹窗的类型按钮、卡头类型标签、副行「类型：」、属性页「清单」行一律显示树状清单；
     旧数据/旧服务器返回的「总管清单」按兼容别名显示成树状清单（不改写旧库文件）。
@@ -313,8 +317,14 @@
   /* 主体 */
   main { padding: 12px 3px; }
   .区 { margin-bottom: 18px; }
-  .区标题 { font-size: 16px; margin: 6px 2px 10px; color: #333; }
+  .区标题 { font-size: 16px; margin: 6px 2px 10px; color: #333;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .计数 { font-size: 13px; color: #667; font-weight: 400; }
+  /* 清单分类分页签（0.45 用户 2026-10-22 口径）：普通 / 系统 / 全部，摆在「我的清单」这一行右侧 */
+  .分页签组 { margin-left: auto; display: flex; gap: 4px; }
+  .分页签 { font-size: 12px; padding: 3px 10px; min-height: 26px; border-radius: 999px;
+    border: 1px solid #c4ccd8; background: #fff; color: #556; cursor: pointer; }
+  .分页签.选中 { background: #2b5fb0; border-color: #2b5fb0; color: #fff; font-weight: 700; }
   /* 端列表 */
   .端列表 { display: flex; flex-direction: column; gap: 8px; }
   .端项 {
@@ -555,7 +565,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.44</span>
+    <span class="版本">v0.45</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -579,7 +589,13 @@
   <!-- 主页＝我的清单：摆一级卡（一本总管清单＝一张完整的卡）。
        点卡上的【细分】＝整页切到该卡的下级页面（见 #节点页），像进入一个新文件夹。 -->
   <section id="主页" class="区">
-    <h2 class="区标题">我的清单 <span id="清单计数" class="计数"></span></h2>
+    <h2 class="区标题">我的清单 <span id="清单计数" class="计数"></span>
+      <span id="清单分页" class="分页签组">
+        <button type="button" class="分页签" data-页="普通">普通</button>
+        <button type="button" class="分页签" data-页="系统">系统</button>
+        <button type="button" class="分页签 选中" data-页="全部">全部</button>
+      </span>
+    </h2>
     <div id="顶层容器" class="任务列表"><div class="空样">加载中…</div></div>
   </section>
 
@@ -687,9 +703,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.44"></script>
-<script src="网页模块/卡片.js?v=0.44"></script>
-<script src="网页模块/清单页.js?v=0.44"></script>
-<script src="网页模块/面板.js?v=0.44"></script>
+<script src="网页模块/接口.js?v=0.45"></script>
+<script src="网页模块/卡片.js?v=0.45"></script>
+<script src="网页模块/清单页.js?v=0.45"></script>
+<script src="网页模块/面板.js?v=0.45"></script>
 </body>
 </html>
