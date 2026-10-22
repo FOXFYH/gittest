@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.50">
+<meta name="任务面板版本" content="0.51">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,21 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.50</title>
+<title>任务面板 · 手机遥控页 v0.51</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.50
+  版本：0.51
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.51（2026-10-22）用户口径：①**不再单独显示**展开卡里那段「清单正文两种写法…推荐 1500 字」
+    （删掉 `.绿卡说明` 元素与对应 CSS）；②正文写法说明**放进正文框当灰色占位**——非流水清单
+    textarea 的 placeholder＝卡片 `使用说明`（多行），正文为空时看到的就是它；浏览模式且正文为空
+    才额外显示 `.正文说明` 灰块，有正文就不显示；流水清单把同一条规则放进追评区上方；
+    ③`使用说明` 改由《清单存储》0.22 重写（树状＝按逻辑关系拆大小点＋三级示例＋可无限层级；
+    流水＝一次写一篇追加、总字数与条数不限、每条小正文 ≤1000）；④流水每条 500 → 1000。
+    配合 清单页.js 0.30 / 接口.js 0.21 / 清单存储.py 0.22 / 网页服务.py 0.25 / CLI 0.22。
   v0.50（2026-10-22）用户口径：**小绿卡缩进只发生在左侧、右侧充满，左侧每层只要 2px**——
     去掉 `画树层()` 里给 `.绿卡夹` 另加的 `paddingLeft`，层级位移全交给 CSS `.绿卡小文` 的
     2px 左边框，层层累加正好 2px/层（相邻两道竖线间距＝2px）；`.绿卡区/.绿卡小文/.正文框`
@@ -572,8 +579,7 @@
   .绿卡灯.灯行 { background: #e8f1ff; border-color: #a9c8f2; color: #24528f; }
   .绿卡灯.灯完 { background: #def3e4; border-color: #8fd0a6; color: #1c6b36; }
   .绿卡灯.灯弃 { background: #f2f3f5; border-color: #d8dbe1; color: #7a828e; }
-  .绿卡说明 { display: none; margin: 4px 3px 6px; font-size: 11px; color: #889; line-height: 1.5; }
-  .卡.展开 .绿卡说明 { display: block; }
+  /* 0.51：`.绿卡说明` 已删——写法说明改到正文框 placeholder 与卡片 `使用说明` 里 */
   /* 0.48 使用说明＋模范格式：常驻正文区，灰色，进卡片文件，AI 读 JSON 即可照做 */
   .正文说明 { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.6;
     color: #7d8794; background: #f7f8fa; border: 1px dashed #d5dbe3; border-radius: 8px;
@@ -651,7 +657,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.50</span>
+    <span class="版本">v0.51</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -808,9 +814,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.50"></script>
-<script src="网页模块/卡片.js?v=0.50"></script>
-<script src="网页模块/清单页.js?v=0.29"></script>
-<script src="网页模块/面板.js?v=0.50"></script>
+<script src="网页模块/接口.js?v=0.51"></script>
+<script src="网页模块/卡片.js?v=0.51"></script>
+<script src="网页模块/清单页.js?v=0.30"></script>
+<script src="网页模块/面板.js?v=0.51"></script>
 </body>
 </html>
