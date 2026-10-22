@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.43">
+<meta name="任务面板版本" content="0.44">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,18 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.43</title>
+<title>任务面板 · 手机遥控页 v0.44</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.43
+  版本：0.44
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.44（2026-10-22）按用户口径改名：第一种清单型的准确名字是「**树状清单**」，不再叫「总管清单」——
+    新建弹窗的类型按钮、卡头类型标签、副行「类型：」、属性页「清单」行一律显示树状清单；
+    旧数据/旧服务器返回的「总管清单」按兼容别名显示成树状清单（不改写旧库文件）。
+    配合 清单页.js 0.23 / 接口.js 0.19 / 清单存储.py 0.18。
   v0.43（2026-10-22）按用户口径两项：
     ①术语「清单大白话」改「**清单正文大白话**」（卡片框标题、输入提示、属性页行名）。
     ②正文框改**浏览 / 编辑两模式**（默认浏览）：钮上只显示当前模式（浏览／编辑），点一下切换；
@@ -551,7 +555,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.43</span>
+    <span class="版本">v0.44</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -596,7 +600,7 @@
     <h3>新建</h3>
     <label class="字段">类型</label>
     <div id="新建_类型" class="类型组">
-      <button type="button" class="大类钮 选中" data-类="总管清单">总管清单</button>
+      <button type="button" class="大类钮 选中" data-类="树状清单">树状清单</button>
       <button type="button" class="大类钮" data-类="系统清单">系统清单</button>
     </div>
     <label class="字段" for="新建_标题">标题（≤60 字）</label>
@@ -609,7 +613,7 @@
     <label class="字段" for="新建_正文">清单正文（推荐 ≤1500 字，上限 1 万字）</label>
     <textarea id="新建_正文" maxlength="10000" placeholder="细节、附件说明等（可留空）"></textarea>
     <p id="新建_正文数" class="字计">0/10000</p>
-    <p style="font-size:13px;color:#889;margin:8px 0 0;">创建后自动带上类型名（总管清单）。</p>
+    <p style="font-size:13px;color:#889;margin:8px 0 0;">创建后自动带上类型名（树状清单）。</p>
     <div class="弹窗底">
       <button id="新建_取消" class="次钮">取消</button>
       <button id="新建_确定" class="主钮">创建</button>
@@ -683,9 +687,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.43"></script>
-<script src="网页模块/卡片.js?v=0.43"></script>
-<script src="网页模块/清单页.js?v=0.43"></script>
-<script src="网页模块/面板.js?v=0.43"></script>
+<script src="网页模块/接口.js?v=0.44"></script>
+<script src="网页模块/卡片.js?v=0.44"></script>
+<script src="网页模块/清单页.js?v=0.44"></script>
+<script src="网页模块/面板.js?v=0.44"></script>
 </body>
 </html>
