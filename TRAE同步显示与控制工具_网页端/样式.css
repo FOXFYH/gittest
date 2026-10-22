@@ -23,7 +23,13 @@ select{font-size:12px;}
 .h1row{display:flex; align-items:center; gap:6px; padding:4px 8px;}
 #btn_menu{min-width:42px; font-size:17px; padding:4px 10px;}
 .h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
+  min-width:0; flex:0 1 auto;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* 2.120（老板 2026-10-22 15:29「那个位置本来就是管服务端的…可以放到顶部…节约宽度」）：
+   「↻ 本会话」从抽屉服务端行挪到顶栏第一行（操控:xx 之后），抽屉只留管服务端那个；
+   顶栏给紧凑尺寸，标题让位省略，保证窄屏一行不溢出。 */
+#hdr #btn_panerefresh{flex:none; font-size:11px; padding:1px 6px; margin:0;
+  border-radius:7px; white-space:nowrap;}
 #lbl_rlink{margin-left:auto; font-weight:bold; font-size:12px;
   white-space:nowrap; cursor:pointer;}
 /* 1.12：当前操控的服务端（点击进抽屉切换） */
