@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="网页版版本" content="1.00">
-<title>Fox记事本 v1.00</title>
+<meta name="网页版版本" content="1.01">
+<title>Fox记事本 v1.01</title>
 <!--
-  Fox记事本 · 网页版 1.00
+  Fox记事本 · 网页版 1.01
   纯静态单文件；正文只存云端金山表格，不落本地磁盘。
+  内置「6.0」按钮：全屏接入原版《文件管理6.0》HTML（manager/），postMessage 双向通信。
   部署：FOXFYH/gittest / foxnote / https://foxfyh.github.io/gittest/foxnote/
   更新：2026-10-22
 -->
@@ -161,6 +162,21 @@
     background:#fff;font:600 13px/1 inherit;cursor:pointer;
   }
   .dlg-foot button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  /* 6.0 文件管理浮层（原版移植，全屏） */
+  #fmOverlay{position:fixed;inset:0;z-index:200;display:none;flex-direction:column;background:#f0f2f5}
+  #fmOverlay.open{display:flex}
+  .fm-bar{
+    flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:6px 10px;
+    background:#fff;border-bottom:1px solid var(--line);
+  }
+  .fm-bar span{font-size:13px;font-weight:600;color:#444}
+  .fm-close{
+    margin-left:auto;min-height:32px;padding:0 14px;border:1px solid #cbd3dd;
+    border-radius:var(--radius);background:#fff;font:600 13px/1 inherit;cursor:pointer;
+  }
+  .fm-close:active{background:#eef2f7}
+  #fmFrame{flex:1 1 auto;width:100%;border:0;background:#fff}
+  .dlg-foot button.warn{color:#c0392b;border-color:#f0c0bb}
   @media (min-width:760px){
     .list-panel{flex-basis:30%}
     textarea{font-size:16px}
@@ -173,7 +189,7 @@
   <span class="logo">狐</span>
   <span class="title">Fox记事本</span>
   <div class="top-right">
-    <span class="ver-badge" id="verBadge">网页版 v1.00</span>
+    <span class="ver-badge" id="verBadge">网页版 v1.01</span>
     <button class="icon-btn" id="btnSettings" title="设置" aria-label="设置">⚙</button>
   </div>
 </header>
@@ -182,6 +198,7 @@
   <button id="btnNew" type="button">新建</button>
   <button id="btnSave" type="button" class="primary">保存</button>
   <button id="btnRefresh" type="button">刷新</button>
+  <button id="btnManager" type="button">6.0</button>
   <button id="btnDelete" type="button" class="danger" disabled>删除</button>
 </div>
 
@@ -208,6 +225,29 @@
 
 <div class="status-bar"><span id="statusText">就绪</span></div>
 <div id="toast"></div>
+
+<!-- 6.0 文件管理（原版移植，全屏 iframe） -->
+<div id="fmOverlay" aria-hidden="true">
+  <div class="fm-bar">
+    <span>📁 文件管理 6.0（原版移植）</span>
+    <button class="fm-close" id="fmClose" type="button">关闭</button>
+  </div>
+  <iframe id="fmFrame" src="about:blank" title="文件管理6.0"></iframe>
+</div>
+
+<!-- 同步冲突处置（宿主自备，回传 conflictResolved） -->
+<dialog id="conflictDlg">
+  <div class="dlg-body">
+    <h3 class="dlg-title">同步冲突</h3>
+    <div id="conflictMsg" class="dlg-msg"></div>
+  </div>
+  <div class="dlg-foot">
+    <button id="cfLater" type="button">稍后</button>
+    <button id="cfMake" type="button">建冲突版本</button>
+    <button id="cfOverwrite" type="button" class="warn">本地覆盖</button>
+    <button id="cfAccept" type="button" class="primary">接受云端</button>
+  </div>
+</dialog>
 
 <dialog id="settingsDlg">
   <div class="dlg-body">
@@ -246,7 +286,7 @@
 <script>
 'use strict';
 /* ================= 常量 ================= */
-const APP_VER='1.00';
+const APP_VER='1.01';
 const SHEET='Fox记事本';
 const PROXY='https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
 const WEBHOOK='https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -260,6 +300,10 @@ const LS={user:'foxnote_user',pass:'foxnote_pass',dev:'foxnote_device',ver:'foxn
     if(old && old!==APP_VER){
       const keep={};
       [LS.user,LS.pass,LS.dev].forEach(k=>{const v=localStorage.getItem(k);if(v!==null)keep[k]=v;});
+      for(let i=0;i<localStorage.length;i++){
+        const k=localStorage.key(i);
+        if(k&&k.indexOf('foxnote60_')===0)keep[k]=localStorage.getItem(k);
+      }
       localStorage.clear();sessionStorage.clear();
       Object.keys(keep).forEach(k=>localStorage.setItem(k,keep[k]));
     }
@@ -775,6 +819,122 @@ function uiConfirm(msg,okText){
     dlg.showModal();
   });
 }
+
+/* ================= 6.0 文件管理（原版移植，postMessage 接入） ================= */
+const FM_PREFIX='foxnote60';
+const FM_TOKEN='';   // 代理不支持自定义头预检，Token 留空（与宿主云通道一致）
+let fmReady=false, fmLoaded=false;
+function fmFrameEl(){return $('fmFrame')}
+function postToFM(msg){
+  const f=fmFrameEl();
+  if(!f||!f.contentWindow)return;
+  f.contentWindow.postMessage(Object.assign({target:'fileManager'},msg),'*');
+}
+function openManager(){
+  $('fmOverlay').classList.add('open');
+  if(!fmLoaded){
+    try{
+      if(!localStorage.getItem(FM_PREFIX+'_device_id'))localStorage.setItem(FM_PREFIX+'_device_id',deviceId());
+    }catch(e){}
+    fmLoaded=true;
+    fmFrameEl().src='manager/index.html?v='+Date.now();
+  }else if(fmReady){
+    handshake();
+  }
+}
+function closeManager(){
+  $('fmOverlay').classList.remove('open');
+  refreshIndex();
+}
+function handshake(){
+  if(!fmReady)return;
+  const c=creds();
+  postToFM({type:'initConfig',appPrefix:FM_PREFIX,config:{
+    appPrefix:FM_PREFIX,enabled:true,sheetName:SHEET,webhookUrl:WEBHOOK,token:FM_TOKEN
+  }});
+  if(c.u&&c.p)postToFM({type:'authChanged',username:c.u,password:c.p});
+  postToFM({type:'open',currentFileName:cur?cur.name:'',currentContent:cur?cur.content:''});
+  postToFM({type:'refreshCloud'});
+}
+function fmOpenFile(m){
+  const name=m.name||'未命名.txt';
+  const content=typeof m.content==='string'?m.content:'';
+  cur={id:m.id||'',name:name,s:0,e:0,isNewFile:false,saved:true,
+       createTime:'',lastEditTime:'',content:content};
+  baseline=content;
+  showCurrent();
+  closeManager();
+  setStatus('已从 6.0 打开：'+name);
+  toast('已打开：'+name,'success');
+}
+window.addEventListener('message',e=>{
+  const m=e.data;
+  if(!m||typeof m!=='object'||!m.type)return;
+  switch(m.type){
+    case 'fmReady':
+      fmReady=true;handshake();break;
+    case 'openFile':
+      fmOpenFile(m);break;
+    case 'closeFileManager':
+      closeManager();break;
+    case 'fileDeleted':
+      if(cur&&cur.name===m.name){cur=null;baseline='';showCurrent();}
+      refreshIndex();break;
+    case 'fileRenamed':
+      if(cur&&cur.name===m.oldName){
+        cur.name=m.newName||cur.name;
+        $('fileName').value=cur.name;
+      }
+      refreshIndex();break;
+    case 'fileContentUpdated':
+      if(cur&&cur.name===m.name&&!isDirty()){
+        cur.content=typeof m.content==='string'?m.content:cur.content;
+        baseline=cur.content;showCurrent();
+      }else if(cur&&cur.name===m.name){
+        toast('云端有新版本，但当前有未保存修改，未覆盖','error');
+      }
+      break;
+    case 'registerResult':
+    case 'importResult':
+      toast((m.success?'已创建：':'操作失败：')+(m.name||m.message||''),
+            m.success?'success':'error');
+      refreshIndex();break;
+    case 'syncState':
+      if(m.state==='syncing')setStatus('6.0 同步中…');
+      else if(m.state==='done')setStatus('6.0 同步完成');
+      else if(m.state==='error')setStatus('6.0 同步异常');
+      break;
+    case 'syncToast':
+      if(m.message)setStatus('6.0：'+m.message);
+      break;
+    case 'syncConflict':{
+      const dlg=$('conflictDlg');
+      $('conflictMsg').textContent=
+        '云端已更新（云端 v'+(m.cloudVer||'?')+'）。\n'+(m.context||'')+
+        '\n请选择处置方式：接受云端 / 本地覆盖 / 建冲突版本 / 稍后';
+      dlg.dataset.fileName=m.fileName||'';
+      if(!dlg.open)dlg.showModal();
+      break;
+    }
+    case 'conflictResolved':
+      if($('conflictDlg').open)$('conflictDlg').close();
+      break;
+  }
+});
+$('btnManager').addEventListener('click',openManager);
+$('fmClose').addEventListener('click',closeManager);
+(function bindConflict(){
+  const map={cfAccept:'accept_cloud',cfOverwrite:'overwrite',cfMake:'make_conflict',cfLater:'later'};
+  Object.keys(map).forEach(id=>{
+    $(id).addEventListener('click',()=>{
+      const dlg=$('conflictDlg');
+      const fileName=dlg.dataset.fileName||'';
+      if(dlg.open)dlg.close();
+      postToFM({type:'conflictResolved',resolution:map[id],fileName:fileName});
+      if(map[id]!=='later')refreshIndex();
+    });
+  });
+})();
 
 /* ================= 事件绑定与启动 ================= */
 $('btnNew').addEventListener('click',newFile);
