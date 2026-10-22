@@ -234,6 +234,11 @@ body.fmsg #fexit{display:block;}
 .qbtns button.go{border-color:var(--blue); color:var(--blue);}
 .qbtns button.del{border-color:#e0b4b4; color:var(--red);}
 .qbtns button:disabled{opacity:.45;}
+/* 2.05（老板 2026-10-22 19:10「这个功能，WorkBuddy 那边也要求一致」）：
+   排队条左列＝「两行正文 ＋ 专属提示词折叠卡」，外包 .qcol 撑住剩余宽度
+   （与 TRAE 网页端 2.123 同一套；卡片挂在正文下面，按钮块仍靠右）。 */
+.qitem .qcol{flex:1; min-width:0;}
+.qitem .qcol .foxhint{margin:4px 0 0;}
 .qitem .qtxt{flex:1; min-width:0; font-size:13px; color:#263238;
   line-height:1.45; word-break:break-word; cursor:pointer;
   display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
@@ -2297,10 +2302,21 @@ function renderQueue(){
   q.forEach((it, i) => {
     const o = (it && typeof it === 'object') ? it : {text: it, id: ''};
     const id = String(o.id || '');
+    /* 2.05（老板 2026-10-22 19:10「这个功能，WorkBuddy 那边也要求一致」）：
+       直接复用正文同一套 foxHintCards/foxHintHtml —— 把服务端追加的 sys/usr/co
+       三段摘出来，左列＝两行正文 ＋ 同一张「系统 ▸ / 用户 ▸ / 公司 ▸」折叠卡；
+       没有三段者保持原样（不出空卡）。 */
+    const _hz = [];
+    const _head = foxHintCards(o.text || '', _hz);
+    const _hasH = _hz.length > 0;
+    const _txt = _hasH ? _head.replace(/\s*@@FHC\d+@@\s*$/, '') : (o.text || '');
     qh += '<div class="qitem">'
+       + '<div class="qcol">'
        + '<div class="qtxt' + (S.qopen[id] ? ' open' : '') + '"'
        + ' data-qt="' + i + '" title="点一下展开/收起全文">'
-       + esc(o.text || '') + '</div>'
+       + esc(_txt) + '</div>'
+       + (_hasH ? foxHintHtml(_hz[0]) : '')
+       + '</div>'
        + '<div class="qbtns">'
        + '<button class="go qsend" data-qid="' + esc(id) + '">⚡发送</button>'
        + '<div class="qsub">'
@@ -2309,6 +2325,8 @@ function renderQueue(){
        + '</div></div></div>';
   });
   qp.innerHTML = qh;
+  /* 2.05：排队条里的专属提示词折叠卡——与正文同一套点开/收起绑定 */
+  foxHintBind(qp);
   /* 点左侧文字区＝展开/收起全文（标记记在 S.qopen，快照重绘后保持） */
   qp.querySelectorAll('.qtxt').forEach(t2 => {
     t2.onclick = () => {
@@ -3896,7 +3914,13 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.04';   /* 2.04：📂 本地文件查看器「选路径点 ➕ 没反应」根治（老板 2026-10-20 令）——
+const VER = '2.05';   /* 2.05：托管排队条也上「专属提示词三段折叠卡」（老板 2026-10-22 19:10
+   「我们进入文本框的文字都会被加一个后缀…网页版为它设计了后缀的折叠显示系统，正文那边会
+   发挥作用，官方排队小卡片这边还没发挥作用，这边也做成一样的吧」＋「直接复用同一套逻辑」，
+   并要求 WorkBuddy 侧一致）——renderQueue 每项改为 `.qcol` 内「两行正文 ＋ 同一张
+   系统▸/用户▸/公司▸ 折叠卡」，直接复用 foxHintCards/foxHintHtml/foxHintBind（与正文同一套、
+   开合状态同源）；无三段者不出卡；按钮块与展开全文行为一字不变。对齐 TRAE 网页端 2.123。
+   2.04：📂 本地文件查看器「选路径点 ➕ 没反应」根治（老板 2026-10-20 令）——
    病根：选路径回传只依赖 window.opener.postMessage，手机端由宿主 window.open 常落新标签、
    opener 丢失 ⇒ 点 ➕ 无处可发、窗口照关，宿主毫无反应。改法：① 查看器侧行尾 ➕ 恒亮（直开
    也能用）；② 新增「公共段 + INS」频道 FOX 帧回传主路，本端连同一频道收帧后按 mode 插入输入区 /
