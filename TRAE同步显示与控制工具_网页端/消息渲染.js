@@ -413,12 +413,15 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       const _head = foxHintCards(_raw, _hz);
       const _hasH = _hz.length > 0;
       const _txt = _hasH ? _head.replace(/\s*@@FHC\d+@@\s*$/, '') : _raw;
+      /* 2.124（老板 2026-10-22 19:38）：排队条默认只显示两行正文，折叠卡（小尾巴）
+         只在点开展开后才出现——仍在同一 .qcol 内，紧随 .qtxt 之后，由 CSS 的
+         `.qtxt.open + .qfh` 控制显隐，快照重画后随 S.qopen 恢复。 */
       qh += '<div class="qitem">'
          + '<div class="qcol">'
          + '<div class="qtxt' + (S.qopen[p.t] ? ' open' : '') + '"'
          + ' data-qt="' + i + '" title="点一下展开/收起全文">'
          + esc(_txt) + '</div>'
-         + (_hasH ? foxHintHtml(_hz[0]) : '')
+         + (_hasH ? '<div class="qfh">' + foxHintHtml(_hz[0]) + '</div>' : '')
          + '</div>'
          + '<div class="qbtns">'
          + '<button class="go qsend" data-qi="' + i + '">⚡发送</button>'

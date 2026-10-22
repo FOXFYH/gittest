@@ -244,7 +244,11 @@ body.fmsg #msgs{padding-top:22px;}
 /* 2.123（老板 2026-10-22 19:10）：排队条左列＝「两行正文 ＋ 专属提示词折叠卡」，
    外包一层 .qcol 撑住剩余宽度（折叠卡在正文下面，按钮块仍靠右）。 */
 .qitem .qcol{flex:1; min-width:0;}
-.qitem .qcol .foxhint{margin:4px 0 0;}
+/* 2.124（老板 2026-10-22 19:38）：折叠卡（小尾巴）只在展开模式出现；
+   收起的排队项只留两行正文，版面更干净。 */
+.qitem .qcol .qfh{display:none; margin:4px 0 0;}
+.qitem .qcol .qtxt.open + .qfh{display:block;}
+.qitem .qcol .qfh .foxhint{margin:0;}
 .qitem .qtxt{flex:1; min-width:0; font-size:13px; color:#263238;
   line-height:1.45; word-break:break-word; cursor:pointer;
   display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
