@@ -274,7 +274,12 @@ function renderState(snap){
       el.state.textContent = '正在连接 WS…';
       el.state.style.color = 'var(--orange)';
     } else if (ph === 'ok'){
-      el.state.textContent = '切换成功';
+      /* 2.118（老板 2026-10-22 09:37）：「切换成功的时候，也要显示一下切换成功，然后
+         对话名称，否则我还要等半天都不知道我切换成功到谁了」——与「输出中/输入框待发」
+         同口径，成功态后面接当前会话名。 */
+      const _okt = (S.switch_pend.title || curTitle() || '').trim();
+      el.state.textContent = '切换成功'
+        + (_okt ? ' · ' + (_okt.length > 14 ? _okt.slice(0, 14) + '…' : _okt) : '');
       el.state.style.color = 'var(--green)';
     } else if (ph === 'fail'){
       el.state.textContent = '切换失败';

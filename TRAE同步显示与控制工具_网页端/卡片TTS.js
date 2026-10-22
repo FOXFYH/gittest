@@ -190,6 +190,33 @@ function stripHintMarks(txt){
     .replace(/\(@fox-(?:sys|usr|co)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
 }
+/* 2.118（老板 2026-10-22 09:37/09:38）：「这里有不少卡片有提供一个复制按钮…复制都要剥离
+   那些小尾巴」「涉及了人类的发言…被进入输入框的时候可能会加前后缀，点击复制的时候不需要
+   复制这些」——**复制取纯正文**：
+     ① 三套 FOX 标记（play/ask/sys/usr/co）的**标记本身**一律剥净；play/ask 卡里的文字是
+        正文，保留；sys/usr/co 三段是服务端追加的专属提示词前后缀，整段丢弃（同 stripHintMarks）。
+     ② 容错半截标记（如 `(@f`、`(@fox-play2` 缺右括号）一并清掉，杜绝残片进剪贴板。
+     ③ 首行 14 位 DID 内部时间标记照旧剥（人类消息）。
+   实现＝先 stripHintMarks（吃三段前后缀、含残标），再 stripFoxMarks（吃 play/ask 标记留正文）。 */
+function stripFoxMarks(txt){
+  return String(txt == null ? '' : txt)
+    .replace(/\(@fox-(?:play|ask)[12]\s*\)?/gi, '')      /* play/ask 前后标（容错缺右括号） */
+    .replace(/\(@fox-[a-z]+\d?\s*\)?/gi, '')             /* 其余 FOX 标记兜底 */
+    .replace(/\(@f[a-z\-]*\d?\s*\)?/gi, '')              /* 半截残标 `(@f…` */
+    .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n')
+    .trim();
+}
+/* 复制/取回统一入口：isUser=true 时先剥首行 DID 与三段专属词（前后缀），再剥 FOX 标记。 */
+function copyPlain(txt, isUser){
+  let s = String(txt == null ? '' : txt);
+  if (isUser){
+    s = stripHeadDid(s);
+    s = stripHintMarks(s);
+  } else {
+    s = stripHintMarks(s);       /* AI 行一般无三段；有也按前后缀丢弃 */
+  }
+  return stripFoxMarks(s);
+}
 /* 1.98：每段语音的会话内状态（阶段文案 + 颜色 + 已生成音频 BlobURL）。
    键＝正文文本本身：同一段文字只合成一次，再点 ▶ 直接重播（不重复生成）。 */
 const _tts_state = {};

@@ -130,7 +130,9 @@ function renderPending(){
       const cpi = parseInt(b.dataset.cp || '0');   // 1.40：复制占位文字
       if (cpi){
         const p = S.pending.find(x => x.id === cpi);
-        if (p) copyText(pendBody(p));    /* v2.84：只复制真实正文（剥掉首行 DID） */
+        /* v2.84：只复制真实正文（剥掉首行 DID）
+           2.118（老板 2026-10-22 09:37/09:38）：再剥服务端追加的专属词前后缀与 FOX 小尾巴 */
+        if (p) copyText(copyPlain(pendBody(p), true));
         return;
       }
       if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
@@ -323,7 +325,10 @@ function switchOk(){
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
   if (sp.phase !== 'ok'){
     sp.phase = 'ok';
-    flash('切换成功', 'var(--green)');
+    /* 2.118（老板 2026-10-22 09:37）：成功吐司也带上是哪个对话，别让人干等还不知道切到谁 */
+    const _nt = (sp.title || '').trim();
+    flash('切换成功' + (_nt ? ' · ' + (_nt.length > 14 ? _nt.slice(0, 14) + '…' : _nt) : ''),
+          'var(--green)');
   }
   /* 2.89（老板 2026-10-20）：成功收口【不】在此撤「直播帧覆盖」——服务端
      switch_ok 常先到、目标快照随后才到；若此刻就 liveClear 回落 curMsgs，会
@@ -531,7 +536,7 @@ function pendOrphanWarn(p){
   p.orphan_warned = true;
   confirmFulls('占位卡所属对话「' + (p.conv || '（未知）')
     + '」已不存在。卡片文本仍然保留，可复制留存。',
-    () => copyText(pendBody(p)), '复制文本');
+    () => copyText(copyPlain(pendBody(p), true)), '复制文本');
   return false;                                        /* 卡片不消失 */
 }
 /* 本文件早于 缓存.js 加载，_idbReq 尚未就绪 → 延后一拍再恢复存卡 */

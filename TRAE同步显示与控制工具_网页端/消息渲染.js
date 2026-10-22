@@ -233,9 +233,12 @@ function renderMsgs(msgs, finish, opts, ask, pend){
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
         if (k === 'copy'){
-          /* v2.84：我自己发的消息只复制真实正文（剥掉首行 DID 内部标记） */
+          /* v2.84：我自己发的消息只复制真实正文（剥掉首行 DID 内部标记）
+             2.118（老板 2026-10-22 09:37/09:38）：复制一律取纯正文——人类消息剥掉
+             服务端追加的专属词前后缀（(@fox-sys1)…(@fox-sys2) 等），AI 消息剥掉
+             语音卡/提问卡的 (@fox-play…)(@fox-ask…) 标记（卡里的字保留）。 */
           const c0 = msgs[parseInt(b.dataset.i)];
-          copyText(c0 && c0[0] === 'u' ? stripHeadDid(c0[1]) : (c0 ? c0[1] : ''));
+          copyText(c0 ? copyPlain(c0[1], c0[0] === 'u') : '');
           return;
         }
         if (k === 'edit'){
