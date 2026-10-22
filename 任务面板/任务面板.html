@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.41">
+<meta name="任务面板版本" content="0.42">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,17 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.41</title>
+<title>任务面板 · 手机遥控页 v0.42</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.41
+  版本：0.42
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.42（2026-10-21）按用户口径统一**左右缩进 3px**：卡片及其内部各层（卡头/标题/副行/正文框/
+    大白话行/绿卡区/说明/AI 区/回复块/输入框/按钮排）凡有左右缩进的一律 3px；页面主体 `main`
+    与下级页头也改为左右 3px，把显示区域尽量留给内容。仅改样式。
   v0.41（2026-10-21）按用户口径调整【朗读】钮：朗读钮移进「清单大白话」标题行内（框内顶部），
     不再挤占输入框宽度；点标题文字「清单大白话」或点【朗读】钮都能朗读。
     配合 清单页.js 0.21。
@@ -296,7 +299,7 @@
   .设置面板 .服务器选 { max-width: none; flex: 1 1 auto; }
   .设置面板 .服务器态.自动 { background: #e6ecf5; color: #334; }
   /* 主体 */
-  main { padding: 12px; }
+  main { padding: 12px 3px; }
   .区 { margin-bottom: 18px; }
   .区标题 { font-size: 16px; margin: 6px 2px 10px; color: #333; }
   .计数 { font-size: 13px; color: #667; font-weight: 400; }
@@ -332,7 +335,7 @@
   .卡.底蓝 { background: #dceaff; border-color: #b8d0f5; }
   .卡.底绿 { background: #dcf6e1; border-color: #aee0b8; }
   .卡.底黄 { background: #fff3c4; border-color: #edd98a; }
-  .卡头 { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0,0,0,.04); flex-wrap: wrap; flex: 0 0 auto; }
+  .卡头 { display: flex; align-items: center; gap: 8px; padding: 8px 3px; background: rgba(0,0,0,.04); flex-wrap: wrap; flex: 0 0 auto; }
   .编号 { font-weight: 700; color: #2b5fb0; font-size: 14px; }
   /* 卡片日期（终身代号）：20261020-20:20:59 */
   .代号 { font-size: 12px; color: #556; background: #eef1f5; border-radius: 4px; padding: 1px 6px;
@@ -348,11 +351,11 @@
   /* 正文框：占满剩余高度；未展开即【截断】（overflow:hidden、不撑高 → 默认无超高卡） */
   .内容 {
     flex: 1 1 auto; min-height: 0; width: 100%; border: 0; background: transparent; resize: none;
-    overflow: hidden; font-family: inherit; font-size: 15px; color: #1c2430; padding: 12px;
+    overflow: hidden; font-family: inherit; font-size: 15px; color: #1c2430; padding: 12px 3px;
   }
   .卡.展开 .内容 { flex: 0 0 auto; overflow: visible; }
   /* 按钮排（0.21 用户口径：全部按钮【一排】，不换行、等分卡宽；完整名称见 title 提示） */
-  .按钮排 { display: flex; gap: 4px; padding: 0 6px 8px; flex-wrap: nowrap; flex: 0 0 auto; }
+  .按钮排 { display: flex; gap: 4px; padding: 0 3px 8px; flex-wrap: nowrap; flex: 0 0 auto; }
   .卡 .按钮排 .小钮 {
     flex: 1 1 0; min-width: 0; font-size: 12px; padding: 5px 2px; min-height: 30px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -364,18 +367,18 @@
   .回复钮.有新 { border-color: #2b5fb0; box-shadow: inset 0 0 0 1px #2b5fb0; }
   /* 主卡下方【平铺】其全部回复（无嵌套、时间升序） */
   .平铺列 { display: flex; flex-direction: column; gap: 10px; margin-left: 0; }
-  .互动树 { padding: 0 10px 12px; }
+  .互动树 { padding: 0 3px 12px; }
   .隐藏 { display: none !important; }
   .空样 { color: #889; font-size: 14px; padding: 8px 2px; }
   /* 详情/原卡 展示 */
-  .原卡 { margin-top: 8px; background: #f4f6fa; border: 1px dashed #c4ccd8; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+  .原卡 { margin-top: 8px; background: #f4f6fa; border: 1px dashed #c4ccd8; border-radius: 8px; padding: 8px 3px; font-size: 14px; }
   .原卡 .原头 { font-weight: 700; color: #2b5fb0; margin-bottom: 4px; }
   /* 我来写（紧跟该卡之后；宽同卡、高随内容，不受正方形约束） */
-  .我来写 { width: 100%; background: #dceaff; border: 1px solid #b8d0f5; border-radius: 10px; padding: 10px; }
+  .我来写 { width: 100%; background: #dceaff; border: 1px solid #b8d0f5; border-radius: 10px; padding: 10px 3px; }
   .我来写头 { font-size: 13px; font-weight: 700; color: #2b5fb0; margin-bottom: 6px; }
   .我来写 textarea {
     width: 100%; font-family: inherit; font-size: 15px; border: 1px solid #b8d0f5;
-    border-radius: 8px; padding: 10px; min-height: 64px; background: #fff;
+    border-radius: 8px; padding: 10px 3px; min-height: 64px; background: #fff;
   }
   /* 弹窗 */
   .遮罩 { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 14px; }
@@ -402,14 +405,14 @@
   /* 主页＝顶层容器；一级卡与内层卡同款（见文末 0.20 样式） */
   /* 卡内标题（占两行位置） */
   .卡标题 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; font-size: 15px; font-weight: 600; color: #1c2430; padding: 10px 12px 0;
+    overflow: hidden; font-size: 15px; font-weight: 600; color: #1c2430; padding: 10px 3px 0;
     line-height: 1.4; min-height: 2.8em; }
-  .卡副 { font-size: 12px; color: #667; padding: 3px 12px 0; }
+  .卡副 { font-size: 12px; color: #667; padding: 3px 3px 0; }
   .卡.点卡 .卡标题 { font-size: 14px; }
   .卡.点卡.完成 .卡标题 { text-decoration: line-through; color: #889; }
   /* 树状子卡组：与主卡同构、略缩进略窄 */
-  .子卡组 { margin: 8px 0 0 14px; display: flex; flex-direction: column; gap: 8px;
-    border-left: 2px solid #e2e8f2; padding-left: 10px; }
+  .子卡组 { margin: 8px 0 0 3px; display: flex; flex-direction: column; gap: 8px;
+    border-left: 2px solid #e2e8f2; padding-left: 3px; }
   .子卡组 .卡 { background: #fbfcfe; }
   /* 弹窗内的类型按钮组（新建清单） */
   .类型组 { display: flex; gap: 10px; }
@@ -425,10 +428,10 @@
      0.37：与 AI 回复区的「大白话总结 / 正文」**一视同仁**，展开后也装进同样的框（浅底＋细边＋圆角＋小标题） */
   .正文框 {
     display: none; flex: 0 0 auto; font-size: 14px; color: #1c2430;
-    padding: 6px 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+    padding: 6px 3px; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
   }
   .卡.展开 .正文框 {
-    display: block; margin: 8px 12px 4px; padding: 8px 10px;
+    display: block; margin: 8px 3px 4px; padding: 8px 3px;
     background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px;
   }
   .卡.展开 .正文框::before {
@@ -437,7 +440,7 @@
   /* 下级页面（0.21 细分＝跳新页面，像进新文件夹） */
   #节点页 .区 { margin-bottom: 0; }
   .节点页头 {
-    display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px; padding: 10px 3px; margin-bottom: 12px;
     background: #fff; border: 1px solid #dfe4ec; border-radius: 10px; flex-wrap: wrap;
   }
   .节点页题 { font-size: 15px; font-weight: 700; color: #1c2430; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -447,10 +450,10 @@
   /* 大白话（标题下的简述）——收起时隐藏，展开后才展示（用户 2026-10-21 口径）。
      0.41：标题行「清单大白话」＋【朗读】钮都放在框内顶部，不再挤占输入框宽度；
      点标题文字或点【朗读】钮都能朗读。 */
-  .大白话行 { display: block; padding: 4px 12px 2px; }
+  .大白话行 { display: block; padding: 4px 3px 2px; }
   .大白话 { display: none; }
   .卡.展开 .大白话 { display: block; font-size: 13px; color: #334;
-    line-height: 1.5; background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 8px 10px; }
+    line-height: 1.5; background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 8px 3px; }
   .卡白题 { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
   .卡白名 { font-size: 12px; font-weight: 700; color: #2b5fb0; cursor: pointer; }
   .朗钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 24px;
@@ -462,14 +465,14 @@
   .卡文输 { width: 100%; box-sizing: border-box; border: none; background: transparent;
     resize: vertical; min-height: 76px; font-family: inherit; font-size: 14px; color: #1c2430;
     line-height: 1.5; padding: 0; }
-  .卡文存 { display: none; margin: 2px 12px 6px; }
+  .卡文存 { display: none; margin: 2px 3px 6px; }
   .卡.展开 .卡文存 { display: inline-block; }
   /* 正文顶部的小绿卡（一行一张；尾部状态灯可点改） */
-  .绿卡区 { display: none; margin: 6px 12px 2px; }
+  .绿卡区 { display: none; margin: 6px 3px 2px; }
   .卡.展开 .绿卡区 { display: flex; flex-direction: column; gap: 4px; }
   .绿卡区.空 { display: none !important; }
   .绿卡行 { display: flex; align-items: center; gap: 8px; background: #eaf7ee;
-    border: 1px solid #bfe3cb; border-radius: 8px; padding: 5px 8px; }
+    border: 1px solid #bfe3cb; border-radius: 8px; padding: 5px 3px; }
   .绿卡文 { flex: 1 1 auto; min-width: 0; font-size: 13px; color: #245c39; line-height: 1.45;
     word-break: break-word; white-space: pre-wrap; }
   .绿卡灯 { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; min-height: 24px; border-radius: 999px;
@@ -478,25 +481,25 @@
   .绿卡灯.灯行 { background: #e8f1ff; border-color: #a9c8f2; color: #24528f; }
   .绿卡灯.灯完 { background: #def3e4; border-color: #8fd0a6; color: #1c6b36; }
   .绿卡灯.灯弃 { background: #f2f3f5; border-color: #d8dbe1; color: #7a828e; }
-  .绿卡说明 { display: none; margin: 4px 12px 6px; font-size: 11px; color: #889; line-height: 1.5; }
+  .绿卡说明 { display: none; margin: 4px 3px 6px; font-size: 11px; color: #889; line-height: 1.5; }
   .卡.展开 .绿卡说明 { display: block; }
   /* 没 AI 负责时，回复两框收起成一条「展开 AI 回复框」；有 AI 则保持展开 */
   .AI回复盒 { display: none; }
   .AI回复盒.开 { display: block; }
-  .AI折条 { display: block; width: 100%; margin: 6px 0 2px; padding: 6px 8px; text-align: left;
+  .AI折条 { display: block; width: 100%; margin: 6px 0 2px; padding: 6px 3px; text-align: left;
     font-size: 12px; background: #f4f7fb; border: 1px dashed #c9d6e6; border-radius: 8px; color: #2b5fb0; }
   /* 展开后的 AI 指派区 + 回复窗口（用户 2026-10-21 口径）：只在该卡展开时显示 */
-  .AI区 { display: none; margin: 8px 12px 4px; border-top: 1px dashed #e2e8f2; padding-top: 6px; }
+  .AI区 { display: none; margin: 8px 3px 4px; border-top: 1px dashed #e2e8f2; padding-top: 6px; }
   .卡.展开 .AI区 { display: block; }
   .AI题 { font-size: 12px; font-weight: 700; color: #2b5fb0; margin: 8px 0 4px; }
   .AI行 { display: flex; gap: 8px; font-size: 12px; line-height: 1.6; }
   .AI名 { flex: 0 0 112px; color: #889; }
   .AI值 { flex: 1 1 auto; color: #1c2430; word-break: break-word; }
-  .AI块 { margin: 4px 0 6px; background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px 8px; }
+  .AI块 { margin: 4px 0 6px; background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px 3px; }
   .AI块 .AI名 { margin-bottom: 2px; }
   .AI块 .AI值 { white-space: pre-wrap; }
   .AI输 { width: 100%; font-family: inherit; font-size: 14px; border: 1px solid #c4ccd8;
-    border-radius: 8px; padding: 8px; min-height: 64px; }
+    border-radius: 8px; padding: 8px 3px; min-height: 64px; }
   .AI输长 { min-height: 120px; }
   .AI计 { display: block; text-align: right; font-size: 11px; color: #889; margin: 2px 0 6px; }
   .AI提 { display: block; margin: 6px 0 2px; }
@@ -516,7 +519,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.41</span>
+    <span class="版本">v0.42</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -648,9 +651,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.41"></script>
-<script src="网页模块/卡片.js?v=0.41"></script>
-<script src="网页模块/清单页.js?v=0.41"></script>
-<script src="网页模块/面板.js?v=0.41"></script>
+<script src="网页模块/接口.js?v=0.42"></script>
+<script src="网页模块/卡片.js?v=0.42"></script>
+<script src="网页模块/清单页.js?v=0.42"></script>
+<script src="网页模块/面板.js?v=0.42"></script>
 </body>
 </html>
