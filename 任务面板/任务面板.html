@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.42">
+<meta name="任务面板版本" content="0.43">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,22 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.42</title>
+<title>任务面板 · 手机遥控页 v0.43</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.42
+  版本：0.43
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.43（2026-10-22）按用户口径两项：
+    ①术语「清单大白话」改「**清单正文大白话**」（卡片框标题、输入提示、属性页行名）。
+    ②正文框改**浏览 / 编辑两模式**（默认浏览）：钮上只显示当前模式（浏览／编辑），点一下切换；
+      **浏览**＝只列全部小标题（小绿卡），点一个小标题展开/收起它的小正文（正文＝小标题＋小正文的组合）；
+      **编辑**＝纯文本 textarea＋计数＋【保存修改】，改了涨版本号。正文头右侧显示字数，
+      超 1500 字标红提醒（推荐 ≤1500；超了由 AI 把某段小正文拆成细分卡，正文里只留 `[[卡号]]`）。
+      新增**小蓝卡**（超链接卡片）：正文里 `[[卡号]]` 渲染成蓝色小卡，点它跳到那张卡。
+    配合 清单页.js 0.22 / 清单存储.py 0.17。
   v0.42（2026-10-21）按用户口径统一**左右缩进 3px**：卡片及其内部各层（卡头/标题/副行/正文框/
     大白话行/绿卡区/说明/AI 区/回复块/输入框/按钮排）凡有左右缩进的一律 3px；页面主体 `main`
     与下级页头也改为左右 3px，把显示区域尽量留给内容。仅改样式。
@@ -425,18 +433,31 @@
   /* 标题占两行位置；手动【展开 ▾】后取消截断 */
   .卡.展开 .卡标题 { display: block; overflow: visible; -webkit-line-clamp: unset; }
   /* 正文框（0.21：默认【收起】，点【展开】才展示；展开后 .卡.展开 .正文框 解除隐藏）
-     0.37：与 AI 回复区的「大白话总结 / 正文」**一视同仁**，展开后也装进同样的框（浅底＋细边＋圆角＋小标题） */
+     0.37：与 AI 回复区的「大白话总结 / 正文」**一视同仁**，展开后也装进同样的框（浅底＋细边＋圆角＋小标题）
+     0.43：**浏览 / 编辑两模式**（用户 2026-10-22 口径）——默认浏览，钮上只显示当前模式，点一下切换。
+       浏览＝只列全部小标题（小绿卡），点小标题展开它自己的小正文；编辑＝纯文本 textarea。 */
   .正文框 {
     display: none; flex: 0 0 auto; font-size: 14px; color: #1c2430;
-    padding: 6px 3px; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+    padding: 6px 3px; word-break: break-word; line-height: 1.5;
   }
   .卡.展开 .正文框 {
     display: block; margin: 8px 3px 4px; padding: 8px 3px;
     background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px;
   }
-  .卡.展开 .正文框::before {
-    content: '清单正文'; display: block; font-size: 12px; font-weight: 700; color: #2b5fb0; margin-bottom: 2px;
-  }
+  .正文头 { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+  .正文名 { font-size: 12px; font-weight: 700; color: #2b5fb0; }
+  .模式钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 24px;
+    background: #eef4ff; border-color: #b8d0f5; color: #2b5fb0; }
+  .模式钮.编 { background: #fff3e0; border-color: #f0cf9b; color: #8a5a12; }
+  .正文字数 { margin-left: auto; font-size: 11px; color: #889; }
+  .正文字数.超 { color: #c0392b; font-weight: 700; }
+  /* 浏览模式：小标题（绿卡）列表＋纯文段；编辑模式整体换成 textarea */
+  .正文浏览 { display: block; white-space: normal; }
+  .正文框.编辑中 .正文浏览 { display: none; }
+  .正文纯文 { display: block; white-space: pre-wrap; word-break: break-word;
+    font-size: 14px; line-height: 1.55; margin: 2px 3px; }
+  .正文编辑 { display: none; white-space: normal; }
+  .正文框.编辑中 .正文编辑 { display: block; }
   /* 下级页面（0.21 细分＝跳新页面，像进新文件夹） */
   #节点页 .区 { margin-bottom: 0; }
   .节点页头 {
@@ -465,14 +486,25 @@
   .卡文输 { width: 100%; box-sizing: border-box; border: none; background: transparent;
     resize: vertical; min-height: 76px; font-family: inherit; font-size: 14px; color: #1c2430;
     line-height: 1.5; padding: 0; }
-  .卡文存 { display: none; margin: 2px 3px 6px; }
-  .卡.展开 .卡文存 { display: inline-block; }
-  /* 正文顶部的小绿卡（一行一张；尾部状态灯可点改） */
-  .绿卡区 { display: none; margin: 6px 3px 2px; }
-  .卡.展开 .绿卡区 { display: flex; flex-direction: column; gap: 4px; }
+  .卡文存 { display: inline-block; margin: 6px 3px 2px; }
+  /* 正文里的小绿卡（0.43 起＝**小标题**：一张小标题带一段小正文，点小标题展开/收起）
+     一行一张；尾部状态灯可点改。浏览模式下只显示全部小标题。 */
+  .绿卡区 { display: flex; flex-direction: column; gap: 4px; margin: 2px 3px; }
   .绿卡区.空 { display: none !important; }
-  .绿卡行 { display: flex; align-items: center; gap: 8px; background: #eaf7ee;
+  .绿卡夹 { display: block; }
+  .绿卡行 { display: flex; align-items: center; gap: 8px; background: #eaf7ee; cursor: pointer;
     border: 1px solid #bfe3cb; border-radius: 8px; padding: 5px 3px; }
+  .绿卡箭 { flex: 0 0 auto; font-size: 11px; color: #4a7a5c; transition: transform .15s; }
+  .绿卡夹.开 .绿卡箭 { transform: rotate(90deg); }
+  .绿卡夹.空文 .绿卡箭 { visibility: hidden; }
+  .绿卡小文 { display: none; margin: 2px 3px; padding: 4px 3px 6px;
+    border-left: 2px solid #bfe3cb; font-size: 13px; color: #2c3a33;
+    white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+  .绿卡夹.开 .绿卡小文 { display: block; }
+  /* 小蓝卡＝超链接卡片：正文里单独写 [[卡号]] 就渲染成这张蓝色小卡，点它跳到那张卡 */
+  .小蓝卡 { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px;
+    background: #e6f0ff; border: 1px solid #a9c8f2; color: #24528f; cursor: pointer; }
+  .小蓝卡:hover { background: #d8e8ff; border-color: #7fb0ea; }
   .绿卡文 { flex: 1 1 auto; min-width: 0; font-size: 13px; color: #245c39; line-height: 1.45;
     word-break: break-word; white-space: pre-wrap; }
   .绿卡灯 { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; min-height: 24px; border-radius: 999px;
@@ -519,7 +551,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.42</span>
+    <span class="版本">v0.43</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -571,10 +603,10 @@
     <input id="新建_标题" type="text" autocomplete="off" maxlength="60" placeholder="如：2026-10 家务流水"
            style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
     <p id="新建_标题数" class="字计">0/60</p>
-    <label class="字段" for="新建_大白话">清单大白话（≤500 字，可在卡片上朗读）</label>
+    <label class="字段" for="新建_大白话">清单正文大白话（≤500 字，可在卡片上朗读）</label>
     <textarea id="新建_大白话" maxlength="500" placeholder="用日常话讲清这张卡要干什么"></textarea>
     <p id="新建_大白话数" class="字计">0/500</p>
-    <label class="字段" for="新建_正文">清单正文（≤1 万字）</label>
+    <label class="字段" for="新建_正文">清单正文（推荐 ≤1500 字，上限 1 万字）</label>
     <textarea id="新建_正文" maxlength="10000" placeholder="细节、附件说明等（可留空）"></textarea>
     <p id="新建_正文数" class="字计">0/10000</p>
     <p style="font-size:13px;color:#889;margin:8px 0 0;">创建后自动带上类型名（总管清单）。</p>
@@ -592,10 +624,10 @@
     <input id="加卡_标题" type="text" autocomplete="off" maxlength="60" placeholder="一句话说清这张卡要做什么"
            style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
     <p id="加卡_标题数" class="字计">0/60</p>
-    <label class="字段" for="加卡_大白话">清单大白话（≤500 字，可在卡片上朗读）</label>
+    <label class="字段" for="加卡_大白话">清单正文大白话（≤500 字，可在卡片上朗读）</label>
     <textarea id="加卡_大白话" maxlength="500" placeholder="用日常话讲清这张卡要干什么"></textarea>
     <p id="加卡_大白话数" class="字计">0/500</p>
-    <label class="字段" for="加卡_正文">清单正文（≤1 万字）</label>
+    <label class="字段" for="加卡_正文">清单正文（推荐 ≤1500 字，上限 1 万字）</label>
     <textarea id="加卡_正文" maxlength="10000" placeholder="细节、附件说明等（可留空）"></textarea>
     <p id="加卡_正文数" class="字计">0/10000</p>
     <div class="弹窗底">
@@ -651,9 +683,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.42"></script>
-<script src="网页模块/卡片.js?v=0.42"></script>
-<script src="网页模块/清单页.js?v=0.42"></script>
-<script src="网页模块/面板.js?v=0.42"></script>
+<script src="网页模块/接口.js?v=0.43"></script>
+<script src="网页模块/卡片.js?v=0.43"></script>
+<script src="网页模块/清单页.js?v=0.43"></script>
+<script src="网页模块/面板.js?v=0.43"></script>
 </body>
 </html>
