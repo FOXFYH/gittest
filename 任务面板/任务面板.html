@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.47">
+<meta name="任务面板版本" content="0.48">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,22 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.47</title>
+<title>任务面板 · 手机遥控页 v0.48</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.47
+  版本：0.48
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.48（2026-10-22）按用户口径两项：
+    ①第三种清单类型改名「**流水清单**」（原「流水账」只作兼容别名，旧库文件不改写、旧数据照常显示
+      成流水清单并可继续追评）：分页签第 4 签、新建弹窗类型钮、各处提示文案一律写流水清单；
+      「允许修改历史流水账」勾选框改称「允许修改历史流水」。
+    ②**使用说明＋模范格式常驻正文区**：新建/补写时存进卡片文件的 `使用说明` 字段（改它不涨版本号），
+      正文区上方常驻一块灰底虚线小字说明（浏览/编辑两种模式都在、不随输入消失、不可编辑），
+      AI 直接读卡片 JSON 就知道该怎么写。新增样式 `.正文说明`。
+    配合 清单页.js 0.27 / 接口.js 0.21 / 清单存储.py 0.21 / 网页服务.py 0.25 / CLI 0.21。
   v0.47（2026-10-22）按用户口径给每张小绿卡加【**转卡**】钮：任何一层的小绿卡都能转成一张新的
     细分卡——点它弹自绘确认，确认后把这条**连同它底下全部下级**整棵子树搬走（这里不再保留），
     新卡挂在本清单下、正文保持原层级结构（JSON 树→JSON 树、平铺→平铺）。树状/系统清单都显示
@@ -542,6 +550,10 @@
   .绿卡灯.灯弃 { background: #f2f3f5; border-color: #d8dbe1; color: #7a828e; }
   .绿卡说明 { display: none; margin: 4px 3px 6px; font-size: 11px; color: #889; line-height: 1.5; }
   .卡.展开 .绿卡说明 { display: block; }
+  /* 0.48 使用说明＋模范格式：常驻正文区，灰色，进卡片文件，AI 读 JSON 即可照做 */
+  .正文说明 { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.6;
+    color: #7d8794; background: #f7f8fa; border: 1px dashed #d5dbe3; border-radius: 8px;
+    padding: 8px 9px; margin: 6px 3px 8px; user-select: text; -webkit-user-select: text; }
   /* 0.46 树状清单的 JSON 层级树：层级颜色系统自动赋予（层1 绿 / 层2 蓝 / 层3 紫 / 层4 橙 / 层5 青，循环）；
      每深一层左侧缩 2px；第一层带一个小图标「◆」。展开一条＝同时见它的小正文和下级标题。 */
   .层图 { flex: 0 0 auto; font-size: 10px; color: #1c6b36; }
@@ -612,7 +624,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.47</span>
+    <span class="版本">v0.48</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -641,7 +653,7 @@
         <button type="button" class="分页签" data-页="普通">普通</button>
         <button type="button" class="分页签" data-页="系统">系统</button>
         <button type="button" class="分页签 选中" data-页="全部">全部</button>
-        <button type="button" class="分页签" data-页="流水账">流水账</button>
+        <button type="button" class="分页签" data-页="流水清单">流水清单</button>
       </span>
     </h2>
     <div id="顶层容器" class="任务列表"><div class="空样">加载中…</div></div>
@@ -666,7 +678,7 @@
     <div id="新建_类型" class="类型组">
       <button type="button" class="大类钮 选中" data-类="树状清单">树状清单</button>
       <button type="button" class="大类钮" data-类="系统清单">系统清单</button>
-      <button type="button" class="大类钮" data-类="流水账">流水账</button>
+      <button type="button" class="大类钮" data-类="流水清单">流水清单</button>
     </div>
     <label class="字段" for="新建_标题">标题（≤60 字）</label>
     <input id="新建_标题" type="text" autocomplete="off" maxlength="60" placeholder="如：2026-10 家务流水"
@@ -769,9 +781,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.47"></script>
-<script src="网页模块/卡片.js?v=0.47"></script>
-<script src="网页模块/清单页.js?v=0.47"></script>
-<script src="网页模块/面板.js?v=0.47"></script>
+<script src="网页模块/接口.js?v=0.48"></script>
+<script src="网页模块/卡片.js?v=0.48"></script>
+<script src="网页模块/清单页.js?v=0.48"></script>
+<script src="网页模块/面板.js?v=0.48"></script>
 </body>
 </html>
