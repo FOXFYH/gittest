@@ -49,27 +49,10 @@ function skelCacheLoad(){
     return o;
   } catch(e){ return null; }
 }
-/* 2.59：本地缓存限「最近 3 轮」（用户 2026-10-07）——「AI 一问我一答」为一轮：
-   从末尾往前数到第 4 个问句为止，只保留其后的部分。更早的历史不再落盘，需要时
-   由「历史取回」（上滑向本地账本按需索要）拉取——不落盘、只在当次可见。
-   两种格式通吃：快照/展示行是数组 [role,text,...]；账本原始记录是对象 {role,...}。 */
-function _msgRole(m){
-  if (!m) return '';
-  if (Array.isArray(m)) return m[0] || '';
-  return m.role === 'u' ? 'u' : 'a';
-}
-function keepLastRounds(a, n){
-  if (!Array.isArray(a) || !a.length) return [];
-  n = n || WEB_ROUNDS_KEEP;
-  let cnt = 0;
-  for (let i = a.length - 1; i >= 0; i--){
-    if (_msgRole(a[i]) === 'u'){
-      cnt++;
-      if (cnt > n) return a.slice(i + 1);
-    }
-  }
-  return a.slice();
-}
+/* 2.59 的「只留最近 3 轮」口径已于 2.126 全部删除（老板 2026-10-23）。 */
+/* 2.126（老板 2026-10-23 08:22「三轮给我删掉，只保留一份最新、完整、只进不退」）：
+   删除「只留最近 3 轮」的全部逻辑（原 2.59／用户 2026-10-07 口径作废）——
+   快照与本地账本一律**整帧原样**，不再由网页端裁剪。 */
 /* —— 历史缓存：按 (端口|会话标题) 存账本记录 + 游标 —— */
 function histCacheRead(conv){
   try {
@@ -77,7 +60,6 @@ function histCacheRead(conv){
     if (!o || o.key !== cacheKeyNow()) return null;
     const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
     if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
-    e.msgs = keepLastRounds(e.msgs);   /* 2.59：历史遗留的过长缓存「读入即裁」到最近 3 轮 */
     return e;
   } catch(e){ return null; }
 }
@@ -89,7 +71,7 @@ function histCacheWrite(conv, ver, have_seq, msgs){
     if (!o.convs) o.convs = {};
     o.convs['p' + S.port + '|' + (conv || '')] =
       {ver: ver | 0, have_seq: have_seq | 0,
-       msgs: keepLastRounds(msgs)};   /* 2.59：本地历史也只落最近 3 轮 */
+       msgs: Array.isArray(msgs) ? msgs : []};
     localStorage.setItem(LS_HIST, JSON.stringify(o));
   } catch(e){}
 }
@@ -140,7 +122,7 @@ function applyHist(conv, v){
   if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
   const inc = v.msgs || [];
   if (v.rebuild){                              /* 版本不符：整体重建 */
-    S.histRaw = keepLastRounds(inc);           /* 2.59：重建也只留最近 3 轮（防首屏超长） */
+    S.histRaw = inc.slice();                   /* 2.126：整段原样，不再裁 3 轮 */
     S.histMsgs = S.histRaw.map(ledToArr);
     S.histVer = v.ver | 0;
   } else {                                     /* 游标增量：只补新段 */
@@ -155,9 +137,7 @@ function applyHist(conv, v){
   }
   S.histHave = S.histRaw.length
     ? S.histRaw[S.histRaw.length - 1].seq : 0;
-  /* 2.59：不论重建还是增量补新，本地账本恒裁到最近 3 轮（防本地缓存随会话膨胀）。 */
-  S.histRaw = keepLastRounds(S.histRaw);
-  S.histMsgs = S.histRaw.map(ledToArr);
+  /* 2.126：整段原样保留，不再裁 3 轮。 */
   histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
   renderAll();
 }
@@ -386,7 +366,7 @@ function curMsgs(){
    直到当前锚定会话的真直播帧到达才撤。IDB 打不开则静默降级，绝不阻断主流程。 */
 const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
 const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
-const WEB_ROUNDS_KEEP = 3;               /* 2.59：单帧/本地历史只留最近 3 轮（用户 2026-10-07）；原为尾部 40 条 */
+/* 2.126：WEB_ROUNDS_KEEP 已删除（三轮口径作废，快照与账本一律整帧原样）。 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
 /* 2.112（插队·老板 21:35「明明有快照却白屏」）：落盘节流/指纹【按会话】记忆——
    原全局单值 _idbLastAt/_idbLastFp 会让「刚切到的 B」被「刚看过的 A」的指纹
@@ -431,11 +411,67 @@ function _idbReq(store, mode, fn){
 function _idbFrame(){
   const s = S.snap || {};
   return {online: !!s.online, login: s.login,
-          msgs: (Array.isArray(s.msgs) ? keepLastRounds(s.msgs) : []),
+          msgs: (Array.isArray(s.msgs) ? s.msgs.slice() : []),   /* 2.126：整帧原样 */
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
           ask: s.ask || null, pend: s.pend || [], attach: s.attach || [],
           model: s.model || ''};
+}
+/* ========== 2.126：本地快照「只进不退」统一闸 ==========
+   老板 2026-10-23：「每个会话只保留一份最新的、完整的、只进不退的快照。」
+   - 完整：整帧原样（上面 _idbFrame／paneFrameStore 已不再裁轮数）。
+   - 只进不退：新帧末条时间必须比已存帧新；末条相同则条数不得更少；
+     旧帧／空帧／碎片帧一律拒收，绝不覆盖。
+   - 所有写库入口（定时落盘、切换强制落、预取帧、内存帧）统一走 _frameCommit。 */
+function _frameTailOrder(msgs){
+  let n = 0, tm = '', mid = '';
+  if (Array.isArray(msgs)){
+    n = msgs.length;
+    for (let i = msgs.length - 1; i >= 0; i--){
+      const m = msgs[i];
+      const t = String((m && m[2]) || '');
+      const d = String((m && m[6]) || '');
+      if (t || d){ tm = t; mid = d; break; }
+    }
+  }
+  return {n: n, tm: tm, mid: mid};
+}
+function _frameNewerOrEqual(a, b){
+  /* true＝a（新帧）可以覆盖 b（已存帧） */
+  if (!b || !Array.isArray(b.msgs) || !b.msgs.length) return true;
+  if (!a || !Array.isArray(a.msgs) || !a.msgs.length) return false;   /* 空帧绝不上位 */
+  const A = _frameTailOrder(a.msgs), B = _frameTailOrder(b.msgs);
+  if (A.tm && B.tm){
+    if (A.tm !== B.tm) return A.tm > B.tm;   /* 时间更新才进 */
+    return A.n >= B.n;                       /* 同一时刻：条数不得更少（不看 mid 字典序） */
+  }
+  if (A.mid && B.mid && A.mid !== B.mid) return A.mid > B.mid;
+  return A.n >= B.n;
+}
+function _frameCommit(sk, frame, meta, onOk){
+  const _put = () => {
+    _frameMem[sk] = frame;
+    _idbReq('snap_conv', 'readwrite', st => {
+      st.delete(meta.key + '|@snap');
+      st.put({sk: sk, key: meta.key, port: meta.port, sid: meta.sid,
+              title: meta.title, ts: meta.ts, frame: frame});
+      return null;
+    }).catch(() => {});
+    if (typeof onOk === 'function') onOk();
+  };
+  if (Object.prototype.hasOwnProperty.call(_frameMem, sk)){
+    if (!_frameNewerOrEqual(frame, _frameMem[sk])) return false;
+    _put();
+    return true;
+  }
+  /* 内存里还没有该会话：先读 IDB 已存帧做比较（首启/未点过的会话） */
+  _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
+    const old = (rec && rec.frame) || null;
+    if (old) _frameMem[sk] = old;                 /* 回填内存基准 */
+    if (!_frameNewerOrEqual(frame, old)) return;  /* 旧帧／碎片帧拒收 */
+    _put();
+  }).catch(() => { _put(); });                    /* 读失败不阻断首落 */
+  return true;
 }
 /* 2.98（标准《快照缓存策略》§二/二之一）：落盘＝「两次落盘最小间隔 10 秒」的
    节流（不是固定周期到点才落）——只要「上次落盘已超 10 秒」且有完整快照即可落。
@@ -473,20 +509,17 @@ function snapIdbTick(force){
   const frame = _idbFrame();
   const _fp = msgsFp(frame.msgs);
   if (force !== true && !_first && _fp === _idbLastFpBy[_sk]) return;   /* 有更新才落盘 */
-  if (_first) S.idbFirstFull = 0;
-  _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
-  _frameMem[_sk] = frame;               /* 2.112：内存帧同步可用（切回秒显） */
   const key = cacheKeyNow();
-  /* 2.112（插队·老板 21:35 + 09:43 原话「不管多少份，永远只有一份…快照只求新」）：
-     **按会话各存一份、同一会话覆盖**（键 `key|sid`，不再 st.clear() 全库只留一个）——
-     原 2.106 的「全局单份」是对「每会话只留最新一份」的误读，导致切到别的会话必然
-     查不到存帧 ⇒ 白屏。顺带清掉旧的错误单份键 `key|@snap`（一次性迁移）。 */
-  _idbReq('snap_conv', 'readwrite', st => {
-    st.delete(key + '|@snap');
-    st.put({sk: _sk, key: key, port: S.port, sid: sid,
-            title: curTitle(), ts: now, frame: frame});
-    return null;
-  }).catch(() => {});
+  /* 2.126（老板 2026-10-23「只保留一份最新、完整、只进不退」）：走统一闸——
+     旧帧／空帧／碎片帧直接拒收（不写内存、不写 IDB）；节流记账与"首份"标记
+     只在真正放行后更新，避免"被拒也算已落"导致后续不再落盘。
+     2.112 口径不变：按会话各存一份（键 `key|sid`）、同一会话覆盖、不留历史版本。 */
+  _frameCommit(_sk, frame,
+    {key: key, port: S.port, sid: sid, title: curTitle(), ts: now},
+    function(){
+      _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
+      if (_first) S.idbFirstFull = 0;
+    });
   _idbReq('snap_list', 'readwrite', st => st.put(
     {sk: key, key: key, ts: now, convs: s.convs,
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
@@ -654,7 +687,9 @@ function snapIdbShow(sid, title){
   }
   snapIdbGet(sid, title).then(rec => {
     S.swFrameReady = true;                      /* 2.97：存帧读取已结（有/无皆算结） */
-    if (rec && rec.frame) _frameMem[_mk] = rec.frame;   /* 校正内存帧 */
+    /* 2.126：IDB 回读校正内存帧同样守「只进不退」——旧帧不得回盖内存里的新帧 */
+    if (rec && rec.frame && (!_mem || _frameNewerOrEqual(rec.frame, _mem)))
+      _frameMem[_mk] = rec.frame;
     if (S.liveGot) return;                      /* 直播帧已到，别用旧帧盖真画面 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
     if (S.livePrefetch) return;                 /* 2.67：服务端已预取该会话正文帧，别用本地存帧覆盖 */
@@ -678,15 +713,14 @@ function paneFrameStore(sid, title, v){
     const _sk = _frameMemKey(_sid), key = cacheKeyNow(), now = Date.now();
     const frame = {online: !!(S.snap && S.snap.online),
                    login: (S.snap && S.snap.login),
-                   msgs: keepLastRounds(v.msgs),
+                   msgs: v.msgs.slice(),   /* 2.126：整帧原样 */
                    finish: v.finish || null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
                    attach: [], model: ''};
-    _frameMem[_sk] = frame;                 /* 内存帧：切过去 0ms 同步上屏 */
-    _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = msgsFp(frame.msgs);
-    _idbReq('snap_conv', 'readwrite', st => st.put(
-      {sk: _sk, key: key, port: S.port, sid: _sid,
-       title: title || '', ts: now, frame: frame})).catch(() => {});
+    /* 2.126：走「只进不退」统一闸——预取帧也不得用碎片／旧帧覆盖已存的完整帧 */
+    _frameCommit(_sk, frame,
+      {key: key, port: S.port, sid: _sid, title: title || '', ts: now},
+      function(){ _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = msgsFp(frame.msgs); });
     return true;
   }catch(e){ return false; }
 }
