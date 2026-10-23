@@ -122,7 +122,7 @@ function switchSrv(nm){
      （convs 行第 3 位选中标志）即被 adoptSnap 自动吸附并打开＝一过去就有对话。 */
   S.anchorSid = ''; S.anchorTitle = ''; S.anchorFull = ''; S.anchor_gone = '';
   anchorReport();              /* 2.74：T16——锚定被清空（换服务端）→ 上报 sid:''（=取消） */
-  S.histConv = ''; S.histMsgs = null; S.histRaw = [];
+  S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histPrevRaw = [];
   S.histVer = 0; S.histHave = 0; S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;
   S.livePend = ''; S.liveGot = false; S.liveFrame = null; S.livePrefetch = false;

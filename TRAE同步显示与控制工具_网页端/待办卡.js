@@ -417,7 +417,10 @@ function pendSwitchSet(title, sid, ref, opt){
   }
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   switchReArm();                        /* v2.67：起补发/超时 */
-  renderAll();
+  /* 2.130（老板 2026-10-24）：本端点击切换带 deferRender ⇒ 这里不再先渲染一版
+     空屏，直接由 snapIdbShow 用内存存帧一次性同步铺满（少一次重画、零白屏）；
+     服务端广播等其它入口照旧立即重渲染。 */
+  if (!(opt && opt.deferRender)) renderAll();
 }
 /* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中且消息区空、
    WS 连通，弹确认框问是否查询最大化压制；用户确认才发 check_fulls

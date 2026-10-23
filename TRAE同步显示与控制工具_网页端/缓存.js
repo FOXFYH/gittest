@@ -9,14 +9,26 @@ function checkVerBump(){
      本专项 B1：换代同时清 IndexedDB 快照表，并清掉 LS 里明确属快照类的键
      （快照绝不进 localStorage；LS_HIST 属账本历史，上面已按需清）。 */
   const k = cacheKeyNow();
-  if (cacheKey !== null && cacheKey !== k){
+  const bumped = cacheKey !== null && cacheKey !== k;
+  if (bumped){
     try { localStorage.removeItem(LS_SKEL);
           localStorage.removeItem(LS_HIST); } catch(e){}
     try { snapIdbClearAll(); } catch(e){}
     _lsPurgeSnapKeys();
-    S.histConv = ''; S.histMsgs = null; S.histRaw = [];
+    S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histPrevRaw = [];
+    /* 2.130：换代 → 内存存帧一并作废，再按新键重新全量预读 */
+    try {
+      Object.keys(_frameMem).forEach(x => { delete _frameMem[x]; });
+      Object.keys(_frameMemByTitle).forEach(x => { delete _frameMemByTitle[x]; });
+      _prewarmKey = '';
+    } catch(e){}
   }
   cacheKey = k;
+  /* 2.130：缓存键定了（首次 hello 带 srvVer）→ 全部会话存帧预读进内存 */
+  try {
+    if (bumped) snapIdbClearAll().then(() => snapIdbPrewarm(k));
+    else snapIdbPrewarm(k);
+  } catch(e){}
 }
 /* 本专项 B1：黑名单式清「疑似快照类」LS 键（绝不误删配置/名册/昵称/收藏） */
 function _lsPurgeSnapKeys(){
@@ -80,6 +92,26 @@ function ledToArr(r){
      供 curMsgs 尾部追加「按 mid 优先去重」，并与快照行同口径取时间。 */
   return [r.role === 'u' ? 'u' : 'a', r.text || '', r.tm || '',
           r.can_rev ? 1 : 0, r.can_del ? 1 : 0, '', r.mid || ''];
+}
+/* 2.129：上顶翻页的起始游标＝**当前真正显示在屏幕上的最老一条**的账本 seq。
+   旧口径直接用 S.histRaw[0].seq——但 hist 首次 rebuild 会把整段账本塞进 histRaw
+   （远老于屏幕窗口），拿它当游标 ⇒ 服务端只回「比整段还老」的行（通常没有），
+   表现为「上顶没反应 / 直接说已是最早」。 */
+function _histFromSeq(){
+  if (S.histPrevRaw && S.histPrevRaw.length) return S.histPrevRaw[0].seq;
+  const raw = S.histRaw || [];
+  if (!raw.length) return 0;
+  const sm = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : [];
+  if (sm.length){
+    const keys = new Set(sm.map(m => _msgKey(m)));
+    let best = 0;
+    for (const r of raw){
+      if (!keys.has(_msgKey(ledToArr(r)))) continue;
+      if (!best || r.seq < best) best = r.seq;
+    }
+    if (best) return best;
+  }
+  return raw[0].seq;                 /* 匹配不上（账本与快照不同窗）：退回账本最老 */
 }
 /* —— 请求式历史 —— */
 /* 2.125（老板 2026-10-22 21:21）：给服务端同时送「终身号 + 会话名」——服务端
@@ -150,7 +182,17 @@ function prependHist(conv, older, end){
   /* 2.85：按 seq 去重并入——8s 兜底清游标后可能「旧包未回、新包又发」，两个
      回包同段会重复并入并重复上屏（且扰 curMsgs 的 cut 定位）；这里同 seq 只并一次。 */
   const _have = new Set((S.histRaw || []).map(x => x.seq));
-  S.histRaw = older.filter(r => !_have.has(r.seq)).concat(S.histRaw || []);
+  const _add = older.filter(r => !_have.has(r.seq));
+  S.histRaw = _add.concat(S.histRaw || []);
+  /* 2.129（老板 2026-10-24「上顶加载历史现在不通」）：另记一份「用户显式翻出来的
+     更早页」。curMsgs 2.104 起正文只以快照为骨架、账本只补尾部之后 ⇒ 翻页回包虽
+     已并入 histRaw，却永远不上屏。这里单独留存，由 curMsgs 只把这一段前置。
+     ★ 即使这 4 条早已在 histRaw 里（首次 rebuild 把整段账本塞进来）也要收进
+     histPrevRaw——否则翻页「成功」但一条也出不来；只按 histPrevRaw 自身去重。 */
+  if (!Array.isArray(S.histPrevRaw)) S.histPrevRaw = [];
+  const _haveP = new Set(S.histPrevRaw.map(x => x.seq));
+  const _addP = older.filter(r => !_haveP.has(r.seq));
+  S.histPrevRaw = _addP.concat(S.histPrevRaw);
   S.histMsgs = S.histRaw.map(ledToArr);
   histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
   renderAll();
@@ -168,7 +210,7 @@ function ensureHist(){
   const title = curTitle();
   if (!title || title === S.histConv) return;
   S.histConv = title;
-  S.histMsgs = null; S.histRaw = []; S.histVer = 0; S.histHave = 0;
+  S.histMsgs = null; S.histRaw = []; S.histPrevRaw = []; S.histVer = 0; S.histHave = 0;
   S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;   /* 2.49：换会话重置到底标记/游标 */
   const c = histCacheRead(title);
@@ -318,6 +360,31 @@ function curMsgs(){
   const snapP = _midPromote(snapMsgs.slice());
   const ledP  = _midPromote(led.slice());
   let out = snapP.slice();
+  /* 2.129（老板 2026-10-24「上顶加载历史现在不通」）：把用户显式翻出来的更早页
+     前置到正文顶部。2.104 取消的是「普通 hist 增量把账本更早段抢着拼进来」，
+     不包括用户主动上顶取回的分页——那一页必须上屏，否则请求成功也看不到。
+     只按 mid／身份指纹与已有正文去重，绝不重复、不覆盖快照。 */
+  const prevRaw = (S.histPrevRaw && S.histPrevRaw.length) ? S.histPrevRaw : [];
+  if (prevRaw.length){
+    const prevArr = prevRaw.map(ledToArr);
+    _midCollect(prevArr);
+    const prevP = _midPromote(prevArr);
+    const haveMid = new Set(), haveKey = new Set();
+    for (const m of out){
+      const id = String((m && m[6]) || '');
+      if (id) haveMid.add(id);
+      haveKey.add(_msgKey(m));
+    }
+    const pre = [];
+    for (const m of prevP){
+      const id = String((m && m[6]) || '');
+      if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
+      if (id) haveMid.add(id);
+      haveKey.add(_msgKey(m));
+      pre.push(m);
+    }
+    if (pre.length) out = pre.concat(out);
+  }
   /* 补缺失的新行：账本尾部时间晚于快照尾部时，只【追加】快照里没有的账本行
      （2.105 起按 mid 优先去重），不覆盖、不删除快照已有的行。 */
   const snapTail = String((snapP[snapP.length - 1] || [])[5] || '');
@@ -362,8 +429,8 @@ function curMsgs(){
    用户口径（R6/D4/D8/D9/P10/P11）：网页端「快照」（锚定会话正文帧）一律落
    IndexedDB；每 5 秒节流落地、超一周剪枝、换版本清空；localStorage 只留
    长期固定项与账本历史 LS_HIST（快照绝不进 localStorage）。
-   秒显：点会话先读本地存帧立刻铺上，并出「正在获取直播帧」小条，
-   直到当前锚定会话的真直播帧到达才撤。IDB 打不开则静默降级，绝不阻断主流程。 */
+   秒显：点会话直接从内存取本地最新完整存帧立刻整屏铺上（2.130 起不再出任何
+   等待提示条）；IDB 打不开则静默降级，绝不阻断主流程。 */
 const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
 const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
 /* 2.126：WEB_ROUNDS_KEEP 已删除（三轮口径作废，快照与账本一律整帧原样）。 */
@@ -374,9 +441,15 @@ const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长�
 let _idbP = null;
 const _idbLastAtBy = {}, _idbLastFpBy = {};
 /* 2.112：内存里每个会话最近一份存帧（键＝cacheKey|sid）——点会话即同步上屏（0ms），
-   再异步读 IDB 校正；这才是「明明有快照就必须立刻拿出来给我看」。 */
-const _frameMem = {};
+   再异步读 IDB 校正；这才是「明明有快照就必须立刻拿出来给我看」。
+   2.130：新增标题索引 _frameMemByTitle（键＝cacheKey|标题）——存帧里 sid 与点击时的
+   稳定键对不上（改名/非数字 SID）时仍能同步命中；并在打开页面时全量预读进内存。 */
+const _frameMem = {}, _frameMemByTitle = {};
 function _frameMemKey(sid){ return cacheKeyNow() + '|' + sid; }
+function _frameTitleKey(title){
+  const t = String(title || '').trim();
+  return t ? cacheKeyNow() + '|' + t : '';
+}
 function idbOpen(){
   if (_idbP) return _idbP;
   _idbP = new Promise((res, rej) => {
@@ -448,9 +521,11 @@ function _frameNewerOrEqual(a, b){
   if (A.mid && B.mid && A.mid !== B.mid) return A.mid > B.mid;
   return A.n >= B.n;
 }
-function _frameCommit(sk, frame, meta, onOk){
+function _frameCommit(sk, frame, meta, onOk, memNow){
+  const _mk = String(meta.title || '').trim();
   const _put = () => {
     _frameMem[sk] = frame;
+    if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
     _idbReq('snap_conv', 'readwrite', st => {
       st.delete(meta.key + '|@snap');
       st.put({sk: sk, key: meta.key, port: meta.port, sid: meta.sid,
@@ -464,6 +539,24 @@ function _frameCommit(sk, frame, meta, onOk){
     _put();
     return true;
   }
+  /* 2.130（老板 2026-10-24「切会话必须有本地最新完整快照」）：切走/真帧到手这类
+     当前会话的完整帧——先把内存槽同步置新（切回时 0ms 命中，不读盘），磁盘侧再按
+     「只进不退」与已存帧比对后写入；若磁盘那份更新，内存回填更新的那份。 */
+  if (memNow && frame && Array.isArray(frame.msgs) && frame.msgs.length){
+    _frameMem[sk] = frame;
+    if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
+    _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
+      const old = (rec && rec.frame) || null;
+      if (old && !_frameNewerOrEqual(frame, old)){
+        _frameMem[sk] = old;                        /* 磁盘更新：内存回填更新帧 */
+        const ot = String((rec && rec.title) || '').trim();
+        if (ot) _frameMemByTitle[meta.key + '|' + ot] = old;
+        return;
+      }
+      _put();
+    }).catch(() => { _put(); });
+    return true;
+  }
   /* 内存里还没有该会话：先读 IDB 已存帧做比较（首启/未点过的会话） */
   _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
     const old = (rec && rec.frame) || null;
@@ -472,6 +565,38 @@ function _frameCommit(sk, frame, meta, onOk){
     _put();
   }).catch(() => { _put(); });                    /* 读失败不阻断首落 */
   return true;
+}
+/* 2.130（老板 2026-10-24）：打开页面即把该缓存键下【全部会话】的最新完整存帧预读进
+   内存——切会话只从 _frameMem 同步取，不读盘、不请求。同一缓存键只预热一次；
+   磁盘里同一会话有多条时按「只进不退」取最新那条（同 ts 取条数多的）。 */
+let _prewarmKey = '';
+function snapIdbPrewarm(key){
+  const k = key || cacheKeyNow();
+  if (_prewarmKey === k) return Promise.resolve(0);
+  _prewarmKey = k;
+  return _idbReq('snap_conv', 'readonly', st => {
+    const out = [];
+    const rq = st.openCursor();
+    rq.onsuccess = () => {
+      const c = rq.result;
+      if (!c){ return; }
+      const v = c.value || {};
+      if (v.key === k && v.sid && v.frame
+          && Array.isArray(v.frame.msgs) && v.frame.msgs.length) out.push(v);
+      c.continue();
+    };
+    return {result: out};
+  }).then(arr => {
+    (arr || []).forEach(rec => {
+      const sk = k + '|' + rec.sid;
+      const old = _frameMem[sk] || null;
+      if (old && !_frameNewerOrEqual(rec.frame, old)) return;
+      _frameMem[sk] = rec.frame;
+      const t = String(rec.title || '').trim();
+      if (t) _frameMemByTitle[k + '|' + t] = rec.frame;
+    });
+    return (arr || []).length;
+  }).catch(() => { _prewarmKey = ''; return 0; });
 }
 /* 2.98（标准《快照缓存策略》§二/二之一）：落盘＝「两次落盘最小间隔 10 秒」的
    节流（不是固定周期到点才落）——只要「上次落盘已超 10 秒」且有完整快照即可落。
@@ -519,7 +644,7 @@ function snapIdbTick(force){
     function(){
       _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
       if (_first) S.idbFirstFull = 0;
-    });
+    }, force === true || _first);
   _idbReq('snap_list', 'readwrite', st => st.put(
     {sk: key, key: key, ts: now, convs: s.convs,
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
@@ -647,43 +772,27 @@ function liveOverlay(snap){
     attach: f.attach || [], model: f.model || ''
   });
 }
-/* —— B3：直播帧提示条（横幅正下方小条，真直播帧到达即撤） —— */
-function liveShow(){
-  let t = $('livebar');
-  if (!t){
-    t = document.createElement('div');
-    t.id = 'livebar';
-    document.body.appendChild(t);
-  }
-  t.textContent = '⏳ 正在获取直播帧…（当前显示的是本地存帧）';
-  const host = document.body.classList.contains('fmsg') ? $('fbar') : el.state;
-  const r = (host && host.getBoundingClientRect) ? host.getBoundingClientRect() : null;
-  t.style.top = ((r && r.bottom ? r.bottom : 34) + 2) + 'px';
-  t.classList.add('on');
-}
-function liveHide(){
-  const t = $('livebar');
-  if (t) t.classList.remove('on');
-}
-/* 秒显：点会话后先读本地存帧立刻铺上，并挂「正在获取直播帧」条 */
+/* 2.130（老板 2026-10-24）：直播帧等待小条「正在获取直播帧…」整条删除——
+   首屏一律由本地最新完整存帧同步铺满，后台真帧到达后按「只进不退」平滑替换。 */
+/* 秒显：点会话后直接从内存取本地最新完整存帧同步铺上（不读盘、不请求） */
 function snapIdbShow(sid, title){
   if (!sid) return;
   S.liveGot = false; S.livePend = sid;
   S.liveFrame = null;            /* 2.57B：旧会话 A 的正文退场（防张冠李戴） */
-  liveShow();
   /* 2.64：先读到目标会话的存帧、再渲染「一次」——不再先画一版空帧。
      原实现先 renderAll() 空帧、再异步补缓存，中间那版空版面会把消息区
      scrollTop 夹回 0 并抛 scroll 事件，成为「自动跳顶 + 拉历史」的源头。
      现在：有存帧 → 一次性铺上（全程不经过空帧）；无存帧 → 只留白一次等直播帧。 */
-  /* 2.112（插队·老板 21:35「明明有快照却白屏/不先给我看」）：内存里已有该会话最近
-     存帧 ⇒ **同步立刻上屏**（同一次点击任务内完成，浏览器根本来不及画出白屏），
-     再异步读 IDB 校正；内存没有才等 IDB 那一次异步读取（极短暂白）。 */
+  /* 2.130：全部会话存帧已在打开页面时预读进内存 ⇒ 同步命中即整屏铺上（0ms），
+     命中后【不再读 IDB】；只有内存未命中（新设备/未落过盘）才走一次磁盘兜底。 */
   const _mk = _frameMemKey(sid);
-  const _mem = _frameMem[_mk] || null;
+  const _mem = _frameMem[_mk] || _frameMemByTitle[_frameTitleKey(title)] || null;
   if (_mem && Array.isArray(_mem.msgs) && _mem.msgs.length){
+    _frameMem[_mk] = _mem;                      /* 标题兜底命中：顺手补上 sid 索引 */
     S.liveFrame = _mem;
     S.swFrameReady = true;                      /* 存帧已上屏（读取闸视为已结） */
     renderAll();
+    return;
   }
   snapIdbGet(sid, title).then(rec => {
     S.swFrameReady = true;                      /* 2.97：存帧读取已结（有/无皆算结） */
@@ -724,11 +833,10 @@ function paneFrameStore(sid, title, v){
     return true;
   }catch(e){ return false; }
 }
-/* 直播帧到达（专属于当前锚定会话）→ 撤条并停用本地帧 */
+/* 直播帧到达（专属于当前锚定会话）→ 停用本地帧，回落真快照 */
 function liveClear(){
   S.livePend = ''; S.liveGot = true; S.liveFrame = null;   /* 2.57B：真帧到手撤存帧 */
   S.livePrefetch = false;                                  /* 2.67：预取标记一并清 */
-  liveHide();
   snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
 }
 /* 2.98（标准《快照缓存策略》附录A「刷新/首屏也应立刻顶出最新缓存」）：首屏/刷新在

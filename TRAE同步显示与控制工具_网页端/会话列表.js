@@ -134,15 +134,16 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
                       S.snap.conv_unread_ids);
           /* 2.67：切换在途提示（分档状态机）；2.89：带「锁死目标 + 切换前锚定」*/
           pendSwitchSet(title, sid, sid || i,
-                        {prevAnchor: _prevAnchor, lockTarget: true});
+                        {prevAnchor: _prevAnchor, lockTarget: true, deferRender: true});
           S.livePrefetch = false;      /* 2.67：新切换开始，撤销上一轮预取标记 */
-          snapIdbShow(sKey, title);    /* B2/B3：先铺本地存帧秒显（键＝终身号，跨天可用） */
+          /* 2.130：本地最新完整存帧同步铺满（一次渲染，0ms）；状态栏不再出
+             「正在切换到…/正在获取…快照」等待文案。 */
+          snapIdbShow(sKey, title);
           /* 2.61：切会话后消息区钉底——正文（存帧/直播帧）真正上屏那次不再
              把中间态残留的 scrollTop=0 当「用户在翻历史」原样还原到顶部。
              标志在消息渲染.js 消费并清除。 */
           S.pinBottom = true;
           foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
-          flash(switchTip(title), 'var(--blue)');
           sendCmd('switch', sid || i);
           drawerClose();
         }

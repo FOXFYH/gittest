@@ -65,19 +65,22 @@ el.msgs.addEventListener('scroll', () => {
      每次 4 条；服务端回 end / 游标不再前进 → 判到底，不再空转（防死循环）。 */
   if (m.scrollTop < 60 && !S.histLoadingPrev && S.histConv
       && S.histRaw && S.histRaw.length){
-    const first = S.histRaw[0];
-    if (!first || !(first.seq > 1)){
+    /* 2.129（老板 2026-10-24「上顶加载历史现在不通」）：起点改取「屏幕上已显示的
+       最老一条」的 seq（_histFromSeq），不再用 histRaw[0].seq（首次 rebuild 时那是
+       整段账本的最老行，拿它当游标会让服务端永远回空）。每次仍固定 4 条。 */
+    const fromSeq = _histFromSeq();
+    if (!fromSeq || !(fromSeq > 1)){
       histEndFlash();
     } else if (S.histEnd){
       histEndFlash();
-    } else if (S.histPullFrom === first.seq){
+    } else if (S.histPullFrom === fromSeq){
       S.histEnd = true;
       histEndFlash();
     } else {
-      S.histPullFrom = first.seq;
+      S.histPullFrom = fromSeq;
       S.histLoadingPrev = true;
       flash('\u23f3 正在取回历史记录\u2026', 'var(--blue)', 4000);
-      reqHistPrev(S.histConv, first.seq, 4);
+      reqHistPrev(S.histConv, fromSeq, 4);
     }
   }
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到
@@ -267,7 +270,8 @@ function renderState(snap){
     el.state.style.color = 'var(--orange)';
   }
   /* 2.67 切换过程状态机：状态栏按在途阶段分档显示真实过程（用户 2026-10-07）。
-     2.106（A）：切换在途（非成功/失败终态）统一显示「正在获取「目标」的快照…」。 */
+     2.130（老板 2026-10-24）：撤掉 2.106 的「正在获取「目标」的快照…」等待文案——
+     首屏已由本地最新完整存帧同步铺满，不再有获取等待态。 */
   if (S.switch_pend){
     const ph = S.switch_pend.phase || 'switching';
     if (ph === 'connecting'){
@@ -285,9 +289,16 @@ function renderState(snap){
       el.state.textContent = '切换失败';
       el.state.style.color = 'var(--red)';
     } else {
+      /* 2.130（老板 2026-10-24）：「正在获取「目标」的快照…」整条等待文案删除——
+         切会话首屏由本地最新完整存帧同步铺满，有存帧就沿用上面按缓存帧算出的
+         真实忙闲；确无该会话存帧（首见会话）才给中性「切换中·名称」。 */
       const _tt = (S.switch_pend.title || curTitle() || '').trim();
-      el.state.textContent = '正在获取「' + _tt + '」的快照…';
-      el.state.style.color = 'var(--blue)';
+      const _f = S.liveFrame;
+      if (!(_f && Array.isArray(_f.msgs) && _f.msgs.length)){
+        el.state.textContent = '切换中'
+          + (_tt ? ' · ' + (_tt.length > 14 ? _tt.slice(0, 14) + '…' : _tt) : '');
+        el.state.style.color = 'var(--blue)';
+      }
     }
   }
   /* 2.112（Y12·老板：动作已提交却干等无语）：在途动作尚未收到 rcpt accepted ⇒

@@ -55,6 +55,9 @@ const S = {
   histRaw: [],          /* 账本原始记录 [{seq,role,text,tm,can_rev,can_del}] */
   histVer: 0, histHave: 0,   /* 游标：会话版本号 + 已存到的 seq */
   histLoadingPrev: false,    /* 向上补拉老历史防重入 */
+  /* 2.129：用户「上顶」显式翻出来的更早页（原始账本行，带 seq）。
+     与 histRaw 分开存——curMsgs 只把这一段前置上屏，普通 hist 增量仍不抢位置。 */
+  histPrevRaw: [],
   /* 2.49：上滑到顶取更早历史——histEnd=已到最早（服务端回 end 或游标未前进，
      不再空转请求）；histPullFrom=上次请求起始游标（与本次相同=没前进→判到底）；
      histEndFlashT=「已经是最早记录了」提示节流。 */
