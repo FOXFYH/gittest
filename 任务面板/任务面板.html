@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.54">
+<meta name="任务面板版本" content="0.62">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -50,14 +50,49 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.54</title>
+<title>任务面板 · 手机遥控页 v0.62</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.54
+  版本：0.62
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.62（2026-10-23）配合「目录不带正文」：清单页.js 0.40 删掉建卡时的自动补正文，正文只在点
+    【展开】时按需取一次；收起状态不请求正文。本页仅版本对齐：任务面板 0.62 / 清单页.js 0.40；
+    接口.js / 卡片.js / 面板.js 的 `?v=` 不变。配合 清单存储 0.31。
+  v0.61（2026-10-23）老板口径「**清单里每个条目都要标注一下进展**」：细分卡区每行在「标题」与
+    「卡号」之间加一枚进展小胶囊（`.细分态` + `态未/态行/态完/态弃` 四色，清单页.js 0.39）——
+    任务显示四态、小点显示已完成/未完成；只改显示，不动数据。版本对齐：任务面板 0.61 /
+    清单页.js 0.39；接口.js / 卡片.js / 面板.js 的 `?v=` 不变。配合 清单存储 0.30。
+  v0.60（2026-10-23）老板口径「**小蓝卡不再干扰正文，单独一块**」：正文框下方新增独立
+    `.细分卡区`（清单页.js 0.38）——本卡全部直接下级卡一行一张「标题＋卡号」，点行＝超链接跳卡，
+    失效灰显不可点；正文浏览模式不再渲染 `[[卡号]]`（编辑模式 textarea 原样）。本页新增
+    `.细分卡区/.细分卡题/.细分行/.细分题/.细分号/.细分行.失效` 样式；版本对齐：任务面板 0.60 /
+    清单页.js 0.38；接口.js / 卡片.js / 面板.js 的 `?v=` 不变。配合 清单存储 0.29。
+  v0.59（2026-10-23）**系统清单跨电脑共享**：系统清单（`S` / `ST` / `SP` 前缀）落
+    `<软件根>\产出文档\系统清单\` 共享区，不再按实例号隔离；清单页.js 0.37 的 `跳卡()` 能识别
+    `S`（清单）/ `ST`（任务）/ `SP`（小点）。本页仅版本对齐：任务面板 0.59 / 清单页.js 0.37；
+    接口.js / 卡片.js / 面板.js 的 `?v=` 不变。配合 清单存储 0.28。
+  v0.58（2026-10-23）按老板真机反馈「展开后找不到改大白话的按钮」：清单页.js 0.36 在「清单正文大白话」
+    标题行（【朗读】旁）加【保存大白话】，只存大白话＋书写规则、不动正文；流水清单不重复加。
+    本页仅版本对齐：任务面板 0.58 / 接口.js 0.57 / 卡片.js 0.57 / 清单页.js 0.36 / 面板.js 0.57。
+  v0.57（2026-10-23）老板真机发现 L202 下 15 张老任务卡正文里没有 `[[卡号]]`、看不到小蓝卡。
+    按老板口径改成「**智能识别**」：数据层把本卡的直接下级卡也作为 `小蓝卡` 回吐（`自动=True`），
+    清单页.js 0.35 在正文底部渲染成 `.蓝卡区` 里的蓝色小卡（同一套样式、点它进卡，失效仍灰）。
+    本页只加 `.蓝卡区` 的上边距样式；版本对齐：任务面板 0.57 / 接口.js 0.57 / 卡片.js 0.57 /
+    清单页.js 0.35 / 面板.js 0.57。
+  v0.56（2026-10-23）按老板口径落地「**小蓝卡制度**」＋术语改名：
+    ①正文里的 `[[卡号]]`＝**小蓝卡**（指向真实细分卡的入口）：蓝色小卡显示「编号 · 标题」，点它进那张卡；
+      目标卡不存在 → 灰色 `.小蓝卡.失效`「失效卡 编号」，不可点、不报错。
+    ②`.蓝卡占位`：JSON 树里数据层自动插入的纯占位节点（`{"正文":"[[T108]]"}`）不画空绿卡行，
+      原位显示成小蓝卡，缩进跟随所在层。
+    ③用户可见文案「小绿卡」一律改「**小卡**」（正文里的小卡片），内部类名/变量名不动。
+    配合 清单页.js 0.34；接口.js 0.22、卡片.js 0.08、面板.js 0.20、网页服务.py 0.26 本轮未改。
+  v0.55（2026-10-23）按老板口径新增「**本文书写规则**」：卡片顶部（「清单正文大白话」之上）
+    一块提示词文本框（`.书写规则行` / `.卡规输`，展开后才显示，默认留空、不自动填任何文案）；
+    只卡片级（清单/任务/小点）有，正文里的小绿卡没有此字段；只改它不涨卡片版本号。
+    清单页.js 0.33（建卡/保存）、接口.js 0.22（第 5 参）。
   v0.54（2026-10-22）用户口径（21:00）：**层级配色重做，8 套肉眼一眼可分**。根因＝0.53 的
     层2 蓝 #e8f1ff 与层3 紫 #f2ebff 底色 RGB 距离仅 11.7，且第三层卡片整张嵌在第二层展开后
     的蓝色小文里，故第三层看着也是蓝；实测行类名 `层色1/2/3`、夹 `层1/2/3` 与 `--层底` 均
@@ -561,6 +596,12 @@
   .卡白输 { display: block; width: 100%; box-sizing: border-box; border: none; background: transparent;
     resize: vertical; min-height: 44px; font-family: inherit; font-size: 13px; color: #334;
     line-height: 1.5; padding: 0; }
+  /* 0.55（2026-10-23）：卡片级「本文书写规则」＝大白话之上的提示词框，展开后才显示；默认空。 */
+  .书写规则行 { display: none; padding: 4px 3px 0; }
+  .卡.展开 .书写规则行 { display: block; }
+  .卡规输 { display: block; width: 100%; box-sizing: border-box; font-size: 12px; font-family: inherit;
+            color: #24364d; background: #fbfcff; border: 1px dashed #c8d6ea; border-radius: 6px;
+            padding: 4px 6px; min-height: 34px; resize: vertical; }
   .卡文输 { width: 100%; box-sizing: border-box; border: none; background: transparent;
     resize: vertical; min-height: 76px; font-family: inherit; font-size: 14px; color: #1c2430;
     line-height: 1.5; padding: 0; }
@@ -596,6 +637,42 @@
   .小蓝卡 { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px;
     background: #e6f0ff; border: 1px solid #a9c8f2; color: #24528f; cursor: pointer; }
   .小蓝卡:hover { background: #d8e8ff; border-color: #7fb0ea; }
+  /* 0.56：小蓝卡的目标卡已不存在 → 灰色「失效卡」，不可点、不报错 */
+  .小蓝卡.失效 { background: #f2f3f5; border-color: #d8dbe1; color: #7a828e; cursor: default; }
+  .小蓝卡.失效:hover { background: #f2f3f5; border-color: #d8dbe1; }
+  /* 0.56：JSON 树里的纯小蓝卡占位节点（数据层自动插入）——不画绿卡行，原位显示蓝卡；缩进跟随层级 */
+  .蓝卡占位 { display: block; padding: 2px 0 2px 6px; }
+  /* 0.57：智能识别的直接下级卡——正文底部的小蓝卡区块（只上边距，不花哨） */
+  .蓝卡区 { display: block; margin-top: 8px; line-height: 1.9; }
+  .蓝卡区 .小蓝卡 { margin-right: 4px; }
+  /* 0.60（老板 2026-10-23 口径）：**小蓝卡改为正文下方独立细分区**（正文里不再插 [[卡号]]）——
+     一行一张、标题在前卡号在后，点击＝超链接跳卡；简约＝细下边框＋hover 浅蓝，不占太多高度。 */
+  .细分卡区 { display: block; margin-top: 10px; padding-top: 7px; border-top: 1px dashed #dbe2ea; }
+  .细分卡区.空 { display: none; }
+  /* 编辑模式（textarea）下不显示细分区，避免跑到编辑框上方打断「正文下方」的视觉顺序 */
+  .正文框.编辑中 .细分卡区 { display: none; }
+  .细分卡题 { font-size: 11.5px; color: #7d8794; margin-bottom: 3px; }
+  .细分行 { display: flex; align-items: baseline; gap: 8px; padding: 4px 2px;
+    border-bottom: 1px solid #e8edf3; cursor: pointer; line-height: 1.45; }
+  .细分行:last-child { border-bottom: 0; }
+  .细分行:hover { background: #f2f7ff; }
+  .细分题 { flex: 1 1 auto; min-width: 0; font-size: 13px; color: #24528f;
+    word-break: break-word; overflow-wrap: anywhere; }
+  .细分行:hover .细分题 { text-decoration: underline; }
+  .细分号 { flex: 0 0 auto; font-size: 11.5px; color: #8a94a2; font-variant-numeric: tabular-nums; }
+  /* 0.61（老板 2026-10-23 口径）：细分卡每行标注该下级卡自己的进展——小胶囊，贴标题右侧、卡号之前 */
+  .细分态 { flex: 0 0 auto; font-size: 10.5px; line-height: 1.5; padding: 0 6px; border-radius: 999px;
+    border: 1px solid #e6e9ee; background: #f7f8fa; color: #6b7480; white-space: nowrap; }
+  .细分态.态未 { background: #fff7e6; border-color: #f0d79b; color: #8a6112; }
+  .细分态.态行 { background: #e8f1ff; border-color: #a9c8f2; color: #24528f; }
+  .细分态.态完 { background: #def3e4; border-color: #8fd0a6; color: #1c6b36; }
+  .细分态.态弃 { background: #f2f3f5; border-color: #d8dbe1; color: #7a828e; }
+  .细分行.失效 { cursor: default; }
+  .细分行.失效 .细分题 { color: #8a94a2; }
+  .细分行.失效:hover { background: transparent; }
+  .细分行.失效:hover .细分题 { text-decoration: none; }
+  .蓝卡占位.层2, .蓝卡占位.层3, .蓝卡占位.层4, .蓝卡占位.层5,
+  .蓝卡占位.层6, .蓝卡占位.层7, .蓝卡占位.层8 { padding-left: 10px; }
   .绿卡文 { flex: 1 1 auto; min-width: 0; font-size: 13px; color: #245c39; line-height: 1.45;
     word-break: break-word; white-space: pre-wrap; }
   .绿卡灯 { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; min-height: 24px; border-radius: 999px;
@@ -707,7 +784,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.54</span>
+    <span class="版本">v0.62</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -864,9 +941,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.54"></script>
-<script src="网页模块/卡片.js?v=0.54"></script>
-<script src="网页模块/清单页.js?v=0.32"></script>
-<script src="网页模块/面板.js?v=0.54"></script>
+<script src="网页模块/接口.js?v=0.57"></script>
+<script src="网页模块/卡片.js?v=0.57"></script>
+<script src="网页模块/清单页.js?v=0.40"></script>
+<script src="网页模块/面板.js?v=0.57"></script>
 </body>
 </html>
