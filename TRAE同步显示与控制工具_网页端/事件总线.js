@@ -244,14 +244,23 @@ function onEv(kind, v){
       break;
     case 'pend_edit_out': {                /* 1.53：取出编辑成功——直接回填
         （服务端主动读回 TRAE 输入框文本推送，不依赖快照时机，
-        切走会话也不丢） */
+        切走会话也不丢）
+        2.127（老板 2026-10-23 15:38）：官方排队条取回到手机网页版重新编辑时，
+        **只还人类真实发言**——剥首行 DID ＋ 服务端追加的专属词前后缀（sys/usr/co
+        三段）＋ FOX 标记（copyPlain(true)，与复制同口径）。电脑端 TRAE 输入框
+        由服务端 0.49 同步清空，不留同一份残留；本端改完重新发送即重新排队。 */
       S.qedit = null;
-      const t = (typeof v === 'string' ? v : '').trim();
+      const raw = (typeof v === 'string' ? v : '').trim();
+      const t = raw ? copyPlain(raw, true) : '';
       if (t){
         el.ent.value = t;
         refreshSendBtn();
         try { el.ent.focus(); } catch(e2){}
         flash('已取出排队消息，可修改后重新发送', 'var(--blue)');
+      } else if (raw){
+        flash('排队消息已取出，剥掉专属词后正文为空', 'var(--red)', 6000);
+      } else {
+        flash('排队消息已取出，但正文为空', 'var(--red)', 6000);
       }
       break;
     }
