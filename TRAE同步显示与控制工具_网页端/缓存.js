@@ -487,7 +487,7 @@ function _idbFrame(){
           msgs: (Array.isArray(s.msgs) ? s.msgs.slice() : []),   /* 2.126：整帧原样 */
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
-          ask: s.ask || null, pend: s.pend || [], attach: s.attach || [],
+          ask: s.ask || null, pend: [], attach: s.attach || [],
           model: s.model || ''};
 }
 /* ========== 2.126：本地快照「只进不退」统一闸 ==========
@@ -768,7 +768,7 @@ function liveOverlay(snap){
   return Object.assign({}, snap, {
     msgs: (f.msgs || []), finish: f.finish || null, tail: f.tail || '',
     sendIdle: !!f.sendIdle, inputText: f.inputText || '',
-    opts: f.opts || [], ask: f.ask || null, pend: f.pend || [],
+    opts: f.opts || [], ask: f.ask || null, pend: [],
     attach: f.attach || [], model: f.model || ''
   });
 }

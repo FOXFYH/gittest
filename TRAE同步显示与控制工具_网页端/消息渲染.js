@@ -1,4 +1,13 @@
 'use strict';
+/* 消息渲染.js（网页端）  版本 2.131  日期 2026-10-24
+   【维护记录】
+   2.131  2026-10-24  官方排队条「串台」（老板原话：「排队条一定要核实清楚属于
+                     哪个会话，不能乱显示，是谁的就显示在谁那边」）：`renderMsgs`
+                     画「⏳ 官方排队条」前先校验归属——取快照顶层 `pend_sid`
+                     （无该字段回退快照 `selSid`），与当前锚定会话 sid 比对，
+                     不一致就**整批丢弃、不画**；一致才进 `#qp:` 指纹与队列面板。
+                     服务端配套 抓取轮询 0.58（快照盖章 pend_sid）/ WS桥 0.23
+                     （指纹纳入 pend、实时发帧）。2.130→2.131。 */
 /* ========== 2.92：思维流折叠头 / 子代理外层「轻量呈现」（对齐 TRAE 原版） ==========
    服务端「采集剥壳规则整改」（C4·痕迹与配置 0.15 / TRAE界面JS 0.07 / 命令路由 0.23）起，
    `core-expandable-section`（思维流折叠头）与子代理 header 最外层**不再 remove()**，
@@ -99,8 +108,25 @@ function thinkBarHtml(b){
     + '</div>' + body + '</div>';
 }
 
+/* 2.131：官方排队条归属校验（老板：「是谁的就显示在谁那边」）。
+   快照 pend 只取【电脑端选中】那个会话，本端可能锚定在另一个会话 ⇒
+   按顶层 `pend_sid`（旧服务端回退 `selSid`）比当前锚定 sid，不同就丢弃。
+   字段都拿不到（旧服务端/列表中间态）⇒ 不新增丢弃，维持旧行为。 */
+function _pendOwnerOk(pend){
+  if (!pend || !pend.length) return true;
+  const ps = String((S.snap && (S.snap.pend_sid || S.snap.selSid)) || '');
+  const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
+  /* 2.132：归属不明就不画——宁可不显示，也不留残影 */
+  if (!ps || !cs) return false;
+  if (ps === cs) return true;
+  return !!(typeof 稳定键 === 'function'
+            && 稳定键(ps, '') === 稳定键(cs, ''));
+}
+
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
+  /* 2.131：不是当前会话的排队条，一律不画（也不进 #qp: 指纹）。 */
+  if (!_pendOwnerOk(pend)) pend = [];
   /* 2.97：记下本次实参——切换「持屏」期（通用工具.js renderAll）原样重放，
      保证不出现「空帧/中间态」等额外面孔（同一 key 会被本函数上方指纹直接跳过）。 */
   S.msgs_last = [msgs, finish, opts, ask, pend];

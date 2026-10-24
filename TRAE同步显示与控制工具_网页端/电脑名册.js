@@ -156,7 +156,7 @@ function applySrvEntry(){
       el.box.appendChild(o);
     }
   }
-  if (s.alive){ S.alive = new Set(s.alive); renderPorts(); }
+  if (s.alive){ S.alive = new Set(s.alive); }
   if (s.box && s.port && s.box !== S.box) applySwitch(s.box, s.port);
 }
 function pruneSrv(){

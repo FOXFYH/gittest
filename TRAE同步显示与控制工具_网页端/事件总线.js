@@ -1,4 +1,15 @@
 'use strict';
+/* 事件总线.js（网页端）  版本 2.131  日期 2026-10-24
+   【维护记录】
+   2.131  2026-10-24  官方排队条「串台」（老板原话：「排队条一定要核实清楚属于
+                     哪个会话，不能乱显示，是谁的就显示在谁那边」）：`case 'snap'`
+                     收到快照后先按 `pend_sid`（旧服务端回退 `v.selSid`）比当前
+                     锚定会话 sid——不是本会话的排队条①**先剥掉再 adoptSnap**
+                     （防锚定冻结把别人的 pend 留在屏幕上）；②**不用于 DID 销卡**
+                     （③通道扫 v.pend 前加同一道闸），避免拿别人会话的排队条销
+                     本会话的卡。通过校验的 pend 回写 `S.snap.pend_sid` 供
+                     消息渲染.js 2.131 兜底复验。服务端配套 抓取轮询 0.58／
+                     WS桥 0.23。2.130→2.131。 */
 function onEv(kind, v){
   switch (kind){
     case 'pendlist': {                 /* 1.35：服务端对账结果即时同步——
@@ -86,9 +97,32 @@ function onEv(kind, v){
       }
       /* 本专项 B3：先记下这拍快照「桌面当前选中行」——它就是直播帧的归属
          会话；当前锚定会话的真直播帧一到，立即撤「正在获取直播帧」小条。 */
+      /* 2.131：排队条归属闸（老板「排队条一定要核实清楚属于哪个会话，不能乱
+         显示，是谁的就显示在谁那边」）——快照 pend 只取【电脑端选中】会话，
+         本端锚定可能在别处。取顶层 `pend_sid`（旧服务端回退 v.selSid），与
+         当前锚定 sid 比对；不是本会话的**先剥掉再 adoptSnap**（否则锚定冻结
+         会把别人的 pend 原样留在屏幕上），也不拿它销卡。字段都缺 ⇒ 维持旧
+         行为、不新增丢弃。 */
+      const _penArr = Array.isArray(v.pend) ? v.pend : [];
+      const _penOwner = String(v.pend_sid || v.selSid || '');
+      const _curSidNow = String((typeof curSid === 'function' ? curSid() : '') || '');
+      /* 2.132：有排队条但归属不明 ⇒ 当「不是本会话」，宁可不画也不留残影 */
+      const _penMine = (!_penArr.length)
+          ? true
+          : ((!_penOwner || !_curSidNow) ? false
+             : (_penOwner === _curSidNow
+                || (typeof 稳定键 === 'function'
+                    && 稳定键(_penOwner, '') === 稳定键(_curSidNow, ''))));
+      if (_penArr.length && !_penMine) v.pend = [];
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
+      /* 2.131：走到这里的 pend 已确认属于本会话（别人的上面已先剥，锚定冻结
+         留用的也是本会话旧帧）⇒ 回写 pend_sid，供 消息渲染.js 2.131 复验。 */
+      if (Array.isArray(v.pend) && v.pend.length){
+        v.pend_sid = String((typeof curSid === 'function' ? curSid() : '')
+                            || _penOwner || '');
+      }
       /* 2.89（老板 2026-10-20）：切换过渡期「锁死目标会话」——网页端自己发起的
          切换在途、且目标正文尚未到达时【不】撤直播帧覆盖。旧实现在「TRAE 先点亮
          B 标题、正文仍属 A」那一拍就 liveClear ⇒ 回落 curMsgs 读到仍是 A 的快照
@@ -126,7 +160,7 @@ function onEv(kind, v){
         const _d = firstLineDid(m[1]);
         if (_d) pendClearByDid(_d, _ct);
       });
-      (v.pend || []).forEach(it => {         /* ③ 官方排队条 */
+      if (_penMine) (v.pend || []).forEach(it => {   /* ③ 官方排队条（限本会话） */
         const _d = pendDidOf(it && it.t);
         if (_d) pendClearByDid(_d, _ct);
       });
@@ -466,7 +500,6 @@ function onEv(kind, v){
       break;
     case 'ports':
       S.alive = new Set(v || []);
-      renderPorts();
       break;
     case 'cmderr':
       flash('命令失败：' + v);

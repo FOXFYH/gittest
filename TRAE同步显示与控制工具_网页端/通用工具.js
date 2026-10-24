@@ -720,7 +720,8 @@ function adoptSnap(v){
   v.attach = old.attach || [];
   v.tail = old.tail;
   v.sendIdle = old.sendIdle;
-  v.pend = Array.isArray(old.pend) ? old.pend : (v.pend || []);
+  /* 2.132：锚定冻结期不沿用上一会话排队条（残影根因）——本拍 pend 属桌面选中会话，一律清空 */
+  v.pend = []; v.pend_sid = '';
   v.opts = old.opts || [];
   /* 锚定标题跟随锚点（列表里查到就用最新标题，改名自动同步）；顺带刷新完整 sid 兜底 */
   const arow = (v.convs || []).find(r => r && r[0] === 'c'

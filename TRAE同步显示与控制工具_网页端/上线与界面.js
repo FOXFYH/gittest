@@ -27,7 +27,6 @@ function onHello(d){
     }
   }
   S.alive = new Set(d.alive || []);
-  renderPorts();
   if (d.points && d.points !== '—'){
     S.points = d.points;
     el.points.textContent = '积分 ' + d.points;
@@ -132,10 +131,6 @@ function srvSeen(){                    // 服务端来向消息：判活 + 即�
   renderLink();
 }
 setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
-
-function renderPorts(){
-  el.ports.textContent = '在线 ' + S.alive.size + '/' + S.boxes.length;
-}
 
 /* ================= 命令 ================= */
 

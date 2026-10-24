@@ -13,9 +13,18 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
   const ur = new Set(Array.isArray(conv_unread) ? conv_unread : []);
   const useId = Array.isArray(conv_unread_ids);
   const uri = new Set(useId ? conv_unread_ids : []);
+  /* P15：服务端同帧下发的四字段（会话名/真实SID/状态灯/定时）——有则优先，
+     旧服务端无该字段时完全回退原逻辑。 */
+  const cfRows = (S.snap && Array.isArray(S.snap.convs_full))
+    ? S.snap.convs_full : null;
+  const cfKey = cfRows ? cfRows.map(o => (o && o.sid || '') + ':'
+      + (o && o.status && o.status.light || '') + ':'
+      + (o && o.schedule ? (o.schedule.next_at || '') : '')).sort().join('|') : '';
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
     + '#uri:' + Array.from(uri).sort().join('|')
+    /* P15：四字段（状态灯/定时）变化也必重绘 */
+    + '#cf:' + cfKey
     /* 2.40：备注字典纳入指纹——备注变化也要触发重绘（钩子缺失回退空） */
     + '#note:' + (window.备注指纹 ? 备注指纹() : '')
     /* 2.47：定时任务指纹纳入去重——设/撤/推进定时也会重绘（钩子缺失回退空） */
@@ -76,18 +85,46 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
          run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且「完成未查看」
          → 橙灯；done 已读 → 无灯（移除原绿点）。
          v1.95：未读优先按稳定 ID 命中（改名不丢灯），无 ID 回退标题。 */
-      const uread = (st === 'done') &&
-        (useId && sid ? uri.has(sid) : ur.has(title));
-      if (st === 'run' || st === 'fail' || st === 'stop' || uread){
+      /* P15：四字段优先——服务端同帧带 convs_full 时，状态灯/定时/真 SID 全用它；
+         旧服务端无该字段则完全回退原逻辑（零回归）。 */
+      const cfx = cfRows ? cfRows.find(o => o && (
+        (sid && o.sid === sid) || (sKey && o.stable === sKey))) : null;
+      const light = cfx && cfx.status ? (cfx.status.light || '') : '';
+      const uread = cfx ? !!(cfx.status && cfx.status.unread) :
+        ((st === 'done') && (useId && sid ? uri.has(sid) : ur.has(title)));
+      const dotCls = cfx
+        ? (light === 'busy' ? 'stdot-run'
+          : light === 'fail' ? 'stdot-fail'
+          : light === 'stop' ? 'stdot-stop'
+          : light === 'unread' ? 'stdot-uread' : '')
+        : (st === 'run' ? 'stdot-run' : st === 'fail' ? 'stdot-fail'
+          : st === 'stop' ? 'stdot-stop' : uread ? 'stdot-uread' : '');
+      if (dotCls){
         const dot = document.createElement('span');
-        dot.className = 'stdot ' + (uread ? 'stdot-uread' : 'stdot-' + st);
+        dot.className = 'stdot ' + dotCls;
         d.appendChild(dot);
       }
       const tspan = document.createElement('span');
       /* 2.40：会话名后追加（备注）——钩子由 会话备注.js 提供，缺失回退空串 */
       /* 2.47：会话名后追加（备注）+ 定时闹钟（⏰）——两钩子各自缺失则回退空串 */
-      tspan.textContent = title + (window.备注后缀 ? 备注后缀(sKey) : '')
+      const nm = document.createElement('span');
+      nm.textContent = title + (window.备注后缀 ? 备注后缀(sKey) : '')
         + (window.闹钟后缀 ? 闹钟后缀(sKey) : '');
+      nm.style.cssText = 'display:block;overflow:hidden;text-overflow:ellipsis';
+      tspan.appendChild(nm);
+      if (cfx){
+        /* P15：第二行＝真实会话ID · 状态灯文字 · 定时下次触发绝对时间。
+           无定时显式写「无」；四项同帧，手机端整帧落 IDB。 */
+        const lb = {busy:'忙', idle:'闲', unread:'未读', orange:'橙灯',
+                    fail:'失败', stop:'停止'}[light] || '闲';
+        const sc = cfx.schedule || {};
+        const m = document.createElement('span');
+        m.textContent = 'SID ' + (cfx.sid || '—') + ' · ' + lb
+          + ' · ⏰ ' + (sc.has ? (sc.next_at || '有') : '无');
+        m.style.cssText = 'display:block;font-size:10px;color:#999;line-height:1.35;'
+          + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:normal';
+        tspan.appendChild(m);
+      }
       d.appendChild(tspan);
       const i = idx;
       /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */

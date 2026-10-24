@@ -317,7 +317,7 @@ function handleBody(body){
   if (!nm) return;
   regSrv(nm, d);
   if (d.t === 'srv'){
-    if (nm === S.cur && d.alive){ S.alive = new Set(d.alive); renderPorts(); }
+    if (nm === S.cur && d.alive){ S.alive = new Set(d.alive); }
     renderSrvList();
     return;
   }

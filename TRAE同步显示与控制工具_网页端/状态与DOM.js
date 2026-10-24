@@ -127,7 +127,7 @@ const el = {
   menu: $('btn_menu'), rlink: $('lbl_rlink'), box: $('cmb_box'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
   srvrefresh: $('btn_srvrefresh'),
-  ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
+  points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), loginbar: $('loginbar'),
   msgs: $('msgs'), attach_row: $('attach_row'),
   input_row: $('input_row'),

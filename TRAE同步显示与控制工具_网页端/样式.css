@@ -37,10 +37,23 @@ select{font-size:12px;}
   white-space:nowrap; max-width:34%; overflow:hidden;
   text-overflow:ellipsis; cursor:pointer;}
 .h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
-  flex-wrap:wrap;}
-#cmb_box{flex:1; max-width:42%; min-width:0;}
-#cmb_model{flex:2; min-width:0;}
-#lbl_ports,#lbl_points{font-size:12px; color:var(--gray); white-space:nowrap;}
+  flex-wrap:nowrap;}   /* 2.133：不许换行撑高顶栏；窄屏只压缩非关键元素 */
+#cmb_box{flex:0 1 auto; max-width:30%; min-width:0;}
+#cmb_model{flex:1 1 auto; min-width:0;}   /* 2.133：原「在线 N/8」宽度全给模型名 */
+#lbl_points{flex:none; font-size:12px; color:var(--gray); white-space:nowrap;}
+/* 2.133：窄屏优先保模型名——压操控机下拉与☆按钮，模型字号 11px；
+   保证常见最长模型名（如 Doubao-Seed-1.6-thinking）完整、不出省略号 */
+@media (max-width:480px){
+  .h2row{gap:4px; padding:2px 6px 5px;}
+  #cmb_box{flex:0 0 72px;}
+  #btn_fav{padding:4px 6px; min-width:30px;}
+  #cmb_model{font-size:11px;}
+}
+/* 2.133：320px 极窄屏再让一步，仍保最长模型名完整 */
+@media (max-width:340px){
+  #cmb_box{flex:0 0 56px;}
+  #cmb_model{font-size:9px;}
+}
 #statebar{flex:none; text-align:center; font-size:12px; padding:2px 10px;
   background:#fff; border-bottom:1px solid var(--bd); color:var(--gray);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
