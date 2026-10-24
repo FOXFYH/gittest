@@ -2813,9 +2813,14 @@ function renderConvs(rows, conv_unread){
   const schedSids = new Set(((S.snap && Array.isArray(S.snap.sched))
                             ? S.snap.sched : [])
                             .map(j => j && j.sid).filter(Boolean));
+  /* 2.12：会话备注指纹（{sid:文本} 按键排序拼串）——备注增删改也要触发列表重绘 */
+  const notes = (S.snap && S.snap['备注'] && typeof S.snap['备注'] === 'object')
+                ? S.snap['备注'] : {};
+  const noteKey = Object.keys(notes).sort().map(k => k + '=' + notes[k]).join('|');
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
-    + '#sc:' + Array.from(schedSids).sort().join('|');
+    + '#sc:' + Array.from(schedSids).sort().join('|')
+    + '#nt:' + noteKey;
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
@@ -2880,7 +2885,9 @@ function renderConvs(rows, conv_unread){
         d.appendChild(ck);
       }
       const tspan = document.createElement('span');
-      tspan.textContent = disp || title;
+      /* 2.12：会话备注——会话名后追加「（备注）」，仅网页展示，不改真名 */
+      const noteTxt = notes[title] || '';
+      tspan.textContent = (disp || title) + (noteTxt ? '（' + noteTxt + '）' : '');
       d.appendChild(tspan);
       const i = idx;
       /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
@@ -2937,6 +2944,7 @@ function convMenuOpen(title, disp){
     + '<button data-act="sched">⏰ 定时自我激活'
     + (nSched ? '（' + nSched + '）' : '') + '</button>'
     + '<button data-act="ren">✎ 重命名</button>'
+    + '<button data-act="note">📝 备注</button>'
     + '<button class="cmdel" data-act="del">🗑 删除此会话</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
     + '</div>';
@@ -2946,6 +2954,17 @@ function convMenuOpen(title, disp){
       e.stopPropagation();
       ov.remove();
       if (b.dataset.act === 'sched'){ schedDlgOpen(title, view); return; }
+      if (b.dataset.act === 'note'){
+        /* 2.12：会话备注——预填旧备注，留空=清除；写后服务端 refresh_snap 即时推回 */
+        const cur = notes[title] || '';
+        const nt = (prompt('备注「' + view + '」\n（留空=清除备注）', cur) || '').trim();
+        if (nt === cur) return;
+        if (!S.onLine){ flash('⚠ 还没连上，稍后再试', 'var(--red)'); return; }
+        sendCmd('note_set', [title, nt]);
+        flash(nt ? '正在为「' + view + '」写备注…'
+                 : '正在清除「' + view + '」的备注…', 'var(--blue)');
+        return;
+      }
       if (b.dataset.act !== 'ren' && b.dataset.act !== 'del') return;
       // 1.4x：删除走二次确认（本地 confirm），避免误触
       if (b.dataset.act === 'del'){
@@ -4368,7 +4387,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.11';   /* 2.11：轮播「登录现取」——服务端指纹只在有人听时前进
+const VER = '2.12';   /* 2.12：会话备注——长按菜单加「📝 备注」，会话名后缀「（备注）」，
+   仅网页版可见、不改会话真名（老板 2026-10-24 令，学 TRAE 右键菜单备注）。 */
+/* 2.11：轮播「登录现取」——服务端指纹只在有人听时前进
    （2.94b 治「后登录页面永远收不到 turncast 首帧」），本页换会话/登录后
    主动 req {c:'turncast'} 现取一次（res 通道补齐），onRes k==='turncast'
    回包并入本地账；其余同 2.10：轮播记账（老板 2026-10-24 定稿「广播只发三样」）——
