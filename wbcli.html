@@ -107,6 +107,9 @@ body.fmsg #fexit{display:block;}
   padding:2px 0 2px 8px; max-height:45vh; overflow-y:auto;}
 .foldbub{font-size:12px; color:#9a9a9a; white-space:pre-wrap;
   word-break:break-word; line-height:1.55; margin-bottom:6px;}
+/* 2.09：历史轮思维卡片里每张的小标题（时刻） */
+.thbn{font-size:11px; color:#8a8a8a; font-style:italic; margin-bottom:2px;
+  white-space:normal;}
 .empty{color:#999; text-align:center; padding:30px 0;}
 /* ── 1.25：会话操作菜单（长按会话行） ── */
 #convmenu{position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:90;
@@ -1139,6 +1142,11 @@ const S = {
      foldData=已按需拉回的中间气泡缓存；foldWait=正在拉取。切会话即清空
      （自动收回），符合「切到别的对话自动又折叠」。 */
   foldOpen: {}, foldData: {}, foldWait: {},
+  /* 2.09：历史轮「思维卡片」按需取——老板 2026-10-24 定：历史轮中间只传一个
+     「💭 思维卡片 ×N」按钮（省流），点开才向服务端要全文。
+     thinkHist=已拉回的段数组（键=该轮末条 seq）；thinkHistOpen=展开态；
+     thinkHistWait=正在拉取（防重复点）。切会话即清空，重进重新按需取。 */
+  thinkHist: {}, thinkHistOpen: {}, thinkHistWait: {},
   qopen: {},                         /* 1.67：托管排队条「展开全文」态（键=条目 id） */
   pend_head: 100,                    /* 1.23 遗留：确认匹配字数（1.63 起已不再用于比对，
                                        仅保留字段兼容 hello/pendcfg 握手） */
@@ -1195,7 +1203,10 @@ const $ = id => document.getElementById(id);
 const el = {
   menu: $('btn_menu'), rlink: $('lbl_rlink'),
   srv: $('lbl_srv'), srvlist: $('srvlist'),
-  ports: $('lbl_ports'), points: $('lbl_points'), model: $('cmb_model'),
+  /* 顶栏那颗「在线 x/y」计数器 1.89 起已撤下，元素不存在了——这里直接给 null，
+     renderPorts() 里的 if(!el.ports) 守卫照旧早退（行为零变化）；
+     若仍按 id 去取，会让「选择器指向不存在的 id」自检长期报红。 */
+  ports: null, points: $('lbl_points'), model: $('cmb_model'),
   acct_sel: $('cmb_acct'), acct_scan: $('btn_acct_scan'),   /* 1.89：登录账号切换 */
   acct: $('lbl_acct'),
   state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
@@ -1949,8 +1960,13 @@ function fmtTime(v){                       // 北京时间 年月日+时分秒�
    （S.thinkOpen），最新那段始终展开，保证「一有动静就看得到」。 */
 function thinkBlocksHtml(){
   const sn = S.snap || {};
-  let arr = (Array.isArray(sn.plans) && sn.plans.length) ? sn.plans.slice() : [];
-  if (!arr.length){
+  /* 2.08：老服务端兜底**只认「根本没有 plans 键」**。
+     2.07 的写法是 `plans` 为空就退回老键 plan——但 2.89 起服务端给的是「本轮
+     思考段」，新一轮刚提问、本段还没落盘时 plans 就是空数组，此时退回 sn.plan
+     会把**上一轮最后一段**当成这一轮显示（老板 2026-10-24 报的正是这个：他这句
+     话下面全是这句话之前产生的思考）。故：有 plans 键（哪怕是 []）就只信它。 */
+  let arr = Array.isArray(sn.plans) ? sn.plans.slice() : [];
+  if (!Array.isArray(sn.plans)){
     const one = (sn.plan == null ? '' : String(sn.plan));
     if (one.trim()) arr = [{t: 0, x: one}];
   }
@@ -1990,6 +2006,64 @@ function bindThinkBlocks(root){
         const cp = tk.querySelector('.caret');
         if (cp) cp.textContent = tk.classList.contains('open') ? '▾' : '▸';
       });
+    };
+  });
+}
+/* 2.09（老板 2026-10-24 原话）：「历史轮的话，中间的思维小卡片，为了省流，你就
+   传一个思维卡片这样的数量。……点开以后才跟你索要全部的思维小卡片来显示。」
+   → 非最新轮只画一颗「💭 思维卡片 ×N」按钮；点它才 req/plans 现取正文。
+   展开态 S.thinkHistOpen[sk]，正文缓存 S.thinkHist[sk]（键=该轮末条 seq）。
+   为什么不用 .think 那套块头：那套点击是「全部展开⇄只留最新」的全局开关，
+   历史轮混进去会把正在长的最新一段一起切掉，故另用 .foldbar/.foldbub 这套
+   （样式本就是灰字+左边框+pre-wrap，观感与思维块一致）。 */
+function histThinkHtml(m, i, msgs){
+  const rc = (m[6] && m[6].r) | 0;
+  if (!rc) return '';
+  const seq = (m[5] === '' || m[5] == null) ? 0 : (m[5] | 0);
+  const sk = seq ? ('s' + seq) : ('i' + i);
+  /* 该轮时间窗：after=往前找最近一条人类发言的时刻，before=本条 AI 气泡时刻 */
+  let ta = 0;
+  for (let j = i - 1; j >= 0; j--){
+    if (msgs[j][0] === 'u' || msgs[j][0] === 'user'){
+      ta = Number(msgs[j][2]) || 0; break;
+    }
+  }
+  const tb = Number(m[2]) || 0;
+  const btn = (txt) => '<button class="foldbtn histbtn" data-sk="' + sk
+    + '" data-k="' + seq + '" data-a="' + ta + '" data-b="' + tb + '">'
+    + txt + '</button>';
+  if (!S.thinkHistOpen[sk]){
+    return '<div class="foldbar">' + btn('💭 思维卡片 ×' + rc + '（点开看全文）')
+         + '</div>';
+  }
+  const segs = S.thinkHist[sk] || [];
+  const nn = segs.length;
+  let bh = '';
+  segs.forEach((p, k) => {
+    const x = (p && p.x != null) ? String(p.x) : '';
+    const tt = (p && p.t) ? fmtTime(p.t).slice(11) : '';
+    bh += '<div class="foldbub"><div class="thbn">💭 思考 ' + (k + 1) + '/' + nn
+        + (tt ? ' · ' + tt : '') + '</div>' + esc(x) + '</div>';
+  });
+  if (!nn) bh = '<div class="foldbub">（这一轮没有可显示的思考段）</div>';
+  /* 张数如实：现取的段可能被服务端限额（30 段/3 万字）截掉一部分，别谎报 */
+  const ht = (nn && nn !== rc)
+    ? ('💭 思维卡片 ' + nn + '/' + rc + ' 张（超出单轮上限的部分未取）')
+    : ('💭 思维卡片 ' + rc + ' 张');
+  return '<div class="foldbar"><div class="foldhd"><span>' + ht + '</span>'
+       + btn('收起 ▴') + '</div>'
+       + '<div class="foldbody">' + bh + '</div></div>';
+}
+function bindHistThink(root){
+  root.querySelectorAll('.histbtn').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const sk = b.dataset.sk;
+      if (S.thinkHistOpen[sk]){ S.thinkHistOpen[sk] = 0; renderAll(); return; }
+      if (S.thinkHist[sk]){ S.thinkHistOpen[sk] = 1; renderAll(); return; }
+      if (S.thinkHistWait[sk]) return;           /* 正在拉取，防重复 */
+      flash('正在取回思维卡片…', 'var(--blue)');
+      reqPlans(sk, b.dataset.a, b.dataset.b, b.dataset.k);
     };
   });
 }
@@ -2084,10 +2158,15 @@ function skelCacheLoad(){
 }
 function ledToArr(r){
   /* 1.57：补第 6 元 seq（第 7 元折叠标记 {f:N}）——账本翻页记录与快照窗口
-     走同一套折叠渲染；展开气泡要靠 seq 去账本按需取回中间气泡。 */
+     走同一套折叠渲染；展开气泡要靠 seq 去账本按需取回中间气泡。
+     2.09：第 7 元改成元数据字典，除 {f:N} 还装 {r:N}（该轮思维卡片张数），
+     翻页出来的老历史也要能画「💭 思维卡片 ×N」按钮。 */
+  const meta = {};
+  if (r.f) meta.f = r.f | 0;
+  if (r.r) meta.r = r.r | 0;
   return [r.role === 'u' ? 'u' : 'a', r.text || '', r.tm || '',
           r.can_rev ? 1 : 0, r.can_del ? 1 : 0,
-          r.seq | 0, (r.f ? {f: r.f} : '')];
+          r.seq | 0, (Object.keys(meta).length ? meta : '')];
 }
 /* —— 分页窗口：重置 / 请求 / 落地 —— */
 function resetPaging(){
@@ -2097,6 +2176,8 @@ function resetPaging(){
   S.moreEnd = false;                           /* 1.96：换会话/重置即收回「到头」标记 */
   /* 1.57：切会话/换轮即收回已展开的气泡（符合「切到别的对话自动又折叠」） */
   S.foldOpen = {}; S.foldData = {}; S.foldWait = {};
+  /* 2.09：历史轮思维卡片一并收回（缓存放着会串到新会话的同名 seq 上） */
+  S.thinkHist = {}; S.thinkHistOpen = {}; S.thinkHistWait = {};
 }
 function reqHistPrev(conv, from_seq, groups){
   const id = ++reqSeq;
@@ -2138,6 +2219,23 @@ function reqBubbles(sk, seq){
   S.foldWait[sk] = 1;
   sendJson({t: 'req', id: id, c: 'bubbles', conv: conv, seq: seq | 0});
 }
+/* 2.09：点历史轮的「💭 思维卡片 ×N」→ 现取该轮思考全文
+   （{t:'req',c:'plans',conv,after,before}，after/before 是毫秒时间窗：
+   after=该轮人类发言时刻、before=该轮最后一条 AI 气泡时刻）。 */
+function reqPlans(sk, after, before, key){
+  const id = ++reqSeq;
+  const conv = curConvId();
+  S_reqs[id] = {conv: conv, ts: Date.now(), sk: sk};
+  S.thinkHistWait[sk] = 1;
+  sendJson({t: 'req', id: id, c: 'plans', conv: conv, key: key | 0,
+            after: Number(after) || 0, before: Number(before) || 0});
+  /* 触发必回音（老板铁律）：超时也要把话说清楚，不让按钮一直「没反应」 */
+  setTimeout(() => {
+    if (!S.thinkHistWait[sk]) return;
+    delete S.thinkHistWait[sk];
+    flash('思维卡片取回超时，请检查网络后重点一次', 'var(--orange)');
+  }, 12000);
+}
 function onRes(id, k, v){
   const rq = S_reqs[id];
   if (rq) delete S_reqs[id];
@@ -2151,6 +2249,15 @@ function onRes(id, k, v){
     if (!rq || rq.conv !== S.histConv) return;   /* 已切会话：丢弃过期回包 */
     S.foldData[sk] = v.bubbles || [];
     S.foldOpen[sk] = 1;
+    renderAll();
+  }
+  else if (k === 'plans'){                       /* 2.09：历史轮思维卡片全文 */
+    const sk = (rq && rq.sk) || '';
+    if (!sk) return;
+    delete S.thinkHistWait[sk];
+    if (!rq || rq.conv !== S.histConv) return;   /* 已切会话：丢弃过期回包 */
+    S.thinkHist[sk] = v.segs || [];
+    S.thinkHistOpen[sk] = 1;
     renderAll();
   }
 }
@@ -3077,7 +3184,11 @@ function msgKey(m){
   const L = t.length;
   return m[0] + ':' + djb2(L + '|' + t.slice(0, 24)
     + '|' + (L > 48 ? t.slice(L - 24) : ''))
-    + ':' + (m[3] || 0) + (m[4] || 0);
+    + ':' + (m[3] || 0) + (m[4] || 0)
+    /* 2.09：第 7 元元数据（{f:折叠条数} / {r:思维卡片数}）也进指纹——
+       否则「同一轮思考段数变了、文本没变」时早退，按钮上的数字停在旧值 */
+    + ':' + ((m[6] && (m[6].f || m[6].r))
+        ? ((m[6].f || 0) + ',' + (m[6].r || 0)) : '');
 }
 function renderMsgs(msgs, finish, opts, ask){
   opts = opts || [];
@@ -3105,6 +3216,9 @@ function renderMsgs(msgs, finish, opts, ask){
        + '#moref:' + (S.loadMoreFail ? 1 : 0)    /* 1.69：报掉线时也要重画横幅 */
        /* 1.57：折叠条展开/收起参与指纹（否则展开后不重画） */
        + '#fold:' + Object.keys(S.foldOpen).filter(k => S.foldOpen[k]).join(',')
+       /* 2.09：历史轮思维卡片展开/收起也要参与指纹，否则点开不重画 */
+       + '#thh:' + Object.keys(S.thinkHistOpen)
+           .filter(k => S.thinkHistOpen[k]).join(',')
        /* 1.67：托管排队条也画在本函数里（挂在聊天记录末尾），队列的增删/改序/
           取回必须参与指纹，否则「只队列变了」时会被上面的早退跳过、不重画。 */
        + '#q:' + ((S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue
@@ -3189,6 +3303,9 @@ function renderMsgs(msgs, finish, opts, ask){
     /* 2.86：紧贴**本轮**最后一条 AI 回答，放出本轮全部思考段（服务端 snap.plans）——
        官方每落一段，这里就多一个 💭 折叠块（内容原样、不再截到 600 字）。 */
     if (!user && i === lastAgent && lastAgent > lastUserI) think = thinkBlocksHtml();
+    /* 2.09：其余轮（往上翻看到的历史轮）只挂一颗「💭 思维卡片 ×N」按钮，
+       点开才向服务端现取全文——老板要的「往上一翻，一问一答中间夹个按钮」。 */
+    else if (!user) think = histThinkHtml(m, i, msgs);
     /* 1.69：AI 消息正文识别 (@fox-play1)…(@fox-play2) 包夹段 → 渲染成语音
        小卡片（占位符先过 mdHtml，再替换成卡片 HTML）。「我」的消息不处理。 */
     let bodyHtml;
@@ -3277,6 +3394,8 @@ function renderMsgs(msgs, finish, opts, ask){
        2.86：本轮多块（每段思考一块）——点任意表头＝「全部展开 ⇄ 只留最新」，
        最新那段永远展开（它就是「正在长的」）。 */
     bindThinkBlocks(d);
+    /* 2.09：历史轮「💭 思维卡片 ×N」按钮（点开现取全文 / 收起） */
+    bindHistThink(d);
     /* 1.57：该轮被折叠的中间过程气泡——在总结气泡前渲染「展开气泡」条。
        默认只显示最后一条（=总结），点展开才 req/bubbles 按需取回中间气泡；
        展开态存 S.foldOpen（键=该轮最后一条的 seq），切会话自动收回。 */
@@ -3988,7 +4107,22 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.07';   /* 2.07：思维流「中间的每一段都展示」（老板 2026-10-24
+const VER = '2.09';   /* 2.09：历史轮思维卡片省流（老板 2026-10-24 三次令
+   「历史轮的话，中间的思维小卡片，为了省流，你就传一个思维卡片这样的数量。
+     ……点开以后才跟你索要全部的思维小卡片来显示。……往上翻的时候，默认就是
+     人类一问，AI 一个终极回答，中间夹着一个按钮。可以展开全部的思维小卡片」）——
+   ① 最新一轮照旧全量展示（2.86 起每段一块）；
+   ② 历史轮只画一颗「💭 思维卡片 ×N」（N 来自服务端 msgs 行第 7 元 {r:N}），
+      点它才 req/plans 按时间窗现取全文，省广播字节；
+   ③ 展开态 S.thinkHistOpen / 正文缓存 S.thinkHist，切会话自动收回。
+   2.08：思维块只认「本轮」（老板 2026-10-24 二次令
+   「我要你展示的是我说这句话以后，你产生的思维流。但是我看到的是，我这句话之下，
+     有很多思维流的时间，都是我这句话之前产生的」）——
+   ① 服务端 2.89 起 plans 已是「本轮」（按人类发言时间戳归轮），本页不再需要切轮；
+   ② 本版修掉**页面自身**的漏口：老服务端兜底原写成「plans 空 → 退回 snap.plan」，
+      而新一轮刚提问、本段还没落盘时 plans 就是 []，一退回就把上一轮最后一段当成
+      这一轮显示。现改为「只有根本没有 plans 键」才退回老键。对齐服务端 2.89。
+   2.07：思维流「中间的每一段都展示」（老板 2026-10-24
    「我喜欢看中间的这些思维流。官方那边有动静了，我们这边就展示，我想看到中间的思考过程」）——
    原先只显示 snap.plan（最后一段、截 600 字，见服务端 2.85 口径），中间思考段全丢；
    现改为读新字段 snap.plans=[{t,x}]（服务端 2.86 起随每段落盘逐条下发），本轮每段
