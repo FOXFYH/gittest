@@ -2353,6 +2353,10 @@ function onRes(id, k, v){
     S.thinkHistOpen[sk] = 1;
     renderAll();
   }
+  else if (k === 'turncast'){                    /* 2.10b：登录/换会话现取回包 */
+    if (v.tc && rq && rq.conv === S.histConv) onTurncast(v.tc);
+    return;
+  }
   else if (k === 'turn_full' || k === 'turn_concl' || k === 'turn_thinks'){
     /* 2.10：轮播补发三件套落地——按号并入本地账，落 IDB（防重牌已在
        onRes 开头统一摘过） */
@@ -2416,6 +2420,14 @@ async function idbSaveTurns(sid, turns){
     const tx = db.transaction('conv', 'readwrite');
     tx.objectStore('conv').put({turns: turns}, sid);
   }catch(e){}
+}
+/* 登录/换会话后主动现取一次当前轮播（2.94b）：服务端指纹只在有人听时
+   前进，join 时错过的首帧不会因为「下次变化」重发——必须自己开口要。 */
+function reqTurncast(){
+  const id = ++reqSeq;
+  const conv = curConvId();
+  S_reqs[id] = {conv: conv, ts: Date.now(), sk: 'turncast'};
+  sendJson({t: 'req', id: id, c: 'turncast', conv: conv});
 }
 function findTurn(uid){
   return S.turns.find(x => x.uid === uid) ||
@@ -2563,6 +2575,7 @@ function ensureHist(){
       turnAudit();
       renderAll();
     });
+    reqTurncast();                           /* 2.10b：本地账之外再要一份当前轮播 */
     /* 换会话后按当前快照重同步窗口元数据（快照可能先于本函数到达，
        而 onEv 里只在「未翻页」时更新 more，这里补齐） */
     const sn = S.snap || {};
@@ -4350,7 +4363,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.10';   /* 2.10：轮播记账（老板 2026-10-24 定稿「广播只发三样」）——
+const VER = '2.11';   /* 2.11：轮播「登录现取」——服务端指纹只在有人听时前进
+   （2.94b 治「后登录页面永远收不到 turncast 首帧」），本页换会话/登录后
+   主动 req {c:'turncast'} 现取一次（res 通道补齐），onRes k==='turncast'
+   回包并入本地账；其余同 2.10：轮播记账（老板 2026-10-24 定稿「广播只发三样」）——
    ① 服务端新增 turncast 小帧：prev 轮摘要（uid+头+done+结论头+张数+全部卡号）
       + 本轮人类发言 + 最新一张思维卡（增量，一张一张来，不再全量重发）；
    ② 本页用 IndexedDB 每会话自存最近 5 轮（捡到多少存多少，电脑不灌）；
