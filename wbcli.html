@@ -1132,8 +1132,11 @@ const S = {
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
   /* 1.68：刚点了「新建对话」的时刻——服务端 set_current 内先推新会话快照、
      后广播 switched（同通道保序）。收到 switched 时若本端确实刚发起过新建，
-     就保留刚到手的新快照，别清成 {} 误闪「界面未就绪」 */
-  new_conv_pend: 0,
+     就保留刚到手的新快照，别清成 {} 误闪「界面未就绪」。
+     2.13：改「待认领时间戳队列」——连点两次新建时，第一帧 switched 若按旧的
+     单槽标记消费掉，第二帧就当成「远端切换」把刚到的新快照清成 {}，列表消失/
+     界面未就绪。现每个空目标 switched 只认领一个 pending，连点几下都各留各的。 */
+  new_conv_pends: [],
   /* 1.08 新建任务弹窗 / 1.11 task_lock=锁定文件夹 */
   /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡；
      1.63：撤卡**只认 rid**（出现在托管队列 / 快照 acks 即撤），不再比对文本 */
@@ -3397,8 +3400,9 @@ function switchEnd(){          /* 结束一次切换（成功/失败/换目标�
   if (_swFailT){ clearTimeout(_swFailT); _swFailT = 0; }
   S.switch_pend = null;
 }
-function switchOk(disp){       /* 1.82：闪现「切换成功」2 秒后交回状态灯 */
-  S.switch_ok = {disp: disp || '新会话'};
+function switchOk(disp, isNew){ /* 1.82：闪现「切换成功」2 秒后交回状态灯；
+                                  2.13：本端新建走 isNew=true → 闪「新会话」 */
+  S.switch_ok = {disp: disp || '新会话', isNew: !!isNew};
   if (_swOkT) clearTimeout(_swOkT);
   _swOkT = setTimeout(() => { S.switch_ok = null; renderAll(); }, 2000);
 }
@@ -4058,7 +4062,7 @@ function renderState(snap){
     el.state.style.color = switchTipCol(S.switch_pend);
   }
   else if (S.switch_ok){                 // 1.82：切换成功闪现 2 秒后交回状态灯
-    el.state.textContent = '切换成功';
+    el.state.textContent = S.switch_ok.isNew ? '新会话' : '切换成功';   /* 2.13：本端新建 */
     el.state.style.color = 'var(--green)';
   }
   else if (S.loadingConv){               // 1.28：snap 未到 → 加载占位
@@ -4387,7 +4391,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.12';   /* 2.12：会话备注——长按菜单加「📝 备注」，会话名后缀「（备注）」，
+const VER = '2.13';   /* 2.13：新建会话断链收口——① switched 的「本端新建」待认领改
+   时间戳队列（连点两次各认领各的，不再第二帧把新快照清成 {} 导致列表消失/界面
+   未就绪）；② 本端新建成功时状态栏闪「新会话」（老板验收口径）。P30（服务端
+   snap 把「已建未落盘」会话补进 convs）已随服务端 2.96/16:13 生效。 */
+/* 2.12：会话备注——长按菜单加「📝 备注」，会话名后缀「（备注）」，
    仅网页版可见、不改会话真名（老板 2026-10-24 令，学 TRAE 右键菜单备注）。 */
 /* 2.11：轮播「登录现取」——服务端指纹只在有人听时前进
    （2.94b 治「后登录页面永远收不到 turncast 首帧」），本页换会话/登录后
@@ -5441,14 +5449,15 @@ function onEv(kind, v){
          switched，但新建没有具名目标（swT 为空），照旧会 keepSnap=false 把刚到
          的新快照清成 {} → 前端误闪「界面未就绪」。此处对「本端发起的新建」
          保留新快照（其它具名切换逻辑不变）。 */
-      const freshNew = !swT && S.new_conv_pend
-        && (Date.now() - S.new_conv_pend < 8000)
+      const freshNew = !swT && S.new_conv_pends.length
+        && (Date.now() - S.new_conv_pends[0] < 8000)
         && !!(S.snap && S.snap._port === v[1] && S.snap.online);
-      S.new_conv_pend = 0;             /* 消费即清 */
+      if (!swT && S.new_conv_pends.length) S.new_conv_pends.shift();  /* 2.13：一帧认领一个 */
       applySwitch(v[0], v[1], hasTarget || freshNew);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now(), disp: swD} : null;
       if (hadPend) switchOk(swD || swT);   /* 1.82：闪现「切换成功」2s 后交回状态灯 */
+      if (!hadPend && freshNew) switchOk('', true);  /* 2.13：本端新建 → 状态栏闪「新会话」 */
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
       scheduleRenderAll();
       break;
@@ -5912,7 +5921,8 @@ el.new.onclick = () => {         // 1.68：CLI 无目录可选、无输入区要
   if (!S.onLine){ flash('⚠ 还没连上，稍后再试'); return; }
   if (!S.snap || !S.snap.online){ flash('⚠ WorkBuddy 未在线'); return; }
   S.verify = null;               // 新建即放弃上一轮的模型校验态
-  S.new_conv_pend = Date.now();  // 供 switched 判断「刚发起的新建」，保住新快照
+  S.new_conv_pends.push(Date.now());  // 2.13：每点一次压一个，供 switched 逐帧认领（保住各自的新快照）
+  if (S.new_conv_pends.length > 8) S.new_conv_pends.shift();
   flash('正在新建对话…', 'var(--blue)');
   sendCmd('new_task_in', null);
 };
@@ -6108,7 +6118,7 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
   与记忆有变化才设置 */
   if (S.task_lock){
     taskDlgClose();
-    S.new_conv_pend = Date.now();     // 1.68：标记本端发起的新建（保住新快照）
+    S.new_conv_pends.push(Date.now()); // 2.13：标记本端发起的新建（一帧认领一个，保住各自的新快照）
     flash('正在文件夹「' + S.task_lock + '」内新建对话…', 'var(--blue)');
     sendCmd('new_task_in', S.task_lock);
     return;
@@ -6121,7 +6131,7 @@ el.td_ok.onclick = () => {         /* 创建：锁定=组内新建；普通=目�
   /* 1.31：CLI 的「新建」= 真正创建新会话（原普通模式只闪"就绪"零操作，
      导致第二个新建起不来——目录分支保留 task_dir_set 后再创建） */
   taskDlgClose();
-  S.new_conv_pend = Date.now();       // 1.68：标记本端发起的新建（保住新快照）
+  S.new_conv_pends.push(Date.now());  // 2.13：标记本端发起的新建（一帧认领一个，保住各自的新快照）
   flash('正在新建对话…', 'var(--blue)');
   sendCmd('new_task_in', null);
 };
