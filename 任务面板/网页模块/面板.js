@@ -1,6 +1,6 @@
 /* ============================================================
  * 【任务面板】网页模块 · 面板.js
- * 版本：0.22
+ * 版本：0.24
  * 职责：页面【装配层】——《软件架构设计》§6 手机网页版。
  *   · 顶栏：左【新建】【返回主页】、中题名+【网页版版本（唯一）】+角色、右【设置】。
  *   · 【设置】菜单：收纳 **服务器选择**（含在线/离线小标）＋**口令**钮＋**版本**（「网页版 v… | 服务器 v…」）。
@@ -11,6 +11,17 @@
  *     本层只在首载时调 `清单页.载入主页()`、切服务器后调 `清单页.重载()`、并把 `提示` 借给它用。
  * 说明：纯 DOM，不引外部 CDN。依赖：接口.js、卡片.js、清单页.js（须先加载）。
  * 维护记录：
+ *   · 0.24（2026-10-25）A7 登录下拉接账号库：**下拉改为先拉服务端账号库**（接口.js `账号列表()`
+ *     → 网页服务 0.31 `/api/accounts` → 账号库.账号列表）。开登录窗即拉取，成功立刻重画：
+ *     「人类管理员」恒第一 → 账号库真实账号（去重、跳过管理员）→ 末尾「＋ 输入新邮箱…」。
+ *     无痕窗口（localStorage 全空）也能看到真实账号；服务端不可达/空表/异常时静默回落本地缓存，
+ *     失败最多重试 2 次（仅登录窗仍打开时），不弹错、不阻断登录。空表/单账号/超长邮箱均不报错。
+ *     账号不写死在前端。
+ *   · 0.23（2026-10-24）A5 凭号直达 + 登录入口：登录窗改为「**下拉框 + 输入新邮箱**」——
+ *     下拉框读可配置账号列表（localStorage `任务面板_账号列表`，由后续 A3 账号接口补数据），
+ *     **人类管理员固定第一**（`任务面板_管理员` 可配置；为空＝公共视角看全部），其余按列表顺序；
+ *     选中即进入。地址栏带 `?卡号=` 时**不弹邮箱登录、不判无权限**，直接 `清单页.打开卡()` 打开该卡。
+ *     前端只负责把当前账号交给 接口.js（请求自动带 `邮箱`），**不做任何权限 if**。
  *   · 0.22（2026-10-24）按老板口径加「**邮箱号登录 + 每人自己的清单空间**」：装配时先要邮箱号
  *     （`任务面板_邮箱` 已有则直接进），顶栏显示当前身份并可【换身份】；登录后才继续原有
  *     口令流程（未配置口令仍照旧弹口令框）。身份读写/规范化全在 接口.js 0.24；换身份后就地
@@ -55,7 +66,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.22';
+  var 版本 = '0.24';
   var 提示定时 = null;
   var _联动已载 = false;      // 0.21：设置里的联动命令是否已从服务端回填（没回填不写，免得清空）
   var _已启动 = false;        // 0.22：邮箱登录后是否已继续原有口令/首载流程
@@ -286,31 +297,123 @@
     拉落地设置().then(首载);
   }
 
-  // ---------------- 身份：邮箱号登录（0.22 老板 2026-10-24 口径） ----------------
-  // 每个 AI 用自己的邮箱号进入自己的清单空间；身份读写/规范化在 接口.js 0.24。
+  // ---------------- 身份：邮箱号登录（0.23：下拉框 + 输入新邮箱） ----------------
+  // 每个 AI 用自己的邮箱号进入自己的清单空间；身份读写/规范化在 接口.js。
+  // 账号列表＝可配置列表（localStorage `任务面板_账号列表`，JSON 字符串数组；数据由后续 A3 账号接口补）。
+  // 人类管理员固定第一（`任务面板_管理员` 可配置；为空＝公共视角，看全部）。
+  // 前端只负责把当前账号交给 接口.js（请求自动带 `邮箱`），**不做任何权限判定/过滤**。
+  var 账号存储键 = '任务面板_账号列表';
+  var 管理员存储键 = '任务面板_管理员';
+  var 新邮箱选项值 = '__新邮箱__';
+
+  function 规范化邮箱(v) {
+    try { return (global.接口 && global.接口.规范化邮箱) ? (global.接口.规范化邮箱(v) || '') : String(v || '').trim(); }
+    catch (e) { return String(v || '').trim(); }
+  }
+  function 读取账号列表() {
+    var 表 = [];
+    try { 表 = JSON.parse(global.localStorage.getItem(账号存储键) || '[]') || []; } catch (e) { 表 = []; }
+    if (!(表 instanceof Array)) 表 = [];
+    var 出 = [];
+    表.forEach(function (x) {
+      var 号 = 规范化邮箱(x && x.邮箱 !== undefined ? x.邮箱 : x);
+      if (号 && 出.indexOf(号) < 0) 出.push(号);
+    });
+    return 出;
+  }
+  function 存账号列表(表) {
+    try { global.localStorage.setItem(账号存储键, JSON.stringify(表 || [])); } catch (e) { }
+  }
+  // A7（0.24）：从服务端账号库（/api/accounts）拉真实账号并缓存；失败/空表保留本地缓存，不阻断登录
+  var _账号拉取中 = false;
+  function 刷新账号列表(重试) {
+    重试 = 重试 || 0;
+    if (_账号拉取中) return;
+    if (!(global.接口 && typeof global.接口.账号列表 === 'function')) return;
+    var 请求;
+    try { 请求 = global.接口.账号列表(); } catch (e) { return; }
+    if (!请求 || typeof 请求.then !== 'function') return;
+    _账号拉取中 = true;
+    请求.then(function (r) {
+      _账号拉取中 = false;
+      if (!r || r.ok === false) { 再试(); return; }
+      var 表 = (r.账号 instanceof Array) ? r.账号 : [];
+      var 号们 = [];
+      表.forEach(function (x) {
+        // 管理员由第一项固定承载：账号库里的「人类管理员」/类型=管理员 条目一律跳过，避免重复
+        if (x && x.类型 === '管理员') return;
+        var 号 = 规范化邮箱(x && x.标识 !== undefined ? x.标识 : x);
+        if (!号 || 号 === '人类管理员' || 号 === 管理员邮箱()) return;
+        if (号们.indexOf(号) < 0) 号们.push(号);
+      });
+      if (号们.length) { 存账号列表(号们); 画邮箱选项(); }
+      else 再试();          // 空表：保留本地缓存，不弹错
+    })['catch'](function () { _账号拉取中 = false; 再试(); });
+
+    function 再试() {
+      if (_账号拉取中 || 重试 >= 2) return;
+      var 弹 = $('邮箱弹窗');
+      if (!弹 || 弹.classList.contains('隐藏')) return;   // 登录窗已关就不再打扰
+      setTimeout(function () { 刷新账号列表(重试 + 1); }, 2000);
+    }
+  }
+  function 管理员邮箱() {
+    try { return 规范化邮箱(global.localStorage.getItem(管理员存储键) || ''); } catch (e) { return ''; }
+  }
   function 我的邮箱() {
     try { return (global.接口 && global.接口.读取邮箱) ? (global.接口.读取邮箱() || '') : ''; } catch (e) { return ''; }
   }
   function 画身份() {
     var 我 = 我的邮箱();
     var 显 = $('身份');
-    if (显) 显.textContent = 我 || '未登录';
+    if (显) 显.textContent = 我 || '人类管理员';
     var 换 = $('按钮_换身份');
-    if (换) 换.style.display = 我 ? '' : 'none';
+    if (换) 换.style.display = _已启动 ? '' : 'none';
+  }
+  function 选项(值, 文本) {
+    var o = document.createElement('option');
+    o.value = 值; o.textContent = 文本;
+    return o;
+  }
+  // 下拉框：人类管理员固定第一 → 其余按账号列表顺序（去重、跳过管理员）→ 末尾「输入新邮箱…」
+  // 0.24：重画时保留用户当前选中项，避免服务端账号回来重画把正在选的人打断
+  function 画邮箱选项() {
+    var 框 = $('邮箱_选择');
+    if (!框) return;
+    var 管 = 管理员邮箱();
+    var 我 = 我的邮箱();
+    var 原选 = '';
+    try { 原选 = String(框.value || ''); } catch (e) { }
+    框.innerHTML = '';
+    框.appendChild(选项(管, '人类管理员' + (管 ? '（' + 管 + '）' : '（公共视角·全部可见）')));
+    读取账号列表().forEach(function (号) {
+      if (号 === 管 || 号 === '人类管理员') return;   // 管理员已在第一项，避免重复
+      框.appendChild(选项(号, 号));
+    });
+    if (我 && 我 !== 管 && 我 !== '人类管理员' && 读取账号列表().indexOf(我) < 0) 框.appendChild(选项(我, 我));
+    框.appendChild(选项(新邮箱选项值, '＋ 输入新邮箱…'));
+    var 还在 = false;
+    for (var i = 0; i < 框.options.length; i++) {
+      if (框.options[i].value === 原选) { 还在 = true; break; }
+    }
+    框.value = 还在 ? 原选 : (我 || 管);
   }
   function 开邮箱(首登) {
     var 弹 = $('邮箱弹窗');
     if (!弹) return;
     var 输 = $('邮箱_输入');
     if (输) 输.value = 首登 ? '' : 我的邮箱();
+    画邮箱选项();            // 先用本地缓存画，登录窗不空等
     弹.classList.remove('隐藏');
     if (输) { try { 输.focus(); } catch (e) { } }
+    刷新账号列表();          // 再从服务端账号库拉，成功即重画（无痕窗口也有真实账号）
   }
   function 关邮箱() { var 弹 = $('邮箱弹窗'); if (弹) 弹.classList.add('隐藏'); }
   // 邮箱就绪后继续原有启动流程：先拉服务端设置（可能带回口令），再按「有没有口令」分流
   function 继续启动() {
     if (_已启动) return;
     _已启动 = true;
+    画身份();
     拉落地设置().then(function () {
       var 还缺 = true;
       try { 还缺 = !!(global.接口.需要口令 && global.接口.需要口令()); } catch (e) { 还缺 = true; }
@@ -322,28 +425,71 @@
       }
     });
   }
-  function 确认邮箱() {
+  // 确认身份：`指定` 有值＝下拉框直接选的账号；不传＝读「输入框优先、其次下拉框」。
+  // 管理员可以没有邮箱（空串＝公共视角），不写死任何账号、不判权限。
+  function 确认邮箱(指定) {
     var 输 = $('邮箱_输入');
-    var v = 输 ? String(输.value || '').trim() : '';
-    var 规范 = v;
-    try { 规范 = (global.接口.规范化邮箱 ? global.接口.规范化邮箱(v) : v); } catch (e) { }
-    if (!规范) { 提示('请输入邮箱号'); return; }
+    var 框 = $('邮箱_选择');
+    var 新 = '';
+    var 源;
+    if (指定 !== undefined) {
+      源 = String(指定);
+    } else {
+      新 = 输 ? String(输.value || '').trim() : '';
+      var 选 = 框 ? String(框.value || '') : '';
+      if (!新 && 选 === 新邮箱选项值) { 提示('请输入新邮箱号'); return; }
+      源 = 新 || 选;
+    }
+    var 规范 = 规范化邮箱(源);
+    if (新) {
+      if (!规范) { 提示('请输入新邮箱号'); return; }
+      var 表 = 读取账号列表();
+      if (表.indexOf(规范) < 0) { 表.push(规范); 存账号列表(表); }
+    }
     关邮箱();
     try { if (global.接口.设置邮箱) global.接口.设置邮箱(规范); } catch (e) { }
+    if (输) 输.value = '';
     画身份();
+    画邮箱选项();
     if (_已启动) {
       // 换身份：不重走口令，只按新身份重载清单（服务端默认只回「公共 + 我的」）
-      提示('已切换身份：' + 规范);
+      提示('已切换身份：' + (规范 || '人类管理员（公共视角）'));
       try { if (global.清单页 && global.清单页.重载) global.清单页.重载(); } catch (e) { }
       return;
     }
     继续启动();
   }
 
-  // ---------------- 首载（口令就绪后载入主页） ----------------
+  // ---------------- 凭号直达（A5）：地址栏 `?卡号=%23n / L200…` → 直接打开该卡 ----------------
+  function 地址卡号() {
+    var 串 = '';
+    try { 串 = (global.location && global.location.search) || ''; } catch (e) { 串 = ''; }
+    var m = /[?&]卡号=([^&]*)/.exec(串);
+    if (!m) return '';
+    var 值 = m[1];
+    try { 值 = global.decodeURIComponent ? global.decodeURIComponent(值.replace(/\+/g, ' ')) : 值; }
+    catch (e) { /* 编码异常就按原样用 */ }
+    return String(值 || '').trim();
+  }
+  function 打开直达卡(号) {
+    try {
+      if (global.清单页 && global.清单页.打开卡) { global.清单页.打开卡(号); return; }
+      if (global.清单页 && global.清单页.载入主页) global.清单页.载入主页(true);
+    } catch (e) {
+      提示('打开卡片失败：' + ((e && e.message) || e));
+    }
+  }
+
+  // ---------------- 首载（口令就绪后载入主页 / 或直接打开直达卡） ----------------
   function 首载() {
     载角色();
-    try { if (global.清单页 && global.清单页.载入主页) global.清单页.载入主页(true); } catch (e) { }
+    var 号 = 地址卡号();
+    if (号) {
+      // A5：凭号直达——不弹登录、不弹无权限，直接整页打开该卡
+      setTimeout(function () { 打开直达卡(号); }, 0);
+    } else {
+      try { if (global.清单页 && global.清单页.载入主页) global.清单页.载入主页(true); } catch (e) { }
+    }
     补设置(0);      // 0.20：连接建立后再补一次落盘设置（GitHub Pages 上只能走 WS）
   }
   function 补设置(次) {
@@ -372,8 +518,19 @@
     if (输) {
       输.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 确认口令(); } });
     }
-    // 0.22：邮箱号登录——没身份先要邮箱，登录后再走原有口令/首载流程
-    if ($('邮箱_确定')) $('邮箱_确定').addEventListener('click', 确认邮箱);
+    // 0.23：邮箱号登录——下拉框选账号（人类管理员固定第一）或输入新邮箱
+    if ($('邮箱_确定')) $('邮箱_确定').addEventListener('click', function () { 确认邮箱(); });
+    if ($('邮箱_选择')) {
+      $('邮箱_选择').addEventListener('change', function () {
+        var v = String(this.value || '');
+        if (v === 新邮箱选项值) {        // 选「输入新邮箱…」→ 只聚焦输入框，不立即进入
+          var 输 = $('邮箱_输入');
+          if (输) { 输.value = ''; try { 输.focus(); } catch (e) { } }
+          return;
+        }
+        确认邮箱(v);                     // 管理员空串＝公共视角；其余账号直接进入
+      });
+    }
     if ($('邮箱_输入')) {
       $('邮箱_输入').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); 确认邮箱(); }
@@ -381,6 +538,12 @@
     }
     if ($('按钮_换身份')) $('按钮_换身份').addEventListener('click', function () { 开邮箱(false); });
     画身份();
+    画邮箱选项();
+    // A5 凭号直达：地址栏带 `?卡号=` → 不弹邮箱登录，直接进（打开该卡由首载负责）
+    if (地址卡号()) {
+      继续启动();
+      return;
+    }
     if (!我的邮箱()) {
       if ($('角色')) $('角色').textContent = '未登录';
       开邮箱(true);
