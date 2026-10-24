@@ -1,6 +1,6 @@
 /* ============================================================
  * 【任务面板】网页模块 · 面板.js
- * 版本：0.20
+ * 版本：0.22
  * 职责：页面【装配层】——《软件架构设计》§6 手机网页版。
  *   · 顶栏：左【新建】【返回主页】、中题名+【网页版版本（唯一）】+角色、右【设置】。
  *   · 【设置】菜单：收纳 **服务器选择**（含在线/离线小标）＋**口令**钮＋**版本**（「网页版 v… | 服务器 v…」）。
@@ -11,6 +11,15 @@
  *     本层只在首载时调 `清单页.载入主页()`、切服务器后调 `清单页.重载()`、并把 `提示` 借给它用。
  * 说明：纯 DOM，不引外部 CDN。依赖：接口.js、卡片.js、清单页.js（须先加载）。
  * 维护记录：
+ *   · 0.22（2026-10-24）按老板口径加「**邮箱号登录 + 每人自己的清单空间**」：装配时先要邮箱号
+ *     （`任务面板_邮箱` 已有则直接进），顶栏显示当前身份并可【换身份】；登录后才继续原有
+ *     口令流程（未配置口令仍照旧弹口令框）。身份读写/规范化全在 接口.js 0.24；换身份后就地
+ *     重载清单（`清单页.重载()`），不重开口令。
+ *   · 0.21（2026-10-24）按 0023 转达的老板口径在【设置】里加**联动命令模板**：新增
+ *     「TRAE 命令」「WB 命令」两个输入框＋【保存联动命令】，随 `settings_set` 落
+ *     `网页设置` 的 `联动TRAE命令` / `联动WB命令`（与口令/服务器同一份配置、不随版本清理）；
+ *     `应用设置()` 首载回填，`保存设置()` 把两条命令一并写回（未回填过的一侧不写，避免清空）。
+ *     数据层 清单存储 0.33。
  *   · 0.20（2026-10-20）按用户口径：**设置项自动落盘、不随版本升级清理**（「设置这个按钮里面的，
  *     保存的项目要自动落盘，不随版本换或升级而清理」）——装配时先 `接口.设置读取()` 把服务端
  *     使用痕迹里存的 口令/服务器选择 补回本地（本地没有才用），切换服务器/确认口令后 `保存设置()`
@@ -46,8 +55,10 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.20';
+  var 版本 = '0.22';
   var 提示定时 = null;
+  var _联动已载 = false;      // 0.21：设置里的联动命令是否已从服务端回填（没回填不写，免得清空）
+  var _已启动 = false;        // 0.22：邮箱登录后是否已继续原有口令/首载流程
 
   function $(id) { return document.getElementById(id); }
 
@@ -104,6 +115,15 @@
     if (钮设置) 钮设置.addEventListener('click', function (e) {
       if (e) e.stopPropagation();
       开设置(!面 || 面.classList.contains('隐藏'));
+    });
+    // 0.21：保存两条联动命令（TRAE / WB），同走 settings_set 的网页设置
+    var 联存 = $('按钮_联动保存');
+    if (联存) 联存.addEventListener('click', function (e) {
+      if (e) e.stopPropagation();
+      保存设置();
+      var 态 = $('设置_联动态');
+      if (态) 态.textContent = '已保存';
+      提示('联动命令已保存');
     });
     document.addEventListener('click', function (e) {
       if (!面 || 面.classList.contains('隐藏')) return;
@@ -195,10 +215,21 @@
     try { 口 = global.接口.读取口令 ? (global.接口.读取口令() || '') : ''; } catch (e) { }
     var 服 = { 实例号: '', 名称: '' };
     try { 服 = global.接口.选中服务器() || 服; } catch (e) { }
-    global.接口.设置保存({ 口令: 口, 服务器: 服 })['catch'](function () { });
+    var 体 = { 口令: 口, 服务器: 服 };
+    // 0.21：联动命令同存 网页设置（只填不空的输入就别写，免得把已配的命令清空）
+    var t = $('设置_联动TRAE'), w = $('设置_联动WB');
+    if (_联动已载 || (t && String(t.value || '').trim()) || (w && String(w.value || '').trim())) {
+      if (t) 体.联动TRAE命令 = String(t.value || '').trim();
+      if (w) 体.联动WB命令 = String(w.value || '').trim();
+    }
+    global.接口.设置保存(体)['catch'](function () { });
   }
   function 应用设置(设) {
     设 = 设 || {};
+    // 0.21：回填两条联动命令（服务端存 网页设置；有键才回填）
+    var t = $('设置_联动TRAE'), w = $('设置_联动WB');
+    if (t && 设.联动TRAE命令 !== undefined) { t.value = String(设.联动TRAE命令 || ''); _联动已载 = true; }
+    if (w && 设.联动WB命令 !== undefined) { w.value = String(设.联动WB命令 || ''); _联动已载 = true; }
     var 口 = String(设.口令 || '');
     var 本地口 = '';
     try { 本地口 = global.接口.读取口令 ? (global.接口.读取口令() || '') : ''; } catch (e) { }
@@ -209,6 +240,7 @@
       try { 现 = global.接口.选中服务器() || 现; } catch (e) { }
       if (!现.实例号) { try { global.接口.设置服务器(服.实例号, 服.名称 || ''); } catch (e) { } }
     }
+    _联动已载 = true;      // 服务端设置已拉到（哪怕两条命令为空），后续保存可照实写回
     画服务器();
   }
   function 拉落地设置() {
@@ -254,6 +286,60 @@
     拉落地设置().then(首载);
   }
 
+  // ---------------- 身份：邮箱号登录（0.22 老板 2026-10-24 口径） ----------------
+  // 每个 AI 用自己的邮箱号进入自己的清单空间；身份读写/规范化在 接口.js 0.24。
+  function 我的邮箱() {
+    try { return (global.接口 && global.接口.读取邮箱) ? (global.接口.读取邮箱() || '') : ''; } catch (e) { return ''; }
+  }
+  function 画身份() {
+    var 我 = 我的邮箱();
+    var 显 = $('身份');
+    if (显) 显.textContent = 我 || '未登录';
+    var 换 = $('按钮_换身份');
+    if (换) 换.style.display = 我 ? '' : 'none';
+  }
+  function 开邮箱(首登) {
+    var 弹 = $('邮箱弹窗');
+    if (!弹) return;
+    var 输 = $('邮箱_输入');
+    if (输) 输.value = 首登 ? '' : 我的邮箱();
+    弹.classList.remove('隐藏');
+    if (输) { try { 输.focus(); } catch (e) { } }
+  }
+  function 关邮箱() { var 弹 = $('邮箱弹窗'); if (弹) 弹.classList.add('隐藏'); }
+  // 邮箱就绪后继续原有启动流程：先拉服务端设置（可能带回口令），再按「有没有口令」分流
+  function 继续启动() {
+    if (_已启动) return;
+    _已启动 = true;
+    拉落地设置().then(function () {
+      var 还缺 = true;
+      try { 还缺 = !!(global.接口.需要口令 && global.接口.需要口令()); } catch (e) { 还缺 = true; }
+      if (还缺) {
+        if ($('角色')) $('角色').textContent = '未连接';
+        开口令(true);
+      } else {
+        首载();
+      }
+    });
+  }
+  function 确认邮箱() {
+    var 输 = $('邮箱_输入');
+    var v = 输 ? String(输.value || '').trim() : '';
+    var 规范 = v;
+    try { 规范 = (global.接口.规范化邮箱 ? global.接口.规范化邮箱(v) : v); } catch (e) { }
+    if (!规范) { 提示('请输入邮箱号'); return; }
+    关邮箱();
+    try { if (global.接口.设置邮箱) global.接口.设置邮箱(规范); } catch (e) { }
+    画身份();
+    if (_已启动) {
+      // 换身份：不重走口令，只按新身份重载清单（服务端默认只回「公共 + 我的」）
+      提示('已切换身份：' + 规范);
+      try { if (global.清单页 && global.清单页.重载) global.清单页.重载(); } catch (e) { }
+      return;
+    }
+    继续启动();
+  }
+
   // ---------------- 首载（口令就绪后载入主页） ----------------
   function 首载() {
     载角色();
@@ -286,18 +372,21 @@
     if (输) {
       输.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 确认口令(); } });
     }
-    var 需 = true;
-    try { 需 = !!(global.接口.需要口令 && global.接口.需要口令()); } catch (e) { 需 = true; }
-    拉落地设置().then(function () {
-      var 还缺 = 需;
-      try { 还缺 = !!(global.接口.需要口令 && global.接口.需要口令()); } catch (e) { 还缺 = 需; }
-      if (还缺) {
-        if ($('角色')) $('角色').textContent = '未连接';
-        开口令(true);
-      } else {
-        首载();
-      }
-    });
+    // 0.22：邮箱号登录——没身份先要邮箱，登录后再走原有口令/首载流程
+    if ($('邮箱_确定')) $('邮箱_确定').addEventListener('click', 确认邮箱);
+    if ($('邮箱_输入')) {
+      $('邮箱_输入').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); 确认邮箱(); }
+      });
+    }
+    if ($('按钮_换身份')) $('按钮_换身份').addEventListener('click', function () { 开邮箱(false); });
+    画身份();
+    if (!我的邮箱()) {
+      if ($('角色')) $('角色').textContent = '未登录';
+      开邮箱(true);
+      return;
+    }
+    继续启动();
   }
 
   if (document.readyState === 'loading') {
