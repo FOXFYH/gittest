@@ -2482,8 +2482,13 @@ async function onTurncast(tc){
           (S.curTurn.thinks.length || S.curTurn.utext)){
         S.turns.push(S.curTurn);
       }
-      S.curTurn = {uid: tc.cur.uid, utext: tc.cur.utext || '',
-                   aid: '', atext: '', done: false, thinks: []};
+      /* 同一轮若已躺在历史账里（重进 restore / 上一拍还是 prev），提出来
+         当 cur，绝不留两份（IDB 重复记账的根子） */
+      const ei = S.turns.findIndex(x => x.uid === tc.cur.uid);
+      const base = (ei >= 0) ? S.turns.splice(ei, 1)[0] : null;
+      S.curTurn = base || {uid: tc.cur.uid, utext: tc.cur.utext || '',
+                           aid: '', atext: '', done: false, thinks: []};
+      if (base && tc.cur.utext) S.curTurn.utext = tc.cur.utext;
     }
     if (tc.cur.done && tc.cur.aid && !S.curTurn.aid){
       S.curTurn.aid = tc.cur.aid; S.curTurn.atext = tc.cur.atext || '';
