@@ -1147,6 +1147,12 @@ const S = {
      thinkHist=已拉回的段数组（键=该轮末条 seq）；thinkHistOpen=展开态；
      thinkHistWait=正在拉取（防重复点）。切会话即清空，重进重新按需取。 */
   thinkHist: {}, thinkHistOpen: {}, thinkHistWait: {},
+  /* 2.10：轮播记账（老板 2026-10-24 定稿）——手机靠 turncast 小帧「捡垃圾」：
+     turns=本地历史轮（每轮 {uid,utext,aid,atext,done,thinks[]}，自力更生存
+     IndexedDB，每会话留最近 5 轮）；curTurn=本轮进行时（人类问+卡流+结论）；
+     turnWait=补发在途防重。缺思维卡点开才补、缺结论卡主动补（done=false
+     的被终止轮显示「无终极结论」，绝不反复追要）。 */
+  turns: [], curTurn: null, turnWait: {}, turnAuditTs: 0,
   qopen: {},                         /* 1.67：托管排队条「展开全文」态（键=条目 id） */
   pend_head: 100,                    /* 1.23 遗留：确认匹配字数（1.63 起已不再用于比对，
                                        仅保留字段兼容 hello/pendcfg 握手） */
@@ -1958,18 +1964,39 @@ function fmtTime(v){                       // 北京时间 年月日+时分秒�
    不再只显示「最后一段、砍到 600 字」。老服务端只带 snap.plan 时退回单块。
    展开态：默认**只展开最新那一段**（那正是「正在长」的）；点任意表头＝全部开/全部收
    （S.thinkOpen），最新那段始终展开，保证「一有动静就看得到」。 */
+/* 2.10：最新轮思考段 = 本地轮播账（turncast 一张一张捡的）∪ snap.plans。
+   按「时刻+正文头 64 字」去重后按时间排序——这样将来服务端把 plans 瘦身成
+   只带末段，页面显示也不会缺卡（本地账兜着）。 */
+function mergeThinkSources(){
+  const sn = S.snap || {};
+  let arr = Array.isArray(sn.plans) ? sn.plans.slice() : [];
+  if (!Array.isArray(sn.plans)){
+    const one = (sn.plan == null ? '' : String(sn.plan));
+    if (one.trim()) arr = [{t: 0, x: one}];
+  }
+  const cur = (S.curTurn && S.curTurn.thinks) || [];
+  const seen = new Set();
+  const out = [];
+  const push = (t, x) => {
+    const k = (t || 0) + '|' + String(x || '').slice(0, 64);
+    if (!x || seen.has(k)) return;
+    seen.add(k);
+    out.push({t: t || 0, x: x});
+  };
+  cur.forEach(s => push(s.t, s.x));
+  arr.forEach(p => push(p && p.t, p && p.x));
+  out.sort((a, b) => (a.t || 0) - (b.t || 0));
+  return out;
+}
 function thinkBlocksHtml(){
   const sn = S.snap || {};
   /* 2.08：老服务端兜底**只认「根本没有 plans 键」**。
      2.07 的写法是 `plans` 为空就退回老键 plan——但 2.89 起服务端给的是「本轮
      思考段」，新一轮刚提问、本段还没落盘时 plans 就是空数组，此时退回 sn.plan
      会把**上一轮最后一段**当成这一轮显示（老板 2026-10-24 报的正是这个：他这句
-     话下面全是这句话之前产生的思考）。故：有 plans 键（哪怕是 []）就只信它。 */
-  let arr = Array.isArray(sn.plans) ? sn.plans.slice() : [];
-  if (!Array.isArray(sn.plans)){
-    const one = (sn.plan == null ? '' : String(sn.plan));
-    if (one.trim()) arr = [{t: 0, x: one}];
-  }
+     话下面全是这句话之前产生的思考）。故：有 plans 键（哪怕是 []）就只信它。
+     2.10：数据源改成 mergeThinkSources()（本地轮播账 ∪ snap.plans）。 */
+  let arr = mergeThinkSources();
   /* 先滤空段再编号——否则会出现「思考 2/5、4/5」跳号 */
   arr = arr.filter(p => p && String(p.x == null ? '' : p.x).trim());
   const n = arr.length;
@@ -2066,6 +2093,70 @@ function bindHistThink(root){
       reqPlans(sk, b.dataset.a, b.dataset.b, b.dataset.k);
     };
   });
+}
+/* 2.10：snap 正文未到（刚切会话/骨架期）——用本地轮播账秒显：
+   最近一轮历史（人类问 + 💭×N 折叠 + 结论或「无终极结论」）+ 本轮
+   进行时（人类问 + 卡流）。有货返回 true；账里啥也没有返回 false。 */
+function localTurnHtml(t, isCur){
+  const who = '<div class="who">' + (isCur ? '我' : '我')
+            + '<span class="tm">（本地记录）</span></div>';
+  let h = '<div class="msg user">' + who
+        + '<div class="body">' + mdHtml(t.utext || '') + '</div></div>';
+  const nn = (t.thinks || []).length;
+  let ai = '<div class="msg agent"><div class="who">WorkBuddy'
+         + '<span class="tm">' + (isCur && !t.done ? '思考中…' : '（本地记录）')
+         + '</span></div>';
+  if (nn){
+    let blocks = '';
+    t.thinks.forEach((s, k) => {
+      const tt = s.t ? fmtTime(s.t).slice(11) : '';
+      blocks += '<div class="think open"><div class="thinkh">💭 思考 '
+              + (k + 1) + '/' + nn + (tt ? ' · ' + tt : '')
+              + '<span class="caret">▾</span></div>'
+              + '<div class="thinkb">' + esc(s.x || '') + '</div></div>';
+    });
+    if (isCur){
+      ai += blocks;                              /* 本轮：卡流全亮 */
+    } else {
+      /* 历史轮：折叠成一颗按钮，点开要全轮（缺额服务端补） */
+      ai += '<div class="foldbar"><button class="lclbtn" data-uid="'
+          + esc(t.uid) + '">💭 思维卡片 ×' + nn
+          + '（点开看全文）</button></div>';
+    }
+  } else if (!isCur){
+    ai += '<div class="foldbar"><button class="lclbtn" data-uid="'
+        + esc(t.uid) + '">💭 思维卡片 ×' + (t.n_server || 0)
+        + '（点开向服务端取）</button></div>';
+  }
+  if (t.done && (t.atext || t.aid)){
+    ai += '<div class="body">' + mdHtml(t.atext || '（结论原文未取到）') + '</div>';
+  } else if (!isCur){
+    ai += '<div class="body"><span class="empty">（该轮被终止，没有终极结论）'
+        + '</span></div>';
+  } else {
+    ai += '<div class="body"></div>';
+  }
+  return h + ai + '</div>';
+}
+function renderTurnsLocal(){
+  if (!S.turns.length && !S.curTurn) return false;
+  const cur = S.curTurn;
+  const hist = S.turns.length ? S.turns[S.turns.length - 1] : null;
+  if (!hist && !cur) return false;
+  el.msgs.innerHTML = '';
+  if (hist) el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(hist, false));
+  if (cur) el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(cur, true));
+  /* 本地秒显层的「点开要全轮」按钮 */
+  el.msgs.querySelectorAll('.lclbtn').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const uid = b.dataset.uid;
+      if (S.turnWait['turn_full:' + uid]) return;
+      flash('正在取回这一轮…', 'var(--blue)');
+      reqTurn('turn_full', uid);
+    };
+  });
+  return true;
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -2239,6 +2330,8 @@ function reqPlans(sk, after, before, key){
 function onRes(id, k, v){
   const rq = S_reqs[id];
   if (rq) delete S_reqs[id];
+  /* 2.10：轮播补发——无论成败先摘防重牌（失败也允许之后自查再补一次） */
+  if (rq && rq.sk && rq.sk.indexOf('turn_') === 0) delete S.turnWait[rq.sk];
   if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
   if (k === 'hist_prev') applyPrev(rq ? rq.conv : '', v.msgs || [], !!v.more);
   else if (k === 'hist_probe') applyProbeEnd(rq ? rq.conv : '', !!v.has);   /* 1.96 */
@@ -2260,7 +2353,144 @@ function onRes(id, k, v){
     S.thinkHistOpen[sk] = 1;
     renderAll();
   }
+  else if (k === 'turn_full' || k === 'turn_concl' || k === 'turn_thinks'){
+    /* 2.10：轮播补发三件套落地——按号并入本地账，落 IDB（防重牌已在
+       onRes 开头统一摘过） */
+    const uid = (rq && rq.sk) ? rq.sk.split(':')[1] : (v.uid || '');
+    if (!rq || rq.conv !== S.histConv) return;   /* 已切会话：丢弃过期回包 */
+    const t = findTurn(uid);
+    if (!t) return;
+    if (k === 'turn_concl'){
+      if (v.done){ t.done = true; t.aid = v.aid || ''; t.atext = v.atext || ''; }
+      else { t.done = false; }                   /* 被终止：定论就是「无结论」 */
+    } else if (k === 'turn_full' && v.turn){
+      t.utext = v.turn.utext || t.utext;
+      t.done = !!v.turn.done;
+      if (v.turn.aid){ t.aid = v.turn.aid; t.atext = v.turn.atext || ''; }
+      (v.turn.thinks || []).forEach(s => {
+        if (s.id && !t.thinks.some(x => x.id === s.id)) t.thinks.push(s);
+      });
+      t.thinks.sort((a, b) => (a.t || 0) - (b.t || 0));
+      t.partial = false;
+    } else if (k === 'turn_thinks' && Array.isArray(v.segs)){
+      (v.segs || []).forEach(s => {
+        if (s.id && !t.thinks.some(x => x.id === s.id)) t.thinks.push(s);
+      });
+      t.thinks.sort((a, b) => (a.t || 0) - (b.t || 0));
+    }
+    idbSaveTurns(S.histConv, S.turns.concat(S.curTurn ? [S.curTurn] : []));
+    renderAll();
+  }
 }
+
+/* ===== 2.10 轮播记账（老板 2026-10-24 定稿） =====
+   服务端每拍只发一小帧 turncast：prev 轮摘要（uid+头 120 字+done+结论头+
+   张数+全部卡号）、本轮人类发言、最新一张思维卡。手机靠它「捡垃圾」：
+   捡到多少存多少（IndexedDB，每会话留 5 轮）；缺思维卡点开才补（差额）；
+   缺结论卡主动补；被终止的轮 done=false，显示「无终极结论」绝不反复追。 */
+function idbOpen(){
+  return new Promise(res => {
+    try{
+      const rq = indexedDB.open('wbcli_turns', 1);
+      rq.onupgradeneeded = () => { rq.result.createObjectStore('conv'); };
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => res(null);
+    }catch(e){ res(null); }
+  });
+}
+async function idbLoadTurns(sid){
+  const db = await idbOpen();
+  if (!db) return [];
+  return new Promise(res => {
+    try{
+      const rq = db.transaction('conv').objectStore('conv').get(sid);
+      rq.onsuccess = () => res((rq.result && rq.result.turns) || []);
+      rq.onerror = () => res([]);
+    }catch(e){ res([]); }
+  });
+}
+async function idbSaveTurns(sid, turns){
+  const db = await idbOpen();
+  if (!db) return;
+  try{
+    const tx = db.transaction('conv', 'readwrite');
+    tx.objectStore('conv').put({turns: turns}, sid);
+  }catch(e){}
+}
+function findTurn(uid){
+  return S.turns.find(x => x.uid === uid) ||
+         (S.curTurn && S.curTurn.uid === uid ? S.curTurn : null);
+}
+function reqTurn(kind, uid, extra){
+  const id = ++reqSeq;
+  const conv = curConvId();
+  S_reqs[id] = {conv: conv, ts: Date.now(), sk: kind + ':' + uid};
+  S.turnWait[kind + ':' + uid] = 1;            /* 防重：在途不再发同类请求 */
+  sendJson(Object.assign({t: 'req', id: id, c: kind, conv: conv, uid: uid},
+                         extra || {}));
+}
+/* 平时自查（60 秒节流）：任何历史轮「应有结论但没有」就主动补；
+   done=false（被终止）的轮不追——那是它的定论。 */
+function turnAudit(){
+  const now = Date.now();
+  if (now - (S.turnAuditTs || 0) < 60000) return;
+  S.turnAuditTs = now;
+  S.turns.forEach(t => {
+    if (t.done && !t.aid && !S.turnWait['turn_concl:' + t.uid])
+      reqTurn('turn_concl', t.uid);
+  });
+}
+async function onTurncast(tc){
+  if (!tc) return;
+  /* ① prev（最新历史轮）并入本地账 */
+  if (tc.prev && tc.prev.uid){
+    let t = findTurn(tc.prev.uid);
+    if (!t){
+      t = {uid: tc.prev.uid, utext: tc.prev.utext || '', aid: '', atext: '',
+           done: !!tc.prev.done, thinks: [], partial: true};
+      S.turns.push(t);
+      reqTurn('turn_full', t.uid);           /* 整轮缺失：要全轮 */
+    } else {
+      t.partial = false;
+    }
+    t.done = !!tc.prev.done;
+    t.n_server = tc.prev.n_think | 0;
+    t.ids_server = (tc.prev.think_ids || []).slice();
+    if (t.done && !t.aid && tc.prev.aid){
+      t.aid = tc.prev.aid; t.atext = tc.prev.atext || '';
+    }
+    if (t.done && !t.aid && !S.turnWait['turn_concl:' + t.uid])
+      reqTurn('turn_concl', t.uid);          /* 缺结论卡：主动补 */
+  }
+  /* ② cur（本轮进行时）：换轮即把旧 cur 归档 */
+  if (tc.cur && tc.cur.uid){
+    if (!S.curTurn || S.curTurn.uid !== tc.cur.uid){
+      if (S.curTurn && S.curTurn.uid &&
+          !S.turns.some(x => x.uid === S.curTurn.uid) &&
+          (S.curTurn.thinks.length || S.curTurn.utext)){
+        S.turns.push(S.curTurn);
+      }
+      S.curTurn = {uid: tc.cur.uid, utext: tc.cur.utext || '',
+                   aid: '', atext: '', done: false, thinks: []};
+    }
+    if (tc.cur.done && tc.cur.aid && !S.curTurn.aid){
+      S.curTurn.aid = tc.cur.aid; S.curTurn.atext = tc.cur.atext || '';
+      S.curTurn.done = true;
+    }
+  }
+  /* ③ 最新一张思维卡：按号去重追加（一张一张来） */
+  const lt = tc.last_think;
+  if (lt && lt.id && S.curTurn &&
+      !S.curTurn.thinks.some(s => s.id === lt.id)){
+    S.curTurn.thinks.push({id: lt.id, t: lt.t || 0, x: lt.x || ''});
+  }
+  /* ④ 收口：留 5 轮、落 IDB、重画、平时自查 */
+  if (S.turns.length > 5) S.turns = S.turns.slice(-5);
+  idbSaveTurns(S.histConv, S.turns.concat(S.curTurn ? [S.curTurn] : []));
+  renderAll();
+  turnAudit();
+}
+
 function applyPrev(conv, older, more){
   clearLoadMoreWatch();                        /* 1.69：回包到达，撤掉看护 */
   S.prevBusy = false; S.loadingMore = false;
@@ -2321,6 +2551,18 @@ function ensureHist(){
   if (conv !== S.histConv){
     S.histConv = conv;
     resetPaging();
+    /* 2.10：换会话先摆上本地轮播账（IndexedDB 秒显），snap 正文到了无缝接管 */
+    S.turns = []; S.curTurn = null; S.turnWait = {};
+    idbLoadTurns(conv).then(arr => {
+      if (conv !== S.histConv) return;         /* 已再切走：丢弃 */
+      /* 记录里最后一轮若是「进行时」，还原成 curTurn，其余是历史 */
+      if (arr.length && arr[arr.length - 1] && !arr[arr.length - 1].done){
+        S.curTurn = arr.pop();
+      }
+      S.turns = arr.slice(-5);
+      turnAudit();
+      renderAll();
+    });
     /* 换会话后按当前快照重同步窗口元数据（快照可能先于本函数到达，
        而 onEv 里只在「未翻页」时更新 more，这里补齐） */
     const sn = S.snap || {};
@@ -3237,6 +3479,7 @@ function renderMsgs(msgs, finish, opts, ask){
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
   if (empty && !S.pending.length && !S.switch_pend && !S.loadingConv){
+    if (renderTurnsLocal()) return;    /* 2.10：snap 正文未到，本地轮播账秒显 */
     el.msgs.innerHTML =
       '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
@@ -4107,7 +4350,18 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.09';   /* 2.09：历史轮思维卡片省流（老板 2026-10-24 三次令
+const VER = '2.10';   /* 2.10：轮播记账（老板 2026-10-24 定稿「广播只发三样」）——
+   ① 服务端新增 turncast 小帧：prev 轮摘要（uid+头+done+结论头+张数+全部卡号）
+      + 本轮人类发言 + 最新一张思维卡（增量，一张一张来，不再全量重发）；
+   ② 本页用 IndexedDB 每会话自存最近 5 轮（捡到多少存多少，电脑不灌）；
+      切会话先摆本地账秒显（上一轮 折叠×N+结论 / 本轮 问+卡流），snap 正文
+      到了无缝接管；
+   ③ 补发三件套：turn_full（整轮缺）/ turn_concl（缺结论主动补）/ turn_thinks
+      （缺思维卡点开按差额补）；被终止的轮 done=false → 显示「无终极结论」，
+      绝不反复追要；
+   ④ 最新轮思考块 = 本地账 ∪ snap.plans（按时刻+正文头去重），服务端以后把
+      plans 瘦身成末段也不缺卡。
+   2.09：历史轮思维卡片省流（老板 2026-10-24 三次令
    「历史轮的话，中间的思维小卡片，为了省流，你就传一个思维卡片这样的数量。
      ……点开以后才跟你索要全部的思维小卡片来显示。……往上翻的时候，默认就是
      人类一问，AI 一个终极回答，中间夹着一个按钮。可以展开全部的思维小卡片」）——
@@ -4805,6 +5059,9 @@ el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
 
 function onEv(kind, v){
   switch (kind){
+    case 'turncast':                   /* 2.10：轮播轻广播（省流主路） */
+      onTurncast(v);
+      return;
     case 'pendcfg':                    /* 1.23：确认匹配参数变更即时跟随 */
       if (v && v.head) S.pend_head = Math.max(10, v.head | 0);
       if (v && v.age) S.pend_age = Math.max(5, v.age | 0) * 1000;
