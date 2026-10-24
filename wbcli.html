@@ -1123,7 +1123,8 @@ const S = {
   favs: [], models_full: [], fav_invalid: [], fav_warned: [],
   model_names: new Set(),
   convs_key: null, msgs_key: null,
-  thinkOpen: false,          /* 思维块是否展开（默认折叠=截断） */
+  thinkOpen: false,          /* 2.86：是否**全部展开**思考块（默认 false＝只展开最新那一段，
+                                点任意表头切换；最新段始终展开，保证「一有动静就看得到」） */
   busy: false, gen: false, ready: false,
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
   /* 1.68：刚点了「新建对话」的时刻——服务端 set_current 内先推新会话快照、
@@ -1940,6 +1941,57 @@ function fmtTime(v){                       // 北京时间 年月日+时分秒�
   const p2 = x => (x < 10 ? '0' : '') + x;
   return b.y + '-' + p2(b.mo + 1) + '-' + p2(b.dd) + ' '
        + p2(b.h) + ':' + p2(b.mi) + ':' + p2(b.s);
+}
+/* 2.86（老板 2026-10-24：「我喜欢看中间的思维流，官方那边有动静了我们这边就展示」）：
+   本轮**每一段思考单独一个折叠块**——服务端 snap.plans=[{t,x}]，官方每落一段就多一条，
+   不再只显示「最后一段、砍到 600 字」。老服务端只带 snap.plan 时退回单块。
+   展开态：默认**只展开最新那一段**（那正是「正在长」的）；点任意表头＝全部开/全部收
+   （S.thinkOpen），最新那段始终展开，保证「一有动静就看得到」。 */
+function thinkBlocksHtml(){
+  const sn = S.snap || {};
+  let arr = (Array.isArray(sn.plans) && sn.plans.length) ? sn.plans.slice() : [];
+  if (!arr.length){
+    const one = (sn.plan == null ? '' : String(sn.plan));
+    if (one.trim()) arr = [{t: 0, x: one}];
+  }
+  /* 先滤空段再编号——否则会出现「思考 2/5、4/5」跳号 */
+  arr = arr.filter(p => p && String(p.x == null ? '' : p.x).trim());
+  const n = arr.length;
+  const all = (S.thinkOpen === true);      /* 点过表头才「全部展开」 */
+  let h = '';
+  for (let k = 0; k < n; k++){
+    const p = arr[k] || {};
+    const x = (p.x == null ? '' : String(p.x));
+    const open = all || k === n - 1;
+    const cls = 'think' + (open ? ' open' : '');
+    const car = open ? '▾' : '▸';
+    let tag = '💭 思考';
+    if (n > 1) tag += ' ' + (k + 1) + '/' + n;
+    const tt = p.t ? fmtTime(p.t) : '';
+    if (tt) tag += ' · ' + tt.slice(11);
+    h += '<div class="' + cls + '"><div class="thinkh">' + tag
+       + '<span class="caret">' + car + '</span></div>'
+       + '<div class="thinkb">' + esc(x) + '</div></div>';
+  }
+  return h;
+}
+/* 2.86：给一串思考块里的**表头**绑开合——点任意一块＝全部展开 ⇄ 只留最新
+   （最新那段永远展开，它就是「正在长的」那段）。root＝装这些块的容器。 */
+function bindThinkBlocks(root){
+  const heads = root.querySelectorAll('.thinkh');
+  if (!heads.length) return;
+  heads.forEach(hd => {
+    hd.onclick = () => {
+      S.thinkOpen = (S.thinkOpen !== true);
+      const blocks = root.querySelectorAll('.think');
+      blocks.forEach((tk, idx) => tk.classList.toggle(
+        'open', S.thinkOpen || idx === blocks.length - 1));
+      blocks.forEach(tk => {
+        const cp = tk.querySelector('.caret');
+        if (cp) cp.textContent = tk.classList.contains('open') ? '▾' : '▸';
+      });
+    };
+  });
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -3043,6 +3095,12 @@ function renderMsgs(msgs, finish, opts, ask){
        + (S.switch_pend ? '#sw:' + S.switch_pend.title : '')
        + (S.loadingConv ? '#ld:' + S.loadingConv.title : '')
        + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80)
+       /* 2.86：本轮思考段列表也要进重画指纹——段数/各段长度/末段末 12 字。
+          只看 plan 的前 80 字不够：模板化思考开头常常一样，最后一块会被
+          「指纹没变」早退吃掉、停在旧内容上。 */
+       + '#pl:' + ((S.snap && Array.isArray(S.snap.plans)) ? S.snap.plans
+           .map(p => { const x = (p && p.x) || '';
+                       return x.length + ':' + x.slice(-12); }).join('|') : '')
        + '#more:' + (S.loadingMore ? 1 : 0)
        + '#moref:' + (S.loadMoreFail ? 1 : 0)    /* 1.69：报掉线时也要重画横幅 */
        /* 1.57：折叠条展开/收起参与指纹（否则展开后不重画） */
@@ -3093,6 +3151,12 @@ function renderMsgs(msgs, finish, opts, ask){
   let lastAgent = -1;
   for (let i = msgs.length - 1; i >= 0; i--)
     if (msgs[i][0] !== 'u' && msgs[i][0] !== 'user'){ lastAgent = i; break; }
+  /* 2.86：最后一条「我」的下标——思考块只挂在**本轮**的 AI 气泡上。若最后一条
+     是「我」（刚提问、AI 还没落气泡），另起一块挂在末尾；否则会错挂到上一轮
+     回答下面，甚至一个都不显示（实测踩到：本轮只有 reasoning 时 agent 气泡为 0）。 */
+  let lastUserI = -1;
+  for (let i = msgs.length - 1; i >= 0; i--)
+    if (msgs[i][0] === 'u' || msgs[i][0] === 'user'){ lastUserI = i; break; }
   /* 分页窗口：窗口之前还有 winUserOff 条「我」的提问；已翻出的老历史里的
      提问也要减掉，剩下的才是当前显示区首条「我」在全量会话里的真实下标
      （rewind/del_msg 的 mi 要的是全局下标）。 */
@@ -3122,14 +3186,9 @@ function renderMsgs(msgs, finish, opts, ask){
     /* 1.5x：思维过程——紧贴 AI 回答内部展示最一段思考(snap.plan)，
        灰色斜体「💭 思考」小标题可点击折叠/展开；生成中实时更新，完成后保留。 */
     let think = '';
-    if (!user && i === lastAgent && S.snap && S.snap.plan
-        && String(S.snap.plan).trim()){
-      const to = S.thinkOpen ? ' open' : '';
-      think = '<div class="think' + to + '">'
-            + '<div class="thinkh">💭 思考<span class="caret">'
-            + (S.thinkOpen ? '▾' : '▸') + '</span></div>'
-            + '<div class="thinkb">' + esc(S.snap.plan) + '</div></div>';
-    }
+    /* 2.86：紧贴**本轮**最后一条 AI 回答，放出本轮全部思考段（服务端 snap.plans）——
+       官方每落一段，这里就多一个 💭 折叠块（内容原样、不再截到 600 字）。 */
+    if (!user && i === lastAgent && lastAgent > lastUserI) think = thinkBlocksHtml();
     /* 1.69：AI 消息正文识别 (@fox-play1)…(@fox-play2) 包夹段 → 渲染成语音
        小卡片（占位符先过 mdHtml，再替换成卡片 HTML）。「我」的消息不处理。 */
     let bodyHtml;
@@ -3214,14 +3273,10 @@ function renderMsgs(msgs, finish, opts, ask){
         sendCmd(k, mi);
       };
     });
-    /* 1.5x：思维块折叠/展开交互（记住状态，快照重画后仍保持） */
-    const thinkH = d.querySelector('.thinkh');
-    if (thinkH) thinkH.onclick = () => {
-      S.thinkOpen = !S.thinkOpen;
-      thinkH.parentElement.classList.toggle('open', S.thinkOpen);
-      const cp = thinkH.querySelector('.caret');
-      if (cp) cp.textContent = S.thinkOpen ? '▾' : '▸';
-    };
+    /* 1.5x：思维块折叠/展开交互（记住状态，快照重画后仍保持）
+       2.86：本轮多块（每段思考一块）——点任意表头＝「全部展开 ⇄ 只留最新」，
+       最新那段永远展开（它就是「正在长的」）。 */
+    bindThinkBlocks(d);
     /* 1.57：该轮被折叠的中间过程气泡——在总结气泡前渲染「展开气泡」条。
        默认只显示最后一条（=总结），点展开才 req/bubbles 按需取回中间气泡；
        展开态存 S.foldOpen（键=该轮最后一条的 seq），切会话自动收回。 */
@@ -3256,6 +3311,21 @@ function renderMsgs(msgs, finish, opts, ask){
     }
     el.msgs.appendChild(d);
   });
+  /* 2.86：本轮还没有 AI 气泡（刚提问 / 正在想）→ 思考块单独成一块挂在末尾。
+     实测踩过：本轮只落了 reasoning、还没落 assistant 时，lastAgent 指向上一轮或 -1，
+     整批思考在手机上直接看不见。 */
+  if (lastAgent <= lastUserI){
+    const th = thinkBlocksHtml();
+    if (th){
+      const tw = document.createElement('div');
+      tw.className = 'msg agent';
+      tw.innerHTML = '<div class="who">WorkBuddy'
+                   + '<span class="tm">思考中…</span></div>'
+                   + th + '<div class="body"></div>';
+      el.msgs.appendChild(tw);
+      bindThinkBlocks(tw);
+    }
+  }
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 WorkBuddy
      AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
      底部 主按钮(下一步/确认)/取消）。可点选项、可填其他、可提交。 */
@@ -3918,7 +3988,14 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.06';   /* 2.06：托管排队条折叠卡改为「只在展开时出现」（老板 2026-10-22 19:38
+const VER = '2.07';   /* 2.07：思维流「中间的每一段都展示」（老板 2026-10-24
+   「我喜欢看中间的这些思维流。官方那边有动静了，我们这边就展示，我想看到中间的思考过程」）——
+   原先只显示 snap.plan（最后一段、截 600 字，见服务端 2.85 口径），中间思考段全丢；
+   现改为读新字段 snap.plans=[{t,x}]（服务端 2.86 起随每段落盘逐条下发），本轮每段
+   渲染一个 💭 折叠块（标题带序号 i/n 与该段落盘时刻 HH:MM:SS），默认展开、点任一块
+   表头全部开/合；老服务端只带 plan 时自动退回单块。服务端零风险回滚：不认 plans 的
+   旧网页端照旧读 plan。对齐服务端 2.86。
+   2.06：托管排队条折叠卡改为「只在展开时出现」（老板 2026-10-22 19:38
    「官方排队条默认只显示最近两行文字，可以展开/收缩；我们的小尾巴只有在展开模式才出现」）——
    卡片外包 .qfh，默认隐藏，仅 `.qtxt.open + .qfh` 显示；对齐 TRAE 网页端 2.124。
    2.05：托管排队条也上「专属提示词三段折叠卡」（老板 2026-10-22 19:10
