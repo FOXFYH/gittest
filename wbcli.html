@@ -449,6 +449,35 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   border-bottom:1px solid var(--bd);}
 #ck_wrap{flex:1; overflow:auto; -webkit-overflow-scrolling:touch; background:#fff;
   overscroll-behavior:contain; padding:6px 8px;}
+/* ── 2.21：对话记录页（全屏覆盖）——列历史会话 + 看历史轮（只读，C2）── */
+#page_hist{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_hist.on{display:flex;}
+#page_hist .nhdr b{flex:1; min-width:0; overflow:hidden; white-space:nowrap;
+  text-overflow:ellipsis;}
+#hist_hint{padding:8px 12px; color:var(--gray); font-size:11px; line-height:1.6;
+  background:#fff; border-bottom:1px solid var(--bd);}
+#hist_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:#fff; overscroll-behavior:contain;}
+.hrow{display:flex; align-items:center; gap:8px; padding:10px 14px;
+  cursor:pointer; border-bottom:1px solid #eef1f4; font-size:13.5px;}
+.hrow:active{background:#eef4fb;}
+.hrow .hname{flex:1; min-width:0; overflow:hidden; white-space:nowrap;
+  text-overflow:ellipsis;}
+.hrow .hmeta{flex:none; color:var(--gray); font-size:11px;
+  font-family:Consolas,monospace;}
+.hrow.hcur .hname{color:var(--blue); font-weight:bold;}
+#hist_body{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:#fff; overscroll-behavior:contain; padding:8px 10px;
+  display:none;}
+.hmsg{margin:6px 0; padding:7px 10px; border-radius:9px; font-size:13px;
+  line-height:1.55; white-space:pre-wrap; word-break:break-word;}
+.hmsg.u{background:#e3f0fc;}
+.hmsg.a{background:#f4f5f7;}
+.hmsg .hrole{font-size:11px; color:var(--gray); margin-bottom:2px;}
+#hist_more{display:block; margin:8px auto 4px; font-size:12px; padding:5px 14px;}
+.hback{display:block; margin:4px 0 6px; font-size:12px; padding:4px 10px;
+  color:var(--blue);}
 #ck_tbl{border-collapse:collapse; width:100%; font-size:12px; margin-top:0;}
 #ck_tbl th,#ck_tbl td{border:1px solid var(--bd); padding:4px 6px;
   text-align:left; white-space:nowrap;}
@@ -628,6 +657,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔 10 秒）">✍ 批量签到</div>
     <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
+    <div class="dmi" id="btn_hist" title="对话记录（只读查历史）">📜 对话记录</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
@@ -705,6 +735,20 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <button id="ck_refreshpts">批量刷新积分</button>
     <button id="ck_reload">刷新列表</button>
   </div>
+</div>
+
+<!-- 2.21：对话记录页（C2·老板亲令「网页可查历史」）——列历史会话（电脑端官方
+     jsonl 台账），点会话看历史轮（每批最近 50 条，「↑ 加载更早」向前翻）。只读。 -->
+<div id="page_hist">
+  <div class="nhdr">
+    <button id="btn_histback">‹ 返回</button>
+    <b id="hist_title">📜 对话记录</b>
+    <button id="btn_histrefresh" title="重新拉取历史会话列表">↻ 刷新</button>
+  </div>
+  <div id="hist_hint">只读查历史：数据来自电脑端官方会话台账（jsonl）；
+    点会话看历史轮，看完点「‹ 会话列表」回来。</div>
+  <div id="hist_list"><div style="padding:14px; color:#999;">打开面板即拉取历史会话…</div></div>
+  <div id="hist_body"></div>
 </div>
 
 <div id="page_net" data-page-node-id="oddG8dIObpfpeiicXo0wyz">
@@ -1238,6 +1282,10 @@ const el = {
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
   launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
+  /* 2.21：对话记录页（C2·只读查历史） */
+  hist: $('btn_hist'), histpage: $('page_hist'), histback: $('btn_histback'),
+  histrefresh: $('btn_histrefresh'), histtitle: $('hist_title'),
+  histlist: $('hist_list'), histbody: $('hist_body'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'), sel_chan: $('sel_chan'),
@@ -1587,7 +1635,7 @@ function foxHintHtml(hz){
   const key = foxHintKey(hz);
   _fh_data[key] = hz;
   const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
-  const defs = [['系统', 'sys'], ['人类', 'usr'], ['公司', 'co'], ['AI', 'ai']];
+  const defs = [['系统', 'sys'], ['自定', 'usr'], ['人定', 'co'], ['岗位', 'ai']];
   let tabs = '';
   defs.forEach(function(d){
     const k = d[1], label = d[0];
@@ -1599,7 +1647,7 @@ function foxHintHtml(hz){
   if (!tabs) return '';
   let pane = '';
   if (st.open && st.which && hz[st.which]){
-    const names = {sys: '系统', usr: '人类', co: '公司', ai: 'AI'};
+    const names = {sys: '系统', usr: '自定', co: '人定', ai: '岗位'};
     pane = '<div class="fhpane"><div class="fhtitle">' + names[st.which]
          + '专属提示词</div><div class="fhbody">' + esc(hz[st.which]) + '</div></div>';
   }
@@ -2282,8 +2330,8 @@ function bindHistThink(root){
 function localTurnHtml(t, isCur){
   const who = '<div class="who">' + (isCur ? '我' : '我')
             + '<span class="tm">（本地记录）</span></div>';
-  let h = '<div class="msg user">' + who
-        + '<div class="body">' + mdHtml(t.utext || '') + '</div></div>';
+  let h = t.utext ? ('<div class="msg user">' + who
+        + '<div class="body">' + mdHtml(t.utext || '') + '</div></div>') : '';
   const nn = (t.thinks || []).length;
   let ai = '<div class="msg agent"><div class="who">WorkBuddy'
          + '<span class="tm">' + (isCur && !t.done ? '思考中…' : '（本地记录）')
@@ -2313,10 +2361,10 @@ function localTurnHtml(t, isCur){
   if (t.done && (t.atext || t.aid)){
     ai += '<div class="body">' + mdHtml(t.atext || '（结论原文未取到）') + '</div>';
   } else if (!isCur){
-    ai += '<div class="body"><span class="empty">（该轮被终止，没有终极结论）'
+    ai += '<div class="body"><span class="empty">（未取到，点开向服务端要）'
         + '</span></div>';
   } else {
-    ai += '<div class="body"></div>';
+    ai += '<div class="body"><span class="empty">AI 正在生成…</span></div>';
   }
   return h + ai + '</div>';
 }
@@ -2339,6 +2387,26 @@ function renderTurnsLocal(){
     };
   });
   return true;
+}
+/* P43 D1（0002 校正）：病象主路径——msgs 非空但 0 条 AI（37 秒两连问）
+   强制取回：先 reqTurncast，再按缺额 turn_full；8 秒未回自动重发，最多 2 次。 */
+S.turnRetry = S.turnRetry || {};
+function p43NeedTurn(){
+  const now = Date.now();
+  if (now - (S.turncastReqTs || 0) > 8000){
+    S.turncastReqTs = now;
+    try{ reqTurncast(); }catch(e){}
+  }
+  const t = S.curTurn || (S.turns.length ? S.turns[S.turns.length - 1] : null);
+  if (!t || !t.uid) return;
+  const k = 'turn_full:' + t.uid;
+  if (!t.aid && !t.atext){
+    const r = S.turnRetry[k] || {n: 0, ts: 0};
+    if ((!S.turnWait[k] || now - r.ts > 8000) && r.n < 2){
+      S.turnRetry[k] = {n: r.n + 1, ts: now};
+      try{ reqTurn('turn_full', t.uid); }catch(e){}
+    }
+  }
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -2515,7 +2583,11 @@ function onRes(id, k, v){
   if (rq) delete S_reqs[id];
   /* 2.10：轮播补发——无论成败先摘防重牌（失败也允许之后自查再补一次） */
   if (rq && rq.sk && rq.sk.indexOf('turn_') === 0) delete S.turnWait[rq.sk];
-  if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
+  if (!v || !v.ok){                            /* P43 F4：失败必回音，不再静默 */
+    if (rq && rq.sk && rq.sk.indexOf('turn_') === 0)
+      flash('取回失败：' + ((v && v.err) || '未知原因'), 'var(--red)');
+    return;
+  }
   if (k === 'hist_prev') applyPrev(rq ? rq.conv : '', v.msgs || [], !!v.more);
   else if (k === 'hist_probe') applyProbeEnd(rq ? rq.conv : '', !!v.has);   /* 1.96 */
   else if (k === 'bubbles'){
@@ -2624,19 +2696,36 @@ function reqTurn(kind, uid, extra){
   sendJson(Object.assign({t: 'req', id: id, c: kind, conv: conv, uid: uid},
                          extra || {}));
 }
-/* 平时自查（60 秒节流）：任何历史轮「应有结论但没有」就主动补；
-   done=false（被终止）的轮不追——那是它的定论。 */
+/* P43 F2（0002）：体检 60→30 秒，且把 curTurn 纳入；缺 AI 先 reqTurncast。 */
 function turnAudit(){
   const now = Date.now();
-  if (now - (S.turnAuditTs || 0) < 60000) return;
+  if (now - (S.turnAuditTs || 0) < 30000) return;
   S.turnAuditTs = now;
-  S.turns.forEach(t => {
-    if (t.done && !t.aid && !S.turnWait['turn_concl:' + t.uid])
-      reqTurn('turn_concl', t.uid);
+  const list = S.turns.concat(S.curTurn ? [S.curTurn] : []);
+  let miss = 0;
+  list.forEach(t => {
+    if (t.aid) return;
+    miss++;
+    const k = (t.done ? 'turn_concl:' : 'turn_full:') + t.uid;
+    if (!S.turnWait[k]) reqTurn(t.done ? 'turn_concl' : 'turn_full', t.uid);
   });
+  if (miss) reqTurncast();
 }
 async function onTurncast(tc){
   if (!tc) return;
+  /* P43 D1b（0002 指正）：服务端 last_ai 必须真消费——本地账缺该轮 AI 时补帧。 */
+  try{
+    const la = tc.last_ai;
+    if (la && la.uid && (la.atext || la.aid)){
+      let t = findTurn(la.uid);
+      if (t){
+        if (!t.aid && !t.atext){ t.aid = la.aid || t.aid; t.atext = la.atext || ''; t.done = true; }
+      } else {
+        S.turns.push({uid: la.uid, utext: '', aid: la.aid || '',
+                      atext: la.atext || '', done: true, thinks: [], partial: true});
+      }
+    }
+  }catch(e){}
   /* ① prev（最新历史轮）并入本地账 */
   if (tc.prev && tc.prev.uid){
     let t = findTurn(tc.prev.uid);
@@ -2974,12 +3063,13 @@ function renderQueue(){
   qp.className = 'qpanel';
   let qh = '<div class="qhead">⏳ 托管排队条</div>';
   qopenPrune(q);                     /* 清掉已不在队列里的「展开」标记 */
-  /* P29：点了 ⚡ 之后到服务端回 done/fail 之间的 9 秒内，该条显示「核对中…」，
-     按钮全禁用（服务端最长核 5 秒，留余量；超时自动恢复可再点，不会卡死） */
+  /* P29：点了 ⚡ 之后到服务端回 done/fail 之间的 33 秒内，该条显示「核对中…」，
+     按钮全禁用（服务端最长核 30 秒——老板 2026-10-25 令「5秒太短了，30秒还差不多」，
+     留余量；超时自动恢复可再点，不会卡死） */
   S.qchk = S.qchk || {};
   const _nowT = Date.now();
   Object.keys(S.qchk).forEach(k2 => {
-    if (_nowT - Number(S.qchk[k2] || 0) > 9000) delete S.qchk[k2];
+    if (_nowT - Number(S.qchk[k2] || 0) > 33000) delete S.qchk[k2];
   });
   q.forEach((it, i) => {
     const o = (it && typeof it === 'object') ? it : {text: it, id: ''};
@@ -4019,6 +4109,15 @@ function renderMsgs(msgs, finish, opts, ask){
       - el.msgs.clientHeight < 200;
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
+  /* P43 D1（0002 校正）：病象主路径——msgs 非空但 0 条 AI。
+     先强制取回；本地账能画就先画本地轮播（一问 + 一AI 骨架）。 */
+  try{
+    const _noAI = msgs.length && !msgs.some(m => m[0] !== 'u' && m[0] !== 'user');
+    if (_noAI){
+      p43NeedTurn();
+      if (renderTurnsLocal()) return;
+    }
+  }catch(e){}
   if (empty && !S.pending.length && !S.switch_pend && !S.loadingConv){
     if (renderTurnsLocal()) return;    /* 2.10：snap 正文未到，本地轮播账秒显 */
     el.msgs.innerHTML =
@@ -4881,11 +4980,26 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-/* 2.20（2026-10-25，H22）：修「聊着聊着只剩最近两条人类发言，刷新才恢复」——
-   ① case 'dead' 断线不再 resetPaging，保留 S.older/S.pageGroups/S.histConv；
-   ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
-   以下为上一版（2.19）说明存档。 */
-const VER = '2.20';   /* 2.19（2026-10-25，P29-B。老板原话「这个排队条本身就是一种虚卡了，
+/* 2.21（2026-10-25，C2·老板亲令「WorkBuddy 现在还缺了一个管对话记录的，
+   我都查不了历史」）：新增「📜 对话记录」网页分页（只读查历史）——
+   ① 抽屉加菜单项；新全屏页 #page_hist：列历史会话（cmd hist_ls，数据源＝
+      电脑端官方 jsonl 台账，显示名 sessions_meta display_name 兜底 sid，
+      按 mtime 倒序、当前会话金标）；
+   ② 点会话 → hist_msgs 拉历史轮（每批最近 50 条，「↑ 加载更早」带 before
+      游标向前翻；只读展示：谁说的 + 正文 + 时间，人类蓝底 / AI 灰底）；
+   ③ 触发必回音：拉取中均有「正在…」提示，失败走 cmderr 红字给原因；
+      过期回包（sid 不符）静默丢弃。配套服务端 cmd_router v3.04（hist_ls /
+      hist_msgs 两命令）与 __init__.py WEB_VERSION 恒等 2.21。
+   以下为上一版（2.20）说明存档。 */
+const VER = '2.22';   /* 2.22（2026-10-25，P43）：D1 空窗/无AI主路径强制取回（8s 重试≤2）、
+                         D1b last_ai 真消费、D2 保留 AI 骨架、F2 体检30s、F4 失败回音。
+                         const VER 与 wb_cli.WEB_VERSION 恒等 2.22。
+   2.20（2026-10-25，H22）：修「聊着聊着只剩最近两条人类发言，刷新才恢复」——
+                         ① case 'dead' 断线不再 resetPaging（保留 S.older/S.pageGroups/
+                            S.histConv）；② 重连首拍带 msgs 后若 pageGroups>0，按原页数
+                            自动补一次 hist_prev 重锚；③ 排队条 ⚡「核对中」窗口 9s→33s
+                            （配套服务端校验窗口 5→30 秒）。
+   2.19（2026-10-25，P29-B。老板原话「这个排队条本身就是一种虚卡了，
                          不用额外再设置虚卡」）：
                          ① 排队条「看得见就撤」——该 id 命中快照 acks，或（点过 ⚡ 的条目）
                             正文已出现在最近 6 条「我」的发言里，本条立即从排队条拿掉，
@@ -5777,18 +5891,38 @@ function onEv(kind, v){
             pendMarkDel(LS_PEND_Q, tsid, qrid);
             pendMarkDel(LS_PEND_GONE, tsid, qrid);
           }
-          /* 队列里存的是注入专属提示词后的全文；重建卡只显示原正文 */
-          const qraw = stripHintMarks(qt);
-          let rp = S.pending.find(x => String(x.rid || '') === String(qrid)
-                                       && pendSidOk(x, tsid));
-          if (!rp && qraw && !S.pending.some(x => x.text === qraw
-                                                  && pendSidOk(x, tsid)))
-            rp = pendAdd('send', qraw, qrid, tsid);
-          if (rp && rp.state !== 'fail'){
-            rp.state = 'launching';
-            rp.ts = Date.now();
-            S.msgs_key = null;
+          /* P43/2.22（老板 18:18 令）：撤卡口径——
+             ① 该 id 仍在排队条（官方队列）或已进对话流 → 绝不重建虚线占位卡；
+             ② 只有「已发出、既不在对话流也不在排队条」的空档才出虚线卡；
+             ③ 状态只由小卡片有无表达，不许叠加第三种卡。 */
+          const _qstill = ((S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue : [])
+              .some(it => String(((it && typeof it === 'object') ? it.id : '') || '')
+                          === String(qrid));
+          const _qland = qLanded(qrid, qt);
+          if (_qstill || _qland){
+            /* 已有虚线卡一律撤掉（事件驱动，不等定时轮询） */
+            S.pending = S.pending.filter(x => !(String(x.rid || '') === String(qrid)
+                                                 && pendSidOk(x, tsid)));
+            if (_qland){
+              S.qdone = S.qdone || {};
+              S.qdone[qLandKey(qrid)] = 1;
+            }
             punchPend();
+            S.msgs_key = null;
+          } else {
+            /* 队列里存的是注入专属提示词后的全文；重建卡只显示原正文 */
+            const qraw = stripHintMarks(qt);
+            let rp = S.pending.find(x => String(x.rid || '') === String(qrid)
+                                         && pendSidOk(x, tsid));
+            if (!rp && qraw && !S.pending.some(x => x.text === qraw
+                                                    && pendSidOk(x, tsid)))
+              rp = pendAdd('send', qraw, qrid, tsid);
+            if (rp && rp.state !== 'fail'){
+              rp.state = 'launching';
+              rp.ts = Date.now();
+              S.msgs_key = null;
+              punchPend();
+            }
           }
         }
       } else {
@@ -5978,6 +6112,34 @@ function onEv(kind, v){
       } else {
         flash('签到失败：' + ((v && v.err) || '未知错误'), 'var(--red)');
       }
+      break;
+    }
+    case 'hist_ls': {                      /* 2.21：对话记录——历史会话清单 */
+      const rows = Array.isArray(v) ? v : [];
+      if (!rows.length){
+        el.histlist.innerHTML = '<div style="padding:14px; color:#999;">'
+          + '电脑端没有历史会话。</div>';
+        break;
+      }
+      el.histlist.innerHTML = rows.map(r =>
+        '<div class="hrow' + (r.cur ? ' hcur' : '') + '" data-sid="'
+        + esc(r.sid) + '" data-name="' + esc(r.name) + '">'
+        + '<div class="hname">' + esc(r.name) + (r.cur ? '（当前）' : '') + '</div>'
+        + '<div class="hmeta">' + (r.mtime ? histFmtTs(r.mtime * 1000) : '—')
+        + ' · ' + ((r.size || 0) > 1048576
+          ? (Math.round(r.size / 1048576 * 10) / 10 + 'MB')
+          : (Math.round((r.size || 0) / 1024) + 'KB')) + '</div></div>').join('');
+      el.histlist.querySelectorAll('.hrow').forEach(d => {
+        d.onclick = () => histOpen(d.getAttribute('data-sid'),
+                                   d.getAttribute('data-name'));
+      });
+      break;
+    }
+    case 'hist_msgs': {                    /* 2.21：对话记录——某会话历史轮 */
+      if (!v || v.sid !== HIST.cur) break; /* 不是当前打开的会话（过期回包）→ 忽略 */
+      const wasMore = (HIST.pend === 'more');
+      HIST.pend = '';
+      histRender(v, wasMore);
       break;
     }
     case 'checkin_state': {                 /* 2.00：批量签到面板——账号枚举＋上次结果 */
@@ -6921,6 +7083,74 @@ el.net.onclick = openDiagPage;
 /* 1.25：点顶栏状态文字 → 直接进诊断页（看不懂那几个字时就点它） */
 el.rlink.onclick = openDiagPage;
 el.netback.onclick = () => el.netpage.classList.remove('on');
+
+/* ── 2.21：对话记录页（C2·老板亲令「网页可查历史」）——只读查历史 ──
+   打开即 hist_ls 列历史会话（电脑端官方 jsonl 台账）；点会话 hist_msgs
+   看历史轮（每批最近 50 条），「↑ 加载更早」带 before 游标向前翻。
+   触发必回音：加载中/失败（cmderr）都有提示。 */
+const HIST = {cur: '', pend: ''};       /* cur=当前查看的 sid；pend=''|'first'|'more' */
+
+function histFmtTs(ts){
+  const n = parseInt(ts, 10);
+  if (!n) return String(ts || '');
+  const d = new Date(n);
+  const p = x => String(x).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+    + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+
+function histOpen(sid, name){
+  HIST.cur = sid; HIST.pend = 'first';
+  el.histtitle.textContent = '📜 ' + (name || sid);
+  el.histlist.style.display = 'none';
+  el.histbody.style.display = 'block';
+  el.histbody.innerHTML = '<div style="padding:12px; color:#999;">'
+    + '正在加载历史轮…（大会话首次解析可能要几秒）</div>';
+  sendCmd('hist_msgs', {sid: sid, before: 0});
+}
+
+function histBack(){
+  HIST.cur = ''; HIST.pend = '';
+  el.histtitle.textContent = '📜 对话记录';
+  el.histbody.style.display = 'none';
+  el.histbody.innerHTML = '';
+  el.histlist.style.display = '';
+  sendCmd('hist_ls');
+}
+
+function histRender(d, prepend){
+  const body = el.histbody;
+  let html = '';
+  if (d.more) html += '<button id="hist_more" data-next="' + (d.next || 0) + '">'
+    + '↑ 加载更早（还有 ' + (d.next || 0) + ' 条）</button>';
+  html += (d.rows || []).map(r =>
+    '<div class="hmsg ' + (r.role === 'u' ? 'u' : 'a') + '">'
+    + '<div class="hrole">' + (r.role === 'u' ? '👤 人' : '🤖 AI')
+    + ' · ' + esc(histFmtTs(r.ts)) + '</div>' + esc(r.text) + '</div>').join('');
+  if (!html) html = '<div style="padding:12px; color:#999;">（没有更多了）</div>';
+  if (prepend) body.insertAdjacentHTML('afterbegin', html);
+  else body.innerHTML = html;
+  const more = document.getElementById('hist_more');
+  if (more) more.onclick = () => {
+    more.disabled = true; more.textContent = '加载中…';
+    HIST.pend = 'more';
+    sendCmd('hist_msgs', {sid: HIST.cur,
+                          before: parseInt(more.getAttribute('data-next'), 10) || 0});
+  };
+  if (!prepend) body.scrollTop = body.scrollHeight;
+}
+
+el.hist.onclick = () => {
+  drawerClose();
+  el.histpage.classList.add('on');
+  el.histtitle.textContent = '📜 对话记录';
+  el.histlist.style.display = '';
+  el.histbody.style.display = 'none';
+  el.histlist.innerHTML = '<div style="padding:14px; color:#999;">正在拉取历史会话…</div>';
+  sendCmd('hist_ls');
+};
+el.histback.onclick = () => el.histpage.classList.remove('on');
+el.histrefresh.onclick = histBack;
 
 /* 1.xx：连接诊断按钮 */
 el.netreconn.onclick = () => {
