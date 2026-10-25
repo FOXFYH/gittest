@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.69">
+<meta name="任务面板版本" content="0.70">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -576,6 +576,9 @@
   /* 提示条 */
   .提示 { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
           background: #1c2430; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: 90vw; }
+  /* ===== 0.41 系统清单 R2 手动拉取按钮（分页签旁、不挤分类钮） ===== */
+  .R2拉取钮 { background: #eaf1fb; color: #2b5fb0; border-color: #b9cbe6; margin-left: 6px; }
+  .R2拉取钮:active { background: #dceaff; }
   /* ===== 0.19 清单流水账：主页清单堆叠 / 清单内页 / 树状子卡 / 呼叫AI ===== */
   /* 顶栏：左【新建】· 中题名+网页版版本 · 右【设置】 */
   #顶栏 .题 { justify-content: flex-start; }
@@ -742,10 +745,8 @@
   .绿卡灯.灯完 { background: #def3e4; border-color: #8fd0a6; color: #1c6b36; }
   .绿卡灯.灯弃 { background: #f2f3f5; border-color: #d8dbe1; color: #7a828e; }
   /* 0.51：`.绿卡说明` 已删——写法说明改到正文框 placeholder 与卡片 `使用说明` 里 */
-  /* 0.48 使用说明＋模范格式：常驻正文区，灰色，进卡片文件，AI 读 JSON 即可照做 */
-  .正文说明 { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.6;
-    color: #7d8794; background: #f7f8fa; border: 1px dashed #d5dbe3; border-radius: 8px;
-    padding: 8px 9px; margin: 6px 3px 8px; user-select: text; -webkit-user-select: text; }
+  /* 1.00（P45④）：.正文说明 灰块已删——说明改走正文 textarea 的 placeholder（空时见灰字、
+     一输入即消失、浏览模式不再额外占一块高度），渲染见 网页模块\卡片.js。 */
   /* 0.54（用户 2026-10-22 21:00）：**层级配色重做——8 套色板肉眼一眼可分**。
      根因：0.53 的层2 蓝 #e8f1ff 与层3 紫 #f2ebff 底色 RGB 距离只有 11.7，且层3 的卡片整张
      嵌在层2 展开后的蓝色小文里（四周都是 #e8f1ff），所以第三层看着「也是蓝」——不是层数/
@@ -900,6 +901,9 @@
         <button type="button" class="分页签 选中" data-页="全部">全部</button>
         <button type="button" class="分页签" data-页="流水清单">流水清单</button>
       </span>
+      <!-- 0.41：系统清单 R2 云同步——上传全自动，下载纯手动（点了才从 R2 拉回覆盖本地） -->
+      <button id="按钮_R2拉取" type="button" class="分页签 R2拉取钮"
+              title="从 R2 云端拉取最新系统清单（上传已自动，下载要点这里）">⇩ 更新系统清单</button>
     </h2>
     <div id="顶层容器" class="任务列表"><div class="空样">加载中…</div></div>
   </section>
@@ -1009,20 +1013,16 @@
     </div>
   </div>
 </div>
-<!-- 0.68 邮箱号登录遮罩：下拉框选已有账号（人类管理员固定第一）＋「输入新邮箱」 -->
+<!-- 0.69 邮箱号登录遮罩：下拉框选已有账号（人类管理员也是普通账号，不再固定第一、不再公共视角）＋「输入新邮箱」 -->
 <div id="邮箱弹窗" class="遮罩 隐藏">
   <div class="弹窗">
     <h3>登录（选择身份）</h3>
-    <p style="font-size:14px;color:#556;margin:0 0 6px;line-height:1.6;">
-      自己的清单空间互不干扰。人类管理员固定第一（无邮箱＝公共视角，看全部）；
-      其余账号按列表顺序；没有你的账号就选「＋ 输入新邮箱…」新建。
-    </p>
     <label class="字段" for="邮箱_选择">选择账号</label>
-    <select id="邮箱_选择"
+    <select id="邮箱_选择" title="各自清单互不干扰；没有你的账号就选「＋ 输入新邮箱…」新建"
             style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
     </select>
     <label class="字段" for="邮箱_输入" style="margin-top:10px;">输入新邮箱号</label>
-    <input id="邮箱_输入" type="text" autocomplete="off" placeholder="如 0019 或 0019@1219299644"
+    <input id="邮箱_输入" type="text" autocomplete="off" placeholder="首次输入即自动建档：如 0019 或 0019@1219299644"
            style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
     <div class="弹窗底">
       <button id="邮箱_确定" class="主钮">进入</button>
@@ -1047,8 +1047,8 @@
 <div id="提示" class="提示 隐藏"></div>
 
 <script src="网页模块/接口.js?v=0.25"></script>
-<script src="网页模块/卡片.js?v=0.08"></script>
+<script src="网页模块/卡片.js?v=0.09"></script>
 <script src="网页模块/清单页.js?v=0.46"></script>
-<script src="网页模块/面板.js?v=0.24"></script>
+<script src="网页模块/面板.js?v=0.25"></script>
 </body>
 </html>
