@@ -626,7 +626,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔 10 秒）">✍ 批量签到</div>
     <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
-    <div class="dmi" id="btn_bcast" title="广播与采集（两个独立节拍）">📡 广播与采集</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
@@ -814,44 +813,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     </div>
     <!-- 1.34：升级简介（原在左侧抽屉底部，挪来设置页底部给会话列表让高度） -->
     <div id="lbl_ver" data-page-node-id="vrSqqojExemHEryjDTow9m"></div>
-  </div>
-</div>
-
-<!-- P24：广播与采集（独立分页；采集/广播两个节拍，文案与 TRAE 侧一致） -->
-<div id="page_bcast">
-  <div class="nhdr">
-    <button id="btn_bcastback">‹ 返回</button>
-    <b>广播与采集</b>
-  </div>
-  <div class="nbody">
-    <fieldset>
-      <legend>采集区</legend>
-      <div class="row"><label>采集频率</label>
-        <input id="in_collect_sec" type="number" step="0.5" min="0.2" max="30" style="width:80px">
-        <span class="hint">秒</span>
-        <button id="btn_collect_def" style="margin-left:auto">恢复默认 1.5s</button></div>
-      <div class="row"><span>最近采集耗时</span><b id="bc_collect_ms" class="diagv">—</b></div>
-      <div class="row"><span>本轮采到</span><b id="bc_collect_n" class="diagv">—</b></div>
-      <div class="row"><span>失败原因</span><b id="bc_collect_err" class="diagv">—</b></div>
-      <div class="row"><span class="hint">采集只负责取数据，采到多少都不直接决定发不发。</span></div>
-    </fieldset>
-    <fieldset>
-      <legend>广播区</legend>
-      <div class="row"><label>广播频率</label>
-        <input id="in_bcast_sec" type="number" step="0.5" min="0.2" max="60" style="width:80px">
-        <span class="hint">秒</span>
-        <button id="btn_bcast_def" style="margin-left:auto">恢复默认 3.0s</button></div>
-      <div class="row"><span>最近广播时刻</span><b id="bc_last" class="diagv">—</b></div>
-      <div class="row"><span>今日已广播帧数</span><b id="bc_frames" class="diagv">—</b></div>
-      <div class="row"><span>在线端数</span><b id="bc_cli" class="diagv">—</b></div>
-      <div class="row"><span>估算条数＝帧数×端数</span><b id="bc_est" class="diagv">—</b></div>
-      <div class="row"><span class="hint">这一条直接对 PieSocket 账单：帧数×在线端数。</span></div>
-    </fieldset>
-    <div class="row">
-      <button id="btn_bcastsave" style="flex:1">保存</button>
-      <span id="bc_flash" class="hint"></span>
-    </div>
-    <div class="row"><span class="hint">说明：采集与广播是两条独立节拍。改采集频率不影响广播；改广播频率也不影响采集。到点没采到新数据，也会把「最新已采集状态」推一次。</span></div>
   </div>
 </div>
 
@@ -4682,7 +4643,10 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.16';   /* 2.16（2026-10-25）：⚡立即发送失败——占位卡不撤，转「未送达」
+const VER = '2.17';   /* 2.17（2026-10-25）：撤回「广播与采集」网页分页——老板定：广播与采集
+   是电脑版（服务端 GUI）的功能，网页端不许挂（P24 误加的两处 HTML + 一段顶层 JS 已整块删除；
+   那段 JS 引用未定义的 el.bcast，一加载就抛错，6700 行之后的初始化全不执行，聊天直接废）。
+   2.16（2026-10-25）：⚡立即发送失败——占位卡不撤，转「未送达」
    失败态（整卡变红、原文可复制、一键重发）；同一 rid 的 acks 命中前失败态优先，
    不被队列/其它卡的旧回执误撤。新增网页可见回执（路径①）：本端带 rid 的消息真
    画进对话记录后向上发 msg_seen（同 rid 只发一次），服务端据此销卡。
@@ -5413,14 +5377,6 @@ function onEv(kind, v){
     case 'turncast':                   /* 2.10：轮播轻广播（旧服务端兼容路） */
       onTurncast(v);
       return;
-    case 'bcastcfg_ok': {              /* P24：广播与采集参数保存确认 */
-      if (el.bc_flash){
-        el.bc_flash.textContent = '已保存：采集 ' + (v && v.collect_sec)
-          + 's / 广播 ' + (v && v.bcast_sec) + 's（下一拍生效）';
-      }
-      bcastFill();
-      return;
-    }
     case 'pendcfg':                    /* 1.23：确认匹配参数变更即时跟随 */
       if (v && v.head) S.pend_head = Math.max(10, v.head | 0);
       if (v && v.age) S.pend_age = Math.max(5, v.age | 0) * 1000;
@@ -6655,49 +6611,6 @@ el.net.onclick = (ev) => {
   _old_on_net_click && _old_on_net_click.call(el.net, ev);
   diagRender();
 };
-
-/* ================= P24：广播与采集页 ================= */
-function _bcTs(t){
-  t = Number(t) || 0;
-  if (!t) return '—';
-  const ms = t < 1e12 ? t * 1000 : t;
-  const d = new Date(ms);
-  const p = n => String(n).padStart(2, '0');
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
-    + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-}
-function bcastFill(){
-  const st = (S.snap && S.snap.bcast_stats) || {};
-  if (st.collect_sec != null && document.activeElement !== el.in_collect_sec)
-    el.in_collect_sec.value = st.collect_sec;
-  if (st.bcast_sec != null && document.activeElement !== el.in_bcast_sec)
-    el.in_bcast_sec.value = st.bcast_sec;
-  el.bc_collect_ms.textContent = (st.collect_ms != null ? st.collect_ms + ' ms' : '—');
-  el.bc_collect_n.textContent = (st.collects != null
-    ? ('累计 ' + st.collects + ' 次 / 本轮 ' + st.collect_n + ' 条') : '—');
-  el.bc_collect_err.textContent = (st.collect_err || '无');
-  el.bc_last.textContent = _bcTs(st.last_bcast);
-  el.bc_frames.textContent = (st.today_frames != null ? st.today_frames : '—');
-  el.bc_cli.textContent = (st.endpoints != null ? st.endpoints : '—');
-  el.bc_est.textContent = (st.est != null ? st.est : '—');
-}
-el.bcast.onclick = () => { el.bcastpage.classList.add('on'); bcastFill(); };
-el.bcastback.onclick = () => el.bcastpage.classList.remove('on');
-el.btn_collect_def.onclick = () => { el.in_collect_sec.value = '1.5'; };
-el.btn_bcast_def.onclick = () => { el.in_bcast_sec.value = '3'; };
-el.btn_bcastsave.onclick = () => {
-  const cs = parseFloat(el.in_collect_sec.value);
-  const bs = parseFloat(el.in_bcast_sec.value);
-  if (!(cs > 0) || !(bs > 0)){
-    el.bc_flash.textContent = '请填写有效数值（采集 0.2~30s / 广播 0.2~60s）';
-    return;
-  }
-  el.bc_flash.textContent = '已发送，等待服务端确认…';
-  sendCmd('bcastcfg', {collect_sec: cs, bcast_sec: bs});
-};
-setInterval(() => {
-  try { if (el.bcastpage.classList.contains('on')) bcastFill(); } catch(e){}
-}, 2000);
 
 el.wsurl.value = CFG.channel || '';
 el.keep.value = CFG.stats_keep;
