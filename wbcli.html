@@ -2447,6 +2447,7 @@ function resetPaging(){
   S.older = []; S.pageGroups = 0; S.headSeq = 0;
   S.more = false; S.prevBusy = false; S.loadingMore = false;
   S.moreEnd = false;                           /* 1.96：换会话/重置即收回「到头」标记 */
+  S.reanchorPending = false;                   /* H22：换会话/重置即撤销断线重锚标记 */
   /* 1.57：切会话/换轮即收回已展开的气泡（符合「切到别的对话自动又折叠」） */
   S.foldOpen = {}; S.foldData = {}; S.foldWait = {};
   /* 2.09：历史轮思维卡片一并收回（缓存放着会串到新会话的同名 seq 上） */
@@ -4880,7 +4881,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.19';   /* 2.19（2026-10-25，P29-B。老板原话「这个排队条本身就是一种虚卡了，
+/* 2.20（2026-10-25，H22）：修「聊着聊着只剩最近两条人类发言，刷新才恢复」——
+   ① case 'dead' 断线不再 resetPaging，保留 S.older/S.pageGroups/S.histConv；
+   ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
+   以下为上一版（2.19）说明存档。 */
+const VER = '2.20';   /* 2.19（2026-10-25，P29-B。老板原话「这个排队条本身就是一种虚卡了，
                          不用额外再设置虚卡」）：
                          ① 排队条「看得见就撤」——该 id 命中快照 acks，或（点过 ⚡ 的条目）
                             正文已出现在最近 6 条「我」的发言里，本条立即从排队条拿掉，
@@ -5655,6 +5660,17 @@ function onEv(kind, v){
       S.winHeadSeq = v.msgs_head_seq | 0;
       S.winUserOff = v.msgs_useroff | 0;
       if (S.pageGroups <= 0) S.more = !!v.msgs_more;
+      /* H22：断线重连首拍带正文 → 若断线前正翻着老历史，按原页数补一次 hist_prev
+         重锚（窗口可能已前进；不重锚会断层——滑出窗口的那一组既不在 older 里、
+         也不在窗口里）。没有翻过页（pageGroups=0）则无需请求。 */
+      if (S.reanchorPending && hasMsgs){
+        S.reanchorPending = false;
+        if (S.pageGroups > 0 && S.winHeadSeq && S.onLine && !S.prevBusy){
+          S.headSeq = S.winHeadSeq;
+          S.prevBusy = true;
+          reqHistPrev(S.histConv || curConvId(), S.winHeadSeq, S.pageGroups);
+        }
+      }
       verifyRun(v);                          // 1.50：核对本轮实际跑的模型
       pendReconcile(v.msgs || [], hasMsgs);  // 1.78：只在带正文落地时撤占位
       /* 2.16 路径①改到 renderAll：必须等消息真正画进对话记录后再发 msg_seen */
@@ -5687,7 +5703,12 @@ function onEv(kind, v){
     case 'dead':
       flash('✘ 未连接（' + v + '）', 'var(--red)');
       S.snap = {};
-      S.histConv = ''; resetPaging();         /* 断线：翻页窗口一并作废 */
+      /* H22（2026-10-25）：断线**不再**清翻页窗口。旧版 `S.histConv=''; resetPaging()`
+         会把已翻出的老历史一并丢掉，重连后只剩最近 2 组（老板报「只剩最近两条
+         人类发言，刷新才恢复」）。现保留 S.older / S.pageGroups / S.histConv，
+         只置 reanchorPending：重连首拍带正文后按原页数自动补一次 hist_prev 重锚，
+         防窗口前进造成断层。换会话/换目标仍会 resetPaging（走各自分支）。 */
+      S.reanchorPending = true;
       S.loadingConv = null;                   // 1.28：断了还挂占位没意义
       renderState({});
       S.attach_pending = null;
