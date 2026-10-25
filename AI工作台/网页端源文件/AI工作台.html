@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>总管面板</title>
+<title>AI 工作台</title>
+<meta name="app-version" content="0.4.1">
 <style>
   :root{
     --bg:#eef1f5; --card:#fff; --ink:#111827; --dim:#6b7280; --line:#e3e6ea;
@@ -86,6 +87,48 @@
     padding:9px 16px;border-radius:20px;font-size:12px;z-index:60;opacity:0;transition:opacity .2s;
     pointer-events:none}
   .toast.on{opacity:1}
+  /* ---- P5 总管手册 ---- */
+  .手册{display:flex;gap:8px;align-items:stretch}
+  .手册左{width:272px;flex:0 0 272px;background:var(--card);border:1px solid var(--line);
+    border-radius:6px;padding:6px;max-height:70vh;overflow:auto}
+  .手册左 .页{padding:6px 8px;border-radius:5px;cursor:pointer;font-size:12px;line-height:1.3}
+  .手册左 .页:hover{background:#f3f4f6}
+  .手册左 .页.on{background:#dbeafe;color:#1e40af;font-weight:600}
+  .手册左 .页 .m{font-size:9.5px;color:var(--dim);font-weight:400}
+  .手册右{flex:1;background:var(--card);border:1px solid var(--line);border-radius:6px;
+    padding:12px 16px;max-height:70vh;overflow:auto;font-size:13px;line-height:1.65}
+  .手册右 h1{font-size:19px;margin:6px 0 10px}
+  .手册右 h2{font-size:16px;margin:14px 0 6px}
+  .手册右 h3{font-size:14px;margin:10px 0 4px}
+  .手册右 ul{margin:4px 0 8px;padding-left:22px}
+  .手册右 li{margin:2px 0}
+  .手册右 code{background:#f3f4f6;border-radius:3px;padding:1px 4px;font-family:Consolas,monospace;font-size:12px}
+  .手册右 pre{background:#f3f4f6;border-radius:5px;padding:8px;overflow:auto;font-size:11.5px}
+  .手册右 table{margin:6px 0}
+  .手册右 blockquote{margin:6px 0;padding-left:10px;border-left:3px solid var(--line);color:var(--dim)}
+  .手册右 .hl{background:#fde68a}
+  .手册搜条{padding:5px 7px;border-radius:5px;font-size:11.5px;cursor:pointer;border-bottom:1px solid #f1f3f5}
+  .手册搜条:hover{background:#fff7ed}
+  .btn.红{background:var(--红)}
+  .only-m{display:none}
+  /* ===== 首屏登录（全屏遮罩；不是藏在设置里） ===== */
+  .登录{position:fixed;inset:0;z-index:90;background:#111827;display:flex;align-items:center;
+    justify-content:center;padding:20px}
+  .登录.off{display:none}
+  .登录 .箱{background:#fff;border-radius:10px;padding:22px 20px 18px;width:100%;max-width:380px;
+    position:relative;box-shadow:0 18px 46px rgba(0,0,0,.35)}
+  .登录 .ver{position:absolute;right:12px;top:10px;font-size:10.5px;color:#9aa0a6;
+    font-family:Consolas,monospace}
+  .登录 h2{margin:0 0 4px;font-size:17px}
+  .登录 .副{font-size:11.5px;color:var(--dim);margin-bottom:14px}
+  .登录 label{display:block;font-size:12px;color:var(--dim);margin-bottom:5px}
+  .登录 input{width:100%;padding:10px;border:1px solid var(--line);border-radius:6px;font-size:14px;
+    font-family:Consolas,monospace}
+  .登录 .tip{font-size:11px;color:var(--dim);margin-top:6px}
+  .登录 .msg{font-size:12px;margin-top:10px;min-height:16px;line-height:1.4}
+  .登录 .msg.红{color:var(--红)} .登录 .msg.黄{color:#a16207} .登录 .msg.绿{color:var(--绿)}
+  .登录 .进入{width:100%;margin-top:12px;padding:10px;font-size:14px;border-radius:6px}
+  .登录 .foot{font-size:10.5px;color:#9aa0a6;margin-top:10px;line-height:1.5}
   @media (max-width:720px){
     header h1{font-size:13px}
     header .横幅{order:9;flex-basis:100%;white-space:normal}
@@ -98,16 +141,37 @@
     th,td{padding:4px}
     .抽屉{width:100%;max-width:100%}
     .hide-m{display:none}
+    .手册{flex-direction:column}
+    .手册左{display:none}
+    .only-m{display:block;width:100%;padding:7px;border:1px solid var(--line);border-radius:5px;
+      font-size:12px;margin-bottom:8px}
+    .手册右{max-height:none}
   }
 </style>
 </head>
 <body>
+<!-- ================= 首屏登录（只一栏：频道号） ================= -->
+<div class="登录" id="登录">
+  <div class="箱">
+    <div class="ver" id="登录版本">v—</div>
+    <h2>AI 工作台</h2>
+    <div class="副">输入频道号进入；第一次用这串当密码。</div>
+    <label for="频道输入">频道号</label>
+    <input id="频道输入" autocomplete="off" spellcheck="false"
+           placeholder="输入 31415926fF@（前面的 foxaijob 自动补上）">
+    <div class="tip">提示：这串同时也是密码</div>
+    <div class="msg" id="登录提示"></div>
+    <button class="btn 进入" id="登录按钮" onclick="登录()">进入</button>
+    <div class="foot">口令只防误入；真正的闸在本机 Py 端校验同一条串。</div>
+  </div>
+</div>
+
 <header>
   <div class="灯" id="总灯">●</div>
-  <h1>总管面板</h1>
+  <h1>AI 工作台</h1>
   <div class="横幅" id="横幅">正在连本机…</div>
   <div class="小结" id="小结">未完成 — / 已完成 —</div>
-  <div class="小结" id="连状态" style="cursor:pointer" title="点这里填令牌/本机地址">未连接本机</div>
+  <div class="小结" id="连状态" style="cursor:pointer" title="点这里看/清除登录">未连接本机</div>
 </header>
 
 <nav id="页签">
@@ -115,9 +179,10 @@
   <button data-p="p2">P2 员工总览</button>
   <button data-p="p3">P3 任务面板</button>
   <button data-p="p4">P4 人类原话</button>
-  <button data-p="p5">P5 服务健康</button>
-  <button data-p="p6">P6 频道与用量</button>
-  <button data-p="p7">P7 设置与审计</button>
+  <button data-p="p5">P5 总管手册</button>
+  <button data-p="p6">P6 服务健康</button>
+  <button data-p="p7">P7 频道与用量</button>
+  <button data-p="p8">P8 设置与审计</button>
 </nav>
 
 <main>
@@ -182,17 +247,39 @@
     </div>
   </section>
 
-  <section id="p5"><div class="panel">P5 服务健康 —— 未实现（v0.1 不做）</div></section>
-  <section id="p6"><div class="panel">P6 频道与用量 —— 未实现（v0.1 不做）</div></section>
-  <section id="p7">
+  <!-- ================= P5 总管手册（数据驱动：目录里有什么就显示什么） ================= -->
+  <section id="p5">
+    <div class="条">
+      <div class="wrap"><button class="btn 红" onclick="我卡住了()">我卡住了 →</button><span class="cmd">手册.读 页=04_故障速查</span></div>
+      <input id="手册搜框" placeholder="全手册搜索，回车" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:200px"
+             onkeydown="if(event.key==='Enter')手册搜()">
+      <div class="wrap"><button class="btn" onclick="手册搜()">搜索</button><span class="cmd">手册.搜</span></div>
+      <div class="wrap"><button class="btn d" onclick="拉手册目录(true)">刷新目录</button><span class="cmd">手册.目录</span></div>
+      <div class="wrap"><button class="btn g" onclick="手册新建()">新建页</button><span class="cmd">手册.新建</span></div>
+      <div class="wrap"><button class="btn p" onclick="手册追加()">往本页追加</button><span class="cmd">手册.追加</span></div>
+      <span class="小字">内容来自磁盘 手册\ 目录，丢一个新 md 进去刷新就有</span>
+    </div>
+    <div id="手册搜结果" class="panel" style="display:none;margin-bottom:8px;max-height:24vh;overflow:auto"></div>
+    <select id="手册下拉" class="only-m" onchange="开手册页(this.value)"></select>
+    <div class="手册">
+      <div class="手册左" id="手册目录"><div class="小字" style="padding:8px">载入中…</div></div>
+      <div class="手册右" id="手册正文"><div class="小字">在左侧选一页（或点「我卡住了 →」直达 04 故障速查）</div></div>
+    </div>
+  </section>
+
+  <section id="p6"><div class="panel">P6 服务健康 —— 未实现</div></section>
+  <section id="p7"><div class="panel">P7 频道与用量 —— 未实现</div></section>
+  <section id="p8">
     <div class="panel">
-      <h3 style="margin:0 0 8px;font-size:13px">设置（本机地址 / 令牌）</h3>
-      <label class="小字">本机地址（github.io 打开时填本机隧道/频道地址）</label>
-      <input id="地址" style="width:100%;padding:7px;border:1px solid var(--line);border-radius:5px;margin:4px 0 10px">
-      <label class="小字">遥控令牌（Authorization: Bearer）</label>
-      <input id="令牌" type="password" style="width:100%;padding:7px;border:1px solid var(--line);border-radius:5px;margin:4px 0 10px">
-      <button class="btn" onclick="存设置()">保存并重连</button>
-      <div class="小字" style="margin-top:10px">页面本身是静态的，数据全部来自本机 Py 服务；连不上时只显示骨架。</div>
+      <h3 style="margin:0 0 8px;font-size:13px">登录与连接</h3>
+      <div class="小字">当前频道：<b id="当前频道">—</b></div>
+      <div class="小字" style="margin-top:4px">本机地址：<span id="当前地址">—</span></div>
+      <div class="小字" style="margin-top:4px">页面版本：<b id="设置版本">—</b></div>
+      <div style="margin-top:10px">
+        <button class="btn d" onclick="清除登录()">清除登录</button>
+        <span class="cmd">退回登录框</span>
+      </div>
+      <div class="小字" style="margin-top:10px">页面本身是静态的，数据全部来自本机 Py 服务（或经频道遥控本机）；连不上时只显示骨架。</div>
     </div>
     <div class="panel" style="margin-top:10px"><div class="小字">动作日志（系统.日志）</div>
       <div class="wrap"><button class="btn d" onclick="看日志()">取 30 行</button><span class="cmd">系统.日志</span></div>
@@ -218,10 +305,23 @@ const 命令列表 = [
   "员工.列表", "员工.催办",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.统计",
-  "系统.版本", "系统.自检", "系统.对齐自检", "系统.日志"
+  "系统.版本", "系统.自检", "系统.对齐自检", "系统.日志",
+  "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建"
 ];
 
-let 设置 = { 地址: "", 令牌: "" };
+/* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
+const H5_VER  = "0.4.1";
+const H5_前缀 = "foxaijob";
+const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
+const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
+const H5_名   = "AI工作台";
+const 存键    = "AI工作台.频道";
+
+let 设置 = { 地址: "", 频道: "" };
+let 频道 = "";
+let WS = null;
+let WS已连 = false;
+let 已进 = false;
 let 状态 = null;
 let 上次ts = 0;
 let 选中卡 = "";
@@ -230,34 +330,111 @@ let 原话数据 = null;
 
 function 读设置(){
   try{
-    const s = JSON.parse(localStorage.getItem("总管面板.设置")||"{}");
+    const s = JSON.parse(localStorage.getItem("AI工作台.设置")||"{}");
     设置.地址 = s.地址 || location.origin;
-    设置.令牌 = s.令牌 || "";
   }catch(e){ 设置.地址 = location.origin; }
-  if(/^file:/.test(设置.地址)) 设置.地址 = "http://127.0.0.1:19900";
-}
-function 存设置(){
-  设置.地址 = (document.getElementById("地址").value||"").trim().replace(/\/$/,"") || location.origin;
-  设置.令牌 = (document.getElementById("令牌").value||"").trim();
-  localStorage.setItem("总管面板.设置", JSON.stringify(设置));
-  吐司("已保存，正在重连…");
-  上次ts = 0; 拉状态(true);
+  if(/^file:/.test(设置.地址) || !设置.地址) 设置.地址 = "http://127.0.0.1:19900";
+  try{ 设置.频道 = localStorage.getItem(存键) || ""; }catch(e){ 设置.频道 = ""; }
 }
 function 头(){
   const h = {"Content-Type":"application/json"};
-  if(设置.令牌) h["Authorization"] = "Bearer " + 设置.令牌;
+  if(频道) h["Authorization"] = "Bearer " + 频道;
   return h;
+}
+
+/* ===== 首屏登录：只一栏频道号，前缀自动补，口令对不对最终由本机说 ===== */
+function 登录提示(色, 文){
+  const el = document.getElementById("登录提示");
+  el.className = "msg " + (色 || "");
+  el.textContent = 文 || "";
+}
+
+function 登录(){
+  const 框 = document.getElementById("频道输入");
+  const 原 = (框.value || "").trim();
+  if(!原){ 登录提示("红", "只要输 31415926fF@ 这一段"); return; }
+  if(!/^[0-9A-Za-z_-]+@$/.test(原)){
+    登录提示("红", "只要输 31415926fF@ 这一段（别带 foxaijob，也别带空格）");
+    return;
+  }
+  已进 = false;
+  登录提示("黄", "连接中…（频道名可能不对）");
+  连频道(H5_前缀 + 原);
+}
+
+function 连频道(全){
+  try{ if(WS) WS.close(); }catch(e){}
+  频道 = 全;
+  const 址 = H5_主机.replace(/\/+$/, "") + "/" + encodeURIComponent(全) +
+             "?api_key=" + encodeURIComponent(H5_KEY) + "&notify_self=0";
+  let 计时 = null;
+  let 见本机 = false;
+  const 收 = ()=>{ 见本机 = true; if(计时) clearTimeout(计时); 进主界面(); };
+  try{
+    WS = new WebSocket(址);
+  }catch(e){
+    登录提示("黄", "连接中…（频道名可能不对）");
+    return;
+  }
+  WS.onopen = ()=>{
+    if(已进) return;
+    登录提示("黄", "频道已连，正在确认本机…");
+    WS.send(JSON.stringify({类型:"请求", id:"login", 命令:"系统.版本", 参数:{}, 口令:全}));
+    计时 = setTimeout(()=>{ if(!见本机 && !已进) 登录提示("黄", "频道已连，本机没上线"); }, 8000);
+  };
+  WS.onmessage = (ev)=>{
+    let m = null;
+    try{ m = JSON.parse(ev.data); }catch(e){ return; }
+    if(!m || typeof m !== "object") return;
+    if(m.类型 === "hello" && m.名 === H5_名){ WS已连 = true; if(!已进) 收(); return; }
+    if(m.类型 === "结果" && m.id === "login"){ WS已连 = true; if(!已进) 收(); return; }
+  };
+  WS.onerror = ()=>{ if(!见本机 && !已进) 登录提示("黄", "连接中…（频道名可能不对）"); };
+  WS.onclose = ()=>{ WS已连 = false; if(!见本机 && !已进) 登录提示("黄", "连接中…（频道名可能不对）"); };
+}
+
+function 进主界面(){
+  已进 = true;
+  try{ localStorage.setItem(存键, 频道); }catch(e){}
+  设置.频道 = 频道;
+  登录提示("绿", "已进入");
+  document.getElementById("登录").classList.add("off");
+  const 当 = document.getElementById("当前频道");
+  const 址 = document.getElementById("当前地址");
+  const 版 = document.getElementById("设置版本");
+  if(当) 当.textContent = 频道;
+  if(址) 址.textContent = 设置.地址;
+  if(版) 版.textContent = "v" + H5_VER;
+  连状态("频道已连", false);
+  上次ts = 0;
+  拉状态(true);
+  拉手册目录();
+}
+
+function 清除登录(){
+  try{ localStorage.removeItem(存键); }catch(e){}
+  频道 = ""; 已进 = false; WS已连 = false;
+  try{ if(WS) WS.close(); }catch(e){}
+  document.getElementById("登录").classList.remove("off");
+  document.getElementById("频道输入").value = "";
+  登录提示("", "");
 }
 function 连状态(文, 坏){
   const el = document.getElementById("连状态");
   el.textContent = 文;
   el.style.background = 坏 ? "#7f1d1d" : "#374151";
 }
-async function 调(命令, 参数, 静默){
+function 新幂等(){ return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
+
+/* 所有命令统一 10 秒超时：本机卡住时按钮不能永远"没反应"（会让人重复点建卡） */
+async function 调(命令, 参数, 静默, 幂等键){
+  const 控 = new AbortController();
+  const 闸 = setTimeout(()=>控.abort(), 10000);
   try{
+    const 体 = {命令:命令, 参数:参数||{}};
+    if(幂等键) 体.幂等 = 幂等键;
     const r = await fetch(设置.地址 + "/api/cmd", {
-      method:"POST", headers:头(),
-      body: JSON.stringify({命令:命令, 参数:参数||{}})
+      method:"POST", headers:头(), body: JSON.stringify(体), signal: 控.signal
     });
     const j = await r.json();
     if(!静默) 吐司((j.ok?"OK ":"失败 ") + 命令 + "：" + (j.说明||""));
@@ -266,31 +443,39 @@ async function 调(命令, 参数, 静默){
     拉状态(true);
     return j;
   }catch(e){
+    if(e && e.name === "AbortError"){
+      连状态("本机 10 秒没回应", true);
+      吐司("10 秒没回应（本机可能卡住）：" + 命令);
+      return {ok:false, 说明:"超时：本机 10 秒没回应"};
+    }
     连状态("未连接本机", true);
     吐司("连不上本机：" + e.message);
     return {ok:false, 说明:String(e)};
+  }finally{
+    clearTimeout(闸);
   }
 }
 function 转义(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 
 async function 拉状态(强制){
+  if(!频道) return;                       // 没登录不发请求（本机一律 401）
   try{
     const r = await fetch(设置.地址 + "/api/state", {headers:头(), cache:"no-store"});
-    if(r.status === 401){ 连状态("令牌无效/未填", true); return; }
+    if(r.status === 401){ 连状态("口令不对（本机拒了）", true); return; }
     const j = await r.json();
     状态 = j;
-    连状态("已连本机", false);
+    连状态(WS已连 ? "频道已连" : "已连本机", false);
     if(!强制 && j.ts_ms === 上次ts) return;
     上次ts = j.ts_ms;
     画全部();
   }catch(e){
-    连状态("未连接本机（令牌未填 / 服务未起）", true);
+    连状态("未连接本机（服务未起）", true);
     if(!状态) 画骨架();
   }
 }
 
 function 画骨架(){
-  document.getElementById("横幅").textContent = "未连接本机（令牌未填）——页面是静态的，数据来自本机 Py 服务";
+  document.getElementById("横幅").textContent = "未连接本机 —— 页面是静态的，数据来自本机 Py 服务或经频道遥控本机";
   document.getElementById("总灯").style.color = "#8a8f98";
 }
 
@@ -429,7 +614,8 @@ function 弹建卡(){
   const 标题 = prompt("新任务标题：", "");
   if(!标题) return;
   const 负责人 = prompt("负责人终身号（可空）：", "") || "";
-  调("任务.建卡", {"标题":标题, "负责人":负责人});
+  /* 一次点击一个幂等键：连点/超时重试都只建一张卡 */
+  调("任务.建卡", {"标题":标题, "负责人":负责人}, false, 新幂等());
 }
 
 async function 拉原话(){
@@ -535,6 +721,178 @@ function 吐司(文){
   吐司计时 = setTimeout(()=>t.classList.remove("on"), 2600);
 }
 
+/* ===== P5 总管手册：数据驱动，页名一律来自 手册.目录，代码里不写死任何页 ===== */
+let 手册页们 = [];
+let 当前页 = "";
+let 手册高亮 = "";
+
+function _行内(s){
+  let t = 转义(s);
+  t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+  t = t.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  if(手册高亮){
+    const 词 = 转义(手册高亮).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if(词) t = t.replace(new RegExp(词, "gi"), m => "<span class='hl'>" + m + "</span>");
+  }
+  return t;
+}
+
+/* 极简 Markdown：标题/列表/表格/代码块/引用/分隔线/行内代码/加粗/搜索高亮 */
+function 渲染手册(md){
+  const 行们 = String(md || "").split(/\r?\n/);
+  const 出 = [];
+  let 在码 = false, 码 = [], 在表 = false;
+  const 关表 = () => { if(在表){ 出.push("</tbody></table>"); 在表 = false; } };
+  for(let i = 0; i < 行们.length; i++){
+    const 原 = 行们[i];
+    const 行 = 原.replace(/\s+$/, "");
+    if(/^```/.test(行)){
+      if(在码){ 出.push("<pre>" + 转义(码.join("\n")) + "</pre>"); 码 = []; 在码 = false; }
+      else { 关表(); 在码 = true; }
+      continue;
+    }
+    if(在码){ 码.push(原); continue; }
+    if(!行.trim()){ 关表(); continue; }
+    if(/^\|/.test(行)){
+      const 格 = 行.replace(/^\|/, "").replace(/\|$/, "").split("|").map(x => x.trim());
+      if(格.every(x => /^:?-{2,}:?$/.test(x))) continue;
+      if(!在表){
+        出.push("<table><thead><tr>" + 格.map(x => "<th>" + _行内(x) + "</th>").join("") + "</tr></thead><tbody>");
+        在表 = true;
+      }else{
+        出.push("<tr>" + 格.map(x => "<td>" + _行内(x) + "</td>").join("") + "</tr>");
+      }
+      continue;
+    }
+    关表();
+    const 标 = 行.match(/^(#{1,4})\s+(.*)$/);
+    if(标){
+      const 级 = Math.min(标[1].length, 3);
+      出.push("<h" + 级 + ">" + _行内(标[2]) + "</h" + 级 + ">");
+      continue;
+    }
+    if(/^(-{3,}|\*{3,})$/.test(行.trim())){ 出.push("<hr>"); continue; }
+    if(/^>\s?/.test(行)){ 出.push("<blockquote>" + _行内(行.replace(/^>\s?/, "")) + "</blockquote>"); continue; }
+    if(/^\s*([-*+]|\d+\.)\s+/.test(行)){
+      出.push("<ul><li>" + _行内(行.replace(/^\s*([-*+]|\d+\.)\s+/, "")) + "</li></ul>");
+      continue;
+    }
+    出.push("<p>" + _行内(行) + "</p>");
+  }
+  if(在码) 出.push("<pre>" + 转义(码.join("\n")) + "</pre>");
+  关表();
+  return 出.join("\n").replace(/<\/ul>\s*<ul>/g, "");
+}
+
+async function 拉手册目录(){
+  const j = await 调("手册.目录", {}, true);
+  const 左 = document.getElementById("手册目录");
+  if(!j.ok){
+    左.innerHTML = "<div class='小字' style='padding:8px;color:#c53030'>读不到目录：" + 转义(j.说明 || "") + "</div>";
+    return;
+  }
+  手册页们 = (j.数据 && j.数据.页) || [];
+  if(!手册页们.length){
+    左.innerHTML = "<div class='小字' style='padding:8px'>手册目录是空的。丢一个 .md 进去，再点「刷新目录」。</div>";
+  }else{
+    左.innerHTML = 手册页们.map(p => {
+      const 名 = 转义(p.页 || "");
+      return "<div class='页" + (p.页 === 当前页 ? " on" : "") + "' data-页='" + 名 +
+        "' onclick=\"开手册页('" + 名 + "')\">" +
+        "<div>" + 转义(p.标题 || p.页) + "</div>" +
+        "<div class='m'>" + 转义(p.文件名 || "") + " · " + (p.条目数 || 0) + " 条 · " + 转义(p.mtime || "") + "</div></div>";
+    }).join("");
+  }
+  const 下 = document.getElementById("手册下拉");
+  if(下){
+    下.innerHTML = 手册页们.map(p =>
+      "<option value='" + 转义(p.页 || "") + "'" + (p.页 === 当前页 ? " selected" : "") + ">" +
+      转义(p.标题 || p.页) + "</option>").join("");
+    if(当前页) 下.value = 当前页;
+  }
+  if(!当前页 && 手册页们.length) 开手册页(手册页们[0].页);
+}
+
+async function 开手册页(页, 行号){
+  if(!页) return;
+  当前页 = 页;
+  手册高亮 = 行号 ? 手册高亮 : "";
+  document.querySelectorAll("#手册目录 .页").forEach(d => {
+    d.classList.toggle("on", d.getAttribute("data-页") === 页);
+  });
+  const 下 = document.getElementById("手册下拉");
+  if(下 && 下.value !== 页) 下.value = 页;
+  const 右 = document.getElementById("手册正文");
+  右.innerHTML = "<div class='小字'>载入 " + 转义(页) + " …</div>";
+  const j = await 调("手册.读", {"页":页}, true);
+  if(!j.ok){
+    右.innerHTML = "<div class='小字' style='color:#c53030'>读不到：" + 转义(j.说明 || "") + "</div>";
+    return;
+  }
+  const d = j.数据 || {};
+  右.innerHTML = "<div class='小字' style='margin-bottom:4px'>" + 转义(d.文件名 || "") +
+    " · " + (d.行数 || 0) + " 行 · " + (d.字节 || 0) + " 字节</div>" + 渲染手册(d.正文);
+  右.scrollTop = 0;
+  const 首 = 右.querySelector(".hl");
+  if(首) 首.scrollIntoView({block:"center"});
+}
+
+async function 手册搜(){
+  const 词 = (document.getElementById("手册搜框").value || "").trim();
+  const 框 = document.getElementById("手册搜结果");
+  if(!词){ 框.style.display = "none"; return; }
+  const j = await 调("手册.搜", {"词":词}, true);
+  框.style.display = "block";
+  if(!j.ok){
+    框.innerHTML = "<div class='小字' style='padding:8px;color:#c53030'>搜索失败：" + 转义(j.说明 || "") + "</div>";
+    return;
+  }
+  const 命中 = (j.数据 && j.数据.命中) || [];
+  if(!命中.length){
+    框.innerHTML = "<div class='小字' style='padding:8px'>「" + 转义(词) + "」没有命中</div>";
+    return;
+  }
+  框.innerHTML = "<div class='小字' style='padding:6px 8px'>「" + 转义(词) + "」命中 " + 命中.length +
+    " 条（点一条跳过去）</div>" + 命中.map(h =>
+      "<div class='手册搜条' onclick=\"手册跳('" + 转义(h.页) + "'," + (h.行 || 0) + ")\">" +
+      "<b>" + 转义(h.页) + "</b> <span class='小字'>第 " + (h.行 || 0) + " 行</span><br>" +
+      转义(h.片段) + "</div>").join("");
+}
+
+async function 手册跳(页, 行){
+  手册高亮 = (document.getElementById("手册搜框").value || "").trim();
+  await 开手册页(页, 行);
+  document.getElementById("手册搜结果").style.display = "none";
+}
+
+/* 「我卡住了」＝一键直达故障速查；04 页不在就按标题含\"故障/速查\"退，再退第一页 */
+function 我卡住了(){
+  const 框 = document.getElementById("手册搜框");
+  框.focus(); 框.select();
+  let 页 = "04_故障速查";
+  if(手册页们.length && !手册页们.some(p => p.页 === 页)){
+    const 替 = 手册页们.filter(p => /故障|速查/.test((p.标题 || "") + (p.页 || "")))[0] || 手册页们[0];
+    页 = 替.页;
+  }
+  手册高亮 = "";
+  开手册页(页);
+}
+
+async function 手册新建(){
+  const 标题 = prompt("新页标题（会自动编号）：", "");
+  if(!标题) return;
+  const j = await 调("手册.新建", {"标题":标题.trim()});
+  if(j.ok){ 当前页 = ""; 拉手册目录(); }
+}
+
+async function 手册追加(){
+  if(!当前页){ 吐司("先在左边选一页，再追加"); return; }
+  const 话 = prompt("往「" + 当前页 + "」追加一条（自动加时间前缀）：", "");
+  if(!话) return;
+  const j = await 调("手册.追加", {"页":当前页, "话":话.trim()});
+  if(j.ok){ 手册高亮 = ""; 开手册页(当前页); }
+}
+
 document.querySelectorAll("#页签 button").forEach(btn=>{
   btn.onclick = ()=>{
     document.querySelectorAll("#页签 button").forEach(b=>b.classList.remove("on"));
@@ -542,14 +900,21 @@ document.querySelectorAll("#页签 button").forEach(btn=>{
     btn.classList.add("on");
     document.getElementById(btn.dataset.p).classList.add("on");
     if(btn.dataset.p === "p4") 拉原话();
+    if(btn.dataset.p === "p5") 拉手册目录();
   };
 });
 
 读设置();
-document.getElementById("地址").value = 设置.地址;
-document.getElementById("令牌").value = 设置.令牌;
-拉状态(true);
-setInterval(拉状态, 2000);
+document.getElementById("登录版本").textContent = "v" + H5_VER;
+document.getElementById("设置版本").textContent = "v" + H5_VER;
+document.getElementById("当前地址").textContent = 设置.地址;
+const 记着的 = (设置.频道 || "");
+if(记着的 && 记着的.indexOf(H5_前缀) === 0){
+  document.getElementById("频道输入").value = 记着的.slice(H5_前缀.length);
+  登录提示("黄", "正在用记住的频道进入…");
+  连频道(记着的);
+}
+setInterval(()=>{ if(频道) 拉状态(false); }, 2000);
 </script>
 </body>
 </html>
