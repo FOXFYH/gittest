@@ -98,12 +98,12 @@ function foxAskCards(txt, out){
    公司 (@fox-co1)…(@fox-co2)。网页端把三段合成**一张折叠小卡片**：平时只显示一排
    小标签（系统 ▸ / 用户 ▸ / 公司 ▸），点一个标签就展开该段内容、再点收起。
    2.107：三段各自按与语音卡/提问卡相同的收尾判定摘取（标记名不同，互不干扰）。 */
-const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1'];
+const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1', '(@fox-ai1'];
 /* 卡片开合状态 + 内容登记：快照每秒重画，开合要撑过重画 → 记在模块级表里（键＝三段内容指纹） */
 const _fh_state = {};      /* key -> {open:bool, which:'sys'|'usr'|'co'|''} */
-const _fh_data = {};       /* key -> {sys,usr,co} */
+const _fh_data = {};       /* key -> {sys,usr,co,ai} */
 function foxHintKey(hz){
-  return (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001' + (hz.co || '');
+  return (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001' + (hz.co || '') + '\u0001' + (hz.ai || '');
 }
 function foxHintCards(txt, out){
   const s0 = String(txt || '');
@@ -112,7 +112,7 @@ function foxHintCards(txt, out){
   if (idx < 0) return s0;                       /* 无头标 → 原样（不误伤别的标记） */
   const head = s0.slice(0, idx);
   let t = s0.slice(idx);
-  const segs = {sys: [], usr: [], co: []};
+  const segs = {sys: [], usr: [], co: [], ai: []};
   let unclosed = false;
   const grab = (re, key) => {
     const r = _foxScanCards(t, re, seg => { segs[key].push(seg); return ''; });
@@ -122,12 +122,14 @@ function foxHintCards(txt, out){
   grab(/\(@fox-sys1\s*\)/g, 'sys');
   grab(/\(@fox-usr1\s*\)/g, 'usr');
   grab(/\(@fox-co1\s*\)/g, 'co');
+  grab(/\(@fox-ai1\s*\)/g, 'ai');
   const hz = {sys: segs.sys.length ? segs.sys[segs.sys.length - 1] : '',
               usr: segs.usr.length ? segs.usr[segs.usr.length - 1] : '',
-              co:  segs.co.length  ? segs.co[segs.co.length - 1]  : ''};
-  if (unclosed && !hz.sys && !hz.usr && !hz.co)
+              co:  segs.co.length  ? segs.co[segs.co.length - 1]  : '',
+              ai:  segs.ai.length  ? segs.ai[segs.ai.length - 1]  : ''};
+  if (unclosed && !hz.sys && !hz.usr && !hz.co && !hz.ai)
     foxClosedWarn('hint', '(@fox-sys1/@fox-usr1/@fox-co1)', '(@f / 空行');
-  if (!hz.sys && !hz.usr && !hz.co) return s0;  /* 只有残标、无有效内容 → 原样 */
+  if (!hz.sys && !hz.usr && !hz.co && !hz.ai) return s0;  /* 只有残标、无有效内容 → 原样 */
   out.push(hz);
   const h = head.replace(/\s+$/, '');
   return (h ? h + '\n' : '') + '@@FHC' + (out.length - 1) + '@@';
@@ -136,7 +138,7 @@ function foxHintHtml(hz){
   const key = foxHintKey(hz);
   _fh_data[key] = hz;
   const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
-  const defs = [['系统', 'sys'], ['用户', 'usr'], ['公司', 'co']];
+  const defs = [['系统', 'sys'], ['自定', 'usr'], ['人定', 'co'], ['岗位', 'ai']];
   let tabs = '';
   defs.forEach(function(d){
     const k = d[1], label = d[0];
@@ -148,7 +150,7 @@ function foxHintHtml(hz){
   if (!tabs) return '';
   let pane = '';
   if (st.open && st.which && hz[st.which]){
-    const names = {sys: '系统', usr: '用户', co: '公司'};
+    const names = {sys: '系统', usr: '自定', co: '人定', ai: '岗位'};
     pane = '<div class="fhpane"><div class="fhtitle">' + names[st.which]
          + '专属提示词</div><div class="fhbody">' + esc(hz[st.which]) + '</div></div>';
   }
@@ -186,8 +188,9 @@ function stripHintMarks(txt){
   s = _foxScanCards(s, /\(@fox-sys1\s*\)/g, () => '').text;
   s = _foxScanCards(s, /\(@fox-usr1\s*\)/g, () => '').text;
   s = _foxScanCards(s, /\(@fox-co1\s*\)/g, () => '').text;
+  s = _foxScanCards(s, /\(@fox-ai1\s*\)/g, () => '').text;
   return s
-    .replace(/\(@fox-(?:sys|usr|co)\d?\s*\)/g, '')
+    .replace(/\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
 }
 /* 2.118（老板 2026-10-22 09:37/09:38）：「这里有不少卡片有提供一个复制按钮…复制都要剥离
