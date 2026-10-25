@@ -210,8 +210,9 @@
   <section id="p2">
     <div class="条">
       <div class="wrap"><button class="btn" onclick="刷新员工()">刷新</button><span class="cmd">员工.列表</span></div>
-      <span class="小字">数据源：聊天账本 msgs 按 title 取 max(tm)；&lt;180s 绿 / 180~900s 灰 / &gt;900s 黄</span>
+      <span class="小字">人员全集＝员工名册.json（含「未开」），账本只补最后活动/距今秒/今日消息；&lt;180s 绿 / 180~900s 灰 / &gt;900s 黄</span>
     </div>
+    <div class="banner" id="员工横幅" style="display:none"></div>
     <div class="panel" style="padding:0;overflow:auto">
       <table id="员工表">
         <thead><tr><th>终身号</th><th>会话名</th><th>灯</th><th class="hide-m">最后活动</th>
@@ -315,7 +316,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.4.2";
+const H5_VER  = "0.4.3";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -611,6 +612,12 @@ function 画全部(){
 function 画员工(){
   const tb = document.querySelector("#员工表 tbody");
   const 员工 = (状态 && 状态.员工) || [];
+  const 错 = (状态 && 状态.员工错误) || "";
+  const 横 = document.getElementById("员工横幅");
+  if(横){
+    if(错){ 横.textContent = "员工数据读不到：" + 错; 横.className = "banner bad"; 横.style.display = ""; }
+    else { 横.style.display = "none"; }
+  }
   tb.innerHTML = 员工.map(人=>{
     const 号 = 人.终身号 || "-";
     const 操作 = 人.终身号
@@ -620,7 +627,8 @@ function 画员工(){
       "<td class='hide-m'>"+转义(人.最后活动)+"</td><td>"+转义(人.距今秒)+"</td>"+
       "<td class='hide-m'>"+转义(人.今日消息数)+"</td><td class='hide-m'>"+转义((人.手上任务||[]).join(",")||"—")+"</td>"+
       "<td>"+操作+"</td></tr>";
-  }).join("") || "<tr><td colspan='8' class='小字'>没有员工数据（账本为空或未配置）</td></tr>";
+  }).join("") || ("<tr><td colspan='8' class='小字'>没有员工数据" +
+    (错 ? "（" + 转义(错) + "）" : "（名册为空且账本无可推数据）") + "</td></tr>");
 }
 function 刷新员工(){ 调("员工.列表", {}, true); }
 function 催办(号){
