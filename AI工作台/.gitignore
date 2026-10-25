@@ -1,0 +1,37 @@
+# ---- 运行时数据（只在本机，永不进仓库）----
+状态.json
+任务卡.json
+原话备注.json
+员工名册.json
+配置.json
+动作队列.jsonl
+动作结果.jsonl
+遥控令牌.txt
+
+# ---- 日志与临时 ----
+*.log
+*.tmp
+_tmp_*
+日志/
+备份/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# 内部作战文档：不进公开仓库
+设计_v*.md
+员工名册*
+自测报告*
+验收报告*
+回执*
+_tmp_*
+手册/
