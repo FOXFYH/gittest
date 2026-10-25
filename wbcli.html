@@ -3290,13 +3290,65 @@ function punchPend(){
       S.pending.filter(p => p && p.kind !== 'switch')));
   } catch(e){}
 }
+/* 2.17 P26-3：撤卡墓碑（两档）——
+   ① LS_PEND_Q：进我方托管排队条即撤卡时记「排队中」，挡住 pend 广播/待发箱恢复
+      中途复活；排队条放行（queued stage='sent'）时**删除本标记**，并用原 rid 重挂
+      「发射中/待落地」卡（必须能突破墓碑，否则「发射时重新挂卡」做不到）。
+   ② LS_PEND_GONE：落地（acks 命中）后记「已送达」，此后同一 rid 全程不再建卡。
+   读取时清过期（TTL 2 小时）；失败态 rid 两档都不记（失败卡要留着让用户重发）。 */
+const LS_PEND_GONE = 'wb_cli_pend_gone';
+const LS_PEND_Q = 'wb_cli_pend_q';
+const PEND_GONE_TTL = 2 * 3600 * 1000;
+function pendMarkLoad(key){
+  try {
+    const o = JSON.parse(localStorage.getItem(key) || '{}') || {};
+    const now = Date.now();
+    const keep = {};
+    let dirty = false;
+    Object.keys(o).forEach(k => {
+      const ts = Number(o[k]) || 0;
+      if (ts && now - ts < PEND_GONE_TTL) keep[k] = ts;
+      else dirty = true;
+    });
+    if (dirty) localStorage.setItem(key, JSON.stringify(keep));
+    return keep;
+  } catch(e){ return {}; }
+}
+function pendMarkHas(key, rid){
+  if (!rid) return false;
+  return !!pendMarkLoad(key)[String(rid)];
+}
+function pendMarkAdd(key, rid){
+  if (!rid) return;
+  try {
+    const o = pendMarkLoad(key);
+    o[String(rid)] = Date.now();
+    localStorage.setItem(key, JSON.stringify(o));
+  } catch(e){}
+}
+function pendMarkDel(key, rid){
+  if (!rid) return;
+  try {
+    const o = pendMarkLoad(key);
+    if (!(String(rid) in o)) return;
+    delete o[String(rid)];
+    localStorage.setItem(key, JSON.stringify(o));
+  } catch(e){}
+}
+function pendGoneHas(rid){ return pendMarkHas(LS_PEND_GONE, rid); }
+function pendQHas(rid){ return pendMarkHas(LS_PEND_Q, rid); }
 function pendRestore(){
   try {
     const arr = JSON.parse(localStorage.getItem(LS_PEND) || '[]');
     if (!Array.isArray(arr) || !arr.length) return;
     const now = Date.now();
+    const gone = pendMarkLoad(LS_PEND_GONE);
+    const q = pendMarkLoad(LS_PEND_Q);
     arr.forEach(p => {
       if (!p || !p.text) return;
+      /* 2.17 P26-3：已撤 rid（排队中/已送达）绝不复活；失败卡除外（失败要留卡） */
+      if (p.state !== 'fail' && p.rid
+          && (gone[String(p.rid)] || q[String(p.rid)])) return;
       S.pend_seq++;
       const np = {
         id: S.pend_seq, rid: p.rid || rid10(), kind: p.kind || 'send',
@@ -3337,6 +3389,9 @@ function fmtPts(v){
 
 function pendAdd(kind, text, rid, convSid){
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
+  /* 2.17 P26-3：该 rid 已撤（排队中/已送达）→ 任何 pend/queued 广播都不得重建。
+     例外：放行重建前会先显式删标记（见 case 'queued' stage='sent'）。 */
+  if (rid && (pendGoneHas(rid) || pendQHas(rid))) return null;
   const same = S.pending.find(p => p.text === text);
   if (same) return same;               // 同文本已在册（服务端 pend 回显）
   S.pend_seq++;
@@ -3392,6 +3447,8 @@ function pendStat(p){
                                     + '/' + WS_RETRY_MAX + '）', 'bad'];
   if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
   if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
+  /* 2.17 P26-3：排队条放行后用原 rid 重挂的「发射中/待落地」卡 */
+  if (p.state === 'launching') return ['发射中，等待落地…', 'ok'];
   /* 2.16：⚡立即发送失败——服务端明说这条没送达，红字如实告知（失败优先） */
   if (p.state === 'fail')    return ['未送达，请重发或重试', 'bad'];
   /* 1.32：超时（默认 30 秒）仍未确认才标「未确认」，此时给出
@@ -3488,13 +3545,16 @@ function renderPending(){
    比对」 + 「包含匹配」兜底，以及配套的认领表状态）——用户 09-29 定：文本格式 /
    掐头去尾常导致误判，改为**只认随机 ID**。撤卡逻辑见下方 pendReconcile。 */
 
-/* 1.80：撤占位卡——口径改为「**这条在网页上看得见了就撤**」，两个完成点任一命中：
-     ① 该 rid 出现在快照 queue 里 → 这条已画进「⏳ 托管排队条」（renderQueue 与撤卡
-        同帧重画，且排队条无条件列出全部条目）＝用户已看得见；
-     ② 该 rid 命中本拍**带正文 msgs** 的快照 acks → 已落进对话记录并画进气泡。
+/* 1.80 / 2.17 P26-3：撤占位卡——口径「**这条在网页上看得见了就撤**」，判据：
+     ① rid 出现在快照 queue 的 item.id 里 → 这条已画进「⏳ 托管排队条」
+        （队列条目 id 就是网页 rid：cmd_send 入队沿用 rid，见 send_queue 1.63）；
+        撤卡同时记「排队中」墓碑，挡住 pend 广播/待发箱恢复中途复活；
+     ② rid 命中本拍**带正文 msgs** 的快照 acks → 已落进对话记录并画进气泡，
+        此时才写「已送达」永久墓碑（此后同一 rid 全程不再建卡）；
+     ③ rid 已在「已送达」墓碑里 → 任何残卡一律撤掉（兜底）。
    1.78 的教训仍要守住：**没 msgs 的骨架快照一律不撤**（那只是服务端重放框架，
    web 侧拿上一拍旧正文兜底，此时撤卡＝「卡先没了、消息还没画出来」的空档）；
-   1.79 前把「进队列」也一并冻结是过头了——排队条本身就是显示，故 1.80 恢复为撤。
+   1.80 前把「进队列」也一并冻结是过头了——排队条本身就是显示，故 1.80 恢复为撤。
    仍保留 30 秒兜底：始终无任何回执（且非 queued/wsretry）才标「未确认」。
    返回 true 表示待确认集有变化需重画。 */
 function pendReconcile(msgs, hasMsgs){
@@ -3504,6 +3564,7 @@ function pendReconcile(msgs, hasMsgs){
   const qids = new Set(((S.snap && S.snap.queue) || [])
                        .map(it => it && it.id).filter(Boolean).map(String));
   const now = Date.now();
+  const gone = pendMarkLoad(LS_PEND_GONE);   /* 2.17 P26-3：已送达墓碑 */
   let changed = false;
   const keep = [];
   S.pending.forEach(p => {
@@ -3514,10 +3575,23 @@ function pendReconcile(msgs, hasMsgs){
     const r = p.rid ? String(p.rid) : '';
     /* 2.16：失败态优先——「未送达」卡只认**本 rid 后续 acks 命中**（见下一条），
        迟到的队列/旧快照不得把它撤掉或转回正常。 */
-    /* 1.80：已进「⏳ 托管排队条」＝这条已在网页上显示（排队条与撤卡同帧重画）→ 撤卡 */
-    if (r && qids.has(r) && p.state !== 'fail'){ changed = true; return; }
-    /* 1.78：已落地 + 本拍带正文 → 与画进对话气泡同一帧撤卡，绝不留空档 */
-    if (hasMsgs && r && ackSet.has(r)){ changed = true; return; }
+    /* 2.17 P26-3 判据③：该 rid 已落地（永久墓碑）→ 残卡一律撤掉 */
+    if (r && gone[r] && p.state !== 'fail'){
+      pendMarkDel(LS_PEND_Q, r);
+      changed = true; return;
+    }
+    /* 1.78 判据②：已落地 + 本拍带正文 → 与画进对话气泡同一帧撤卡；此时写永久墓碑 */
+    if (hasMsgs && r && ackSet.has(r) && p.state !== 'fail'){
+      pendMarkAdd(LS_PEND_GONE, r); pendMarkDel(LS_PEND_Q, r);
+      changed = true; return;
+    }
+    /* 1.80 判据①：已进「⏳ 托管排队条」= rid 出现在快照 queue 的 item.id 里
+       → 用户已看得见 → 撤卡，并记「排队中」墓碑（放行时删除并重建）。 */
+    /* 注意 launching 例外：刚放行、快照队列可能还残留一拍，不能把发射卡又撤了 */
+    if (r && qids.has(r) && p.state !== 'fail' && p.state !== 'launching'){
+      pendMarkAdd(LS_PEND_Q, r);
+      changed = true; return;
+    }
     /* 1.32：发送确认超时——占位挂够 S.pend_send（默认 30 秒）仍无任何回执
        才判「未确认」，给出改写/丢弃/重发。
        1.62：`queued`=已挂入托管队列（服务端已确认收到），AI 忙多久都正常，
@@ -3529,7 +3603,12 @@ function pendReconcile(msgs, hasMsgs){
     }
     keep.push(p);
   });
-  if (changed) S.pending = keep;
+  if (changed){
+    S.pending = keep;
+    /* 2.17 P26-3：撤卡后立刻落盘，不等下一次 renderPending——
+       否则切后台/刷新时 localStorage 里还留着，整张卡会复活。 */
+    punchPend();
+  }
   return changed;
 }
 
@@ -4646,6 +4725,12 @@ const APP_NAME = 'wb远程';
 const VER = '2.17';   /* 2.17（2026-10-25）：撤回「广播与采集」网页分页——老板定：广播与采集
    是电脑版（服务端 GUI）的功能，网页端不许挂（P24 误加的两处 HTML + 一段顶层 JS 已整块删除；
    那段 JS 引用未定义的 el.bcast，一加载就抛错，6700 行之后的初始化全不执行，聊天直接废）。
+   2.17（P26-3，2026-10-25）：排队条与占位卡分离——消息进我方托管队列
+   （快照 queue 的 item.id 命中 rid / queued stage='wait'）即撤占位卡并立刻落盘；
+   排队条放行（queued stage='sent'）用**原 rid** 重挂「发射中/待落地」卡，落地
+   （acks 命中）再撤；wb_cli_pend_q（排队中）/ wb_cli_pend_gone（已送达）双墓碑
+   TTL 2h，pendRestore 与 pend 广播一律跳过，失败红卡保留且不记墓碑。
+   （VER 数值由收口块统一维护，本块未改。）
    2.16（2026-10-25）：⚡立即发送失败——占位卡不撤，转「未送达」
    失败态（整卡变红、原文可复制、一键重发）；同一 rid 的 acks 命中前失败态优先，
    不被队列/其它卡的旧回执误撤。新增网页可见回执（路径①）：本端带 rid 的消息真
@@ -5482,14 +5567,43 @@ function onEv(kind, v){
       const qstage = (v && v.stage) || 'wait';
       const qrid = (v && v.rid) || '';
       /* 1.63：优先按 rid 定位占位卡（只认 ID）；老服务端无 rid 退回按文本。 */
-      const qp = S.pending.find(x => (qrid ? x.rid === qrid
-                                           : (!qt || x.text === qt))
-                                     && x.state !== 'timeout');
-      if (qp && qp.state !== 'fail') qp.state = (qstage === 'sent') ? 'sent' : 'queued';
-      /* 1.73：建卡必须有 rid——能撤的卡才建；无 rid 的 queued（对端/AI 来件）
-         一律不冒名建「我方待确认卡」，否则本地随机 rid 永远撤不掉、卡永驻。 */
-      if (qstage === 'wait' && qt && qrid
-          && !S.pending.some(x => x.text === qt)) pendAdd('send', qt, qrid);
+      const qp = S.pending.find(x => (qrid ? String(x.rid || '') === String(qrid)
+                                           : (!qt || x.text === qt)));
+      if (qstage === 'sent'){
+        /* 2.17 P26-3：排队条放行 → 用**原 rid** 重挂「发射中/待落地」卡。
+           放行必须能突破墓碑：先删「排队中」标记，再删「已送达」兜底标记。 */
+        if (qrid){
+          pendMarkDel(LS_PEND_Q, qrid);
+          pendMarkDel(LS_PEND_GONE, qrid);
+          /* 队列里存的是注入专属提示词后的全文；重建卡只显示原正文 */
+          const qraw = stripHintMarks(qt);
+          let rp = S.pending.find(x => String(x.rid || '') === String(qrid));
+          if (!rp && qraw && !S.pending.some(x => x.text === qraw))
+            rp = pendAdd('send', qraw, qrid);
+          if (rp && rp.state !== 'fail'){
+            rp.state = 'launching';
+            rp.ts = Date.now();
+            S.msgs_key = null;
+            punchPend();
+          }
+        }
+      } else {
+        if (qp && qp.state !== 'fail') qp.state = 'queued';
+        /* 2.17 P26-3：已进我方托管队列（stage='wait'）→ 排队条即接管显示，
+           占位卡立刻撤下并记「排队中」墓碑；撤完立刻落盘，刷新不复活。 */
+        if (qstage === 'wait' && qp && qp.state !== 'fail'){
+          S.pending = S.pending.filter(x => x !== qp);
+          if (qrid) pendMarkAdd(LS_PEND_Q, qrid);
+          punchPend();
+          S.msgs_key = null;
+        }
+        /* 1.73：建卡必须有 rid——能撤的卡才建；无 rid 的 queued（对端/AI 来件）
+           一律不冒名建「我方待确认卡」，否则本地随机 rid 永远撤不掉、卡永驻。
+           2.17 P26-3：本次事件已撤过卡（qp 命中）就绝不重建；墓碑命中也跳过。 */
+        if (qstage === 'wait' && qt && qrid && !qp
+            && !pendGoneHas(qrid) && !pendQHas(qrid)
+            && !S.pending.some(x => x.text === qt)) pendAdd('send', qt, qrid);
+      }
       flash(qstage === 'sent' ? '▶ 托管队列已放行发出 1 条'
                               : '🕘 已挂入托管队列（服务端已确认收到）',
             qstage === 'sent' ? 'var(--green)' : 'var(--orange)');
@@ -5553,6 +5667,8 @@ function onEv(kind, v){
                            : (fo.rid || fo.id || '')) || '');
       const fsid = String((fo.conv || fo.sid || '') || '');
       const freason = String(fo['原因'] || fo.reason || '') || '';
+      /* 2.17 P26-3：失败要留卡——失败 rid 两档墓碑都删掉，绝不让墓碑误伤红卡 */
+      if (frid){ pendMarkDel(LS_PEND_GONE, frid); pendMarkDel(LS_PEND_Q, frid); }
       let fp = frid ? S.pending.find(x => String(x.rid || '') === frid) : null;
       /* 卡可能已被旧逻辑提前撤掉 —— 用本端 rid 登记里的原文把失败卡补回来 */
       if (!fp && frid && S.outRid[frid] && S.outRid[frid].text){
@@ -5588,8 +5704,10 @@ function onEv(kind, v){
         renderAll();
         break;
       }
-      /* 1.73：同上——无 rid 的 pend（别端/AI 受理广播）不建「我方占位卡」 */
-      if (pt && pr && !S.pending.some(x => x.text === pt)){
+      /* 1.73：同上——无 rid 的 pend（别端/AI 受理广播）不建「我方占位卡」。
+         2.17 P26-3：该 rid 已撤（排队中/已送达）就不重建，墓碑优先。 */
+      if (pt && pr && !pendGoneHas(pr) && !pendQHas(pr)
+          && !S.pending.some(x => x.text === pt)){
         pendAdd(pk, pt, pr);
         renderAll();
       }
