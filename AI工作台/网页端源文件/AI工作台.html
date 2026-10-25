@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>总管面板</title>
+<style>
+  :root{
+    --bg:#eef1f5; --card:#fff; --ink:#111827; --dim:#6b7280; --line:#e3e6ea;
+    --绿:#1f9d55; --黄:#c9a227; --红:#c53030; --灰:#8a8f98; --蓝:#2563eb; --紫:#7c3aed;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:"Microsoft YaHei","PingFang SC","Helvetica Neue",Arial,sans-serif;}
+  header{background:#1f2937;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px;
+    flex-wrap:wrap;position:sticky;top:0;z-index:20}
+  header .灯{font-size:20px;line-height:1}
+  header h1{font-size:15px;margin:0;font-weight:700;white-space:nowrap}
+  header .横幅{flex:1;min-width:180px;font-size:12px;color:#fde68a;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap}
+  header .小结{font-size:12px;background:#374151;padding:4px 10px;border-radius:4px;white-space:nowrap}
+  nav{display:flex;gap:2px;overflow-x:auto;background:#111827;padding:0 8px;position:sticky;top:46px;z-index:19}
+  nav button{background:transparent;border:0;color:#9ca3af;padding:10px 14px;font-size:13px;cursor:pointer;
+    white-space:nowrap;border-bottom:2px solid transparent}
+  nav button.on{color:#fff;border-bottom-color:#60a5fa}
+  main{padding:10px;max-width:1500px;margin:0 auto}
+  section{display:none}
+  section.on{display:block}
+  .条{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  .btn{background:var(--蓝);color:#fff;border:0;border-radius:5px;padding:6px 12px;cursor:pointer;
+    font-size:12px;line-height:1.2}
+  .btn.g{background:var(--绿)} .btn.p{background:var(--紫)} .btn.d{background:var(--灰)}
+  .btn.o{background:#c2410c}
+  .cmd{display:block;font-size:8px;color:#9aa0a6;margin-top:2px;font-family:Consolas,monospace}
+  .wrap{position:relative;display:inline-block}
+  .wrap .cmd{text-align:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin:8px 0}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px}
+  .kpi b{display:block;font-size:10px;color:var(--dim);font-weight:400;margin-bottom:4px}
+  .kpi span{font-size:19px;font-weight:700}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{border-bottom:1px solid var(--line);padding:6px;text-align:left;vertical-align:top}
+  th{background:#f9fafb;color:var(--dim);font-weight:400;position:sticky;top:0}
+  tr.红 td:first-child{border-left:3px solid var(--红)}
+  tr.黄 td:first-child{border-left:3px solid var(--黄)}
+  tr.绿 td:first-child{border-left:3px solid var(--绿)}
+  tr.灰 td:first-child{border-left:3px solid var(--灰)}
+  .泳道{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;align-items:flex-start}
+  .lane{min-width:230px;flex:1 0 230px;background:transparent}
+  .lane h3{font-size:12px;margin:0 0 6px;color:var(--dim);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:6px;margin-bottom:8px;
+    overflow:hidden;cursor:pointer}
+  .card:hover{border-color:#93c5fd}
+  .card .bar{height:3px}
+  .card .in{padding:7px 9px}
+  .card .t{font-size:12.5px;line-height:1.35;max-height:2.8em;overflow:hidden;display:block}
+  .card .m{font-size:10px;color:var(--dim);margin-top:4px}
+  .card .id{font-family:Consolas,monospace;font-size:11px;font-weight:700}
+  .抽屉{position:fixed;right:0;top:0;bottom:0;width:360px;max-width:92vw;background:#fff;
+    border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,.12);padding:14px;
+    overflow-y:auto;transform:translateX(105%);transition:transform .18s;z-index:40}
+  .抽屉.on{transform:none}
+  .抽屉 h2{font-size:14px;margin:0 0 6px}
+  .抽屉 .x{position:absolute;right:10px;top:10px;border:0;background:#e5e7eb;border-radius:4px;
+    padding:2px 8px;cursor:pointer}
+  .mini{background:#e5e7eb;border:0;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;
+    margin:2px 2px 2px 0}
+  .mini.o{background:var(--蓝);color:#fff}
+  .hist,.evi{background:#f9fafb;border-radius:4px;padding:6px;font-size:10.5px;color:#374151;
+    white-space:pre-wrap;max-height:130px;overflow:auto;font-family:Consolas,monospace}
+  .mask{position:fixed;inset:0;background:rgba(17,24,39,.45);display:none;z-index:35}
+  .mask.on{display:block}
+  .modal{position:fixed;left:50%;top:14%;transform:translateX(-50%);background:#fff;border-radius:8px;
+    padding:16px;width:520px;max-width:94vw;z-index:50;display:none;max-height:70vh;overflow:auto}
+  .modal.on{display:block}
+  .modal h3{margin:0 0 10px;font-size:14px}
+  .modal input,.modal textarea,.modal select{width:100%;padding:7px;border:1px solid var(--line);
+    border-radius:5px;font-size:12px;margin-bottom:8px;font-family:inherit}
+  .modal textarea{min-height:80px}
+  .banner{background:var(--绿);color:#fff;padding:9px 12px;border-radius:6px;font-size:13px;
+    font-weight:600;margin-bottom:8px}
+  .banner.bad{background:var(--红)}
+  .小字{font-size:10px;color:var(--dim)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;color:#fff;
+    padding:9px 16px;border-radius:20px;font-size:12px;z-index:60;opacity:0;transition:opacity .2s;
+    pointer-events:none}
+  .toast.on{opacity:1}
+  @media (max-width:720px){
+    header h1{font-size:13px}
+    header .横幅{order:9;flex-basis:100%;white-space:normal}
+    nav{top:64px}
+    nav button{padding:9px 10px;font-size:12px}
+    main{padding:8px}
+    .泳道{flex-direction:row;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .lane{min-width:78vw;flex:0 0 78vw}
+    table{font-size:11px}
+    th,td{padding:4px}
+    .抽屉{width:100%;max-width:100%}
+    .hide-m{display:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="灯" id="总灯">●</div>
+  <h1>总管面板</h1>
+  <div class="横幅" id="横幅">正在连本机…</div>
+  <div class="小结" id="小结">未完成 — / 已完成 —</div>
+  <div class="小结" id="连状态" style="cursor:pointer" title="点这里填令牌/本机地址">未连接本机</div>
+</header>
+
+<nav id="页签">
+  <button data-p="p1" class="on">P1 TRAE 面板</button>
+  <button data-p="p2">P2 员工总览</button>
+  <button data-p="p3">P3 任务面板</button>
+  <button data-p="p4">P4 人类原话</button>
+  <button data-p="p5">P5 服务健康</button>
+  <button data-p="p6">P6 频道与用量</button>
+  <button data-p="p7">P7 设置与审计</button>
+</nav>
+
+<main>
+  <!-- ================= P1 ================= -->
+  <section id="p1" class="on">
+    <div class="条">
+      <div class="wrap"><button class="btn" onclick="调('trae.重采集')">立即重采</button><span class="cmd">trae.重采集</span></div>
+      <div class="wrap"><button class="btn g" onclick="跑自检()">自检</button><span class="cmd">系统.自检</span></div>
+      <div class="wrap"><button class="btn p" onclick="跑对齐()">对齐自检</button><span class="cmd">系统.对齐自检</span></div>
+      <span class="小字">只观测，绝不杀/不重启</span>
+    </div>
+    <div class="grid" id="p1格"></div>
+    <div class="panel">
+      <div class="小字">进程明细（pid @ 启动时刻）</div>
+      <div class="evi" id="进程明细">—</div>
+    </div>
+  </section>
+
+  <!-- ================= P2 ================= -->
+  <section id="p2">
+    <div class="条">
+      <div class="wrap"><button class="btn" onclick="刷新员工()">刷新</button><span class="cmd">员工.列表</span></div>
+      <span class="小字">数据源：聊天账本 msgs 按 title 取 max(tm)；&lt;180s 绿 / 180~900s 灰 / &gt;900s 黄</span>
+    </div>
+    <div class="panel" style="padding:0;overflow:auto">
+      <table id="员工表">
+        <thead><tr><th>终身号</th><th>会话名</th><th>灯</th><th class="hide-m">最后活动</th>
+          <th>距今秒</th><th class="hide-m">今日消息</th><th class="hide-m">手上任务</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= P3 ================= -->
+  <section id="p3">
+    <div class="条">
+      <div class="wrap"><button class="btn" onclick="弹建卡()">＋ 新任务</button><span class="cmd">任务.建卡</span></div>
+      <span class="小字" id="任务汇总">未完成 0 / 已完成 0</span>
+    </div>
+    <div class="泳道" id="泳道"></div>
+  </section>
+
+  <!-- ================= P4 ================= -->
+  <section id="p4">
+    <div class="banner" id="原话横幅">载入中…</div>
+    <div class="条">
+      <select id="筛选" onchange="画原话()">
+        <option>全部</option><option>只看未派</option><option>只看未落实</option><option>只看已验收</option>
+      </select>
+      <input id="搜索" placeholder="搜原话/备注，回车" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:200px" onkeydown="if(event.key==='Enter')画原话()">
+      <div class="wrap"><button class="btn g" onclick="原话操作('原话.备注')">补备注</button><span class="cmd">原话.备注</span></div>
+      <div class="wrap"><button class="btn" onclick="原话操作('原话.建卡')">建卡</button><span class="cmd">原话.建卡</span></div>
+      <div class="wrap"><button class="btn p" onclick="原话操作('原话.关联卡')">关联卡</button><span class="cmd">原话.关联卡</span></div>
+      <span class="小字">点行选中；未派=红，有派无卡=黄</span>
+    </div>
+    <div class="panel" style="padding:0;overflow:auto;max-height:66vh">
+      <table id="原话表">
+        <thead><tr><th>#</th><th>时刻</th><th>原话</th><th class="hide-m">备注</th><th>落实成</th>
+          <th class="hide-m">状态</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="p5"><div class="panel">P5 服务健康 —— 未实现（v0.1 不做）</div></section>
+  <section id="p6"><div class="panel">P6 频道与用量 —— 未实现（v0.1 不做）</div></section>
+  <section id="p7">
+    <div class="panel">
+      <h3 style="margin:0 0 8px;font-size:13px">设置（本机地址 / 令牌）</h3>
+      <label class="小字">本机地址（github.io 打开时填本机隧道/频道地址）</label>
+      <input id="地址" style="width:100%;padding:7px;border:1px solid var(--line);border-radius:5px;margin:4px 0 10px">
+      <label class="小字">遥控令牌（Authorization: Bearer）</label>
+      <input id="令牌" type="password" style="width:100%;padding:7px;border:1px solid var(--line);border-radius:5px;margin:4px 0 10px">
+      <button class="btn" onclick="存设置()">保存并重连</button>
+      <div class="小字" style="margin-top:10px">页面本身是静态的，数据全部来自本机 Py 服务；连不上时只显示骨架。</div>
+    </div>
+    <div class="panel" style="margin-top:10px"><div class="小字">动作日志（系统.日志）</div>
+      <div class="wrap"><button class="btn d" onclick="看日志()">取 30 行</button><span class="cmd">系统.日志</span></div>
+      <div class="evi" id="日志框">—</div>
+    </div>
+  </section>
+</main>
+
+<div class="mask" id="遮罩" onclick="关抽屉()"></div>
+<div class="抽屉" id="抽屉">
+  <button class="x" onclick="关抽屉()">关闭</button>
+  <h2 id="抽屉标题">任务详情</h2>
+  <div id="抽屉体"></div>
+</div>
+<div class="modal" id="弹窗"><h3 id="弹窗标题"></h3><div id="弹窗体"></div>
+  <div style="text-align:right"><button class="mini" onclick="关弹窗()">关闭</button></div></div>
+<div class="toast" id="吐司"></div>
+
+<script>
+/* ===== 网页端声明支持的命令：唯一一份，按钮绑的就是它。系统.对齐自检 会来比对 ===== */
+const 命令列表 = [
+  "trae.状态", "trae.重采集",
+  "员工.列表", "员工.催办",
+  "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档",
+  "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.统计",
+  "系统.版本", "系统.自检", "系统.对齐自检", "系统.日志"
+];
+
+let 设置 = { 地址: "", 令牌: "" };
+let 状态 = null;
+let 上次ts = 0;
+let 选中卡 = "";
+let 选中原话 = "";
+let 原话数据 = null;
+
+function 读设置(){
+  try{
+    const s = JSON.parse(localStorage.getItem("总管面板.设置")||"{}");
+    设置.地址 = s.地址 || location.origin;
+    设置.令牌 = s.令牌 || "";
+  }catch(e){ 设置.地址 = location.origin; }
+  if(/^file:/.test(设置.地址)) 设置.地址 = "http://127.0.0.1:19900";
+}
+function 存设置(){
+  设置.地址 = (document.getElementById("地址").value||"").trim().replace(/\/$/,"") || location.origin;
+  设置.令牌 = (document.getElementById("令牌").value||"").trim();
+  localStorage.setItem("总管面板.设置", JSON.stringify(设置));
+  吐司("已保存，正在重连…");
+  上次ts = 0; 拉状态(true);
+}
+function 头(){
+  const h = {"Content-Type":"application/json"};
+  if(设置.令牌) h["Authorization"] = "Bearer " + 设置.令牌;
+  return h;
+}
+function 连状态(文, 坏){
+  const el = document.getElementById("连状态");
+  el.textContent = 文;
+  el.style.background = 坏 ? "#7f1d1d" : "#374151";
+}
+async function 调(命令, 参数, 静默){
+  try{
+    const r = await fetch(设置.地址 + "/api/cmd", {
+      method:"POST", headers:头(),
+      body: JSON.stringify({命令:命令, 参数:参数||{}})
+    });
+    const j = await r.json();
+    if(!静默) 吐司((j.ok?"OK ":"失败 ") + 命令 + "：" + (j.说明||""));
+    if(!j.ok && !静默) 弹窗("命令失败 · " + 命令, "<div class='evi'>"+转义(j.说明||"")+"</div>");
+    上次ts = 0;
+    拉状态(true);
+    return j;
+  }catch(e){
+    连状态("未连接本机", true);
+    吐司("连不上本机：" + e.message);
+    return {ok:false, 说明:String(e)};
+  }
+}
+function 转义(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+async function 拉状态(强制){
+  try{
+    const r = await fetch(设置.地址 + "/api/state", {headers:头(), cache:"no-store"});
+    if(r.status === 401){ 连状态("令牌无效/未填", true); return; }
+    const j = await r.json();
+    状态 = j;
+    连状态("已连本机", false);
+    if(!强制 && j.ts_ms === 上次ts) return;
+    上次ts = j.ts_ms;
+    画全部();
+  }catch(e){
+    连状态("未连接本机（令牌未填 / 服务未起）", true);
+    if(!状态) 画骨架();
+  }
+}
+
+function 画骨架(){
+  document.getElementById("横幅").textContent = "未连接本机（令牌未填）——页面是静态的，数据来自本机 Py 服务";
+  document.getElementById("总灯").style.color = "#8a8f98";
+}
+
+const 色 = {绿:"#1f9d55", 黄:"#c9a227", 红:"#c53030", 灰:"#8a8f98"};
+
+function 画全部(){
+  if(!状态) return;
+  const t = 状态.trae || {};
+  const 灯 = 状态.总状态 || "灰";
+  document.getElementById("总灯").style.color = 色[灯] || 色.灰;
+  const 横幅 = (状态.横幅||[]).join("；") || "一切正常";
+  const b = document.getElementById("横幅");
+  b.textContent = 横幅;
+  b.style.color = (灯==="红"||灯==="黄") ? "#fecaca" : "#d1fae5";
+  const tj = (状态.任务||{}).统计 || {};
+  const 未完 = (tj.未做||0)+(tj.在做||0)+(tj.卡住||0);
+  document.getElementById("小结").textContent = "未完成 " + 未完 + " / 已完成 " + (tj.已完成||0);
+
+  const 格 = [
+    ["进程数", t.进程数], ["端口 9599", t.端口9599?"在":"不在"],
+    ["端口 19876", t.端口19876?"在":"不在"], ["服务端 pid", t.服务端pid||"—"],
+    ["服务端启动", t.服务端启动时刻||"—"], ["服务端版本", t.服务端版本||"—"],
+    ["10 分钟重启", t.服务端重启次数_10分钟], ["界面模式", t.界面模式||"未知"],
+    ["模式读取", t.模式读取方式||"—"], ["判定", t.判定||"—"],
+    ["采集耗时", (状态.采集耗时ms||0)+" ms"], ["采集时刻", (状态.ts||"").split(" ").pop()]
+  ];
+  document.getElementById("p1格").innerHTML = 格.map(([k,v])=>{
+    let c = "#111827";
+    if(k==="判定") c = 色[v]||"#111827";
+    if(k==="界面模式") c = (v==="Code")?"#1f9d55":"#c9a227";
+    return "<div class='kpi'><b>"+k+"</b><span style='color:"+c+"'>"+转义(v)+"</span></div>";
+  }).join("");
+  document.getElementById("进程明细").textContent =
+    "共 " + (t.进程数||0) + " 个\n" + (t.进程明细||[]).map(d=>d.pid+"@"+(d.起||"?")).join("  ");
+
+  画员工();
+  画任务();
+}
+
+function 画员工(){
+  const tb = document.querySelector("#员工表 tbody");
+  const 员工 = (状态 && 状态.员工) || [];
+  tb.innerHTML = 员工.map(人=>{
+    const 号 = 人.终身号 || "-";
+    const 操作 = 人.终身号
+      ? "<div class='wrap'><button class='mini o' onclick=\"催办('"+人.终身号+"')\">催办</button><span class='cmd'>员工.催办</span></div>"
+      : "<span class='小字'>—</span>";
+    return "<tr class='"+人.灯+"'><td>"+转义(号)+"</td><td>"+转义(人.会话名)+"</td><td>"+转义(人.灯)+"</td>"+
+      "<td class='hide-m'>"+转义(人.最后活动)+"</td><td>"+转义(人.距今秒)+"</td>"+
+      "<td class='hide-m'>"+转义(人.今日消息数)+"</td><td class='hide-m'>"+转义((人.手上任务||[]).join(",")||"—")+"</td>"+
+      "<td>"+操作+"</td></tr>";
+  }).join("") || "<tr><td colspan='8' class='小字'>没有员工数据（账本为空或未配置）</td></tr>";
+}
+function 刷新员工(){ 调("员工.列表", {}, true); }
+function 催办(号){
+  const 话 = prompt("给 " + 号 + " 催办说什么？", "请立刻回一行当前进度");
+  if(!话) return;
+  调("员工.催办", {"号":号, "话":话});
+}
+
+function 画任务(){
+  const 任务 = (状态 && 状态.任务) || {};
+  const 卡们 = 任务.卡 || [];
+  const 汇总 = 任务.统计 || {};
+  document.getElementById("任务汇总").textContent =
+    "未完成 " + ((汇总.未做||0)+(汇总.在做||0)+(汇总.卡住||0)) + " / 已完成 " + (汇总.已完成||0);
+  const 泳道们 = [["未做","#9ca3af"],["在做","#2563eb"],["已完成","#1f9d55"],["卡住","#c53030"]];
+  document.getElementById("泳道").innerHTML = 泳道们.map(([名,c])=>{
+    const 本列 = 卡们.filter(k=>k.状态===名);
+    const 卡html = 本列.map(k=>{
+      const 负责 = k.负责人 ? ("负责：" + k.负责人 + " " + (k.负责人名||"")) : "负责：未指派";
+      return "<div class='card' onclick=\"开卡('"+k.id+"')\">"+
+        "<div class='bar' style='background:"+c+"'></div><div class='in'>"+
+        "<span class='id'>"+转义(k.id)+"</span> <span class='小字'>"+转义(k.状态)+"</span>"+
+        "<span class='t'>"+转义(k.标题)+"</span>"+
+        "<div class='m'>"+转义(负责)+"</div>"+
+        "<div class='m'>更新 "+转义(k.更新)+" · 证据 "+((k.证据||[]).length)+" 条</div>"+
+        "</div></div>";
+    }).join("") || "<div class='小字' style='padding:8px'>（空）</div>";
+    return "<div class='lane'><h3>"+名+" "+本列.length+"</h3>"+卡html+"</div>";
+  }).join("");
+}
+
+function 找卡(id){
+  const 卡们 = ((状态&&状态.任务)||{}).卡 || [];
+  return 卡们.filter(k=>k.id===id)[0];
+}
+function 开卡(id){
+  选中卡 = id;
+  const k = 找卡(id);
+  if(!k) return;
+  const 员工 = ((状态&&状态.员工)||[]).filter(p=>p.终身号);
+  const 选项 = "<option value=''>（未指派）</option>" + 员工.map(p=>
+    "<option value='"+p.终身号+"' "+(p.终身号===k.负责人?"selected":"")+">"+p.终身号+" "+转义(p.会话名)+"</option>").join("");
+  document.getElementById("抽屉标题").textContent = k.id + "  [" + k.状态 + "]";
+  document.getElementById("抽屉体").innerHTML =
+    "<div style='font-size:13px;margin-bottom:8px'>"+转义(k.标题)+"</div>"+
+    "<div class='条'>"+["未做","在做","已完成","卡住"].map(s=>
+      "<button class='mini' onclick=\"改状态('"+k.id+"','"+s+"')\">"+s+"</button>").join("")+"</div>"+
+    "<div class='wrap'><span class='cmd'>任务.改状态</span></div>"+
+    "<div class='小字' style='margin-top:8px'>负责人</div>"+
+    "<select onchange=\"换人('"+k.id+"', this.value)\">"+选项+"</select>"+
+    "<div class='wrap'><span class='cmd'>任务.换负责人</span></div>"+
+    "<div class='条'><div class='wrap'><button class='mini o' onclick=\"加备注('"+k.id+"')\">加备注</button>"+
+      "<span class='cmd'>任务.加备注</span></div>"+
+      "<div class='wrap'><button class='mini' onclick=\"归档('"+k.id+"')\">归档</button>"+
+      "<span class='cmd'>任务.归档</span></div></div>"+
+    "<div class='小字'>证据（"+((k.证据||[]).length)+"）</div>"+
+    "<div class='evi'>"+转义((k.证据||[]).join("\n")||"（无）")+"</div>"+
+    "<div class='小字' style='margin-top:8px'>变更历史</div>"+
+    "<div class='hist' id='历史框'>载入…</div>";
+  document.getElementById("抽屉").classList.add("on");
+  document.getElementById("遮罩").classList.add("on");
+  调("任务.列表", {}, true).then(j=>{
+    const 全 = (j.数据 && j.数据.卡) || [];
+    const me = 全.filter(x=>x.id===k.id)[0];
+    const h = (me && me.历史) || [];
+    const 框 = document.getElementById("历史框");
+    if(框) 框.textContent = h.length ? h.map(x=>x.ts+" "+x.谁+" "+x.动作).join("\n") : "（无）";
+  });
+}
+function 关抽屉(){
+  document.getElementById("抽屉").classList.remove("on");
+  document.getElementById("遮罩").classList.remove("on");
+}
+function 改状态(id, 到){ 调("任务.改状态", {"卡":id, "到":到}); }
+function 换人(id, 号){ 调("任务.换负责人", {"卡":id, "号":号}); }
+function 加备注(id){
+  const 话 = prompt("给 " + id + " 加备注：", "");
+  if(!话) return;
+  调("任务.加备注", {"卡":id, "话":话});
+}
+function 归档(id){ if(confirm("把 " + id + " 归档（作废）？")) 调("任务.归档", {"卡":id}); }
+
+function 弹建卡(){
+  const 标题 = prompt("新任务标题：", "");
+  if(!标题) return;
+  const 负责人 = prompt("负责人终身号（可空）：", "") || "";
+  调("任务.建卡", {"标题":标题, "负责人":负责人});
+}
+
+async function 拉原话(){
+  const j = await 调("原话.列表", {}, true);
+  if(!j.ok){ document.getElementById("原话横幅").textContent = "原话表读不到：" + (j.说明||""); return; }
+  原话数据 = j.数据;
+  const 统计 = 原话数据.统计 || {};
+  const 横 = document.getElementById("原话横幅");
+  横.textContent = "今日原话 " + (统计.总数||0) + " 条 · 已派 " + (统计.已派||0) +
+    "（" + (统计.覆盖率||0) + "%）· 已验收 " + (统计.已验收||0) + " · 未派 " + (统计.未派||0) +
+    "（含待派 " + (统计.待派||0) + "）";
+  横.className = "banner" + ((统计.未派||0) > 0 ? " bad" : "");
+  画原话();
+}
+function 画原话(){
+  if(!原话数据) return;
+  const 筛 = document.getElementById("筛选").value;
+  const 词 = document.getElementById("搜索").value.trim();
+  const 条们 = (原话数据.条||[]).filter(条=>{
+    if(筛==="只看未派" && 条.灯!=="红") return false;
+    if(筛==="只看未落实" && 条.已落实) return false;
+    if(筛==="只看已验收" && (条.落实||"")!=="已验收") return false;
+    if(词 && (条.摘要+条.备注).indexOf(词)<0) return false;
+    return true;
+  });
+  const tb = document.querySelector("#原话表 tbody");
+  tb.innerHTML = 条们.map(条=>{
+    const 落实 = (条.关联卡||[]).length
+      ? (条.卡||[]).map(k=>k.id+" "+k.状态).join("；")
+      : "<span style='color:#c53030'>未落实成任务</span>";
+    return "<tr class='"+条.灯+"' onclick=\"选原话('"+条.键+"')\" style='cursor:pointer'>"+
+      "<td>"+转义(条.序号)+"</td><td>"+转义(条.时刻)+"</td>"+
+      "<td>"+转义(条.摘要.slice(0,60))+"</td>"+
+      "<td class='hide-m'>"+转义((条.备注||"").slice(0,30))+"</td>"+
+      "<td>"+落实+"</td><td class='hide-m'>"+转义(条.落实)+"</td></tr>";
+  }).join("") || "<tr><td colspan='6' class='小字'>没有符合筛选的原话</td></tr>";
+}
+function 选原话(键){
+  选中原话 = 键;
+  const 条 = (原话数据.条||[]).filter(x=>x.键===键)[0];
+  if(!条) return;
+  document.getElementById("抽屉标题").textContent = "原话 " + 条.序号 + " · " + 条.时刻;
+  document.getElementById("抽屉体").innerHTML =
+    "<div style='font-size:12.5px;white-space:pre-wrap;margin-bottom:8px'>"+转义(条.摘要)+"</div>"+
+    "<div class='小字'>派工单："+转义(条.派工单)+" ｜ 落实："+转义(条.落实)+"</div>"+
+    "<div class='小字' style='margin-top:6px'>备注</div>"+
+    "<div class='evi'>"+转义(条.备注||"（无）")+"</div>"+
+    "<div class='小字' style='margin-top:6px'>证据</div>"+
+    "<div class='evi'>"+转义(条.证据||"（无）")+"</div>";
+  document.getElementById("抽屉").classList.add("on");
+  document.getElementById("遮罩").classList.add("on");
+}
+async function 原话操作(命令){
+  if(!选中原话){ 吐司("先在表里点一行原话"); return; }
+  if(命令==="原话.备注"){
+    const 话 = prompt("给 " + 选中原话 + " 补备注：", "");
+    if(!话) return;
+    await 调("原话.备注", {"条":选中原话, "话":话});
+  }else if(命令==="原话.建卡"){
+    await 调("原话.建卡", {"条":选中原话});
+  }else if(命令==="原话.关联卡"){
+    const 卡 = prompt("关联到哪张卡（如 T0042）：", "");
+    if(!卡) return;
+    await 调("原话.关联卡", {"条":选中原话, "卡":卡.trim()});
+  }
+  拉原话();
+}
+
+async function 跑自检(){
+  const j = await 调("系统.自检", {}, true);
+  const 项 = (j.数据 && j.数据.项) || [];
+  弹窗("系统.自检 " + ((j.数据&&j.数据.RESULT)||""),
+     "<div class='evi'>"+项.map(x=>(x.ok?"OK ":"-- ")+x.项+"  "+x.说明).join("\n")+"</div>");
+}
+async function 跑对齐(){
+  弹窗("三端对齐自检", "<div class='evi'>真跑 19 条命令 × 3 端，约 10~20 秒，请看底部提示…</div>");
+  const j = await 调("系统.对齐自检", {}, true);
+  const d = j.数据 || {};
+  const 行 = (d.表||[]).map(x=>[
+    x.命令.padEnd(16), "CLI:"+(x.CLI?"OK":"--"), "Tk:"+(x.Tk?"OK":"--"), "网页:"+(x.网页?"OK":"--"), x.读写
+  ].join(" "));
+  行.push(""); 行.push("网页探测方式：" + (d.网页探测方式||""));
+  行.push("RESULT=" + (d.RESULT||""));
+  (d.缺||[]).forEach(x=>行.push("· " + x));
+  弹窗("三端对齐自检 " + (d.RESULT||""), "<div class='evi'>"+转义(行.join("\n"))+"</div>");
+}
+async function 看日志(){
+  const j = await 调("系统.日志", {"行数":"30"}, true);
+  const 行 = (j.数据 && j.数据.行) || [];
+  document.getElementById("日志框").textContent = 行.join("\n") || "（无）";
+}
+function 弹窗(标题, html){
+  document.getElementById("弹窗标题").textContent = 标题;
+  document.getElementById("弹窗体").innerHTML = html;
+  document.getElementById("弹窗").classList.add("on");
+}
+function 关弹窗(){ document.getElementById("弹窗").classList.remove("on"); }
+let 吐司计时 = null;
+function 吐司(文){
+  const t = document.getElementById("吐司");
+  t.textContent = 文; t.classList.add("on");
+  clearTimeout(吐司计时);
+  吐司计时 = setTimeout(()=>t.classList.remove("on"), 2600);
+}
+
+document.querySelectorAll("#页签 button").forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll("#页签 button").forEach(b=>b.classList.remove("on"));
+    document.querySelectorAll("section").forEach(s=>s.classList.remove("on"));
+    btn.classList.add("on");
+    document.getElementById(btn.dataset.p).classList.add("on");
+    if(btn.dataset.p === "p4") 拉原话();
+  };
+});
+
+读设置();
+document.getElementById("地址").value = 设置.地址;
+document.getElementById("令牌").value = 设置.令牌;
+拉状态(true);
+setInterval(拉状态, 2000);
+</script>
+</body>
+</html>
