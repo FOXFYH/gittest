@@ -162,8 +162,8 @@
     <div class="副">输入频道号进入；第一次用这串当密码。</div>
     <label for="频道输入">频道号</label>
     <input id="频道输入" autocomplete="off" spellcheck="false"
-           placeholder="输入 31415926fF@（前面的 foxaijob 自动补上）">
-    <div class="tip">提示：这串同时也是密码</div>
+           placeholder="输入频道号（末尾带 @，前面的 foxaijob 自动补上）">
+    <div class="tip">频道号同时也是密码；请向老板获取，此页不再显示口令</div>
     <div class="msg" id="登录提示"></div>
     <button class="btn 进入" id="登录按钮" onclick="登录()">进入</button>
     <div class="foot">口令只防误入；真正的闸在本机 Py 端校验同一条串。</div>
@@ -316,7 +316,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.4.3";
+const H5_VER  = "0.4.4";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -361,9 +361,9 @@ function 登录提示(色, 文){
 function 登录(){
   const 框 = document.getElementById("频道输入");
   const 原 = (框.value || "").trim();
-  if(!原){ 登录提示("红", "只要输 31415926fF@ 这一段"); return; }
+  if(!原){ 登录提示("红", "请输频道号那一段（形如 xxxx@）"); return; }
   if(!/^[0-9A-Za-z_-]+@$/.test(原)){
-    登录提示("红", "只要输 31415926fF@ 这一段（别带 foxaijob，也别带空格）");
+    登录提示("红", "只输频道号那一段（别带 foxaijob，也别带空格）");
     return;
   }
   已进 = false;
