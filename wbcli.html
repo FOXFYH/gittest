@@ -192,6 +192,11 @@ body.fmsg #fexit{display:block;}
 .msg.pend.ok .pstat{background:rgba(10,125,50,.14); color:var(--green);}
 .msg.pend.bad{border-color:rgba(198,40,40,.65);}
 .msg.pend.bad .pstat{background:rgba(198,40,40,.14); color:var(--red);}
+/* 2.16：⚡立即发送失败——占位卡转「未送达」失败态（整卡描边/底色变红），
+   不再按成功撤卡；保留原文可复制，并给「重发」入口。 */
+.msg.pend.fail{background:rgba(198,40,40,.10);
+  border:1px dashed rgba(198,40,40,.75);}
+.msg.pend.fail .pstat{background:rgba(198,40,40,.20); color:var(--red);}
 .msg.pend .pacts{margin-left:auto; display:flex; gap:4px;}
 .pendbtn{font-size:11px; min-height:22px; padding:0 8px; border-radius:4px;}
 .pendbtn.go{color:var(--blue);}
@@ -1141,6 +1146,10 @@ const S = {
   /* 1.09：待确认项（空窗期反馈）——本地立即回显「我」的占位气泡；
      1.63：撤卡**只认 rid**（出现在托管队列 / 快照 acks 即撤），不再比对文本 */
   pending: [], pend_seq: 0,
+  /* 2.16：网页可见回执（路径①）——outRid=本端发出的带 rid 消息登记
+     {text,convSid,baseSeq,ts}（卡被提前撤掉也还能核对）；seenSent=已发过
+     msg_seen 的 rid 集合（同一 rid 只发一次）。仅内部用，不渲染。 */
+  outRid: {}, seenSent: {},
   /* 1.57：按轮气泡折叠——foldOpen=展开中的轮（键=该轮保留条的 seq）；
      foldData=已按需拉回的中间气泡缓存；foldWait=正在拉取。切会话即清空
      （自动收回），符合「切到别的对话自动又折叠」。 */
@@ -2795,6 +2804,9 @@ function renderAll(){
       return true;
     });
   renderMsgs(curMsgs(), snap.finish, opts0, snap.ask || null);
+  /* 2.16 路径①：renderMsgs 已把消息真正画进对话记录，此处才发可见回执
+     （协议字段 c='msg_seen'，rids 必为数组；同一 rid 只发一次）。 */
+  msgSeenFlush(curMsgs(), Array.isArray(snap.msgs) && snap.msgs.length > 0);
   renderState(snap);
   renderAttach(snap.attach || []);
   syncModel(snap.model || '');
@@ -3286,13 +3298,20 @@ function pendRestore(){
     arr.forEach(p => {
       if (!p || !p.text) return;
       S.pend_seq++;
-      S.pending.push({
+      const np = {
         id: S.pend_seq, rid: p.rid || rid10(), kind: p.kind || 'send',
         text: p.text,
         convSid: p.convSid || '',   /* 1.66：绑定的会话一并恢复（旧卡无此字段=空，照常显示） */
-        /* 旧于确认时限的（多半真没送出去）直接标「未确认」，立刻就出重发按钮 */
-        state: (now - (p.ts || 0) > S.pend_send) ? 'timeout' : 'sending',
-        ts: p.ts || now});
+        /* 2.16：失败态与回执基线一并恢复——刷新后失败卡仍是「未送达」，还能重发 */
+        baseSeq: (typeof p.baseSeq === 'number') ? p.baseSeq : 0,
+        err: p.err || '',
+        /* 旧于确认时限的（多半真没送出去）直接标「未确认」，立刻就出重发按钮；
+           已是失败态的保持不变（失败优先，绝不被超时覆盖）。 */
+        state: (p.state === 'fail') ? 'fail'
+             : ((now - (p.ts || 0) > S.pend_send) ? 'timeout' : 'sending'),
+        ts: p.ts || now};
+      S.pending.push(np);
+      outRidNote(np);     /* 2.16：刷新/断网回来后，这条真显示进对话时仍补发 msg_seen */
     });
   } catch(e){}
 }
@@ -3373,6 +3392,8 @@ function pendStat(p){
                                     + '/' + WS_RETRY_MAX + '）', 'bad'];
   if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
   if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
+  /* 2.16：⚡立即发送失败——服务端明说这条没送达，红字如实告知（失败优先） */
+  if (p.state === 'fail')    return ['未送达，请重发或重试', 'bad'];
   /* 1.32：超时（默认 30 秒）仍未确认才标「未确认」，此时给出
      改写/丢弃/重发；正常瞬发直接就撤下卡片了 */
   if (p.state === 'timeout') return ['⚠ 未确认（可丢弃/改写/重发）', 'bad'];
@@ -3396,7 +3417,7 @@ function renderPending(){
     if (p.convSid && curSid && p.convSid !== curSid) return;
     const st = pendStat(p);
     const d = document.createElement('div');
-    d.className = 'msg user pend ' + st[1];
+    d.className = 'msg user pend ' + st[1] + (p.state === 'fail' ? ' fail' : '');
     let h = '<div class="who">我<span class="pstat">' + esc(st[0])
           + '</span>';
     /* 1.39：占位卡始终提供「复制」（复制占位里的文字，用户反馈），
@@ -3406,6 +3427,12 @@ function renderPending(){
     if (p.state === 'timeout'){
       h += '<button class="pendbtn ed" data-edit="' + p.id + '">✎ 改写</button>'
          + '<button class="pendbtn drop" data-drop="' + p.id
+         + '">丢弃</button>'
+         + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>';
+    } else if (p.state === 'fail'){
+      /* 2.16：未送达——原文照留（复制恒在），给「重发」一键重新入队/直发，
+         另留「丢弃」收掉这张失败卡。 */
+      h += '<button class="pendbtn drop" data-drop="' + p.id
          + '">丢弃</button>'
          + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>';
     }
@@ -3438,12 +3465,15 @@ function renderPending(){
         return;
       }
       if (di){                       // 丢弃：撤下占位即可
+        const pd = S.pending.find(x => x.id === di);
+        if (pd && pd.rid) delete S.outRid[pd.rid];   /* 2.16：丢弃后不再补发回执 */
         S.pending = S.pending.filter(x => x.id !== di);
         renderAll();
         return;
       }
       const p = S.pending.find(x => x.id === gi);
       if (!p) return;
+      if (p.rid) delete S.outRid[p.rid];   /* 2.16：旧 rid 作废，重发由新卡继续回执 */
       S.pending = S.pending.filter(x => x.id !== gi);
       /* 1.66：手动重发同样带上**锁定**的会话 sid（发送那一刻记下的），
          即便此刻已切到别的会话，也投回原会话；旧卡无锁定值则维持原行为。 */
@@ -3482,15 +3512,17 @@ function pendReconcile(msgs, hasMsgs){
       return;
     }
     const r = p.rid ? String(p.rid) : '';
+    /* 2.16：失败态优先——「未送达」卡只认**本 rid 后续 acks 命中**（见下一条），
+       迟到的队列/旧快照不得把它撤掉或转回正常。 */
     /* 1.80：已进「⏳ 托管排队条」＝这条已在网页上显示（排队条与撤卡同帧重画）→ 撤卡 */
-    if (r && qids.has(r)){ changed = true; return; }
+    if (r && qids.has(r) && p.state !== 'fail'){ changed = true; return; }
     /* 1.78：已落地 + 本拍带正文 → 与画进对话气泡同一帧撤卡，绝不留空档 */
     if (hasMsgs && r && ackSet.has(r)){ changed = true; return; }
     /* 1.32：发送确认超时——占位挂够 S.pend_send（默认 30 秒）仍无任何回执
        才判「未确认」，给出改写/丢弃/重发。
        1.62：`queued`=已挂入托管队列（服务端已确认收到），AI 忙多久都正常，
        绝不能在挂队期间判超时；1.63：wsretry（WS 重试中）同理由自己收尾。 */
-    if (p.state !== 'timeout' && p.state !== 'queued'
+    if (p.state !== 'timeout' && p.state !== 'queued' && p.state !== 'fail'
         && p.state !== 'wsretry' && now - p.ts > S.pend_send){
       p.state = 'timeout';
       changed = true;
@@ -3499,6 +3531,75 @@ function pendReconcile(msgs, hasMsgs){
   });
   if (changed) S.pending = keep;
   return changed;
+}
+
+/* 2.16：网页可见回执（路径①）——登记本端发出的带 rid 消息。
+   baseSeq＝发送那一刻快照里最后一条消息的绝对下标+1（旧服务端无第 6 元时
+   退回 msgs_total/窗口条数）——之后只有下标 ≥ baseSeq 的「我」才算本条真落地，
+   绝不拿历史里同文的旧消息误报「已看见」。 */
+function outRidNote(p){
+  if (!p || !p.rid) return;
+  const snap = S.snap || {};
+  if (typeof p.baseSeq !== 'number' || p.baseSeq <= 0){
+    let base = 0;
+    const wm = Array.isArray(snap.msgs) ? snap.msgs : [];
+    if (wm.length){
+      const last = wm[wm.length - 1];
+      const seq = last && last[5];
+      base = (typeof seq === 'number') ? seq + 1
+           : ((snap.msgs_off | 0) + wm.length);
+    } else {
+      /* 没有窗口正文时，只有服务端明确给出总条数才敢用；否则取哨兵——
+         宁可等下一拍（acks 兜底），绝不把历史同文消息误当本条已落地。 */
+      const tot = Number(snap.msgs_total);
+      base = (isFinite(tot) && tot >= 0) ? tot : 1e9;
+    }
+    p.baseSeq = base;
+  }
+  S.outRid[p.rid] = {text: p.text || '', convSid: p.convSid || '',
+                     baseSeq: p.baseSeq, ts: p.ts || Date.now()};
+}
+
+/* 2.16：消息真正画进对话记录后核对——本端发出的某 rid 的原文已作为「我」
+   出现（绝对下标 ≥ 发送基线、剥掉专属词标记后正文一致）→ 向上发一次回执。
+   协议字段＝c:'msg_seen'（不是 cmd）；载荷 conv=sid、rids 必须数组：
+   {t:'cmd', c:'msg_seen', a:{conv:sid,rids:[...]}, conv:sid, rids:[...]}
+   （a 供 P18-3R 修好的 host._cmd_msg_seen 读 dict，顶层同字段冗余兼容）。
+   同一 rid 只发一次（seenSent 去重）；无 rid 的老消息一律不碰。 */
+function msgSeenFlush(msgs, hasMsgs){
+  if (!hasMsgs || !Array.isArray(msgs) || !msgs.length) return;
+  const sid = curConvId() || '';
+  const off = (S.snap && (S.snap.msgs_off | 0)) || 0;
+  const arrived = [];
+  msgs.forEach((m, i) => {
+    if (!m || (m[0] !== 'u' && m[0] !== 'user')) return;
+    const seq = (typeof m[5] === 'number') ? m[5] : (off + i);
+    arrived.push({seq: seq, txt: stripHintMarks(m[1] || '')});
+  });
+  if (!arrived.length) return;
+  const hit = [];
+  Object.keys(S.outRid).forEach(rid => {
+    if (S.seenSent[rid]) return;
+    const rec = S.outRid[rid];
+    if (!rec || !rec.text) return;
+    if (rec.convSid && sid && rec.convSid !== sid) return;
+    const want = stripHintMarks(rec.text);
+    const base = Number(rec.baseSeq) || 0;
+    /* 2 小时仍未等到落地就放弃（防 outRid 无限长大；acks 路径仍兜底） */
+    if (Date.now() - (rec.ts || 0) > 7200000){ delete S.outRid[rid]; return; }
+    for (const a of arrived){
+      /* 正文完全一致；带附件尾巴时按前缀认（只认发送基线之后的新消息） */
+      if (a.seq >= base && (a.txt === want
+          || (want.length >= 2 && a.txt.indexOf(want) === 0))){
+        hit.push(rid); break;
+      }
+    }
+  });
+  if (!hit.length) return;
+  hit.forEach(rid => { S.seenSent[rid] = 1; delete S.outRid[rid]; });
+  /* P18-3R：c='msg_seen'，conv/rids 既可被 a 读取，也按协议冗余在顶层 */
+  const payload = {conv: sid, rids: hit};
+  try { sendCmd('msg_seen', payload, payload); } catch(e){}
 }
 
 /* 切换在途：会话切换要等 0.8~6s（含最小化恢复），期间给个明确的
@@ -4542,7 +4643,11 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-const VER = '2.15';   /* 2.15（2026-10-24）：专属提示词四段折叠卡（系统/人类/公司/AI）——
+const VER = '2.16';   /* 2.16（2026-10-25）：⚡立即发送失败——占位卡不撤，转「未送达」
+   失败态（整卡变红、原文可复制、一键重发）；同一 rid 的 acks 命中前失败态优先，
+   不被队列/其它卡的旧回执误撤。新增网页可见回执（路径①）：本端带 rid 的消息真
+   画进对话记录后向上发 msg_seen（同 rid 只发一次），服务端据此销卡。
+   2.15（2026-10-24）：专属提示词四段折叠卡（系统/人类/公司/AI）——
    承接 2.14「四级状态反馈」；
    WS 不在线→「WS 连接中」/ 已发出→「等待服务器回应」/ 服务端 cmd_ack→
    「服务器开始执行」/ 失败单独红字提示、成功并入原业务信号（快照/列表刷新）。
@@ -5294,6 +5399,7 @@ function onEv(kind, v){
       if (S.pageGroups <= 0) S.more = !!v.msgs_more;
       verifyRun(v);                          // 1.50：核对本轮实际跑的模型
       pendReconcile(v.msgs || [], hasMsgs);  // 1.78：只在带正文落地时撤占位
+      /* 2.16 路径①改到 renderAll：必须等消息真正画进对话记录后再发 msg_seen */
       if (S.switch_pend){                    // 1.09：目标会话激活 → 撤条
         const cv = v.convs || [];
         const act = cv.find(r => r[0] === 'c' && r[2]);
@@ -5348,7 +5454,7 @@ function onEv(kind, v){
       /* 1.63：优先按 rid 定位占位卡（只认 ID）；老服务端无 rid 时退回按文本。 */
       const p = S.pending.find(x => (rid ? x.rid === rid
                                         : (!text || x.text === text))
-                                    && x.state !== 'timeout');
+                                    && x.state !== 'timeout' && x.state !== 'fail');
       if (p){
         /* 1.63：stage='queued'=直发已受理——保持默认态「已发送，正等待服务器
            回应」，不再误标成「已排队，等待 AI 处理」（用户 09-29 定：
@@ -5376,7 +5482,7 @@ function onEv(kind, v){
       const qp = S.pending.find(x => (qrid ? x.rid === qrid
                                            : (!qt || x.text === qt))
                                      && x.state !== 'timeout');
-      if (qp) qp.state = (qstage === 'sent') ? 'sent' : 'queued';
+      if (qp && qp.state !== 'fail') qp.state = (qstage === 'sent') ? 'sent' : 'queued';
       /* 1.73：建卡必须有 rid——能撤的卡才建；无 rid 的 queued（对端/AI 来件）
          一律不冒名建「我方待确认卡」，否则本地随机 rid 永远撤不掉、卡永驻。 */
       if (qstage === 'wait' && qt && qrid
@@ -5434,10 +5540,39 @@ function onEv(kind, v){
       srvOpDone('queue_sendnow');
       flash('⚡ 已立刻发送这条（当前生成已中止）', 'var(--blue)');
       break;
-    case 'queue_sendnow_fail':               /* 1.67：⚡立即发送失败——该条已被放行 */
+    case 'queue_sendnow_fail': {             /* 2.16：⚡立即发送失败——这条没送达。
+        载荷兼容：新服务端 {sid, rid, 原因, 前后消息数}；旧服务端只回条目 id 字符串。
+        该 rid 的占位卡**不撤**，转「未送达」失败态：红卡 + 原文可复制 + 一键重发。
+        失败态优先：只等同一 rid 后续 acks 命中才允许撤卡。 */
       srvOpDone('queue_sendnow');
-      flash('⚠ 这一条已经发出去了，来不及立即发', 'var(--orange)');
+      const fo = (v && typeof v === 'object') ? v : {};
+      const frid = String((typeof v === 'string' ? v
+                           : (fo.rid || fo.id || '')) || '');
+      const fsid = String((fo.conv || fo.sid || '') || '');
+      const freason = String(fo['原因'] || fo.reason || '') || '';
+      let fp = frid ? S.pending.find(x => String(x.rid || '') === frid) : null;
+      /* 卡可能已被旧逻辑提前撤掉 —— 用本端 rid 登记里的原文把失败卡补回来 */
+      if (!fp && frid && S.outRid[frid] && S.outRid[frid].text){
+        S.pend_seq++;
+        fp = {id: S.pend_seq, rid: frid, kind: 'send',
+              text: S.outRid[frid].text,
+              convSid: S.outRid[frid].convSid || fsid,
+              baseSeq: Number(S.outRid[frid].baseSeq) || 0,
+              state: 'fail', err: freason, ts: Date.now()};
+        S.pending.push(fp);
+      }
+      if (fp){
+        fp.state = 'fail';                 /* 不撤卡：留在对话流里等用户重发 */
+        fp.err = freason;
+        fp.ts = Date.now();
+        S.msgs_key = null;                 /* 状态变了 → 强制重画占位卡 */
+        flash('⚠ ' + (freason || '未送达，请重发或重试'), 'var(--red)');
+      } else {
+        flash('⚠ 未送达（找不到对应该条的原卡片，请确认后重发）', 'var(--red)');
+      }
+      renderAll();
       break;
+    }
     case 'pend': {                           /* 1.10：命令受理广播——
         别的端（PC 面板）发出的消息也在本机回显占位，多端同看。
         switch 不进气泡：统一走「正在切换」提示条（同目标幂等、
@@ -5911,7 +6046,7 @@ function cmd(c, a, lockConv){
   if (!S.onLine || !foxReady()){
     if (isMsg){
       const p = pendAdd(c, a, null, lockConv);
-      if (p) wsRetry(p, c, a, 1);
+      if (p){ outRidNote(p); wsRetry(p, c, a, 1); }   /* 2.16：离线重试也登记 rid→回执 */
       /* 2.14 第①级：WS 不在线一律「WS 连接中」，并如实说明命令未发出 */
       srvOpFlash('offline', srvOpsLabel(c), '命令未发出，正在重试发送');
       el.ent.value = '';
@@ -5933,7 +6068,8 @@ function cmd(c, a, lockConv){
       && a.trim()){
     const p = pendAdd(c, a, null, lockConv);
     if (p){ rid = p.rid || '';         /* 1.63：占位卡的随机 ID，随命令带给服务端核对 */
-            pendConv = p.convSid || ''; }
+            pendConv = p.convSid || '';
+            outRidNote(p); }           /* 2.16：登记本端带 rid 消息，供 msg_seen 回执核对 */
     if (c === 'send'){
       /* 1.50：记下本轮「所选模型 + 当前回复序号」——回复到达后核对是否
          真的用了它（比对台账 requestModelId），不一致弹窗。
