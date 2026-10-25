@@ -66,7 +66,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.24';
+  var 版本 = '0.25';
   var 提示定时 = null;
   var _联动已载 = false;      // 0.21：设置里的联动命令是否已从服务端回填（没回填不写，免得清空）
   var _已启动 = false;        // 0.22：邮箱登录后是否已继续原有口令/首载流程
@@ -80,6 +80,36 @@
     条.classList.remove('隐藏');
     if (提示定时) clearTimeout(提示定时);
     提示定时 = setTimeout(function () { 条.classList.add('隐藏'); }, 2600);
+  }
+
+  // ---------------- 0.25 系统清单 R2 手动拉取（上传全自动、下载纯手动） ----------------
+  function 装R2拉取() {
+    var 钮 = $('按钮_R2拉取');
+    if (钮 && !钮.getAttribute('data-r2绑')) {
+      钮.setAttribute('data-r2绑', '1');
+      钮.addEventListener('click', function () {
+        if (!global.接口 || typeof global.接口.raw !== 'function') { 提示('接口未就绪'); return; }
+        提示('正在从 R2 拉取系统清单…');
+        global.接口.raw('清单R2下', {}).then(function (r) {
+          if (r && r.ok === false) 提示((r && r.err) || '拉取请求失败');
+          // ok=true 只是「已受理」，真正结果等服务端广播 清单R2结果 帧
+        })['catch'](function (e) { 提示('拉取请求失败：' + ((e && e.message) || e)); });
+      });
+    }
+    if (global.接口 && typeof global.接口.订阅广播 === 'function') {
+      global.接口.订阅广播(function (帧) {
+        if (!帧 || 帧.t !== '清单R2结果') return;
+        var 结 = 帧.结果 || {};
+        if (结.忙) { 提示('正在拉取中，请稍候'); return; }
+        if (结.ok) {
+          if (结.已是最新) 提示('系统清单已是最新 · 远端版本 V' + (结.远端版本 || 0));
+          else if (结.说明) 提示((结.说明) + ' · 远端版本 V' + (结.远端版本 || 0));
+          else 提示('已拉取 ' + (结.拉取文件数 || 0) + ' 个文件 · 远端版本 V' + (结.远端版本 || 0));
+        } else {
+          提示('拉取失败：' + (结.err || '未知原因'));
+        }
+      });
+    }
   }
 
   // ---------------- 顶栏角色（ping → 已连接，不并列服务端版本号） ----------------
@@ -340,10 +370,8 @@
       var 表 = (r.账号 instanceof Array) ? r.账号 : [];
       var 号们 = [];
       表.forEach(function (x) {
-        // 管理员由第一项固定承载：账号库里的「人类管理员」/类型=管理员 条目一律跳过，避免重复
-        if (x && x.类型 === '管理员') return;
         var 号 = 规范化邮箱(x && x.标识 !== undefined ? x.标识 : x);
-        if (!号 || 号 === '人类管理员' || 号 === 管理员邮箱()) return;
+        if (!号) return;
         if (号们.indexOf(号) < 0) 号们.push(号);
       });
       if (号们.length) { 存账号列表(号们); 画邮箱选项(); }
@@ -366,7 +394,7 @@
   function 画身份() {
     var 我 = 我的邮箱();
     var 显 = $('身份');
-    if (显) 显.textContent = 我 || '人类管理员';
+    if (显) 显.textContent = 我 || '未登录';
     var 换 = $('按钮_换身份');
     if (换) 换.style.display = _已启动 ? '' : 'none';
   }
@@ -375,7 +403,7 @@
     o.value = 值; o.textContent = 文本;
     return o;
   }
-  // 下拉框：人类管理员固定第一 → 其余按账号列表顺序（去重、跳过管理员）→ 末尾「输入新邮箱…」
+  // 下拉框：账号列表顺序（人类管理员也是普通账号，不再固定第一）→ 末尾「输入新邮箱…」
   // 0.24：重画时保留用户当前选中项，避免服务端账号回来重画把正在选的人打断
   function 画邮箱选项() {
     var 框 = $('邮箱_选择');
@@ -385,18 +413,16 @@
     var 原选 = '';
     try { 原选 = String(框.value || ''); } catch (e) { }
     框.innerHTML = '';
-    框.appendChild(选项(管, '人类管理员' + (管 ? '（' + 管 + '）' : '（公共视角·全部可见）')));
-    读取账号列表().forEach(function (号) {
-      if (号 === 管 || 号 === '人类管理员') return;   // 管理员已在第一项，避免重复
-      框.appendChild(选项(号, 号));
-    });
-    if (我 && 我 !== 管 && 我 !== '人类管理员' && 读取账号列表().indexOf(我) < 0) 框.appendChild(选项(我, 我));
+    var 表 = 读取账号列表();
+    表.forEach(function (号) { 框.appendChild(选项(号, 号)); });
+    if (我 && 表.indexOf(我) < 0) 框.appendChild(选项(我, 我));
+    if (表.indexOf('人类管理员') < 0 && 我 !== '人类管理员') 框.appendChild(选项('人类管理员', '人类管理员'));
     框.appendChild(选项(新邮箱选项值, '＋ 输入新邮箱…'));
     var 还在 = false;
     for (var i = 0; i < 框.options.length; i++) {
       if (框.options[i].value === 原选) { 还在 = true; break; }
     }
-    框.value = 还在 ? 原选 : (我 || 管);
+    框.value = 还在 ? 原选 : (我 || 新邮箱选项值);
   }
   function 开邮箱(首登) {
     var 弹 = $('邮箱弹窗');
@@ -441,6 +467,7 @@
       源 = 新 || 选;
     }
     var 规范 = 规范化邮箱(源);
+    if (!规范) { 提示('请先选择账号或输入邮箱号（AI 同样必须带账号）'); return; }
     if (新) {
       if (!规范) { 提示('请输入新邮箱号'); return; }
       var 表 = 读取账号列表();
@@ -453,7 +480,7 @@
     画邮箱选项();
     if (_已启动) {
       // 换身份：不重走口令，只按新身份重载清单（服务端默认只回「公共 + 我的」）
-      提示('已切换身份：' + (规范 || '人类管理员（公共视角）'));
+      提示('已切换身份：' + (规范 || '未登录'));
       try { if (global.清单页 && global.清单页.重载) global.清单页.重载(); } catch (e) { }
       return;
     }
@@ -510,6 +537,7 @@
   function 装配() {
     装设置();
     装服务器();
+    装R2拉取();    // 0.25：系统清单 R2 手动拉取按钮 + 结果帧回音
     try { if (global.清单页 && global.清单页.装配) global.清单页.装配(); } catch (e) { }
     if ($('按钮_口令')) $('按钮_口令').addEventListener('click', function () { 开设置(false); 开口令(false); });
     if ($('口令_取消')) $('口令_取消').addEventListener('click', 关口令);
