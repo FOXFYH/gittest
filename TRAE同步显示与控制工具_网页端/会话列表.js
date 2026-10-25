@@ -112,19 +112,11 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
         + (window.闹钟后缀 ? 闹钟后缀(sKey) : '');
       nm.style.cssText = 'display:block;overflow:hidden;text-overflow:ellipsis';
       tspan.appendChild(nm);
-      if (cfx){
-        /* P15：第二行＝真实会话ID · 状态灯文字 · 定时下次触发绝对时间。
-           无定时显式写「无」；四项同帧，手机端整帧落 IDB。 */
-        const lb = {busy:'忙', idle:'闲', unread:'未读', orange:'橙灯',
-                    fail:'失败', stop:'停止'}[light] || '闲';
-        const sc = cfx.schedule || {};
-        const m = document.createElement('span');
-        m.textContent = 'SID ' + (cfx.sid || '—') + ' · ' + lb
-          + ' · ⏰ ' + (sc.has ? (sc.next_at || '有') : '无');
-        m.style.cssText = 'display:block;font-size:10px;color:#999;line-height:1.35;'
-          + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:normal';
-        tspan.appendChild(m);
-      }
+      /* 2.134（老板 2026-10-25：「每个列表只要有自己的名称、加上原来那个忙闲灯就够了；
+         第二行那些个人信息要传到网页版没错，但不需要展示；我就喜欢一行一个会话」）
+         ——P15 加的第二行（SID · 忙/闲 · ⏰）整段撤下，不再渲染。
+         注意：cfx（会话名/真实SID/状态灯四态/定时）仍然照收照存，只是不上屏；
+         谁要用（备注、闹钟、诊断）继续从 cfx / 快照里取，别当成数据被删了。 */
       d.appendChild(tspan);
       const i = idx;
       /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
