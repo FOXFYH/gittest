@@ -20,6 +20,10 @@
   header .横幅{flex:1;min-width:180px;font-size:12px;color:#fde68a;overflow:hidden;text-overflow:ellipsis;
     white-space:nowrap}
   header .小结{font-size:12px;background:#374151;padding:4px 10px;border-radius:4px;white-space:nowrap}
+  /* 四步曲横幅：文案/颜色唯一出口（SRV_PHASE），见 17_网页遥控本地状态四步曲 */
+  header .srv{flex-basis:100%;font-size:12px;padding:3px 8px;border:1px solid #4b5563;border-radius:4px;
+    background:#111827;color:#8a8f98;font-family:Consolas,monospace;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
   nav{display:flex;gap:2px;overflow-x:auto;background:#111827;padding:0 8px;position:sticky;top:46px;z-index:19}
   nav button{background:transparent;border:0;color:#9ca3af;padding:10px 14px;font-size:13px;cursor:pointer;
     white-space:nowrap;border-bottom:2px solid transparent}
@@ -172,6 +176,7 @@
   <div class="横幅" id="横幅">正在连本机…</div>
   <div class="小结" id="小结">未完成 — / 已完成 —</div>
   <div class="小结" id="连状态" style="cursor:pointer" title="点这里看/清除登录">未连接本机</div>
+  <div class="srv" id="srvPh">WS 未连 —— 点任意按钮会提示「WS 连接中」，命令不会发出</div>
 </header>
 
 <nav id="页签">
@@ -305,19 +310,19 @@ const 命令列表 = [
   "员工.列表", "员工.催办",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.统计",
-  "系统.版本", "系统.自检", "系统.对齐自检", "系统.日志",
+  "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
   "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建"
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.4.1";
+const H5_VER  = "0.4.2";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
 const H5_名   = "AI工作台";
 const 存键    = "AI工作台.频道";
 
-let 设置 = { 地址: "", 频道: "" };
+let 设置 = { 地址: "", 频道: "", 本机: false };
 let 频道 = "";
 let WS = null;
 let WS已连 = false;
@@ -334,6 +339,9 @@ function 读设置(){
     设置.地址 = s.地址 || location.origin;
   }catch(e){ 设置.地址 = location.origin; }
   if(/^file:/.test(设置.地址) || !设置.地址) 设置.地址 = "http://127.0.0.1:19900";
+  /* 本机 = 页面就在本机回环上打开；否则按「远程门」走频道（Pages 只能这样拿数据） */
+  设置.本机 = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/.test(location.origin) ||
+             /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/.test(设置.地址);
   try{ 设置.频道 = localStorage.getItem(存键) || ""; }catch(e){ 设置.频道 = ""; }
 }
 function 头(){
@@ -386,11 +394,24 @@ function 连频道(全){
     let m = null;
     try{ m = JSON.parse(ev.data); }catch(e){ return; }
     if(!m || typeof m !== "object") return;
+    const id = String(m.id || "");
     if(m.类型 === "hello" && m.名 === H5_名){ WS已连 = true; if(!已进) 收(); return; }
-    if(m.类型 === "结果" && m.id === "login"){ WS已连 = true; if(!已进) 收(); return; }
+    if(m.类型 === "ack"){ srvOpAck(id); return; }
+    if(m.类型 === "结果"){
+      if(id === "login"){ WS已连 = true; if(!已进) 收(); return; }
+      if(id.indexOf("st_") === 0){ 收远程状态(m); return; }
+      srvOpDone(id, m);
+      return;
+    }
   };
   WS.onerror = ()=>{ if(!见本机 && !已进) 登录提示("黄", "连接中…（频道名可能不对）"); };
-  WS.onclose = ()=>{ WS已连 = false; if(!见本机 && !已进) 登录提示("黄", "连接中…（频道名可能不对）"); };
+  WS.onclose = ()=>{
+    WS已连 = false;
+    if(!已进){ if(!见本机) 登录提示("黄", "连接中…（频道名可能不对）"); return; }
+    连状态("WS 已断 —— 正在重连…", true);
+    srvPhase("未连", "", "（WS 已断，命令不会发出）");
+    setTimeout(()=>{ if(频道 && !WS已连) 连频道(频道); }, 5000);   // 5 秒重连一次
+  };
 }
 
 function 进主界面(){
@@ -426,48 +447,120 @@ function 连状态(文, 坏){
 }
 function 新幂等(){ return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
 
-/* 所有命令统一 10 秒超时：本机卡住时按钮不能永远"没反应"（会让人重复点建卡） */
-async function 调(命令, 参数, 静默, 幂等键){
-  const 控 = new AbortController();
-  const 闸 = setTimeout(()=>控.abort(), 10000);
-  try{
-    const 体 = {命令:命令, 参数:参数||{}};
-    if(幂等键) 体.幂等 = 幂等键;
-    const r = await fetch(设置.地址 + "/api/cmd", {
-      method:"POST", headers:头(), body: JSON.stringify(体), signal: 控.signal
-    });
-    const j = await r.json();
-    if(!静默) 吐司((j.ok?"OK ":"失败 ") + 命令 + "：" + (j.说明||""));
-    if(!j.ok && !静默) 弹窗("命令失败 · " + 命令, "<div class='evi'>"+转义(j.说明||"")+"</div>");
-    上次ts = 0;
-    拉状态(true);
-    return j;
-  }catch(e){
-    if(e && e.name === "AbortError"){
-      连状态("本机 10 秒没回应", true);
-      吐司("10 秒没回应（本机可能卡住）：" + 命令);
-      return {ok:false, 说明:"超时：本机 10 秒没回应"};
-    }
-    连状态("未连接本机", true);
-    吐司("连不上本机：" + e.message);
-    return {ok:false, 说明:String(e)};
-  }finally{
-    clearTimeout(闸);
+/* ===== 四步曲：文案与颜色的唯一出口（17_网页遥控本地状态四步曲） =====
+   ①WS 未连 →「WS 连接中」且一条命令都不发；②已发未 ack →「等待服务器回应」；
+   ③ack 到 →「服务器开始执行」；④失败 → 独立红字「失败（原因）」；成功随业务信号并流。
+   超时无终态 →「待确认」，绝不永远停在等待。心跳/自动刷新不走这里。 */
+const SRV_PHASE = {
+  未连:  {文:"WS 连接中",     色:"#c9a227"},
+  等待:  {文:"等待服务器回应", 色:"#c9a227"},
+  执行:  {文:"服务器开始执行", 色:"#2563eb"},
+  成功:  {文:"完成",          色:"#1f9d55"},
+  失败:  {文:"失败",          色:"#c53030"},
+  待确认:{文:"待确认",        色:"#c9a227"}
+};
+let srv待办 = {};
+function srvPhase(态, 命令, 尾){
+  const el = document.getElementById("srvPh");
+  if(!el) return;
+  const p = SRV_PHASE[态] || SRV_PHASE.待确认;
+  el.textContent = (命令 ? (命令 + "：") : "") + p.文 + (尾 || "");
+  el.style.color = p.色;
+  el.style.borderColor = p.色;
+}
+function srvOpAck(id){
+  const 项 = srv待办[id];
+  if(项) srvPhase("执行", 项.命令);
+}
+function srvOpDone(id, 报文){
+  const 项 = srv待办[id];
+  if(!项) return;
+  clearTimeout(项.闹);
+  delete srv待办[id];
+  if(报文 && 报文.ok){
+    srvPhase("成功", 项.命令);
+  }else{
+    srvPhase("失败", 项.命令, "（" + ((报文 && 报文.说明) || "原因不明") + "）");
   }
+  项.解(报文 || {ok:false, 说明:"空回包"});
+}
+function srvOpSend(命令, 参数, 幂等键){
+  if(!WS || !WS已连){
+    srvPhase("未连", 命令, "（命令未发出，稍后再试）");
+    return Promise.resolve({ok:false, 说明:"WS 连接中（命令未发出）", 未发出:true});
+  }
+  const id = "r_" + 新幂等();
+  const 参 = Object.assign({}, 参数 || {});
+  if(幂等键) 参["幂等"] = 幂等键;
+  return new Promise(解=>{
+    const 闹 = setTimeout(()=>{
+      delete srv待办[id];
+      srvPhase("待确认", 命令, "（超时无回帧，可能已执行，请刷新核对）");
+      吐司(命令 + "：待确认（超时无回帧）");
+      解({ok:false, 说明:"待确认：超时无回帧", 待确认:true});
+    }, 15000);
+    srv待办[id] = {命令:命令, 闹:闹, 解:解};
+    try{
+      WS.send(JSON.stringify({类型:"请求", id:id, 命令:命令, 参数:参, 口令:频道}));
+      srvPhase("等待", 命令);
+    }catch(e){
+      clearTimeout(闹);
+      delete srv待办[id];
+      srvPhase("未连", 命令, "（命令未发出）");
+      解({ok:false, 说明:"WS 发送失败：" + e.message});
+    }
+  });
+}
+
+/* 所有命令一律走同一四步曲出口；本机与远程同一条路（网页遥控本地），禁止裸发 */
+async function 调(命令, 参数, 静默, 幂等键){
+  const j = await srvOpSend(命令, 参数, 幂等键);
+  if(j && j.未发出){
+    if(!静默) 吐司(命令 + "：WS 连接中（命令未发出）");
+    return j;
+  }
+  if(!静默) 吐司((j.ok?"OK ":"失败 ") + 命令 + "：" + (j.说明||""));
+  if(!j.ok && !静默 && !j.待确认) 弹窗("命令失败 · " + 命令, "<div class='evi'>"+转义(j.说明||"")+"</div>");
+  上次ts = 0;
+  拉状态(true);
+  return j;
 }
 function 转义(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 
+let 远程状态等 = "";
+let 上次远程拉 = 0;
+function 收远程状态(m){
+  远程状态等 = "";
+  if(!m || !m.ok || !m.数据) return;
+  套状态(m.数据, false);
+}
+function 套状态(j, 强制){
+  状态 = j || {};
+  连状态(WS已连 ? "频道已连" : "已连本机", false);
+  if(!强制 && j.ts_ms === 上次ts) return;
+  上次ts = j.ts_ms;
+  画全部();
+}
+/* 远程门：数据只走频道回本机取（Pages 是静态页，fetch 127 必失败）。
+   属自动刷新，按规范【不加四态】，避免横幅刷屏。 */
+function 远程拉状态(强制){
+  if(!频道 || !WS || !WS已连) return;
+  if(远程状态等) return;
+  const 今 = Date.now();
+  if(!强制 && (今 - 上次远程拉) < 5000) return;
+  上次远程拉 = 今;
+  远程状态等 = "st_" + 新幂等();
+  try{ WS.send(JSON.stringify({类型:"请求", id:远程状态等, 命令:"系统.状态", 参数:{}, 口令:频道})); }
+  catch(e){ 远程状态等 = ""; }
+}
 async function 拉状态(强制){
   if(!频道) return;                       // 没登录不发请求（本机一律 401）
+  if(!设置.本机){ 远程拉状态(强制); return; }
   try{
     const r = await fetch(设置.地址 + "/api/state", {headers:头(), cache:"no-store"});
     if(r.status === 401){ 连状态("口令不对（本机拒了）", true); return; }
     const j = await r.json();
-    状态 = j;
-    连状态(WS已连 ? "频道已连" : "已连本机", false);
-    if(!强制 && j.ts_ms === 上次ts) return;
-    上次ts = j.ts_ms;
-    画全部();
+    套状态(j, 强制);
   }catch(e){
     连状态("未连接本机（服务未起）", true);
     if(!状态) 画骨架();
