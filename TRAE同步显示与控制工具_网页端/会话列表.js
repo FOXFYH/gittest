@@ -108,8 +108,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       /* 2.40：会话名后追加（备注）——钩子由 会话备注.js 提供，缺失回退空串 */
       /* 2.47：会话名后追加（备注）+ 定时闹钟（⏰）——两钩子各自缺失则回退空串 */
       const nm = document.createElement('span');
-      nm.textContent = title + (window.备注后缀 ? 备注后缀(sKey) : '')
-        + (window.闹钟后缀 ? 闹钟后缀(sKey) : '');
+      /* 2.135（老板同日追加口径）：「只要名称和忙闲灯就够了，一行一个会话」——
+         定时闹钟后缀（⏰）也从名称行撤下。定时任务照旧跑，只是不在列表里挂标记。 */
+      nm.textContent = title + (window.备注后缀 ? 备注后缀(sKey) : '');
       nm.style.cssText = 'display:block;overflow:hidden;text-overflow:ellipsis';
       tspan.appendChild(nm);
       /* 2.134（老板 2026-10-25：「每个列表只要有自己的名称、加上原来那个忙闲灯就够了；
