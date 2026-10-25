@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate">
+<title>正在打开 WorkBuddy 网页版…</title>
+<style>
+  html,body{margin:0;height:100%;background:#f2f4f7;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .w{height:100%;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:14px;color:#333}
+  .t{font-size:16px;font-weight:600}
+  .h{font-size:13px;color:#888}
+  a{font-size:15px;color:#2563eb}
+</style>
+</head>
+<body>
+<div class="w">
+  <div class="t">正在打开最新版…</div>
+  <div class="h">若 3 秒后没动静，点下面这条</div>
+  <a id="go" href="./wbcli.html?v=217">打开 WorkBuddy 网页版 v2.17</a>
+</div>
+<script>
+/* 万能破缓存入口（2026-10-25 总管）：
+   手机浏览器把 wbcli.html 本体缓存住了，旧版里带着已撤掉的「广播与采集」分页，
+   一直挡着聊天区。这里用「新文件名 + 带版本参数」跳一次，必定拿到新内容。 */
+var u = './wbcli.html?v=' + Date.now();
+document.getElementById('go').href = u;
+location.replace(u);
+</script>
+</body>
+</html>
