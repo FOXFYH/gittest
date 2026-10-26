@@ -1,7 +1,9 @@
 /* ============================================================
  * 【清单系统】网页模块 · 清单页.js
- * 版本：0.66
+ * 版本：0.67
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
+ *   · 0.67（2026-10-27）查卡节流：card_share 轻量模式只下发标题层；正文点一条才取
+ *     （分享取节点），不再一次灌全量；名单列全部下级节点（正文小绿卡＋独立子卡）。
  *   · 0.66（2026-10-27）「全部下级卡名称」补上本卡正文里的每张小绿卡（以前只列独立子卡，
  *     S21 这种正文几十条的架构书只显示 4 张）；点名单里的条目 → 在主区分层树展开并滚到该条。
  *   · 0.65（2026-10-27）分享/查卡页强制一次只开一条：点开新的一条自动收起并列已展开的（祖级别收），
@@ -290,7 +292,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.66';
+  var 版本 = '0.67';
   // ---------------- 状态 ----------------
   var 清单缓存 = [];         // 清单摘要列表（[{编号,名称,类型,详情,任务数,未完成数}]）
   var 清单指纹 = '';         // 清单列表「版本指纹」（差额：无变化不重绘）
@@ -3084,7 +3086,8 @@
       }
       p = p.parentElement;
     }
-    if (!夹.classList.contains('开')) { 收起分享并列(夹); 夹.classList.add('开'); }
+    var 行 = 夹.querySelector('.绿卡行');
+    if (行 && !夹.classList.contains('开')) 行.click();   // 展开并触发按需取正文
     try { 夹.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { 夹.scrollIntoView(); }
   }
   function 画分享树(卡, 列, 容器, 层) {
@@ -3190,6 +3193,91 @@
       结果区.appendChild(行);
     });
   }
+  // 1.15：轻量查卡——正文只给标题，点一条才向服务端取这一条的正文（不再整篇下发）
+  function 平铺转树(列) {
+    var 根 = [], 栈 = [];
+    (列 || []).forEach(function (n) {
+      var 节 = { 号: n.号, 题: n.题, 备注: n.备注, 层: n.层, 文: '', 子: [], 有子: !!n.有子 };
+      while (栈.length && 栈[栈.length - 1].层 >= 节.层) 栈.pop();
+      if (栈.length) 栈[栈.length - 1].子.push(节); else 根.push(节);
+      栈.push(节);
+    });
+    return 根;
+  }
+  function 取分享节点文(卡, g, 文盒) {
+    if (g._已取 || !g.号) { g._已取 = 1; return; }
+    if (文盒) { 文盒.textContent = '加载中…'; 文盒.classList.remove('隐藏'); }
+    if (!global.接口 || !global.接口.分享取节点) return;
+    global.接口.分享取节点((卡 && 卡.编号) || '', g.号).then(function (r) {
+      var 节 = (r && r.节点) || {};
+      var 文 = 文字(节.文);
+      if (文盒) {
+        if (文) { 填文字(文盒, 文, 卡); 文盒.classList.remove('隐藏'); }
+        else { 文盒.textContent = '（无正文）'; }
+      }
+      g._已取 = 1;
+    })['catch'](function () {
+      if (文盒) 文盒.textContent = '取正文失败，再点一次重试';
+    });
+  }
+  function 画分享树懒(卡, 列, 容器, 层) {
+    列.forEach(function (g) {
+      var 色 = ((层 - 1) % 8) + 1;
+      var 夹 = el('div', '绿卡夹 层' + 色);
+      if (g.号) 夹.setAttribute('data-号', g.号);
+      var 行 = el('div', '绿卡行 层色' + 色);
+      var 有子 = !!(g.子 && g.子.length);
+      var 图 = el('span', '层图' + (有子 ? '' : ' 空'), 有子 ? '◆' : '◇');
+      行.appendChild(图);
+      行.appendChild(el('span', '绿卡箭', '▸'));
+      行.appendChild(el('span', '绿卡文', g.题 || ''));
+      if (g.号) {
+        var 号标 = el('span', '绿卡块', g.号);
+        号标.title = '卡号（终身不变）';
+        行.appendChild(号标);
+      }
+      if (g.备注) 行.appendChild(el('span', '绿卡块', g.备注));
+      var 小文 = el('div', '绿卡小文');
+      var 文盒 = el('div', '绿卡正文 隐藏');
+      小文.appendChild(文盒);
+      if (g.子 && g.子.length) {
+        var 子盒 = el('div', '绿卡子');
+        画分享树懒(卡, g.子, 子盒, 层 + 1);
+        小文.appendChild(子盒);
+      }
+      行.addEventListener('click', function () {
+        if (!夹.classList.contains('开')) {
+          收起分享并列(夹);
+          夹.classList.add('开');
+          取分享节点文(卡, g, 文盒);
+        } else {
+          夹.classList.remove('开');
+        }
+      });
+      夹.appendChild(行);
+      夹.appendChild(小文);
+      容器.appendChild(夹);
+    });
+  }
+  function 画分享卡懒(区, 卡, 正文列, 回钮) {
+    if (!区 || !卡) return;
+    if (回钮) 区.appendChild(回钮);
+    var 盒 = el('div', '卡 分享卡');
+    var 头 = el('div', '卡头');
+    头.appendChild(el('span', '编号', 文字(卡.编号)));
+    if (文字(卡.终身号)) 头.appendChild(el('span', '终身号', 文字(卡.终身号)));
+    头.appendChild(el('span', '端标', 清单类型名(卡.类型)));
+    盒.appendChild(头);
+    盒.appendChild(el('div', '卡标题', 文字(卡.标题) || 文字(卡.名称) || '（无标题）'));
+    var 白 = 文字(卡.大白话);
+    if (白) 盒.appendChild(el('div', '分享白', 白));
+    if (正文列 && 正文列.length) {
+      var 树 = el('div', '分享树');
+      画分享树懒(卡, 平铺转树(正文列), 树, 1);
+      盒.appendChild(树);
+    }
+    区.appendChild(盒);
+  }
   function 显示分享(r) {
     分享中 = true;
     显主页();
@@ -3200,65 +3288,147 @@
       框.appendChild(空样('分享取不到：' + ((r && r.err) || '未知错误')));
       return;
     }
-    var 根 = r.根 || {};
-    var 列 = r.后代 || [];
-    var 文节点 = 平铺分享节点(拆树(文字(根.详情)).根, 1);
-    var 总名数 = 文节点.length + 列.length;
+    var 根 = r.根 || {}, 列 = r.后代 || [];
+    // 1.15：轻量模式——只拿标题层，正文点一条才取；老的全量返回仍走下面兼容分支
+    if (r.轻) {
+      var 正文 = r.正文 || [];
+      var 总名数 = 正文.length + 列.length;
+      框.appendChild(el('div', '分享条',
+        '只读分享 · ' + (文字(根.终身号) || 文字(根.编号) || '') + ' · 共 ' +
+        (1 + 总名数) + ' 张卡（本卡＋正文小绿卡＋下级卡）'));
+      var 工 = el('div', '分享工具');
+      var 主区 = el('div', '分享主区');
+      var 结果区 = el('div', '分享结果 隐藏');
+      var 栈 = [{ 卡: 根, 正文: 正文 }];
+      function 渲染栈() {
+        主区.innerHTML = '';
+        var 回 = null;
+        if (栈.length > 1) {
+          回 = 钮('← 返回上级', '小钮', function () {
+            栈.pop(); 渲染栈();
+          });
+          回.style.marginBottom = '6px';
+        }
+        画分享卡懒(主区, 栈[栈.length - 1].卡, 栈[栈.length - 1].正文, 回);
+      }
+      function 打开卡(卡) {
+        if (!卡 || !卡.编号 || !global.接口 || !global.接口.分享取卡) return;
+        主区.appendChild(el('div', '空样', '正在取《' + (文字(卡.标题) || 文字(卡.名称)) + '》…'));
+        global.接口.分享取卡(卡.编号, true).then(function (x) {
+          if (x && x.ok) { 栈.push({ 卡: x.根 || 卡, 正文: x.正文 || [] }); 渲染栈(); }
+          else { 主区.lastChild && 主区.lastChild.remove(); 提示('取卡失败：' + ((x && x.err) || '')); }
+        })['catch'](function () { 主区.lastChild && 主区.lastChild.remove(); 提示('取卡失败'); });
+      }
+      var 名单钮 = 钮('全部下级卡名称 (' + 总名数 + ')', '小钮', function () {
+        var 名区 = 框.querySelector('.分享名单');
+        if (!名区) {
+          名区 = el('div', '分享名单');
+          框.insertBefore(名区, 主区);
+          if (!总名数) 名区.appendChild(el('div', '空样', '（本卡没有下级卡片）'));
+          if (正文.length) {
+            名区.appendChild(el('div', '分享分组', '本卡正文小绿卡 (' + 正文.length + ')'));
+            正文.forEach(function (n) {
+              var 行 = el('div', '分享名行');
+              行.appendChild(el('span', '绿卡块', n.号 || '—'));
+              行.appendChild(el('span', '分享名题', n.题 || '（无标题）'));
+              if (n.备注) 行.appendChild(el('span', '分享名号', n.备注));
+              行.style.paddingLeft = (4 + (n.层 - 1) * 14) + 'px';
+              行.title = '点一下 → 展开这一条并按需取正文';
+              行.addEventListener('click', function () {
+                栈 = [栈[0]];
+                渲染栈();
+                setTimeout(function () { 定位分享节点(框, n.号); }, 30);
+              });
+              名区.appendChild(行);
+            });
+          }
+          if (列.length) {
+            名区.appendChild(el('div', '分享分组', '下级卡片 (' + 列.length + ')'));
+            列.forEach(function (卡) {
+              var 行 = el('div', '分享名行');
+              行.appendChild(el('span', '绿卡块', 文字(卡.终身号) || 文字(卡.编号)));
+              行.appendChild(el('span', '分享名题', 文字(卡.标题) || 文字(卡.名称) || '（无标题）'));
+              行.appendChild(el('span', '分享名号', 文字(卡.编号)));
+              行.addEventListener('click', function () { 打开卡(卡); });
+              名区.appendChild(行);
+            });
+          }
+        } else {
+          名区.classList.toggle('隐藏');
+        }
+      });
+      var 搜框 = document.createElement('input');
+      搜框.className = '分享搜'; 搜框.placeholder = '搜标题关键词（直接回卡号）';
+      var 搜钮 = 钮('搜索', '小钮', function () {
+        var q = String(搜框.value || '').trim();
+        结果区.innerHTML = '';
+        if (!q) { 结果区.classList.add('隐藏'); return; }
+        结果区.classList.remove('隐藏');
+        var 命中 = [];
+        [根].concat(列 || []).forEach(function (卡) {
+          var 名 = 文字(卡.标题) + 文字(卡.名称) + 文字(卡.大白话);
+          if (名.indexOf(q) >= 0) 命中.push({ 号: 文字(卡.终身号) || 文字(卡.编号), 题: 文字(卡.标题) || 文字(卡.名称), 卡: 卡 });
+        });
+        正文.forEach(function (n) {
+          if (String(n.题 || '').indexOf(q) >= 0) 命中.push({ 号: n.号, 题: n.题, 节点: n });
+        });
+        if (!命中.length) { 结果区.appendChild(el('div', '空样', '没有命中「' + q + '」')); return; }
+        结果区.appendChild(el('div', '分享结果题', '命中 ' + 命中.length + ' 条（点卡号看所属卡片）'));
+        命中.slice(0, 80).forEach(function (h) {
+          var 行 = el('div', '分享结果行');
+          行.appendChild(el('span', '绿卡块', h.号 || '—'));
+          行.appendChild(el('span', '分享结果题文', h.题 || ''));
+          行.addEventListener('click', function () {
+            if (h.节点) { 栈 = [栈[0]]; 渲染栈(); setTimeout(function () { 定位分享节点(框, h.号); }, 30); }
+            else 打开卡(h.卡);
+          });
+          结果区.appendChild(行);
+        });
+      });
+      搜框.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 搜钮.click(); } });
+      工.appendChild(名单钮); 工.appendChild(搜框); 工.appendChild(搜钮);
+      框.appendChild(工);
+      框.appendChild(结果区);
+      框.appendChild(主区);
+      渲染栈();
+      if ($('清单计数')) $('清单计数').textContent = '只读分享';
+      return;
+    }
     框.appendChild(el('div', '分享条',
       '只读分享 · ' + (文字(根.终身号) || 文字(根.编号) || '') + ' · 共 ' +
-      (1 + 总名数) + ' 张卡（本卡＋正文小绿卡＋下级卡）'));
-    // 两个捷径：全部下级卡名称 / 关键词搜索（直接回卡号）
-    var 工 = el('div', '分享工具');
-    var 名单钮 = 钮('全部下级卡名称 (' + 总名数 + ')', '小钮', function () {
-      var 名区 = 框.querySelector('.分享名单');
-      if (!名区) {
-        名区 = el('div', '分享名单');
-        框.insertBefore(名区, 主区);
-        if (!总名数) 名区.appendChild(el('div', '空样', '（本卡没有下级卡片）'));
-        // 1.14：正文里的每张小绿卡也是卡（有终身号），一并列名——以前只列独立子卡，
-        //       像 S21 这种正文几十条的架构书只会显示 4 张，看起来像丢了下级。
-        if (文节点.length) {
-          名区.appendChild(el('div', '分享分组', '本卡正文小绿卡 (' + 文节点.length + ')'));
-          文节点.forEach(function (n) {
-            var g = n.g;
-            var 行 = el('div', '分享名行');
-            行.appendChild(el('span', '绿卡块', g.号 || '—'));
-            行.appendChild(el('span', '分享名题', g.题 || g.项 || '（无标题）'));
-            if (g.备注) 行.appendChild(el('span', '分享名号', g.备注));
-            行.style.paddingLeft = (4 + (n.层 - 1) * 14) + 'px';
-            行.title = '点一下 → 在主区分层树里展开这一条';
-            行.addEventListener('click', function () { 定位分享节点(框, g.号); });
-            名区.appendChild(行);
-          });
-        }
-        if (列.length) {
-          名区.appendChild(el('div', '分享分组', '下级卡片 (' + 列.length + ')'));
-          列.forEach(function (卡) {
-            var 行 = el('div', '分享名行');
-            行.appendChild(el('span', '绿卡块', 文字(卡.终身号) || 文字(卡.编号)));
-            行.appendChild(el('span', '分享名题', 文字(卡.标题) || 文字(卡.名称) || '（无标题）'));
-            行.appendChild(el('span', '分享名号', 文字(卡.编号)));
-            行.addEventListener('click', function () { 画分享卡(主区, 卡); });
-            名区.appendChild(行);
-          });
-        }
+      (1 + 列.length) + ' 张卡（含全部下级）'));
+    var 工2 = el('div', '分享工具');
+    var 主区2 = el('div', '分享主区');
+    var 结果区2 = el('div', '分享结果 隐藏');
+    var 名单钮2 = 钮('全部下级卡名称 (' + 列.length + ')', '小钮', function () {
+      var 名区2 = 框.querySelector('.分享名单');
+      if (!名区2) {
+        名区2 = el('div', '分享名单');
+        框.insertBefore(名区2, 主区2);
+        if (!列.length) 名区2.appendChild(el('div', '空样', '（本卡没有下级卡片）'));
+        列.forEach(function (卡) {
+          var 行 = el('div', '分享名行');
+          行.appendChild(el('span', '绿卡块', 文字(卡.终身号) || 文字(卡.编号)));
+          行.appendChild(el('span', '分享名题', 文字(卡.标题) || 文字(卡.名称) || '（无标题）'));
+          行.appendChild(el('span', '分享名号', 文字(卡.编号)));
+          行.addEventListener('click', function () { 画分享卡(主区2, 卡); });
+          名区2.appendChild(行);
+        });
       } else {
-        名区.classList.toggle('隐藏');
+        名区2.classList.toggle('隐藏');
       }
     });
-    var 搜框 = document.createElement('input');
-    搜框.className = '分享搜'; 搜框.placeholder = '搜关键词（直接回卡号）';
-    var 搜钮 = 钮('搜索', '小钮', function () { 搜分享(搜框.value, 根, 列, 主区, 结果区); });
-    搜框.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); 搜分享(搜框.value, 根, 列, 主区, 结果区); }
+    var 搜框2 = document.createElement('input');
+    搜框2.className = '分享搜'; 搜框2.placeholder = '搜关键词（直接回卡号）';
+    var 搜钮2 = 钮('搜索', '小钮', function () { 搜分享(搜框2.value, 根, 列, 主区2, 结果区2); });
+    搜框2.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); 搜分享(搜框2.value, 根, 列, 主区2, 结果区2); }
     });
-    工.appendChild(名单钮); 工.appendChild(搜框); 工.appendChild(搜钮);
-    框.appendChild(工);
-    var 结果区 = el('div', '分享结果 隐藏');
-    框.appendChild(结果区);
-    var 主区 = el('div', '分享主区');
-    框.appendChild(主区);
-    画分享卡(主区, 根);
+    工2.appendChild(名单钮2); 工2.appendChild(搜框2); 工2.appendChild(搜钮2);
+    框.appendChild(工2);
+    框.appendChild(结果区2);
+    框.appendChild(主区2);
+    画分享卡(主区2, 根);
     if ($('清单计数')) $('清单计数').textContent = '只读分享';
   }
 
