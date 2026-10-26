@@ -74,7 +74,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.27';
+  var 版本 = '0.28';
   var 提示定时 = null;
   var _联动已载 = false;      // 0.21：设置里的联动命令是否已从服务端回填（没回填不写，免得清空）
   var _已启动 = false;        // 0.22：邮箱登录后是否已继续原有口令/首载流程
@@ -306,8 +306,8 @@
     var 文 = '', 色 = '';
     WS = WS || {};
     if (!HTTP || !HTTP.可用) {
-      文 = '服务器不可达（HTTP 失败：' + ((HTTP && HTTP.原因) || '未知原因')
-         + '）→ 问题在服务器 / 本机服务';
+      文 = '服务器不可达（WS 通道无应答：' + ((HTTP && HTTP.原因) || '未知原因')
+         + '）→ 问题在服务器 / 通道';
       色 = '红';
     } else if (WS.被拒) {
       文 = '服务器正常，WS 被拒（线路' + String(WS.线路 || WS.通道 || '?').toUpperCase()
@@ -325,118 +325,50 @@
     元.textContent = 文;
     元.className = '网络判定 ' + 色;
   }
-  // GitHub Pages 等静态站：HTTP 直连本机 8901 多半不可达（尤其手机），
-  // 此时再用 WS 路由 `状态` 问一次服务器——能答就说明服务器活着，问题只在 WS。
-  function 可WS回退诊断() {
-    try {
-      var h = String(global.location.hostname || '');
-      return /\.github\.io$/i.test(h);
-    } catch (e) { return false; }
-  }
-  function 画网络判定WS可达(WS, 原因) {
-    var 元 = $('网络_判定');
-    if (!元) return;
-    WS = WS || {};
-    var 文, 色 = '红';
-    var 前缀 = '服务器经 WS 可达（HTTP 直连不可达：' + 原因 + '），';
-    if (WS.被拒) {
-      文 = 前缀 + 'WS 被拒（线路' + String(WS.线路 || WS.通道 || '?').toUpperCase() + '）：'
-        + String(WS.拒绝原文 || WS.最近错 || '服务端拒绝（无原文）') + ' → 问题在 WS 账号配额/密钥';
-    } else if (WS.状态 !== '已连') {
-      文 = 前缀 + 'WS 未连（' + String(WS.状态 || '未知') + '）：'
-        + String(WS.最近错 || '尚无错误原文') + ' → 问题在 WS 网络/线路';
-    } else {
-      文 = 前缀 + 'WS 正常（通道' + String(WS.通道 || '?').toUpperCase() + '）';
-      色 = '绿';
-    }
-    元.textContent = 文;
-    元.className = '网络判定 ' + 色;
-  }
   function 测网络() {
     if (_网络测中) return;
     _网络测中 = true;
     var 判 = $('网络_判定');
     if (判) { 判.textContent = '网络诊断：读取中…'; 判.className = '网络判定'; }
-    设网络态($('网络_服务器态'), '检测中…', '');
-    var 基 = 网络服务器基址();
-    var 址 = 基 + '/api/status?_=' + Date.now();
+    设网络态($('网络_服务器态'), '查询中…', '');
     var 起 = (global.performance && global.performance.now) ? global.performance.now() : Date.now();
-    var 控 = null, 超 = null;
-    try {
-      if (global.AbortController) { 控 = new AbortController(); 超 = setTimeout(function () { 控.abort(); }, 4000); }
-    } catch (e) { }
-    var 选 = { cache: 'no-store' };
-    if (控) 选.signal = 控.signal;
-    global.fetch(址, 选).then(function (r) {
-      return r.text().then(function (t) { return { r: r, t: t }; });
-    }).then(function (x) {
-      if (超) clearTimeout(超);
+    var 本 = null;
+    try { 本 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : null; } catch (eb) { }
+    var 待 = null;
+    try { 待 = (global.接口 && typeof global.接口.raw === 'function') ? global.接口.raw('状态', {}) : null; } catch (e) { 待 = null; }
+    if (!待 || typeof 待.then !== 'function') 待 = Promise.reject(new Error('WS 通道不可用（未填口令 / 未连接）'));
+    var 超 = new Promise(function (res) { setTimeout(function () { res(null); }, 4000); });
+    Promise.race([待, 超]).then(function (r) {
       var 耗 = Math.round(((global.performance && global.performance.now) ? global.performance.now() : Date.now()) - 起);
-      var 数 = null;
-      try { 数 = JSON.parse(x.t || '{}'); } catch (e) { }
-      if (!x.r.ok || !数 || !数.状态) throw new Error('HTTP ' + x.r.status + '，返回非预期');
-      var 服 = 数.状态 || {}, WS = 服.WS || {};
-      var 本 = null;
-      try { 本 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : null; } catch (eb) { }
-      WS = 合并网络WS(WS, 本 || {});
-      设网络态($('网络_服务器态'), '已连', '绿');
+      var 服 = (r && r.状态) ? r.状态 : null;
       var 详 = $('网络_服务器详情');
+      if (!服) {
+        设网络态($('网络_服务器态'), '不可达', '红');
+        if (详) 详.textContent = '经 WS 通道　·　4 秒内无应答（服务器未上线 / 通道未连）';
+        画网络WS(本 || {});
+        画网络判定({ 可用: false, 原因: 'WS 4 秒内无应答' }, 本 || {});
+        _网络上次 = { HTTP: { 可用: false, 原因: 'WS 无应答', 经WS: true }, WS: 本 || {} };
+        return;
+      }
+      var WS = 合并网络WS(服.WS || {}, 本 || {});
+      设网络态($('网络_服务器态'), '已连', '绿');
       if (详) {
-        详.textContent = '地址 ' + (基 || global.location.origin) + '　·　往返 ' + 耗 + 'ms'
-          + '　·　服务版本 v' + (服.版本 || '–');
+        详.textContent = '经 WS 通道　·　往返 ' + 耗 + 'ms　·　服务版本 v' + (服.版本 || '–')
+          + '　·　频道 ' + (WS.频道 || 服.频道 || '–');
       }
       画网络WS(WS);
-      画网络判定({ 可用: true, 地址: 址, 耗时: 耗, 版本: 服.版本 || '' }, WS);
-      _网络上次 = { HTTP: { 可用: true, 地址: 址, 耗时: 耗, 版本: 服.版本 || '' }, WS: WS };
+      画网络判定({ 可用: true, 耗时: 耗, 版本: 服.版本 || '' }, WS);
+      _网络上次 = { HTTP: { 可用: true, 耗时: 耗, 经WS: true }, WS: WS };
     })['catch'](function (e) {
-      if (超) clearTimeout(超);
-      var 名 = String((e && e.name) || '');
-      var 讯 = String((e && e.message) || e || '');
-      var 因;
-      if (名 === 'AbortError') 因 = '超时（4 秒无响应）';
-      else if (/Failed to fetch|NetworkError|Load failed/i.test(讯)) 因 = '连接被拒或跨域（浏览器拦截 / 本机服务未开）';
-      else 因 = 讯 || '未知原因';
-      var 本 = null;
-      try { 本 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : null; } catch (e2) { }
+      var 因 = String((e && e.message) || e || '未知原因');
+      var 本2 = null;
+      try { 本2 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : null; } catch (e2) { }
       var 详 = $('网络_服务器详情');
-      // 静态站（GitHub Pages）：HTTP 直连不可达属正常，再用 WS 路由 `状态` 问服务器是否活着
-      if (可WS回退诊断() && global.接口 && typeof global.接口.raw === 'function') {
-        设网络态($('网络_服务器态'), 'HTTP 不可达', '红');
-        if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　HTTP 原因：' + 因 + '　·　改用 WS 查询…';
-        var 待 = null;
-        try { 待 = global.接口.raw('状态', {}); } catch (e3) { 待 = null; }
-        if (!待 || typeof 待.then !== 'function') { 待 = null; }
-        return Promise.race([
-          待 || Promise.reject(new Error('WS 状态查询不可用')),
-          new Promise(function (res) { setTimeout(function () { res(null); }, 2500); })
-        ]).then(function (r) {
-          var 服 = (r && r.状态) ? r.状态 : null;
-          if (!服) {
-            if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　HTTP 原因：' + 因
-              + '　·　WS 也取不到状态 → 服务器 / 本机服务问题';
-            画网络WS(本 || {});
-            画网络判定({ 可用: false, 原因: 因 + '；WS 也不可达' }, 本 || {});
-            _网络上次 = { HTTP: { 可用: false, 原因: 因 }, WS: 本 || {} };
-            return;
-          }
-          var WSW = 合并网络WS(服.WS || {}, 本 || {});
-          if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　HTTP 原因：' + 因
-            + '　·　WS 可达 · 服务版本 v' + (服.版本 || '–');
-          画网络WS(WSW);
-          画网络判定WS可达(WSW, 因);
-          _网络上次 = { HTTP: { 可用: false, 原因: 因, 经WS: true }, WS: WSW };
-        })['catch'](function () {
-          if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　原因：' + 因;
-          画网络WS(本 || {});
-          画网络判定({ 可用: false, 原因: 因 }, 本 || {});
-          _网络上次 = { HTTP: { 可用: false, 原因: 因 }, WS: 本 || {} };
-        });
-      }
       设网络态($('网络_服务器态'), '不可达', '红');
-      if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　原因：' + 因;
-      画网络WS(本 || {});
-      画网络判定({ 可用: false, 原因: 因 }, 本 || {});
-      _网络上次 = { HTTP: { 可用: false, 原因: 因 }, WS: 本 || {} };
+      if (详) 详.textContent = '经 WS 通道　·　原因：' + 因;
+      画网络WS(本2 || {});
+      画网络判定({ 可用: false, 原因: 因 }, 本2 || {});
+      _网络上次 = { HTTP: { 可用: false, 原因: 因, 经WS: true }, WS: 本2 || {} };
     }).then(function () { _网络测中 = false; });
   }
   function 装网络诊断() {
@@ -567,23 +499,11 @@
     画服务器();
   }
   function 拉落地设置() {
-    // ① 同源 http(s)（本机/局域网打开）→ 直接 HTTP 读盘，无需口令即可取回
-    var 同源 = (location.protocol === 'http:' || location.protocol === 'https:')
-      && !/github\.io$/i.test(location.hostname);
-    if (同源 && typeof global.fetch === 'function') {
-      return global.fetch('/api/settings_get?ts=' + Date.now(), { cache: 'no-store' })
-        .then(function (r) { return r.json(); })
-        .then(function (j) { if (j && j.ok) 应用设置(j.设置); })
-        ['catch'](function () { return 走WS(); });
-    }
-    return 走WS();
-
-    function 走WS() {
-      if (!global.接口 || typeof global.接口.设置读取 !== 'function') return Promise.resolve();
-      return global.接口.设置读取().then(function (r) {
-        应用设置((r && r.设置) || {});
-      })['catch'](function () { });
-    }
+    // 0.28：GitHub 部署版＝纯 WS——设置一律经 WS 路由 settings_get 读取，不再碰本机 HTTP
+    if (!global.接口 || typeof global.接口.设置读取 !== 'function') return Promise.resolve();
+    return global.接口.设置读取().then(function (r) {
+      应用设置((r && r.设置) || {});
+    })['catch'](function () { });
   }
 
   // ---------------- 口令（§19 首登填、本地缓存；频道 = 前缀 + 口令，运行时拼） ----------------
