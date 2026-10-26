@@ -1,7 +1,9 @@
 /* ============================================================
  * 【清单系统】网页模块 · 清单页.js
- * 版本：0.65
+ * 版本：0.66
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
+ *   · 0.66（2026-10-27）「全部下级卡名称」补上本卡正文里的每张小绿卡（以前只列独立子卡，
+ *     S21 这种正文几十条的架构书只显示 4 张）；点名单里的条目 → 在主区分层树展开并滚到该条。
  *   · 0.65（2026-10-27）分享/查卡页强制一次只开一条：点开新的一条自动收起并列已展开的（祖级别收），
  *     不再依赖「只打开一卡」设置（分享页没有设置入口）。
  *   · 0.64（2026-10-27）只读查卡/分享改成「像平时用卡」：正文按层级显示，外层只列标题、
@@ -288,7 +290,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.65';
+  var 版本 = '0.66';
   // ---------------- 状态 ----------------
   var 清单缓存 = [];         // 清单摘要列表（[{编号,名称,类型,详情,任务数,未完成数}]）
   var 清单指纹 = '';         // 清单列表「版本指纹」（差额：无变化不重绘）
@@ -3056,10 +3058,40 @@
       x.classList.remove('开');
     });
   }
+  // 1.14：正文小绿卡按层级拍平（供「全部下级卡名称」逐个列名，不灌正文）
+  function 平铺分享节点(根, 层, 出) {
+    出 = 出 || [];
+    (根 || []).forEach(function (g) {
+      出.push({ g: g, 层: 层 || 1 });
+      if (g.子 && g.子.length) 平铺分享节点(g.子, (层 || 1) + 1, 出);
+    });
+    return 出;
+  }
+  // 1.14：点名单里的正文小绿卡 → 在主区分层树里展开它并滚到眼前
+  function 定位分享节点(框, 号) {
+    if (!号) return;
+    var 树 = 框.querySelector('.分享树');
+    if (!树) return;
+    var 夹 = null;
+    Array.prototype.forEach.call(树.querySelectorAll('.绿卡夹'), function (x) {
+      if (!夹 && x.getAttribute('data-号') === 号) 夹 = x;
+    });
+    if (!夹) return;
+    var p = 夹.parentElement;
+    while (p && p !== 树) {
+      if (p.classList && p.classList.contains('绿卡夹')) {
+        收起分享并列(p); p.classList.add('开');
+      }
+      p = p.parentElement;
+    }
+    if (!夹.classList.contains('开')) { 收起分享并列(夹); 夹.classList.add('开'); }
+    try { 夹.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { 夹.scrollIntoView(); }
+  }
   function 画分享树(卡, 列, 容器, 层) {
     列.forEach(function (g) {
       var 色 = ((层 - 1) % 8) + 1;
       var 夹 = el('div', '绿卡夹 层' + 色);
+      if (g.号) 夹.setAttribute('data-号', g.号);   // 1.14：名单点卡号 → 定位到这条
       var 行 = el('div', '绿卡行 层色' + 色);
       var 有子 = !!(g.子 && g.子.length);
       var 图 = el('span', '层图' + (有子 ? '' : ' 空'), 有子 ? '◆' : '◇');
@@ -3170,24 +3202,46 @@
     }
     var 根 = r.根 || {};
     var 列 = r.后代 || [];
+    var 文节点 = 平铺分享节点(拆树(文字(根.详情)).根, 1);
+    var 总名数 = 文节点.length + 列.length;
     框.appendChild(el('div', '分享条',
-      '只读分享 · ' + (文字(根.终身号) || 文字(根.编号) || '') + ' · 共 ' + (r.总数 || 0) + ' 张卡（含全部下级）'));
+      '只读分享 · ' + (文字(根.终身号) || 文字(根.编号) || '') + ' · 共 ' +
+      (1 + 总名数) + ' 张卡（本卡＋正文小绿卡＋下级卡）'));
     // 两个捷径：全部下级卡名称 / 关键词搜索（直接回卡号）
     var 工 = el('div', '分享工具');
-    var 名单钮 = 钮('全部下级卡名称 (' + 列.length + ')', '小钮', function () {
+    var 名单钮 = 钮('全部下级卡名称 (' + 总名数 + ')', '小钮', function () {
       var 名区 = 框.querySelector('.分享名单');
       if (!名区) {
         名区 = el('div', '分享名单');
         框.insertBefore(名区, 主区);
-        if (!列.length) 名区.appendChild(el('div', '空样', '（本卡没有下级卡片）'));
-        列.forEach(function (卡) {
-          var 行 = el('div', '分享名行');
-          行.appendChild(el('span', '绿卡块', 文字(卡.终身号) || 文字(卡.编号)));
-          行.appendChild(el('span', '分享名题', 文字(卡.标题) || 文字(卡.名称) || '（无标题）'));
-          行.appendChild(el('span', '分享名号', 文字(卡.编号)));
-          行.addEventListener('click', function () { 画分享卡(主区, 卡); });
-          名区.appendChild(行);
-        });
+        if (!总名数) 名区.appendChild(el('div', '空样', '（本卡没有下级卡片）'));
+        // 1.14：正文里的每张小绿卡也是卡（有终身号），一并列名——以前只列独立子卡，
+        //       像 S21 这种正文几十条的架构书只会显示 4 张，看起来像丢了下级。
+        if (文节点.length) {
+          名区.appendChild(el('div', '分享分组', '本卡正文小绿卡 (' + 文节点.length + ')'));
+          文节点.forEach(function (n) {
+            var g = n.g;
+            var 行 = el('div', '分享名行');
+            行.appendChild(el('span', '绿卡块', g.号 || '—'));
+            行.appendChild(el('span', '分享名题', g.题 || g.项 || '（无标题）'));
+            if (g.备注) 行.appendChild(el('span', '分享名号', g.备注));
+            行.style.paddingLeft = (4 + (n.层 - 1) * 14) + 'px';
+            行.title = '点一下 → 在主区分层树里展开这一条';
+            行.addEventListener('click', function () { 定位分享节点(框, g.号); });
+            名区.appendChild(行);
+          });
+        }
+        if (列.length) {
+          名区.appendChild(el('div', '分享分组', '下级卡片 (' + 列.length + ')'));
+          列.forEach(function (卡) {
+            var 行 = el('div', '分享名行');
+            行.appendChild(el('span', '绿卡块', 文字(卡.终身号) || 文字(卡.编号)));
+            行.appendChild(el('span', '分享名题', 文字(卡.标题) || 文字(卡.名称) || '（无标题）'));
+            行.appendChild(el('span', '分享名号', 文字(卡.编号)));
+            行.addEventListener('click', function () { 画分享卡(主区, 卡); });
+            名区.appendChild(行);
+          });
+        }
       } else {
         名区.classList.toggle('隐藏');
       }
