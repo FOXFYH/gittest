@@ -1,10 +1,13 @@
 /* ============================================================
  * 【任务面板】网页模块 · 面板.js
- * 版本：0.29
+ * 版本：0.30
  * 职责：页面【装配层】——《软件架构设计》§6 手机网页版。
  *   · 顶栏：左【新建】【返回主页】、中题名+【网页版版本（唯一）】+角色、右【设置】。
- *   · 【设置】菜单：收纳 **网络诊断**＋**服务器选择**（含在线/离线小标）＋**账号通道 A/B**
+ *   · 【设置】菜单：收纳 **连接诊断**＋**服务器选择**（含在线/离线小标）＋**账号通道 A/B**
  *     ＋**口令**钮＋**版本**。
+ *   · 0.30（2026-10-26）设置页「连接诊断」照 TRAE 手机网页版同款改版：
+ *     频道 / 本端连上中转 / 收到电脑端回应 / 最近回应时间 / 断线重连·出错次数 /
+ *     事件日志（最近 8 条）/ 立即重连 / 测电脑端回应（5s）——不再展示任何本机 127 地址。
  *   · 0.29（2026-10-26）P54：服务器下拉**取消「自动（谁先答算谁）」**——只列真实客户端，
  *     由用户主动选；未选时显示等待占位，选中项持久化（接口.js 0.31 首次报到默认选中）。
  *   · 0.28（2026-10-26）GitHub 部署版＝**纯 WS 遥控**：网络诊断不再 fetch 本机 HTTP，
@@ -79,7 +82,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.29';
+  var 版本 = '0.30';
   var 提示定时 = null;
   var _联动已载 = false;      // 0.21：设置里的联动命令是否已从服务端回填（没回填不写，免得清空）
   var _已启动 = false;        // 0.22：邮箱登录后是否已继续原有口令/首载流程
@@ -246,139 +249,137 @@
     }
   }
 
-  // ---------------- 0.28 网络诊断（服务器行＝WS 是否应答 / WS 行＝网页自身连接；判定一句话） ----------------
-  var _网络测中 = false;
-  var _网络上次 = null;       // { HTTP:{可用,耗时,版本,原因}, WS:{...} }（0.28 起 HTTP 仅作「WS 是否应答」的判定键）
+  // ---------------- 0.80 连接诊断（照 TRAE 手机网页版设置页：频道/本端/电脑端/时间/次数/日志） ----------------
+  var 诊断 = { 重连: 0, 错: 0, 测试时刻: 0, 测试成功: false, 日志: [], 上次态: '' };
+  var 电脑端绿 = 90000, 电脑端橙 = 180000;   // 服务端 60s 报到一次；90s 内算正常，3 分钟算失联
 
-  function 设网络态(元, 文案, 色) {
+  function 诊断记(txt, cls) {
+    诊断.日志.push({ t: Date.now(), txt: String(txt || ''), cls: cls || '' });
+    if (诊断.日志.length > 60) 诊断.日志.shift();
+    诊断画日志();
+  }
+  function 诊断画日志() {
+    var 盒 = $('诊断_日志');
+    if (!盒) return;
+    var 条 = 诊断.日志.slice(-8);
+    if (!条.length) { 盒.innerHTML = '<div class="暗">（暂无事件）</div>'; return; }
+    盒.innerHTML = 条.map(function (l) {
+      return '<div class="' + (l.cls || '') + '">'
+        + new Date(l.t).toLocaleTimeString() + '  ' + l.txt + '</div>';
+    }).join('');
+    盒.scrollTop = 盒.scrollHeight;
+  }
+  function 设诊断值(id, 文案, 色) {
+    var 元 = $(id);
     if (!元) return;
     元.textContent = 文案;
-    元.className = '网络态' + (色 ? ' ' + 色 : '');
+    元.className = '诊断值' + (色 ? ' ' + 色 : '');
   }
-  // 服务端 WS 与网页自身 WS 合并显示：任一侧「被拒」都按被拒；服务端已连但网页没连上，
-  // 以网页端实际状态显示（老板看到的就是网页这一侧）——/api/status 仍是主数据源。
-  function 合并网络WS(服, 页) {
-    服 = 服 || {}; 页 = 页 || {};
-    var 出 = {}, k;
-    for (k in 服) { if (Object.prototype.hasOwnProperty.call(服, k)) 出[k] = 服[k]; }
-    var 页态 = String(页.状态 || ''), 服态 = String(服.状态 || '');
-    if (页.被拒) {
-      出.被拒 = true; 出.状态 = '被拒'; 出.网页被拒 = true;
-      出.拒绝原文 = 页.拒绝原文 || 服.拒绝原文 || '';
-      出.最近错 = 页.最近错 || 出.最近错 || '';
-      出.通道 = 页.通道 || 出.通道; 出.线路 = 页.线路 || 出.线路;
-      出.线路集群 = 页.线路集群 || 出.线路集群;
-    } else if (页态 && 服态 === '已连' && 页态 !== '已连') {
-      出.状态 = 页态; 出.网页状态 = 页态; 出.最近错 = 页.最近错 || 出.最近错 || '';
-    }
-    出.网页通道 = 页.通道 || ''; 出.网页状态 = 出.网页状态 || 页态;
-    return 出;
+  function 选中服() {
+    var 表 = [], 选 = { 实例号: '' };
+    try {
+      表 = global.接口.服务器列表() || [];
+      选 = global.接口.选中服务器() || 选;
+    } catch (e) { }
+    for (var i = 0; i < 表.length; i++) if (表[i].实例号 === 选.实例号) return 表[i];
+    return null;
   }
-  function 画网络WS(WS) {
-    WS = WS || {};
-    var 态 = $('网络_WS态'), 细 = $('网络_WS详情');
-    var 名 = String(WS.通道 || '?').toUpperCase();
-    var 线 = String(WS.线路 || 名).toUpperCase();
-    var 集 = String(WS.线路集群 || '');
-    var 状 = String(WS.状态 || '未起');
-    var 被拒 = !!WS.被拒;
-    var 短 = '通道' + 名 + ' · 线路' + 线 + (集 ? '/' + 集 : '') + ' · ' + 状;
-    if (WS.网页被拒 && 状 === '被拒') 短 += '（网页端）';
-    else if (WS.网页状态 && WS.网页状态 !== 状) 短 += '（网页端 ' + WS.网页状态 + '）';
-    设网络态(态, 短, (状 === '已连' && !被拒) ? '绿' : '红');
-    var 片 = [];
-    片.push(WS.频道 ? ('频道 ' + WS.频道) : '频道 –');
-    片.push(WS.最近收帧时间 ? ('最近收帧 ' + WS.最近收帧时间) : '最近收帧：从未收到');
-    if (被拒) 片.push('被拒原文：' + String(WS.拒绝原文 || WS.最近错 || '服务端拒绝（无原文）'));
-    else if (WS.最近错) 片.push('最近错：' + String(WS.最近错));
-    if (细) 细.textContent = 片.join('　·　');
-  }
-  function 画网络判定(HTTP, WS) {
-    var 元 = $('网络_判定');
-    if (!元) return;
-    var 文 = '', 色 = '';
-    WS = WS || {};
-    if (!HTTP || !HTTP.可用) {
-      文 = '服务器不可达（WS 通道无应答：' + ((HTTP && HTTP.原因) || '未知原因')
-         + '）→ 问题在服务器 / 通道';
-      色 = '红';
-    } else if (WS.被拒) {
-      文 = '服务器正常，WS 被拒（线路' + String(WS.线路 || WS.通道 || '?').toUpperCase()
-         + '）：' + String(WS.拒绝原文 || WS.最近错 || '服务端拒绝（无原文）')
-         + ' → 问题在 WS 账号配额/密钥';
-      色 = '红';
-    } else if (WS.状态 !== '已连') {
-      文 = '服务器正常，WS 未连（' + String(WS.状态 || '未知') + '）：'
-         + String(WS.最近错 || '尚无错误原文') + ' → 问题在 WS 网络/线路';
-      色 = '红';
+  function 诊断画() {
+    var 态 = {};
+    try { 态 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : {}; } catch (e) { }
+    var 频 = String(态.频道 || '');
+    设诊断值('诊断_频道', 频 || '未设置', '');
+    // 本端连上中转
+    if (态.被拒) 设诊断值('诊断_本端', '❌ 被拒：' + String(态.拒绝原文 || '无原文'), '红');
+    else if (态.状态 === '已连') 设诊断值('诊断_本端', '✅ 已连上中转（' + String(态.线路 || '').toUpperCase() + '）', '绿');
+    else if (态.状态 === '失败') 设诊断值('诊断_本端', '❌ 连不上中转：' + String(态.最近错 || ''), '红');
+    else if (态.状态 === '断开' || 态.状态 === '重连等待') 设诊断值('诊断_本端', '❌ 已断开 · ' + (态.状态 || '重连中'), '红');
+    else 设诊断值('诊断_本端', '⏳ ' + (态.状态 || '连接中') + '…', '橙');
+    // 电脑端回应
+    var 服 = 选中服(), 差 = (服 && 服.最近) ? (Date.now() - 服.最近) : -1;
+    if (服 && 差 >= 0 && 差 < 电脑端绿) {
+      设诊断值('诊断_电脑端', '✅ 正常（90s 内收到）', '绿');
+      设诊断值('诊断_最近', new Date(服.最近).toLocaleTimeString(), '');
+    } else if (服 && 差 < 电脑端橙) {
+      设诊断值('诊断_电脑端', '⚠ ' + Math.round(差 / 1000) + 's 无新回应（抖动，再等等）', '橙');
+      设诊断值('诊断_最近', new Date(服.最近).toLocaleTimeString(), '');
+    } else if (服) {
+      设诊断值('诊断_电脑端', '❌ ' + Math.round(差 / 1000) + 's 无回应（电脑端可能没在跑）', '红');
+      设诊断值('诊断_最近', new Date(服.最近).toLocaleTimeString(), '');
     } else {
-      文 = '服务器与 WS 均正常（通道' + String(WS.通道 || '?').toUpperCase() + '）';
-      色 = '绿';
+      设诊断值('诊断_电脑端', '⏳ 尚未收到', '');
+      设诊断值('诊断_最近', '—', '');
     }
-    元.textContent = 文;
-    元.className = '网络判定 ' + 色;
-  }
-  function 测网络() {
-    if (_网络测中) return;
-    _网络测中 = true;
+    设诊断值('诊断_次数', 诊断.重连 + ' 次 / ' + 诊断.错 + ' 次', '');
+    // 一句话判定
     var 判 = $('网络_判定');
-    if (判) { 判.textContent = '网络诊断：读取中…'; 判.className = '网络判定'; }
-    设网络态($('网络_服务器态'), '查询中…', '');
-    var 起 = (global.performance && global.performance.now) ? global.performance.now() : Date.now();
-    var 本 = null;
-    try { 本 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : null; } catch (eb) { }
-    var 待 = null;
-    try { 待 = (global.接口 && typeof global.接口.raw === 'function') ? global.接口.raw('状态', {}) : null; } catch (e) { 待 = null; }
-    if (!待 || typeof 待.then !== 'function') 待 = Promise.reject(new Error('WS 通道不可用（未填口令 / 未连接）'));
-    var 超 = new Promise(function (res) { setTimeout(function () { res(null); }, 4000); });
-    Promise.race([待, 超]).then(function (r) {
-      var 耗 = Math.round(((global.performance && global.performance.now) ? global.performance.now() : Date.now()) - 起);
-      var 服 = (r && r.状态) ? r.状态 : null;
-      var 详 = $('网络_服务器详情');
-      if (!服) {
-        设网络态($('网络_服务器态'), '不可达', '红');
-        if (详) 详.textContent = '经 WS 通道　·　4 秒内无应答（服务器未上线 / 通道未连）';
-        画网络WS(本 || {});
-        画网络判定({ 可用: false, 原因: 'WS 4 秒内无应答' }, 本 || {});
-        _网络上次 = { HTTP: { 可用: false, 原因: 'WS 无应答', 经WS: true }, WS: 本 || {} };
-        return;
-      }
-      var WS = 合并网络WS(服.WS || {}, 本 || {});
-      设网络态($('网络_服务器态'), '已连', '绿');
-      if (详) {
-        详.textContent = '经 WS 通道　·　往返 ' + 耗 + 'ms　·　服务版本 v' + (服.版本 || '–')
-          + '　·　频道 ' + (WS.频道 || 服.频道 || '–');
-      }
-      画网络WS(WS);
-      画网络判定({ 可用: true, 耗时: 耗, 版本: 服.版本 || '' }, WS);
-      _网络上次 = { HTTP: { 可用: true, 耗时: 耗, 经WS: true }, WS: WS };
-    })['catch'](function (e) {
-      var 因 = String((e && e.message) || e || '未知原因');
-      var 本2 = null;
-      try { 本2 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : null; } catch (e2) { }
-      var 详 = $('网络_服务器详情');
-      设网络态($('网络_服务器态'), '不可达', '红');
-      if (详) 详.textContent = '经 WS 通道　·　原因：' + 因;
-      画网络WS(本2 || {});
-      画网络判定({ 可用: false, 原因: 因 }, 本2 || {});
-      _网络上次 = { HTTP: { 可用: false, 原因: 因, 经WS: true }, WS: 本2 || {} };
-    }).then(function () { _网络测中 = false; });
-  }
-  function 装网络诊断() {
-    var 钮 = $('按钮_网络重测');
-    if (钮 && !钮.getAttribute('data-网络绑')) {
-      钮.setAttribute('data-网络绑', '1');
-      钮.addEventListener('click', function (e) { if (e) e.stopPropagation(); 测网络(); });
+    if (判) {
+      var 文 = '', 色 = '';
+      if (态.被拒) { 文 = '本端被中转拒绝：' + String(态.拒绝原文 || '无原文'); 色 = '红'; }
+      else if (态.状态 !== '已连') { 文 = '本端未连上中转（' + (态.状态 || '未知') + '）→ 检查网络/频道'; 色 = '红'; }
+      else if (!服) { 文 = '本端已连中转，但还没收到电脑端回应 → 电脑端未开机/频道不符'; 色 = '橙'; }
+      else if (差 >= 电脑端橙) { 文 = '本端已连，电脑端超 3 分钟无回应 → 电脑端可能没在跑'; 色 = '红'; }
+      else if (差 >= 电脑端绿) { 文 = '本端已连，电脑端暂未刷新（再等等）'; 色 = '橙'; }
+      else { 文 = '本端与电脑端均正常（' + String(态.线路 || '').toUpperCase() + ' 线）'; 色 = '绿'; }
+      判.textContent = 文;
+      判.className = '诊断值 ' + 色;
     }
-    var 设钮 = $('按钮_设置');
-    if (设钮) 设钮.addEventListener('click', function () {
-      setTimeout(function () {
-        var 面 = $('设置面板');
-        if (面 && !面.classList.contains('隐藏')) 测网络();
-      }, 60);
-    });
-    // 首测延后一点，等页面自己的 WS 先连上；之后靠【重测】/打开设置刷新
-    setTimeout(测网络, 4000);
+    // 状态变化记日志（只记变化，避免每秒刷屏）
+    var 简 = String(态.状态 || '') + '|' + (态.被拒 ? '被拒' : '') + '|' + (服 ? '有服' : '无服');
+    if (简 !== 诊断.上次态) {
+      诊断.上次态 = 简;
+      if (态.被拒) 诊断记('本端被拒：' + String(态.拒绝原文 || '无原文'), '红');
+      else if (态.状态 === '已连') 诊断记('本端已连上中转（' + String(态.线路 || '').toUpperCase() + '）', '绿');
+      else if (态.状态 === '断开' || 态.状态 === '重连等待') {
+        诊断.重连 += 1;
+        诊断记('断线，' + (态.状态 === '重连等待' ? '重连中' : '已断开'), '红');
+      } else if (态.状态 === '失败') {
+        诊断.错 += 1;
+        诊断记('通道失败：' + String(态.最近错 || ''), '红');
+      } else if (服) 诊断记('收到电脑端回应（' + String(服.名称 || 服.实例号) + '）', '绿');
+    }
+  }
+  function 诊断重连() {
+    诊断记('点击：立即重连', '暗');
+    try { if (global.接口 && global.接口.重连) global.接口.重连(); } catch (e) { }
+    setTimeout(诊断画, 1500);
+  }
+  function 诊断测() {
+    if (诊断.测试时刻) return;
+    诊断.测试时刻 = Date.now(); 诊断.测试成功 = false;
+    诊断记('测试：已发 ping，等 5 秒回应…', '暗');
+    var 完 = false;
+    try {
+      if (global.接口 && global.接口.ping) {
+        global.接口.ping().then(function () {
+          if (完) return;
+          完 = true; 诊断.测试成功 = true; 诊断.测试时刻 = 0;
+          诊断记('测试：收到电脑端回应 ✓', '绿');
+        })['catch'](function (e) {
+          if (完) return;
+          完 = true; 诊断.测试时刻 = 0;
+          诊断记('测试：请求失败（' + String((e && e.message) || e) + '）', '红');
+        });
+      }
+    } catch (e) { }
+    setTimeout(function () {
+      if (完) return;
+      完 = true; 诊断.测试时刻 = 0;
+      if (!诊断.测试成功) 诊断记('测试：5 秒内无回应 ✗（电脑端没在跑？频道不符？）', '红');
+    }, 5000);
+  }
+  function 诊断清空() { 诊断.日志 = []; 诊断画日志(); }
+  function 装连接诊断() {
+    var 清 = $('按钮_诊断清空');
+    if (清) 清.addEventListener('click', function (e) { if (e) e.stopPropagation(); 诊断清空(); });
+    var 重 = $('按钮_诊断重连');
+    if (重) 重.addEventListener('click', function (e) { if (e) e.stopPropagation(); 诊断重连(); });
+    var 测 = $('按钮_诊断测试');
+    if (测) 测.addEventListener('click', function (e) { if (e) e.stopPropagation(); 诊断测(); });
+    诊断画日志();
+    诊断画();
+    setInterval(诊断画, 1000);
+    诊断记('诊断面板已就绪', '暗');
   }
 
   // ---------------- 服务器切换（多服务器 / 自动发现 / 定向谁应答） ----------------
@@ -733,7 +734,7 @@
   function 装配() {
     装设置();
     装通道();      // P51：设置里的账号通道（A/B 双线路切换 + 被拒红字/一键切B）
-    装网络诊断();  // 0.27：设置里的网络诊断（服务器 HTTP / WS 各自独立成行 + 一句话判定 + 重测）
+    装连接诊断();  // 0.80：设置里的连接诊断（照 TRAE：频道/本端/电脑端/时间/次数/日志）
     装服务器();
     装R2拉取();    // 0.25：系统清单 R2 手动拉取按钮 + 结果帧回音
     try { if (global.清单页 && global.清单页.装配) global.清单页.装配(); } catch (e) { }
