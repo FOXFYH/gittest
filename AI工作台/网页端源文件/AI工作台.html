@@ -270,6 +270,9 @@
   <section id="p5">
     <div class="条">
       <div class="wrap"><button class="btn 红" onclick="我卡住了()">我卡住了 →</button><span class="cmd">手册.读 页=04_故障速查</span></div>
+      <span class="小字">日期：</span>
+      <input type="date" id="原话日" onchange="拉原话()"
+        style="padding:4px;border:1px solid var(--line);border-radius:5px;font-size:12px">
       <input id="手册搜框" placeholder="全手册搜索，回车" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:200px"
              onkeydown="if(event.key==='Enter')手册搜()">
       <div class="wrap"><button class="btn" onclick="手册搜()">搜索</button><span class="cmd">手册.搜</span></div>
@@ -335,7 +338,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.1";
+const H5_VER  = "0.5.2";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -796,7 +799,8 @@ function 弹建卡(){
 }
 
 async function 拉原话(){
-  const j = await 调("原话.列表", {}, true);
+  const 日 = (document.getElementById("原话日")||{}).value || "";
+  const j = await 调("原话.列表", 日 ? {"日": 日} : {}, true);
   if(!j.ok){ document.getElementById("原话横幅").textContent = "原话表读不到：" + (j.说明||""); return; }
   原话数据 = j.数据;
   const 统计 = 原话数据.统计 || {};
@@ -1144,6 +1148,14 @@ if(记着的 && 记着的.indexOf(H5_前缀) === 0){
   登录提示("黄", "正在用记住的频道进入…");
   连频道(记着的);
 }
+try{
+  const 日框 = document.getElementById("原话日");
+  if(日框 && !日框.value){
+    const d = new Date();
+    日框.value = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" +
+                 String(d.getDate()).padStart(2,"0");
+  }
+}catch(e){}
 setInterval(()=>{ if(频道) 拉状态(false); }, 2000);
 </script>
 </body>
