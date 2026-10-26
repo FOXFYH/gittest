@@ -209,14 +209,35 @@ function stripFoxMarks(txt){
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n')
     .trim();
 }
-/* 复制/取回统一入口：isUser=true 时先剥首行 DID 与三段专属词（前后缀），再剥 FOX 标记。 */
+/* 2.138（老板 2026-10-26 23:23）：DID＝人类原话锚点——只有首行 14 位 DID 的才是我亲手发的
+   消息；取回只认这一种，且必须还原成纯原话（去 DID/时间/方括号系统前缀/前后缀）。 */
+function hasUserDid(txt){
+  return /^\s*\d{14}(?!\d)/.test(String(txt == null ? '' : txt));
+}
+/* 剥系统注入外壳：开头时间行、首行【邮箱·到件】/【派工单提醒】/【监工…】方括号前缀、
+   末尾「请打开『邮箱』分页查看。」 */
+function stripSysWrapper(txt){
+  let s = String(txt == null ? '' : txt);
+  for (let i = 0; i < 3; i++){
+    const t = s
+      .replace(/^\s*(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]+\d{1,2}:\d{2}(?::\d{2})?|\[\d{1,2}:\d{2}(?::\d{2})?\]|\d{1,2}:\d{2}(?::\d{2})?)[ \t]*\n?/, '')
+      .replace(/^\s*【[^】\n]{1,24}】[^\n]*(?:\n|$)/, '');
+    if (t === s) break;
+    s = t;
+  }
+  s = s.replace(/\n?请打开「?[^\n」]{1,12}」?分页查看。?[ \t]*$/g, '');
+  return s.replace(/\n{3,}/g, '\n\n').trim();
+}
+/* 复制/取回统一入口：isUser=true 时先剥系统外壳、首行 DID 与三段专属词，再剥 FOX 标记。 */
 function copyPlain(txt, isUser){
   let s = String(txt == null ? '' : txt);
   if (isUser){
+    s = stripSysWrapper(s);
     s = stripHeadDid(s);
     s = stripHintMarks(s);
+    s = stripSysWrapper(s);
   } else {
-    s = stripHintMarks(s);       /* AI 行一般无三段；有也按前后缀丢弃 */
+    s = stripHintMarks(s);
   }
   return stripFoxMarks(s);
 }
