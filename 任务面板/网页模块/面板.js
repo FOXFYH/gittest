@@ -1,9 +1,14 @@
 /* ============================================================
  * 【任务面板】网页模块 · 面板.js
- * 版本：0.26
+ * 版本：0.27
  * 职责：页面【装配层】——《软件架构设计》§6 手机网页版。
  *   · 顶栏：左【新建】【返回主页】、中题名+【网页版版本（唯一）】+角色、右【设置】。
- *   · 【设置】菜单：收纳 **服务器选择**（含在线/离线小标）＋**账号通道 A/B**＋**口令**钮＋**版本**。
+ *   · 【设置】菜单：收纳 **网络诊断**＋**服务器选择**（含在线/离线小标）＋**账号通道 A/B**
+ *     ＋**口令**钮＋**版本**。
+ *   · 0.27（2026-10-26）A6 网络诊断：设置面板最上一行一句话判定（红/绿）＋【重测】；
+ *     下面「服务器」行＝HTTP 已连/不可达＋地址＋往返毫秒＋服务版本；「WS」行＝通道/线路/
+ *     状态/频道/最近收帧时间/最近错原文。数据优先 `GET /api/status`（不污染真配置），
+ *     HTTP 不可达时回退页面自身 `接口.连接状态()` 供参考；被拒仍保留「切到线路B」一键钮。
  *   · 0.26（2026-10-26）P51：设置里新增「账号通道」——`#通道_选择` 下拉（主A/副B），选完立即
  *     调 接口.切换通道() 并刷新状态；被拒（quota/key）时设置里红字「线路X 被拒：<原文>」+
  *     「切到线路B」一键切换钮；状态行显示当前线路/集群/连接状态。两账号同一频道名。
@@ -69,7 +74,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.26';
+  var 版本 = '0.27';
   var 提示定时 = null;
   var _联动已载 = false;      // 0.21：设置里的联动命令是否已从服务端回填（没回填不写，免得清空）
   var _已启动 = false;        // 0.22：邮箱登录后是否已继续原有口令/首载流程
@@ -234,6 +239,221 @@
         global.接口.线路().then(function () { 刷新通道态(); })['catch'](function () { });
       } catch (e) { }
     }
+  }
+
+  // ---------------- 0.27 网络诊断（服务器 HTTP / WS 通道各自独立成行；判定一句话） ----------------
+  var _网络测中 = false;
+  var _网络上次 = null;       // { HTTP:{可用,地址,耗时,版本,原因}, WS:{...} }
+
+  // 服务器基址：同源 http(s) 用相对路径；GitHub Pages 等静态站默认指向本机 8901（可用
+  // localStorage `任务面板_网络服务器` 覆盖，例如另一台机器的局域网地址）。
+  function 网络服务器基址() {
+    var 基 = '';
+    try { 基 = String(global.localStorage.getItem('任务面板_网络服务器') || '').trim(); } catch (e) { }
+    if (基) return 基.replace(/\/+$/, '');      // 显式指定优先（如另一台机器的局域网地址）
+    try {
+      var p = global.location.protocol, h = global.location.hostname || '';
+      if ((p === 'http:' || p === 'https:') && !/\.github\.io$/i.test(h)) return '';
+    } catch (e) { }
+    return 'http://127.0.0.1:8901';
+  }
+  function 设网络态(元, 文案, 色) {
+    if (!元) return;
+    元.textContent = 文案;
+    元.className = '网络态' + (色 ? ' ' + 色 : '');
+  }
+  // 服务端 WS 与网页自身 WS 合并显示：任一侧「被拒」都按被拒；服务端已连但网页没连上，
+  // 以网页端实际状态显示（老板看到的就是网页这一侧）——/api/status 仍是主数据源。
+  function 合并网络WS(服, 页) {
+    服 = 服 || {}; 页 = 页 || {};
+    var 出 = {}, k;
+    for (k in 服) { if (Object.prototype.hasOwnProperty.call(服, k)) 出[k] = 服[k]; }
+    var 页态 = String(页.状态 || ''), 服态 = String(服.状态 || '');
+    if (页.被拒) {
+      出.被拒 = true; 出.状态 = '被拒'; 出.网页被拒 = true;
+      出.拒绝原文 = 页.拒绝原文 || 服.拒绝原文 || '';
+      出.最近错 = 页.最近错 || 出.最近错 || '';
+      出.通道 = 页.通道 || 出.通道; 出.线路 = 页.线路 || 出.线路;
+      出.线路集群 = 页.线路集群 || 出.线路集群;
+    } else if (页态 && 服态 === '已连' && 页态 !== '已连') {
+      出.状态 = 页态; 出.网页状态 = 页态; 出.最近错 = 页.最近错 || 出.最近错 || '';
+    }
+    出.网页通道 = 页.通道 || ''; 出.网页状态 = 出.网页状态 || 页态;
+    return 出;
+  }
+  function 画网络WS(WS) {
+    WS = WS || {};
+    var 态 = $('网络_WS态'), 细 = $('网络_WS详情');
+    var 名 = String(WS.通道 || '?').toUpperCase();
+    var 线 = String(WS.线路 || 名).toUpperCase();
+    var 集 = String(WS.线路集群 || '');
+    var 状 = String(WS.状态 || '未起');
+    var 被拒 = !!WS.被拒;
+    var 短 = '通道' + 名 + ' · 线路' + 线 + (集 ? '/' + 集 : '') + ' · ' + 状;
+    if (WS.网页被拒 && 状 === '被拒') 短 += '（网页端）';
+    else if (WS.网页状态 && WS.网页状态 !== 状) 短 += '（网页端 ' + WS.网页状态 + '）';
+    设网络态(态, 短, (状 === '已连' && !被拒) ? '绿' : '红');
+    var 片 = [];
+    片.push(WS.频道 ? ('频道 ' + WS.频道) : '频道 –');
+    片.push(WS.最近收帧时间 ? ('最近收帧 ' + WS.最近收帧时间) : '最近收帧：从未收到');
+    if (被拒) 片.push('被拒原文：' + String(WS.拒绝原文 || WS.最近错 || '服务端拒绝（无原文）'));
+    else if (WS.最近错) 片.push('最近错：' + String(WS.最近错));
+    if (细) 细.textContent = 片.join('　·　');
+  }
+  function 画网络判定(HTTP, WS) {
+    var 元 = $('网络_判定');
+    if (!元) return;
+    var 文 = '', 色 = '';
+    WS = WS || {};
+    if (!HTTP || !HTTP.可用) {
+      文 = '服务器不可达（HTTP 失败：' + ((HTTP && HTTP.原因) || '未知原因')
+         + '）→ 问题在服务器 / 本机服务';
+      色 = '红';
+    } else if (WS.被拒) {
+      文 = '服务器正常，WS 被拒（线路' + String(WS.线路 || WS.通道 || '?').toUpperCase()
+         + '）：' + String(WS.拒绝原文 || WS.最近错 || '服务端拒绝（无原文）')
+         + ' → 问题在 WS 账号配额/密钥';
+      色 = '红';
+    } else if (WS.状态 !== '已连') {
+      文 = '服务器正常，WS 未连（' + String(WS.状态 || '未知') + '）：'
+         + String(WS.最近错 || '尚无错误原文') + ' → 问题在 WS 网络/线路';
+      色 = '红';
+    } else {
+      文 = '服务器与 WS 均正常（通道' + String(WS.通道 || '?').toUpperCase() + '）';
+      色 = '绿';
+    }
+    元.textContent = 文;
+    元.className = '网络判定 ' + 色;
+  }
+  // GitHub Pages 等静态站：HTTP 直连本机 8901 多半不可达（尤其手机），
+  // 此时再用 WS 路由 `状态` 问一次服务器——能答就说明服务器活着，问题只在 WS。
+  function 可WS回退诊断() {
+    try {
+      var h = String(global.location.hostname || '');
+      return /\.github\.io$/i.test(h);
+    } catch (e) { return false; }
+  }
+  function 画网络判定WS可达(WS, 原因) {
+    var 元 = $('网络_判定');
+    if (!元) return;
+    WS = WS || {};
+    var 文, 色 = '红';
+    var 前缀 = '服务器经 WS 可达（HTTP 直连不可达：' + 原因 + '），';
+    if (WS.被拒) {
+      文 = 前缀 + 'WS 被拒（线路' + String(WS.线路 || WS.通道 || '?').toUpperCase() + '）：'
+        + String(WS.拒绝原文 || WS.最近错 || '服务端拒绝（无原文）') + ' → 问题在 WS 账号配额/密钥';
+    } else if (WS.状态 !== '已连') {
+      文 = 前缀 + 'WS 未连（' + String(WS.状态 || '未知') + '）：'
+        + String(WS.最近错 || '尚无错误原文') + ' → 问题在 WS 网络/线路';
+    } else {
+      文 = 前缀 + 'WS 正常（通道' + String(WS.通道 || '?').toUpperCase() + '）';
+      色 = '绿';
+    }
+    元.textContent = 文;
+    元.className = '网络判定 ' + 色;
+  }
+  function 测网络() {
+    if (_网络测中) return;
+    _网络测中 = true;
+    var 判 = $('网络_判定');
+    if (判) { 判.textContent = '网络诊断：读取中…'; 判.className = '网络判定'; }
+    设网络态($('网络_服务器态'), '检测中…', '');
+    var 基 = 网络服务器基址();
+    var 址 = 基 + '/api/status?_=' + Date.now();
+    var 起 = (global.performance && global.performance.now) ? global.performance.now() : Date.now();
+    var 控 = null, 超 = null;
+    try {
+      if (global.AbortController) { 控 = new AbortController(); 超 = setTimeout(function () { 控.abort(); }, 4000); }
+    } catch (e) { }
+    var 选 = { cache: 'no-store' };
+    if (控) 选.signal = 控.signal;
+    global.fetch(址, 选).then(function (r) {
+      return r.text().then(function (t) { return { r: r, t: t }; });
+    }).then(function (x) {
+      if (超) clearTimeout(超);
+      var 耗 = Math.round(((global.performance && global.performance.now) ? global.performance.now() : Date.now()) - 起);
+      var 数 = null;
+      try { 数 = JSON.parse(x.t || '{}'); } catch (e) { }
+      if (!x.r.ok || !数 || !数.状态) throw new Error('HTTP ' + x.r.status + '，返回非预期');
+      var 服 = 数.状态 || {}, WS = 服.WS || {};
+      var 本 = null;
+      try { 本 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : null; } catch (eb) { }
+      WS = 合并网络WS(WS, 本 || {});
+      设网络态($('网络_服务器态'), '已连', '绿');
+      var 详 = $('网络_服务器详情');
+      if (详) {
+        详.textContent = '地址 ' + (基 || global.location.origin) + '　·　往返 ' + 耗 + 'ms'
+          + '　·　服务版本 v' + (服.版本 || '–');
+      }
+      画网络WS(WS);
+      画网络判定({ 可用: true, 地址: 址, 耗时: 耗, 版本: 服.版本 || '' }, WS);
+      _网络上次 = { HTTP: { 可用: true, 地址: 址, 耗时: 耗, 版本: 服.版本 || '' }, WS: WS };
+    })['catch'](function (e) {
+      if (超) clearTimeout(超);
+      var 名 = String((e && e.name) || '');
+      var 讯 = String((e && e.message) || e || '');
+      var 因;
+      if (名 === 'AbortError') 因 = '超时（4 秒无响应）';
+      else if (/Failed to fetch|NetworkError|Load failed/i.test(讯)) 因 = '连接被拒或跨域（浏览器拦截 / 本机服务未开）';
+      else 因 = 讯 || '未知原因';
+      var 本 = null;
+      try { 本 = (global.接口 && global.接口.连接状态) ? global.接口.连接状态() : null; } catch (e2) { }
+      var 详 = $('网络_服务器详情');
+      // 静态站（GitHub Pages）：HTTP 直连不可达属正常，再用 WS 路由 `状态` 问服务器是否活着
+      if (可WS回退诊断() && global.接口 && typeof global.接口.raw === 'function') {
+        设网络态($('网络_服务器态'), 'HTTP 不可达', '红');
+        if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　HTTP 原因：' + 因 + '　·　改用 WS 查询…';
+        var 待 = null;
+        try { 待 = global.接口.raw('状态', {}); } catch (e3) { 待 = null; }
+        if (!待 || typeof 待.then !== 'function') { 待 = null; }
+        return Promise.race([
+          待 || Promise.reject(new Error('WS 状态查询不可用')),
+          new Promise(function (res) { setTimeout(function () { res(null); }, 2500); })
+        ]).then(function (r) {
+          var 服 = (r && r.状态) ? r.状态 : null;
+          if (!服) {
+            if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　HTTP 原因：' + 因
+              + '　·　WS 也取不到状态 → 服务器 / 本机服务问题';
+            画网络WS(本 || {});
+            画网络判定({ 可用: false, 原因: 因 + '；WS 也不可达' }, 本 || {});
+            _网络上次 = { HTTP: { 可用: false, 原因: 因 }, WS: 本 || {} };
+            return;
+          }
+          var WSW = 合并网络WS(服.WS || {}, 本 || {});
+          if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　HTTP 原因：' + 因
+            + '　·　WS 可达 · 服务版本 v' + (服.版本 || '–');
+          画网络WS(WSW);
+          画网络判定WS可达(WSW, 因);
+          _网络上次 = { HTTP: { 可用: false, 原因: 因, 经WS: true }, WS: WSW };
+        })['catch'](function () {
+          if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　原因：' + 因;
+          画网络WS(本 || {});
+          画网络判定({ 可用: false, 原因: 因 }, 本 || {});
+          _网络上次 = { HTTP: { 可用: false, 原因: 因 }, WS: 本 || {} };
+        });
+      }
+      设网络态($('网络_服务器态'), '不可达', '红');
+      if (详) 详.textContent = '地址 ' + (基 || global.location.origin) + '　·　原因：' + 因;
+      画网络WS(本 || {});
+      画网络判定({ 可用: false, 原因: 因 }, 本 || {});
+      _网络上次 = { HTTP: { 可用: false, 原因: 因 }, WS: 本 || {} };
+    }).then(function () { _网络测中 = false; });
+  }
+  function 装网络诊断() {
+    var 钮 = $('按钮_网络重测');
+    if (钮 && !钮.getAttribute('data-网络绑')) {
+      钮.setAttribute('data-网络绑', '1');
+      钮.addEventListener('click', function (e) { if (e) e.stopPropagation(); 测网络(); });
+    }
+    var 设钮 = $('按钮_设置');
+    if (设钮) 设钮.addEventListener('click', function () {
+      setTimeout(function () {
+        var 面 = $('设置面板');
+        if (面 && !面.classList.contains('隐藏')) 测网络();
+      }, 60);
+    });
+    // 首测延后一点，等页面自己的 WS 先连上；之后靠【重测】/打开设置刷新
+    setTimeout(测网络, 4000);
   }
 
   // ---------------- 服务器切换（多服务器 / 自动发现 / 定向谁应答） ----------------
@@ -599,6 +819,7 @@
   function 装配() {
     装设置();
     装通道();      // P51：设置里的账号通道（A/B 双线路切换 + 被拒红字/一键切B）
+    装网络诊断();  // 0.27：设置里的网络诊断（服务器 HTTP / WS 各自独立成行 + 一句话判定 + 重测）
     装服务器();
     装R2拉取();    // 0.25：系统清单 R2 手动拉取按钮 + 结果帧回音
     try { if (global.清单页 && global.清单页.装配) global.清单页.装配(); } catch (e) { }
