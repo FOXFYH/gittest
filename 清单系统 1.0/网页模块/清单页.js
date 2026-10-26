@@ -1,7 +1,9 @@
 /* ============================================================
  * 【清单系统】网页模块 · 清单页.js
- * 版本：0.67
+ * 版本：0.68
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
+ *   · 0.68（2026-10-27）分享搜索改走服务端：在「卡＋正文节点」里搜，只回命中卡号/片段；
+ *     系统清单硬口径由数据层拦（不许任务卡/小点，保存带子卡则拒）。
  *   · 0.67（2026-10-27）查卡节流：card_share 轻量模式只下发标题层；正文点一条才取
  *     （分享取节点），不再一次灌全量；名单列全部下级节点（正文小绿卡＋独立子卡）。
  *   · 0.66（2026-10-27）「全部下级卡名称」补上本卡正文里的每张小绿卡（以前只列独立子卡，
@@ -292,7 +294,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.67';
+  var 版本 = '0.68';
   // ---------------- 状态 ----------------
   var 清单缓存 = [];         // 清单摘要列表（[{编号,名称,类型,详情,任务数,未完成数}]）
   var 清单指纹 = '';         // 清单列表「版本指纹」（差额：无变化不重绘）
@@ -3358,32 +3360,43 @@
         }
       });
       var 搜框 = document.createElement('input');
-      搜框.className = '分享搜'; 搜框.placeholder = '搜标题关键词（直接回卡号）';
+      搜框.className = '分享搜'; 搜框.placeholder = '搜关键词（标题/正文，直接回卡号）';
+      function 打开并定位(编, 号) {
+        if (栈[栈.length - 1].卡 && 文字(栈[栈.length - 1].卡.编号) === 文字(编)) {
+          定位分享节点(框, 号);
+          return;
+        }
+        if (!global.接口 || !global.接口.分享取卡) return;
+        global.接口.分享取卡(编, true).then(function (x) {
+          if (x && x.ok) {
+            栈.push({ 卡: x.根 || { 编号: 编 }, 正文: x.正文 || [] });
+            渲染栈();
+            setTimeout(function () { 定位分享节点(框, 号); }, 50);
+          }
+        })['catch'](function () { 提示('取卡失败'); });
+      }
       var 搜钮 = 钮('搜索', '小钮', function () {
         var q = String(搜框.value || '').trim();
         结果区.innerHTML = '';
         if (!q) { 结果区.classList.add('隐藏'); return; }
         结果区.classList.remove('隐藏');
-        var 命中 = [];
-        [根].concat(列 || []).forEach(function (卡) {
-          var 名 = 文字(卡.标题) + 文字(卡.名称) + 文字(卡.大白话);
-          if (名.indexOf(q) >= 0) 命中.push({ 号: 文字(卡.终身号) || 文字(卡.编号), 题: 文字(卡.标题) || 文字(卡.名称), 卡: 卡 });
-        });
-        正文.forEach(function (n) {
-          if (String(n.题 || '').indexOf(q) >= 0) 命中.push({ 号: n.号, 题: n.题, 节点: n });
-        });
-        if (!命中.length) { 结果区.appendChild(el('div', '空样', '没有命中「' + q + '」')); return; }
-        结果区.appendChild(el('div', '分享结果题', '命中 ' + 命中.length + ' 条（点卡号看所属卡片）'));
-        命中.slice(0, 80).forEach(function (h) {
-          var 行 = el('div', '分享结果行');
-          行.appendChild(el('span', '绿卡块', h.号 || '—'));
-          行.appendChild(el('span', '分享结果题文', h.题 || ''));
-          行.addEventListener('click', function () {
-            if (h.节点) { 栈 = [栈[0]]; 渲染栈(); setTimeout(function () { 定位分享节点(框, h.号); }, 30); }
-            else 打开卡(h.卡);
+        var 当前卡 = (栈[栈.length - 1] || {}).卡 || 根;
+        if (!global.接口 || !global.接口.分享搜索) { 结果区.appendChild(el('div', '空样', '接口未就绪')); return; }
+        global.接口.分享搜索(文字(当前卡.编号), q).then(function (r) {
+          结果区.innerHTML = '';
+          var 命中 = (r && r.命中) || [];
+          if (!命中.length) { 结果区.appendChild(el('div', '空样', '没有命中「' + q + '」')); return; }
+          结果区.appendChild(el('div', '分享结果题',
+            '命中 ' + (r.总命中 || 命中.length) + ' 条（服务端只回命中，点卡号看所属卡片）'));
+          命中.forEach(function (h) {
+            var 行 = el('div', '分享结果行');
+            行.appendChild(el('span', '绿卡块', h.号 || '—'));
+            行.appendChild(el('span', '分享结果题文', h.题 || ''));
+            if (h.片) 行.appendChild(el('span', '分享结果片', h.片));
+            行.addEventListener('click', function () { 打开并定位(h.卡, h.号); });
+            结果区.appendChild(行);
           });
-          结果区.appendChild(行);
-        });
+        })['catch'](function () { 结果区.appendChild(el('div', '空样', '搜索失败')); });
       });
       搜框.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 搜钮.click(); } });
       工.appendChild(名单钮); 工.appendChild(搜框); 工.appendChild(搜钮);
