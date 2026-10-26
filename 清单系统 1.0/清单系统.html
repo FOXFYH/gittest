@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.0">
+<meta name="清单系统版本" content="1.01">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -69,11 +69,13 @@
 <title>清单系统 1.0 · 手机遥控页</title>
 <!--
   【清单系统】网页端 · 清单系统.html（手机遥控页 · 单页）
-  版本：1.0
+  版本：1.01
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.01（2026-10-26）设置页改独立整页（可下拉滚动，不再弹窗）；新增设置「只打开一卡」。
+    版本对齐：网页端 1.01 / 清单页.js 0.57 / 接口.js 0.34 / 面板.js 0.34 / 卡片.js 0.12。
   v1.0（2026-10-26）正式更名「清单系统 1.0」：网页标题/顶栏/服务名全部换名；
     旧 localStorage「任务面板_*」键自动搬到「清单系统_*」，登录与服务器选择不丢。
     版本对齐：网页端 1.0 / 清单页.js 0.56 / 接口.js 0.34 / 面板.js 0.33 / 卡片.js 0.12。
@@ -506,13 +508,13 @@
   .服务器态.在线 { background: #d8f5dc; color: #1a7a2e; }
   .服务器态.离线 { background: #ffe0e0; color: #b00020; }
   .服务器态.自动 { background: rgba(255,255,255,.22); color: #fff; }
-  /* 右上角「设置」菜单（0.18）：收纳服务器选择 / 口令 / 版本；主页只留网页版版本 */
-  .设置钮 { margin-left: auto; }
+  /* 1.01 设置页＝独立整页（不再弹窗）：占满主区、可纵向滚动 */
   .设置面板 {
-    position: fixed; top: 96px; right: 12px; z-index: 40; width: min(92vw, 340px);
-    background: #fff; color: #222; border: 1px solid #ccd4e0; border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px 12px;
+    position: static; width: auto; max-width: 760px; margin: 0 auto; z-index: auto;
+    background: transparent; color: #222; border: 0; border-radius: 0;
+    box-shadow: none; padding: 12px 3px 24px; overflow: visible;
   }
+  .设置面板 .区标题 { margin: 0 0 10px; }
   .设置行 { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; }
   .设置行 + .设置行 { border-top: 1px solid #eef1f5; }
   .设置标 { color: #667; width: 52px; flex: 0 0 auto; }
@@ -948,7 +950,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.0</span>
+    <span class="版本">v1.01</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -959,6 +961,7 @@
   </div>
 </header>
 <div id="设置面板" class="设置面板 隐藏">
+  <h2 class="区标题">设置</h2>
   <!-- 0.80 连接诊断：照 TRAE 手机网页版设置页的同款面板（频道/本端/电脑端/时间/次数/日志） -->
   <div class="诊断组">
     <div class="诊断组题">连接诊断</div>
@@ -1003,6 +1006,13 @@
   <div class="设置行">
     <span class="设置标">口令</span>
     <button id="按钮_口令" class="小钮">重设口令</button>
+  </div>
+  <!-- 1.01 只打开一卡：展开新卡时自动收起与它并列的已展开卡 -->
+  <div class="设置行">
+    <span class="设置标">只开一卡</span>
+    <label class="归属开关" title="勾上＝一次只展开一张卡；打开新卡会自动关闭与它并列的卡">
+      <input id="开关_只打开一卡" type="checkbox"> 一次只展开一张（并列卡自动收起）
+    </label>
   </div>
   <!-- 0.64 联动命令模板：TRAE、WB 各一条；勾了【发起联动】的清单保存时按此发送 -->
   <div class="设置行">
@@ -1183,7 +1193,7 @@
 
 <script src="网页模块/接口.js?v=0.34"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.56"></script>
-<script src="网页模块/面板.js?v=0.33"></script>
+<script src="网页模块/清单页.js?v=0.57"></script>
+<script src="网页模块/面板.js?v=0.34"></script>
 </body>
 </html>
