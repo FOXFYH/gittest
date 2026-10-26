@@ -227,6 +227,20 @@
       <div class="wrap"><button class="btn" onclick="弹建卡()">＋ 新任务</button><span class="cmd">任务.建卡</span></div>
       <span class="小字" id="任务汇总">未完成 0 / 已完成 0</span>
     </div>
+    <div class="条">
+      <span class="小字">分组：</span>
+      <select id="分组筛" onchange="画任务()" style="padding:5px;border:1px solid var(--line);border-radius:5px;font-size:12px"></select>
+      <span class="小字">状态：</span>
+      <select id="状态筛" onchange="画任务()" style="padding:5px;border:1px solid var(--line);border-radius:5px;font-size:12px">
+        <option>全部</option><option>未完成</option><option>已完成</option>
+        <option>未做</option><option>在做</option><option>卡住</option>
+      </select>
+      <input id="任务搜" placeholder="搜标题/内容，回车" oninput="画任务()"
+        style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:200px">
+      <div class="wrap"><button class="mini p" onclick="新建分组()">＋分组</button><span class="cmd">分组.新建</span></div>
+      <div class="wrap"><button class="mini" onclick="改名分组()">改名</button><span class="cmd">分组.改名</span></div>
+      <div class="wrap"><button class="mini o" onclick="删分组()">删组</button><span class="cmd">分组.删除</span></div>
+    </div>
     <div class="泳道" id="泳道"></div>
   </section>
 
@@ -312,7 +326,8 @@ const 命令列表 = [
   "trae.状态", "trae.重采集",
   "员工.列表", "员工.催办",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档",
-  "任务.关联原话", "任务.补来源原话",
+  "任务.关联原话", "任务.补来源原话", "任务.换分组",
+  "分组.列表", "分组.新建", "分组.改名", "分组.删除",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.统计",
   "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
   "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建",
@@ -320,7 +335,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.0";
+const H5_VER  = "0.5.1";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -643,10 +658,25 @@ function 催办(号){
 
 function 画任务(){
   const 任务 = (状态 && 状态.任务) || {};
-  const 卡们 = 任务.卡 || [];
+  let 卡们 = 任务.卡 || [];
+  const 组们 = 任务.分组 || ["未分类"];
+  const 组筛 = document.getElementById("分组筛");
+  if(组筛){
+    const 旧 = 组筛.value;
+    组筛.innerHTML = ["全部"].concat(组们).map(g=>"<option>"+转义(g)+"</option>").join("");
+    组筛.value = (旧 && (旧 === "全部" || 组们.indexOf(旧) >= 0)) ? 旧 : "全部";
+  }
+  const 组 = (组筛 && 组筛.value) || "全部";
+  const 态 = (document.getElementById("状态筛")||{}).value || "全部";
+  const 词 = ((document.getElementById("任务搜")||{}).value || "").trim().toLowerCase();
+  if(组 !== "全部") 卡们 = 卡们.filter(k=>(k.分组||"未分类")===组);
+  if(态 === "未完成") 卡们 = 卡们.filter(k=>["未做","在做","卡住"].indexOf(k.状态)>=0);
+  else if(态 !== "全部") 卡们 = 卡们.filter(k=>k.状态===态);
+  if(词) 卡们 = 卡们.filter(k=>((k.标题||"")+(k.详情||"")).toLowerCase().indexOf(词)>=0);
   const 汇总 = 任务.统计 || {};
   document.getElementById("任务汇总").textContent =
-    "未完成 " + ((汇总.未做||0)+(汇总.在做||0)+(汇总.卡住||0)) + " / 已完成 " + (汇总.已完成||0);
+    "未完成 " + ((汇总.未做||0)+(汇总.在做||0)+(汇总.卡住||0)) + " / 已完成 " +
+    (汇总.已完成||0) + "　｜　筛出 " + 卡们.length + " 张";
   const 泳道们 = [["未做","#9ca3af"],["在做","#2563eb"],["已完成","#1f9d55"],["卡住","#c53030"]];
   document.getElementById("泳道").innerHTML = 泳道们.map(([名,c])=>{
     const 本列 = 卡们.filter(k=>k.状态===名);
@@ -657,6 +687,7 @@ function 画任务(){
         "<span class='id'>"+转义(k.id)+"</span> <span class='小字'>"+转义(k.状态)+"</span>"+
         "<span class='t'>"+转义(k.标题)+"</span>"+
         "<div class='m'>"+转义(负责)+"</div>"+
+        "<div class='m'>分组："+转义(k.分组||"未分类")+"</div>"+
         "<div class='m'>来源原话："+转义((k.来源原话||[]).join("、")||"无对应原话")+"</div>"+
         "<div class='m'>更新 "+转义(k.更新)+" · 证据 "+((k.证据||[]).length)+" 条</div>"+
         "</div></div>";
@@ -689,6 +720,9 @@ function 开卡(id){
       "<span class='cmd'>任务.加备注</span></div>"+
       "<div class='wrap'><button class='mini' onclick=\"归档('"+k.id+"')\">归档</button>"+
       "<span class='cmd'>任务.归档</span></div></div>"+
+    "<div class='小字' style='margin-top:8px'>分组："+转义(k.分组||"未分类")+"</div>"+
+    "<div class='条'><div class='wrap'><button class='mini p' onclick=\"换分组('"+k.id+"')\">换分组</button>"+
+      "<span class='cmd'>任务.换分组</span></div></div>"+
     "<div class='小字' style='margin-top:8px'>来源原话（可多张）</div>"+
     "<div class='evi'>"+转义((k.来源原话||[]).join("、")||"无对应原话")+"</div>"+
     "<div class='条'><div class='wrap'><button class='mini p' onclick=\"改来源原话('"+k.id+"')\">改关联原话</button>"+
@@ -719,6 +753,31 @@ function 加备注(id){
   调("任务.加备注", {"卡":id, "话":话});
 }
 function 归档(id){ if(confirm("把 " + id + " 归档（作废）？")) 调("任务.归档", {"卡":id}); }
+async function 换分组(id){
+  const 组们 = ((状态&&状态.任务)||{}).分组 || ["未分类"];
+  const 新值 = prompt("归到哪个分组？（现有：" + 组们.join("、") + "；也可输新名）", (找卡(id)||{}).分组 || "未分类");
+  if(新值 === null) return;
+  const j = await 调("任务.换分组", {"卡":id, "分组":新值.trim()}, true);
+  if(j.ok){ 上次ts = 0; 拉状态(true); if(选中卡 === id) 开卡(id); }
+}
+function 新建分组(){
+  const 名 = prompt("新建分组名称（如：TRAE 修改）：", "");
+  if(!名) return;
+  调("分组.新建", {"名":名.trim()}, true).then(j=>{ if(j.ok){ 上次ts=0; 拉状态(true); } });
+}
+function 改名分组(){
+  const 组 = (document.getElementById("分组筛")||{}).value || "全部";
+  if(组 === "全部"){ 吐司("先在「分组」下拉里选中要改的组"); return; }
+  const 新 = prompt("把「" + 组 + "」改成：", 组);
+  if(!新 || 新 === 组) return;
+  调("分组.改名", {"旧":组, "新":新.trim()}, true).then(j=>{ if(j.ok){ 上次ts=0; 拉状态(true); } });
+}
+function 删分组(){
+  const 组 = (document.getElementById("分组筛")||{}).value || "全部";
+  if(组 === "全部"){ 吐司("先在「分组」下拉里选中要删的组"); return; }
+  if(!confirm("删分组「" + 组 + "」？组里的卡会落回未分类")) return;
+  调("分组.删除", {"名":组}, true).then(j=>{ if(j.ok){ 上次ts=0; 拉状态(true); } });
+}
 function 改来源原话(id){
   const 旧 = (找卡(id)||{}).来源原话 || [];
   const 新值 = prompt("填写关联的原话ID（可多张，用、分隔；格式 2026-10-25#042）", 旧.join("、"));
