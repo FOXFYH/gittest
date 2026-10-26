@@ -214,7 +214,7 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "多站切换器";
-var APP_VERSION = "v2.19";   // v2.19：★★修「切到别的应用再回来就最小化到桌面」（用户投诉五六次）——删掉后台 15 秒自杀哨兵＋单实例握手挪到建界面之前＋让位/接管一律不 activity.finish（不再带走窗口）＋禁系统存档（防 TransactionTooLarge 被杀后台）
+var APP_VERSION = "v2.20";   // v2.20：任务面板(P)站点地址改为《清单系统 1.0/清单系统.html》
                              // v2.18：★文件名去掉全角括号（打包器对「（apk 加壳）」这种名字不友好）→ 统一叫 多站切换器.js / 多站切换器_config.json；app 显示名＝多站切换器；行为零改动
                              // v2.16：只加"维护总纲"（文件头那一段）——把"以后所有更新都服务于 APK 外壳"写进代码，行为零改动
                              // v2.15：★外壳自愈（健康.json 体检：上一轮白屏的版本下次开机直接弃用，外壳永不被坏脚本锁死）＋设置面板加「修复白屏」（一键弃用热更缓存、退回自带版）＋白屏看门狗自动重试并弹面板＋启动标记"运行来源"
@@ -226,7 +226,7 @@ var APP_VERSION = "v2.19";   // v2.19：★★修「切到别的应用再回来�
 var 默认站点 = {
     T: "https://foxfyh.github.io/gittest/TRAE同步显示与控制工具_网页客户端_手机版.html",
     W: "https://foxfyh.github.io/gittest/wbcli.html?v=2.00",
-    P: "https://foxfyh.github.io/gittest/任务面板/任务面板.html"
+    P: "https://foxfyh.github.io/gittest/清单系统%201.0/清单系统.html"
 };
 var 站点说明 = { T: "TRAE 网页版(AI)", W: "WorkBuddy 网页版", P: "任务面板" };
 
