@@ -449,6 +449,20 @@
              被拒: _连接态 === '被拒', 拒绝原文: _拒绝原文 };
   }
 
+  // 0.29：连上后立刻用 WS 路由 `状态` 自检一次，把服务器「在线」播种进服务器表
+  // （替代旧版 P52 的 8901 HTTP 播种；不额外发心跳，只在每次连上时问一次）
+  function 自检播种() {
+    if (!有口令()) return;
+    try {
+      调用('状态', {}, { 超时: 6000 }).then(function (r) {
+        var s = (r && r.状态) || {};
+        var sv = String(s.服务器实例号 || '').trim();
+        if (sv) 记报到({ t: '服务器报到', 名称: s.服务器名称 || '', 服务器: sv,
+                        版本: s.版本 || '', 地址: '' });
+      })['catch'](function () { });
+    } catch (e) { }
+  }
+
   function 开连接() {
     if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
     if (_连接态 === '失败') return;
@@ -463,6 +477,7 @@
       var 队 = _待发队列; _待发队列 = [];
       队.forEach(function (正文) { try { 发正文(正文); } catch (e) { } });
       通知状态();
+      自检播种();
     };
     w.onmessage = function (ev) { 收消息(ev); };
     w.onerror = function () { /* onclose 随后必到 */ };
