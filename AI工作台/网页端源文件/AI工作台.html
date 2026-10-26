@@ -185,6 +185,7 @@
   <button data-p="p3">P3 任务面板</button>
   <button data-p="p4">P4 人类原话</button>
   <button data-p="p5">P5 总管手册</button>
+  <button data-p="p9">P9 快速派工单</button>
   <button data-p="p6">P6 服务健康</button>
   <button data-p="p7">P7 频道与用量</button>
   <button data-p="p8">P8 设置与审计</button>
@@ -274,6 +275,27 @@
     </div>
   </section>
 
+  <!-- ================= P9 快速派工单 ================= -->
+  <section id="p9">
+    <div class="条">
+      <b>快速派工单</b>
+      <span class="小字">收件人＝P2 同一份员工名册（可多选）；「复制」后自己粘贴，「一键发送」逐个投到 TRAE 会话</span>
+    </div>
+    <div class="panel">
+      <div class="小字">收件人（多选）</div>
+      <div id="派工收件人" style="max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:5px;padding:6px;margin-top:4px"></div>
+      <div class="小字" style="margin-top:10px">派工正文</div>
+      <textarea id="派工正文" placeholder="在这里写派工内容；第一行会作为任务卡标题"
+        style="width:100%;height:180px;margin-top:4px;padding:8px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:inherit"></textarea>
+      <div class="条" style="margin-top:8px">
+        <div class="wrap"><button class="btn" onclick="派工复制()">复制</button><span class="cmd">派工.复制预览</span></div>
+        <div class="wrap"><button class="btn g" onclick="派工发送()">一键发送</button><span class="cmd">派工.发送</span></div>
+        <span class="小字" id="派工回音"></span>
+      </div>
+      <div class="evi" id="派工结果" style="white-space:pre-wrap">（还没发送）</div>
+    </div>
+  </section>
+
   <section id="p6"><div class="panel">P6 服务健康 —— 未实现</div></section>
   <section id="p7"><div class="panel">P7 频道与用量 —— 未实现</div></section>
   <section id="p8">
@@ -313,11 +335,12 @@ const 命令列表 = [
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.统计",
   "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
-  "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建"
+  "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建",
+  "派工.复制预览", "派工.发送"
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.4.8";
+const H5_VER  = "0.4.9";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -995,6 +1018,58 @@ async function 手册追加(){
   if(j.ok){ 手册高亮 = ""; 开手册页(当前页); }
 }
 
+/* ===== P9 快速派工单 ===== */
+function 画派工收件人(){
+  const 框 = document.getElementById("派工收件人");
+  if(!框) return;
+  const 员工 = (状态 && 状态.员工) || [];
+  const 已选 = new Set(Array.from(框.querySelectorAll("input:checked")).map(x=>x.value));
+  框.innerHTML = 员工.map(人=>{
+    const 名 = 人.会话名 || "";
+    if(!名) return "";
+    return "<label style='display:inline-block;margin:2px 12px 2px 0;font-size:12px;cursor:pointer'>" +
+      "<input type='checkbox' value='"+转义(名)+"' "+(已选.has(名)?"checked":"")+"> " +
+      转义((人.终身号 ? 人.终身号+" " : "") + 名) + "</label>";
+  }).join("") || "<span class='小字'>员工名册为空</span>";
+}
+function 派工选中(){
+  return Array.from(document.querySelectorAll("#派工收件人 input:checked")).map(x=>x.value);
+}
+async function 派工复制(){
+  const 收 = 派工选中();
+  const 文 = (document.getElementById("派工正文").value || "").trim();
+  if(!收.length || !文){ 吐司("先选收件人、再写派工正文"); return; }
+  const j = await 调("派工.复制预览", {"收件人": 收.join("、"), "文": 文}, true);
+  if(!j.ok){ 吐司("拼单失败：" + (j.说明||"")); return; }
+  const 文本 = (j.数据 && j.数据.全文) || "";
+  let 好 = false;
+  try{ await navigator.clipboard.writeText(文本); 好 = true; }
+  catch(e){
+    const t = document.createElement("textarea");
+    t.value = 文本; document.body.appendChild(t); t.select();
+    try{ 好 = document.execCommand("copy"); }catch(_e){}
+    t.remove();
+  }
+  document.getElementById("派工回音").textContent =
+    (好 ? "已复制 " : "复制失败，请手动复制 ") + ((j.数据 && j.数据.字数) || 文本.length) + " 字";
+}
+async function 派工发送(){
+  const 收 = 派工选中();
+  const 文 = (document.getElementById("派工正文").value || "").trim();
+  if(!收.length || !文){ 吐司("先选收件人、再写派工正文"); return; }
+  document.getElementById("派工结果").textContent = "发送中…";
+  const j = await 调("派工.发送", {"收件人": 收.join("、"), "文": 文}, true);
+  const 行 = [];
+  ((j.数据 && j.数据.结果) || []).forEach(x=>{
+    行.push((x.ok ? "✅ 成功 " : "❌ 失败 ") + x.收件人 + "：" + (x.说明 || ""));
+  });
+  ((j.数据 && j.数据.卡) || []).forEach(k=>行.push("已建卡 " + k));
+  if(!行.length) 行.push(j.说明 || "无返回");
+  document.getElementById("派工结果").textContent = 行.join("\n");
+  document.getElementById("派工回音").textContent =
+    "成功 " + ((j.数据 && j.数据.成功) || 0) + " / " + 收.length;
+}
+
 document.querySelectorAll("#页签 button").forEach(btn=>{
   btn.onclick = ()=>{
     document.querySelectorAll("#页签 button").forEach(b=>b.classList.remove("on"));
@@ -1002,6 +1077,7 @@ document.querySelectorAll("#页签 button").forEach(btn=>{
     btn.classList.add("on");
     document.getElementById(btn.dataset.p).classList.add("on");
     if(btn.dataset.p === "p4") 拉原话();
+    if(btn.dataset.p === "p9") 画派工收件人();
     if(btn.dataset.p === "p5") 拉手册目录();
   };
 });
