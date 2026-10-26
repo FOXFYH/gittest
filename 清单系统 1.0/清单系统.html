@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.04">
+<meta name="清单系统版本" content="1.05">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -25,8 +25,8 @@
   var 保留键 = { '清单系统_口令': 1, '清单系统_口令2': 1, '清单系统_服务器': 1, '清单系统_邮箱': 1,
                  '清单系统_账号列表': 1, '清单系统_管理员': 1,
                  '清单系统_通道': 1, '清单系统_线路': 1,
-                 '清单系统_只开一卡': 1,
-                 '清单系统_最近操作': 1 };   // 口令 + 服务器 + 身份 + 账号列表 + 账号通道 + 只开一卡 + 顶级卡最近操作
+                 '清单系统_只开一卡': 1, '清单系统_简约': 1, '清单系统_归属全部': 1,
+                 '清单系统_最近操作': 1 };   // 口令 + 服务器 + 身份 + 账号列表 + 账号通道 + 只开一卡 + 简约/归属 + 最近操作
   var 版本键 = '清单系统_版本';     // 记录「已见版本」，避免重复清
   var 当前版本 = '';
   try {
@@ -70,11 +70,15 @@
 <title>清单系统 1.0 · 手机遥控页</title>
 <!--
   【清单系统】网页端 · 清单系统.html（手机遥控页 · 单页）
-  版本：1.04
+  版本：1.05
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.05（2026-10-26）主页头部固定两行（我的清单+计数+简约 / 4 个类型签+R2）；
+    顶部「全部」勾选框改为「简约」——勾上顶级卡一行显示（像小绿卡），点行展开；
+    归属开关（看所有 AI 的清单）搬进设置页。
+    版本对齐：网页端 1.05 / 清单页.js 0.60 / 接口.js 0.34 / 面板.js 0.34 / 卡片.js 0.12。
   v1.04（2026-10-26）「只打开一卡」扩到正文里的小绿卡：同一张卡正文只留一条展开。
     版本对齐：网页端 1.04 / 清单页.js 0.59 / 接口.js 0.34 / 面板.js 0.34 / 卡片.js 0.12。
   v1.03（2026-10-26）顶栏改两行紧凑：第一行最左＝软件名+版本 v1.03（右端连接角色胶囊）；
@@ -581,6 +585,25 @@
     padding: 3px 9px; min-height: 26px; border-radius: 999px; border: 1px solid #c4ccd8;
     background: #fff; color: #556; cursor: pointer; user-select: none; }
   .归属开关 input { width: 14px; height: 14px; margin: 0; accent-color: #2b5fb0; }
+  /* 1.05 主页头部固定两行（不再互相挤来挤去）：第一行 我的清单+计数+简约；第二行 类型签+R2 */
+  .清单头 { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+  .清单头 .头行 { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+  .清单头 .头行 > .区标题 { margin: 0; flex: 1 1 auto; min-width: 0; }
+  .清单头 .分页签组 { margin-left: 0; flex: 1 1 auto; min-width: 0; overflow-x: auto; }
+  .清单头 .R2拉取钮 { margin-left: auto; flex: 0 0 auto; }
+  /* 1.05 简约模式：顶级卡缩成一行（编号+标题+终身号+状态），点这一行展开成大卡 */
+  .简行 { display: none; }
+  .任务列表.简约 > .卡:not(.展开):not(.分享卡) > *:not(.简行) { display: none; }
+  .任务列表.简约 > .卡:not(.展开):not(.分享卡) > .简行 {
+    display: flex; align-items: center; gap: 8px; padding: 8px 9px; cursor: pointer;
+  }
+  .简题 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 14px; font-weight: 600; color: #1c2430; }
+  .简态 { flex: 0 0 auto; font-size: 12px; border-radius: 999px; padding: 1px 8px;
+    background: #e4e7ec; color: #556; white-space: nowrap; }
+  .简态.态好 { background: #d8f5dc; color: #1a7a2e; }
+  .简态.态中 { background: #fff3c4; color: #8a6d00; }
+  .简态.态失败 { background: #ffe0e0; color: #b00020; }
   /* 端列表 */
   .端列表 { display: flex; flex-direction: column; gap: 8px; }
   .端项 {
@@ -964,7 +987,7 @@
   <!-- 1.03 两行紧凑：第一行＝软件名+版本（最左）＋连接角色胶囊 -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.04</span>
+    <span class="版本">v1.05</span>
     <span id="角色" class="角色">连接中…</span>
   </div>
   <!-- 第二行＝方形按钮与身份胶囊同高（26px）；0.68 登录入口：可【换身份】 -->
@@ -1030,6 +1053,13 @@
       <input id="开关_只打开一卡" type="checkbox"> 一次只展开一张（并列卡自动收起）
     </label>
   </div>
+  <!-- 1.05 归属开关搬进设置：勾上＝看所有 AI 的清单（默认只看公共 + 我的） -->
+  <div class="设置行">
+    <span class="设置标">归属</span>
+    <label class="归属开关" title="勾上＝显示所有 AI 的清单（默认只看公共 + 我的）">
+      <input id="开关_归属全部" type="checkbox"> 看所有 AI 的清单
+    </label>
+  </div>
   <!-- 0.64 联动命令模板：TRAE、WB 各一条；勾了【发起联动】的清单保存时按此发送 -->
   <div class="设置行">
     <span class="设置标 联动命令标">TRAE 命令</span>
@@ -1051,21 +1081,26 @@
   <!-- 主页＝我的清单：摆一级卡（一本总管清单＝一张完整的卡）。
        点卡上的【细分】＝整页切到该卡的下级页面（见 #节点页），像进入一个新文件夹。 -->
   <section id="主页" class="区">
-    <h2 class="区标题">我的清单 <span id="清单计数" class="计数"></span>
-      <!-- 0.67：归属开关——默认只看「公共 + 我的」；勾上「全部」看所有 AI 的清单 -->
-      <label class="归属开关" title="勾上＝显示所有 AI 的清单（默认只看公共 + 我的）">
-        <input id="开关_归属全部" type="checkbox"> 全部
-      </label>
-      <span id="清单分页" class="分页签组">
-        <button type="button" class="分页签" data-页="普通">普通</button>
-        <button type="button" class="分页签" data-页="系统">系统</button>
-        <button type="button" class="分页签 选中" data-页="全部">全部</button>
-        <button type="button" class="分页签" data-页="流水清单">流水清单</button>
-      </span>
-      <!-- 0.41：系统清单 R2 云同步——上传全自动，下载纯手动（点了才从 R2 拉回覆盖本地） -->
-      <button id="按钮_R2拉取" type="button" class="分页签 R2拉取钮"
-              title="从 R2 云端拉取最新系统清单（上传已自动，下载要点这里）">⇩ 更新系统清单</button>
-    </h2>
+    <!-- 1.05 主页头部固定两行：第一行＝我的清单+计数+【简约】；第二行＝4 个类型签+R2 更新 -->
+    <div class="清单头">
+      <div class="头行">
+        <h2 class="区标题">我的清单 <span id="清单计数" class="计数"></span></h2>
+        <label class="归属开关" title="勾上＝顶级卡按一行简约显示（像小绿卡）；取消＝恢复大卡">
+          <input id="开关_简约" type="checkbox"> 简约
+        </label>
+      </div>
+      <div class="头行">
+        <span id="清单分页" class="分页签组">
+          <button type="button" class="分页签" data-页="普通">普通</button>
+          <button type="button" class="分页签" data-页="系统">系统</button>
+          <button type="button" class="分页签 选中" data-页="全部">全部</button>
+          <button type="button" class="分页签" data-页="流水清单">流水清单</button>
+        </span>
+        <!-- 0.41：系统清单 R2 云同步——上传全自动，下载纯手动（点了才从 R2 拉回覆盖本地） -->
+        <button id="按钮_R2拉取" type="button" class="分页签 R2拉取钮"
+                title="从 R2 云端拉取最新系统清单（上传已自动，下载要点这里）">⇩ 更新系统清单</button>
+      </div>
+    </div>
     <div id="顶层容器" class="任务列表"><div class="空样">加载中…</div></div>
   </section>
 
@@ -1209,7 +1244,7 @@
 
 <script src="网页模块/接口.js?v=0.34"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.59"></script>
+<script src="网页模块/清单页.js?v=0.60"></script>
 <script src="网页模块/面板.js?v=0.34"></script>
 </body>
 </html>
