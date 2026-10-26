@@ -912,7 +912,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 离线自动切到下一个在线者；事件流按 'srv' 源头过滤，只渲染当前
  * 操控服务端的内容。
  * v1.13（对齐服务端 v1.24）：操控互斥——本端 ID 改为持久唯一
- * （'4'+9位，localStorage），每 20s 发 ctl_hb 续占、切走发 ctl_free
+ * （'4'+9位，localStorage），每 55s（2.23 起；原 20s）发 ctl_hb 续占、切走发 ctl_free
  * 还锁；被占用时 hello 提示、指令被拒显示 deny 提示。
  * v1.14（对齐服务端 v1.25）：① 切换后看门狗——切服务端 3s 没等到
  * 快照就重发 hello（最多 5 次），防中继丢包「正在连接」卡死（点
@@ -987,7 +987,8 @@ function ttsChannelUrl(){
   const key = (CFG.channel || '').trim();
   return WS_URL_TMPL.replace('%s', TTS_PFX + key);   // TTS 恒挂账号A(free.blr2)
 }
-const KA_SEC = 25;      // 链路保活间隔（秒，防止中继判空闲掐线）
+const KA_SEC = 0;      /* 老板 2026-10-25：本 WS 免 ping，纯保活 ping 一律不要；
+                          非 ping 不可也最多 30 分钟一条。0＝不发原始 ping，仅靠断线重连。 */
 const RECONNECT = 3;    // 断线重连间隔（秒）
 const SRV_IDLE_MS = 20000;      // ≤20s 有消息 = 正常
 const SRV_DEAD_MS = 60000;      // ≥60s 无消息 = 报「服务器无响应」
@@ -995,7 +996,7 @@ const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 15
 const IDLE_MS = 5 * 60 * 1000;  // 闲置超 5 分钟才退出登录（1.25 起唯一的下线条件）
 const FAIL_ALERT = 3;           // 连续 N 次「压根没连上」→ 判为连不上服务器
 const FOX_HDR = 57;     // 协议头固定字节数
-const FOX_MAX = 10 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节）
+const FOX_MAX = 64 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节；2026-10-26 10KB→64KB）
 const FOX_RE = /^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/;
 /* 1.82：切换「过程分档」定时器（用户 2026-10-07）——取代 1.62 的 24s 单点超时
    （旧的单点超时常量已撤，超时统一改由「满 60s 判失败」收口，否则 24s 就先撤条、
@@ -1606,7 +1607,20 @@ const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1', '(@fox-ai1'];
 const _fh_state = {};      /* 卡片开合状态：键＝三段内容指纹（快照每秒重画，开合要撑过重画） */
 const _fh_data = {};       /* 卡片内容登记 */
 function foxHintKey(hz){
-  return (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001' + (hz.co || '') + '\u0001' + (hz.ai || '');
+  /* P53（2026-10-26 老板报「小尾巴浓缩成一个小按钮、点了没效果」）：
+     原键＝四段用 \u0001 拼起来的字符串，再写进 data-fhkey 属性。手机 WebKit 会把
+     属性值里的控制字符规整/丢掉，读回来与内存里的键对不上 → _fh_data[key] 取不到 →
+     点标签既不展开也不报错（PC Chromium 不丢，所以电脑上看着是好的）。
+     改为「不含控制字符的安全指纹键」，原文仍参与哈希，属性里只有 [0-9a-f_]。 */
+  const t = (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001'
+          + (hz.co || '') + '\u0001' + (hz.ai || '');
+  let h1 = 0x811c9dc5 >>> 0, h2 = 0x01000193 >>> 0;
+  for (let i = 0; i < t.length; i++){
+    const ch = t.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 16777619) >>> 0;
+    h2 = (Math.imul(h2 + ch, 31) ^ (i + 1)) >>> 0;
+  }
+  return 'h' + h1.toString(16) + '_' + h2.toString(16) + '_' + t.length.toString(16);
 }
 function _fhGrab(txt, re){
   let v = '';
@@ -1654,27 +1668,41 @@ function foxHintHtml(hz){
   return '<div class="foxhint" data-fhkey="' + esc(key) + '">'
        + '<div class="fhrow">' + tabs + '</div>' + pane + '</div>';
 }
-function foxHintBind(root){
-  (root || document).querySelectorAll('.foxhint .fhbtn').forEach(b => {
-    b.onclick = e => {
-      e.stopPropagation();
-      const card = b.closest('.foxhint');
-      if (!card) return;
-      const key = card.getAttribute('data-fhkey') || '';
-      const k = b.getAttribute('data-fh') || '';
-      const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
-      if (st.open && st.which === k){ st.open = false; st.which = ''; }
-      else { st.open = true; st.which = k; }
-      const hz = _fh_data[key];
-      if (hz){
-        const tmp = document.createElement('div');
-        tmp.innerHTML = foxHintHtml(hz);
-        const nc = tmp.firstElementChild;
-        if (nc){ card.replaceWith(nc); foxHintBind(nc.parentNode || document); }
-      }
-    };
-  });
+/* P53：点标签改走「document 捕获阶段 · 一次装好」——快照每秒重画、以及任何忘记
+   调 foxHintBind 的渲染路径（本地轮播账 / 排队条重绘）都不会再出现死按钮。
+   原来给每个按钮挂 onclick，一旦某条渲染路径漏调绑定，按钮就永远点不动且不报错。
+   旧的 foxHintBind 保留同名空壳（调用点不用改），只负责确保委托已装好。 */
+function _fhToggleBtn(b){
+  const card = b.closest('.foxhint');
+  if (!card) return;
+  const key = card.getAttribute('data-fhkey') || '';
+  const k = b.getAttribute('data-fh') || '';
+  const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
+  if (st.open && st.which === k){ st.open = false; st.which = ''; }
+  else { st.open = true; st.which = k; }
+  const hz = _fh_data[key];
+  if (!hz) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = foxHintHtml(hz);
+  const nc = tmp.firstElementChild;
+  if (nc) card.replaceWith(nc);
 }
+let _fh_delegated = false;
+function _fhEnsureDelegation(){
+  if (_fh_delegated) return;
+  _fh_delegated = true;
+  document.addEventListener('click', function(e){
+    const t = e.target;
+    if (!t || !t.closest) return;
+    const b = t.closest('.foxhint .fhbtn');
+    if (!b) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _fhToggleBtn(b);
+  }, true);
+}
+function foxHintBind(root){ _fhEnsureDelegation(); }
+try { _fhEnsureDelegation(); } catch(e){}
 /* 剥掉四段标记（「重编/回退」我发出的消息时用：把服务端追加的专属词段忽略，还原纯正文） */
 function stripHintMarks(txt){
   return String(txt || '')
@@ -4991,7 +5019,14 @@ const APP_NAME = 'wb远程';
       过期回包（sid 不符）静默丢弃。配套服务端 cmd_router v3.04（hist_ls /
       hist_msgs 两命令）与 __init__.py WEB_VERSION 恒等 2.21。
    以下为上一版（2.20）说明存档。 */
-const VER = '2.22';   /* 2.22（2026-10-25，P43）：D1 空窗/无AI主路径强制取回（8s 重试≤2）、
+const VER = '2.25';   /* 2.25（2026-10-26，P53）：专属提示词折叠卡点不开根治——键改安全指纹（不再把 \u0001 写进 data-fhkey）、点标签改 document 捕获委托（任何渲染路径都不会再出死按钮）。
+   2.24（2026-10-26 老板令）：FOX 单段上限 10KB→64KB（-57 头），
+                         与 TRAE 对齐，同样 13KB 快照由 2 段降为 1 段。 */
+const _VER_OLD = '2.23';   /* 2.23（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
+                         ctl_hb 周期 20000→55000（55 秒；服务端锁 60 秒，取 55000 留边界余量，
+                         不用 60000 免得卡边界抖动）；本 WS 免 ping、不做任何保活。
+                         const VER 与 wb_cli.WEB_VERSION 恒等 2.23。
+   2.22（2026-10-25，P43）：D1 空窗/无AI主路径强制取回（8s 重试≤2）、
                          D1b last_ai 真消费、D2 保留 AI 骨架、F2 体检30s、F4 失败回音。
                          const VER 与 wb_cli.WEB_VERSION 恒等 2.22。
    2.20（2026-10-25，H22）：修「聊着聊着只剩最近两条人类发言，刷新才恢复」——
@@ -5282,9 +5317,12 @@ function connect(){
     sendHello();               // 上线即拉服务端状态
     doLogin();                 // 1.45：登录 → 服务端开播并整包重放
     clearInterval(kaTimer);
-    kaTimer = setInterval(() => {
-      try { ws.send('ping'); statsAdd(0, 4, 0, 1); } catch(e){}
-    }, KA_SEC * 1000);
+    kaTimer = null;
+    if (KA_SEC > 0) {            // 老板 2026-10-25：免 ping，默认不建保活定时器
+      kaTimer = setInterval(() => {
+        try { ws.send('ping'); statsAdd(0, 4, 0, 1); } catch(e){}
+      }, KA_SEC * 1000);
+    }
     startCliHb();              // 1.45：登录态心跳 + 闲置自检
   };
   ws.onmessage = ev => onMsg(ev.data);
@@ -5669,10 +5707,12 @@ function pruneSrv(){
   }
 }
 setInterval(pruneSrv, 5000);
-/* 1.13：操控续占心跳——停留在当前操控对象就每 20s 续一次锁
-   （服务端默认 60 秒无操作释放；不发心跳即视为离开） */
+/* 1.13：操控续占心跳——停留在当前操控对象就续一次锁
+   （服务端默认 60 秒无操作释放；不发心跳即视为离开）
+   2.23（老板 2026-10-25 23:46 令）：心跳只允许每分钟一条；服务端锁 60 秒，
+   60000 正好卡边界（抖动一下就被判超时），实际取 55000（55 秒）更稳。 */
 setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
-            20000);
+            55000);
 
 function renderTop(){
   const s = S.servers[S.cur];
