@@ -338,7 +338,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.2";
+const H5_VER  = "0.5.3";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -382,10 +382,16 @@ function 登录提示(色, 文){
 
 function 登录(){
   const 框 = document.getElementById("频道输入");
-  const 原 = (框.value || "").trim();
+  let 原 = (框.value || "").trim();
   if(!原){ 登录提示("红", "请输频道号那一段（形如 xxxx@）"); return; }
+  /* P59：完整串也认（剥掉前缀再走），老板笔误 29 容错成 26 */
+  if(原.indexOf(H5_前缀) === 0) 原 = 原.slice(H5_前缀.length);
+  if(/29fF@$/.test(原)){
+    原 = 原.replace(/29fF@$/, "26fF@");
+    登录提示("黄", "已把 29 自动纠正为 26（正确尾巴是 31415926fF@）");
+  }
   if(!/^[0-9A-Za-z_-]+@$/.test(原)){
-    登录提示("红", "只输频道号那一段（别带 foxaijob，也别带空格）");
+    登录提示("红", "只输频道号那一段（别带空格）");
     return;
   }
   已进 = false;
