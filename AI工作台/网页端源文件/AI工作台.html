@@ -180,15 +180,12 @@
 </header>
 
 <nav id="页签">
-  <button data-p="p1" class="on">P1 TRAE 面板</button>
-  <button data-p="p2">P2 员工总览</button>
-  <button data-p="p3">P3 任务面板</button>
-  <button data-p="p4">P4 人类原话</button>
-  <button data-p="p5">P5 总管手册</button>
-  <button data-p="p9">P9 快速派工单</button>
-  <button data-p="p6">P6 服务健康</button>
-  <button data-p="p7">P7 频道与用量</button>
-  <button data-p="p8">P8 设置与审计</button>
+  <button data-p="p1" class="on">TRAE</button>
+  <button data-p="p2">员工</button>
+  <button data-p="p3">任务</button>
+  <button data-p="p4">原话</button>
+  <button data-p="p5">手册</button>
+  <button data-p="p9">派工</button>
 </nav>
 
 <main>
@@ -296,25 +293,7 @@
     </div>
   </section>
 
-  <section id="p6"><div class="panel">P6 服务健康 —— 未实现</div></section>
-  <section id="p7"><div class="panel">P7 频道与用量 —— 未实现</div></section>
-  <section id="p8">
-    <div class="panel">
-      <h3 style="margin:0 0 8px;font-size:13px">登录与连接</h3>
-      <div class="小字">当前频道：<b id="当前频道">—</b></div>
-      <div class="小字" style="margin-top:4px">本机地址：<span id="当前地址">—</span></div>
-      <div class="小字" style="margin-top:4px">页面版本：<b id="设置版本">—</b></div>
-      <div style="margin-top:10px">
-        <button class="btn d" onclick="清除登录()">清除登录</button>
-        <span class="cmd">退回登录框</span>
-      </div>
-      <div class="小字" style="margin-top:10px">页面本身是静态的，数据全部来自本机 Py 服务（或经频道遥控本机）；连不上时只显示骨架。</div>
-    </div>
-    <div class="panel" style="margin-top:10px"><div class="小字">动作日志（系统.日志）</div>
-      <div class="wrap"><button class="btn d" onclick="看日志()">取 30 行</button><span class="cmd">系统.日志</span></div>
-      <div class="evi" id="日志框">—</div>
-    </div>
-  </section>
+
 </main>
 
 <div class="mask" id="遮罩" onclick="关抽屉()"></div>
@@ -333,6 +312,7 @@ const 命令列表 = [
   "trae.状态", "trae.重采集",
   "员工.列表", "员工.催办",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档",
+  "任务.关联原话", "任务.补来源原话",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.统计",
   "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
   "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建",
@@ -340,7 +320,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.4.9";
+const H5_VER  = "0.5.0";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -677,6 +657,7 @@ function 画任务(){
         "<span class='id'>"+转义(k.id)+"</span> <span class='小字'>"+转义(k.状态)+"</span>"+
         "<span class='t'>"+转义(k.标题)+"</span>"+
         "<div class='m'>"+转义(负责)+"</div>"+
+        "<div class='m'>来源原话："+转义((k.来源原话||[]).join("、")||"无对应原话")+"</div>"+
         "<div class='m'>更新 "+转义(k.更新)+" · 证据 "+((k.证据||[]).length)+" 条</div>"+
         "</div></div>";
     }).join("") || "<div class='小字' style='padding:8px'>（空）</div>";
@@ -708,6 +689,10 @@ function 开卡(id){
       "<span class='cmd'>任务.加备注</span></div>"+
       "<div class='wrap'><button class='mini' onclick=\"归档('"+k.id+"')\">归档</button>"+
       "<span class='cmd'>任务.归档</span></div></div>"+
+    "<div class='小字' style='margin-top:8px'>来源原话（可多张）</div>"+
+    "<div class='evi'>"+转义((k.来源原话||[]).join("、")||"无对应原话")+"</div>"+
+    "<div class='条'><div class='wrap'><button class='mini p' onclick=\"改来源原话('"+k.id+"')\">改关联原话</button>"+
+      "<span class='cmd'>任务.关联原话</span></div></div>"+
     "<div class='小字'>证据（"+((k.证据||[]).length)+"）</div>"+
     "<div class='evi'>"+转义((k.证据||[]).join("\n")||"（无）")+"</div>"+
     "<div class='小字' style='margin-top:8px'>变更历史</div>"+
@@ -734,6 +719,14 @@ function 加备注(id){
   调("任务.加备注", {"卡":id, "话":话});
 }
 function 归档(id){ if(confirm("把 " + id + " 归档（作废）？")) 调("任务.归档", {"卡":id}); }
+function 改来源原话(id){
+  const 旧 = (找卡(id)||{}).来源原话 || [];
+  const 新值 = prompt("填写关联的原话ID（可多张，用、分隔；格式 2026-10-25#042）", 旧.join("、"));
+  if(新值 === null) return;
+  调("任务.关联原话", {"卡":id, "条们":新值.trim()}).then(j=>{
+    if(j.ok){ 上次ts = 0; 拉状态(true); if(选中卡 === id) 开卡(id); }
+  });
+}
 
 function 弹建卡(){
   const 标题 = prompt("新任务标题：", "");
