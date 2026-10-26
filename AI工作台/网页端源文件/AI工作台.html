@@ -176,6 +176,7 @@
   <div class="横幅" id="横幅">正在连本机…</div>
   <div class="小结" id="小结">未完成 — / 已完成 —</div>
   <div class="小结" id="连状态" style="cursor:pointer" title="点这里看/清除登录">未连接本机</div>
+  <button class="mini" onclick="清除登录()" style="background:#7f1d1d;color:#fff;border:0;border-radius:4px;padding:4px 8px;cursor:pointer">退出登录</button>
   <div class="srv" id="srvPh">WS 未连 —— 点任意按钮会提示「WS 连接中」，命令不会发出</div>
 </header>
 
@@ -309,13 +310,21 @@
       <span class="小字">收件人＝P2 同一份员工名册（可多选）；「复制」后自己粘贴，「一键发送」逐个投到 TRAE 会话</span>
     </div>
     <div class="panel">
-      <div class="小字">收件人（多选）</div>
+      <div class="条"><span class="小字">来源任务卡卡号：</span>
+        <input id="派工卡号" placeholder="T0001" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:110px">
+        <span class="小字">（从任务卡点「派工」会自动预填）</span></div>
+      <div class="小字" style="margin-top:8px">常用叮嘱（点胶囊加到下方）</div>
+      <div id="叮嘱胶囊" style="margin-top:4px"></div>
+      <textarea id="派工叮嘱" placeholder="叮嘱（每行一条，会平铺进对方收到的派工单）"
+        style="width:100%;height:70px;margin-top:6px;padding:8px;border:1px solid var(--line);border-radius:5px;font-size:12px"></textarea>
+      <div class="小字" style="margin-top:8px">收件人（多选）</div>
       <div id="派工收件人" style="max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:5px;padding:6px;margin-top:4px"></div>
       <div class="小字" style="margin-top:10px">派工正文</div>
       <textarea id="派工正文" placeholder="在这里写派工内容；第一行会作为任务卡标题"
         style="width:100%;height:180px;margin-top:4px;padding:8px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:inherit"></textarea>
       <div class="条" style="margin-top:8px">
         <div class="wrap"><button class="btn" onclick="派工复制()">复制</button><span class="cmd">派工.复制预览</span></div>
+        <div class="wrap"><button class="btn p" onclick="建派工单()">建派工单</button><span class="cmd">派工单.新建</span></div>
         <div class="wrap"><button class="btn g" onclick="派工发送()">一键发送</button><span class="cmd">派工.发送</span></div>
         <span class="小字" id="派工回音"></span>
       </div>
@@ -343,7 +352,7 @@ const 命令列表 = [
   "员工.列表", "员工.催办",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档", "任务.删卡",
   "任务.关联原话", "任务.补来源原话", "任务.换分组",
-  "派工单.新建", "派工单.列表", "派工单.发送", "派工单.回复",
+  "叮嘱.列表", "任务.改详情", "派工单.新建", "派工单.列表", "派工单.发送", "派工单.留言",
   "派工单.交稿", "派工单.验收", "派工单.提醒",
   "分组.列表", "分组.新建", "分组.改名", "分组.删除",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.新建手动", "原话.统计",
@@ -353,7 +362,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.10";
+const H5_VER  = "0.5.11";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -770,6 +779,9 @@ function 开卡(id){
       "<span class='cmd'>任务.归档</span></div>"+
       "<div class='wrap'><button class='mini o' onclick=\"删卡('"+k.id+"')\">删除卡</button>"+
       "<span class='cmd'>任务.删卡</span></div></div>"+
+    "<div class='小字' style='margin-top:8px'>验收标准："+转义(k.验收标准||"（未写）")+"</div>"+
+    "<div class='条'><div class='wrap'><button class='mini' onclick=\"改验收标准('"+k.id+"')\">写/改验收标准</button>"+
+      "<span class='cmd'>任务.改详情</span></div></div>"+
     "<div class='小字' style='margin-top:8px'>分组："+转义(k.分组||"未分类")+"</div>"+
     "<div class='条'><div class='wrap'><button class='mini p' onclick=\"换分组('"+k.id+"')\">换分组</button>"+
       "<span class='cmd'>任务.换分组</span></div></div>"+
@@ -779,8 +791,8 @@ function 开卡(id){
       "<span class='cmd'>任务.关联原话</span></div></div>"+
     "<div class='小字' style='margin-top:8px'>派工单（来源任务卡 "+转义(k.id)+"）</div>"+
     "<div class='evi' id='派工单列表'>载入…</div>"+
-    "<div class='条'><div class='wrap'><button class='mini p' onclick=\"新建派工单('"+k.id+"')\">＋派工单</button>"+
-      "<span class='cmd'>派工单.新建</span></div></div>"+
+    "<div class='条'><div class='wrap'><button class='mini p' onclick=\"去派工('"+k.id+"')\">派工</button>"+
+      "<span class='cmd'>跳到 派工 分页</span></div></div>"+
     "<div class='小字'>证据（"+((k.证据||[]).length)+"）</div>"+
     "<div class='evi'>"+转义((k.证据||[]).join("\n")||"（无）")+"</div>"+
     "<div class='小字' style='margin-top:8px'>变更历史</div>"+
@@ -845,7 +857,7 @@ async function 拉派工单(卡id){
       "　验收态："+转义(x.验收态||"待验收")+"　收件人："+转义((x.收件人||[]).join("、"))+"</div>"+
       "<div class='条'>"+
       "<button class='mini g' onclick=\"发派工单('"+x.单号+"')\">发送</button>"+
-      "<button class='mini p' onclick=\"回复单('"+x.单号+"')\">回复</button>"+
+      "<button class='mini' onclick=\"留言单('"+x.单号+"')\">留言</button>"+
       "<button class='mini' onclick=\"交稿单('"+x.单号+"')\">交稿</button>"+
       "<button class='mini o' onclick=\"验收单('"+x.单号+"')\">验收</button>"+
       "<button class='mini d' onclick=\"提醒单('"+x.单号+"')\">一键提醒</button></div>"+
@@ -853,27 +865,49 @@ async function 拉派工单(卡id){
       "<div class='小字'>留言板（"+((x.留言||[]).length)+"）</div>"+(板||"<div class='小字'>（暂无留言）</div>")+回;
   }).join("") || "（这张卡还没有派工单）";
 }
-function 新建派工单(卡id){
-  const 收 = prompt("收件人（会话名，可多个用、分隔）", "闲杂事务 1");
-  if(!收) return;
-  const 文 = prompt("派工单正文", "");
-  if(!文) return;
-  调("派工单.新建", {"卡":卡id, "收件人":收.trim(), "文":文.trim()}, false).then(j=>{ if(j.ok) 拉派工单(卡id); });
-}
-async function 发派工单(单号){
-  if(!confirm("把派工单 " + 单号 + " 发给全部收件人？")) return;
-  const j = await 调("派工单.发送", {"单":单号}, false);
-  吐司(j.ok ? (单号 + "：已派") : (单号 + "：" + (j.说明||"发送失败")));
-  if(选中卡) 拉派工单(选中卡);
-}
-function 回复单(单号){
-  const 话 = prompt("把工作结论回复到派工单 " + 单号 + "：", "");
+function 留言单(单号){
+  const 话 = prompt("给派工单 " + 单号 + " 留言", "");
   if(!话) return;
-  const 态 = prompt("新状态（待发/已派/已受理/已回复/已完成/已退回）", "已回复") || "已回复";
-  调("派工单.回复", {"单":单号, "话":话.trim(), "新状态":态.trim()}, false).then(j=>{
-    吐司(j.ok ? (单号 + "：已回复") : (单号 + "：" + (j.说明||"回复失败")));
+  调("派工单.留言", {"单":单号, "话":话.trim()}, false).then(j=>{
+    吐司(j.ok ? (单号 + "：已留言") : (单号 + "：" + (j.说明||"留言失败")));
     if(选中卡) 拉派工单(选中卡);
-    上次ts = 0; 拉状态(true);
+  });
+}
+function 去派工(卡id){
+  选中卡 = 卡id;
+  document.querySelector('[data-p=p9]').click();
+  const 框 = document.getElementById("派工卡号");
+  if(框) 框.value = 卡id;
+  画派工收件人();
+}
+async function 画叮嘱胶囊(){
+  const 框 = document.getElementById("叮嘱胶囊");
+  if(!框) return;
+  const j = await 调("叮嘱.列表", {}, true);
+  const 们 = (j.数据 && j.数据.叮嘱) || [];
+  框.innerHTML = 们.map((x,i)=>"<span class='tag' style='display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;border-radius:999px;padding:2px 10px;margin:2px;cursor:pointer;font-size:11px' onclick=\"加叮嘱("+i+")\">"+转义(x)+"</span>").join("");
+  window.__叮嘱 = 们;
+}
+function 加叮嘱(i){
+  const 文 = (window.__叮嘱||[])[i] || "";
+  const 框 = document.getElementById("派工叮嘱");
+  if(框 && 文) 框.value = (框.value ? 框.value.replace(/\n$/,"") + "\n" : "") + 文;
+}
+async function 建派工单(){
+  const 卡 = (document.getElementById("派工卡号").value||"").trim();
+  const 收 = 派工选中();
+  const 文 = (document.getElementById("派工正文").value||"").trim();
+  const 嘱 = (document.getElementById("派工叮嘱").value||"").trim();
+  if(!卡 || !收.length || !文){ 吐司("要卡号、收件人、正文"); return; }
+  const j = await 调("派工单.新建", {"卡":卡, "收件人":收.join("、"), "文":文, "叮嘱":嘱}, false);
+  吐司(j.ok ? (j.说明||"已建单") : ("建单失败：" + (j.说明||"")));
+}
+function 改验收标准(id){
+  const 旧 = (找卡(id)||{}).验收标准 || "";
+  const 新 = prompt("验收标准（可写可改）", 旧);
+  if(新 === null) return;
+  调("任务.改详情", {"卡":id, "验收标准":新.trim()}, true).then(j=>{
+    if(j.ok){ 上次ts=0; 拉状态(true); 开卡(id); }
   });
 }
 function 交稿单(单号){
@@ -1295,15 +1329,15 @@ document.querySelectorAll("#页签 button").forEach(btn=>{
     btn.classList.add("on");
     document.getElementById(btn.dataset.p).classList.add("on");
     if(btn.dataset.p === "p4") 拉原话();
-    if(btn.dataset.p === "p9") 画派工收件人();
+    if(btn.dataset.p === "p9"){ 画派工收件人(); 画叮嘱胶囊(); }
     if(btn.dataset.p === "p5") 拉手册目录();
   };
 });
 
 读设置();
-document.getElementById("登录版本").textContent = "v" + H5_VER;
-document.getElementById("设置版本").textContent = "v" + H5_VER;
-document.getElementById("当前地址").textContent = 设置.地址;
+const _elVer = document.getElementById("登录版本"); if(_elVer) _elVer.textContent = "v" + H5_VER;
+const _elSet = document.getElementById("设置版本"); if(_elSet) _elSet.textContent = "v" + H5_VER;
+const _elAddr = document.getElementById("当前地址"); if(_elAddr) _elAddr.textContent = 设置.地址;
 const 记着的 = (设置.频道 || "");
 if(记着的 && 记着的.indexOf(H5_前缀) === 0){
   document.getElementById("频道输入").value = 记着的.slice(H5_前缀.length);
