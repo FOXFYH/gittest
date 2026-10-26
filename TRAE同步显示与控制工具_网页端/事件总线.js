@@ -285,6 +285,12 @@ function onEv(kind, v){
         由服务端 0.49 同步清空，不留同一份残留；本端改完重新发送即重新排队。 */
       S.qedit = null;
       const raw = (typeof v === 'string' ? v : '').trim();
+      /* 2.138（老板 2026-10-26 23:23）：只取回「带 DID 的人类原话」——首行没有 14 位 DID
+         的一律不回填（AI/程序塞进输入框的字不是原话，取回来会污染我自己的输入）。 */
+      if (raw && !hasUserDid(raw)){
+        flash('该条不是带 DID 的人类原话，已跳过取回', 'var(--red)', 5000);
+        break;
+      }
       const t = raw ? copyPlain(raw, true) : '';
       if (t){
         el.ent.value = t;
@@ -298,17 +304,13 @@ function onEv(kind, v){
       }
       break;
     }
-    case 'input_take_out': {               /* 1.53：取回残留成功——文本回填本端 */
-      /* 2.77：残留文本可能带着服务端追加的专属词三段标记 → 剥掉还原纯正文 */
+    case 'input_take_out': {               /* 1.53：取回残留成功——2.139 起不再回填本端 */
+      /* 2.139（老板 2026-10-27 00:19）：**残留永远不回填**——电脑端残留由服务端直接清空，
+         绝不拿它替换我在网页端正在打的字；「我这边送过去的文本才是老大」。
+         这里只按有无残留给一句提示，绝不碰 el.ent.value。 */
       const t = stripHintMarks(typeof v === 'string' ? v : '');
-      if (t){
-        el.ent.value = t;
-        refreshSendBtn();
-        try { el.ent.focus(); } catch(e2){}
-        flash('已取回残留，可修改后重新发送', 'var(--blue)');
-      } else {
-        flash('TRAE 输入框无残留', 'var(--red)');
-      }
+      flash(t ? '电脑端残留已清空（不回填）' : 'TRAE 输入框无残留',
+            t ? 'var(--blue)' : 'var(--red)');
       break;
     }
     case 'sent': {                           /* 1.09：服务端阶段回报
