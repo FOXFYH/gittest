@@ -1,7 +1,13 @@
 /* ============================================================
  * 【任务面板】网页模块 · 接口.js
- * 版本：0.25
+ * 版本：0.26
  * 职责：网页版与服务器的通信层——由 fetch(/api/*) 改为 WebSocket（WS）请求层。
+ *   · 0.26（2026-10-26）P51：账号通道 A/B 双频道可自由切换——
+ *     线路（cluster/api_key）不再写死在源码，运行时经 `线路()` 路由（HTTP `/api/线路`，失败回落 WS）
+ *     从服务端配置读取并缓存 localStorage（`任务面板_线路`）；当前通道存 `任务面板_通道`。
+ *     `频道地址()` 按当前线路拼出；`切换通道(名)` 通知服务端切换并重连（频道名规则不变）。
+ *     `system:error` / quota / exceeded → 状态「被拒」并记原文，`连接状态()` 回 被拒/拒绝原文/
+ *     通道/线路，供设置页红字与「切到线路B」一键切换。
  *   · 0.25（2026-10-24）A5 凭号直达：新增路由 `card_any`（HTTP 镜像 `/api/card_any`）与
  *     `凭号取卡(卡号)`——按任意卡号（`#n` / `An` / `L` / `S` / `T` / `P` / `ST` / `SP`）取卡；
  *     服务端只取卡、**不判可见性**。既有路由与 `邮箱` 自动透传逻辑一行未动。
@@ -97,7 +103,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.25';
+  var 版本 = '0.26';
 
   /* ---------------- 可配置常量（页面里可覆盖） ----------------
    * §19 对外页面安全：**频道号当口令**——连接频道 = 固定前缀 + 口令，【源码不写死频道名】。
@@ -140,6 +146,73 @@
   }
   function 有口令() { return !!取口令(); }
   function 频道名() { return 配置.前缀 + 取口令(); }
+
+  /* ---------------- 账号通道（P51：A/B 双线路，同一个频道名） ----------------
+   * 两条线路的 cluster/api_key 只存在服务端配置文件里，本页运行经 `线路()` 路由取回后
+   * 缓存在 localStorage（`任务面板_线路`）；当前通道存 `任务面板_通道`。
+   * 源码不写死 B 的地址/密钥；A 保留原有 `配置.主机/密钥` 作首连兜底。 */
+  var 通道存储键 = '任务面板_通道';
+  var 线路存储键 = '任务面板_线路';
+  function 读通道名() {
+    try {
+      var v = String(global.localStorage.getItem(通道存储键) || '').trim().toUpperCase();
+      if (v === 'A' || v === 'B') return v;
+    } catch (e) { }
+    return 'A';
+  }
+  function 存通道名(v) {
+    try { global.localStorage.setItem(通道存储键, v); } catch (e) { }
+  }
+  function 读线路缓存() {
+    try {
+      var d = JSON.parse(String(global.localStorage.getItem(线路存储键) || '{}'));
+      if (d && typeof d === 'object') return d;
+    } catch (e) { }
+    return {};
+  }
+  function 存线路缓存(t) {
+    try { global.localStorage.setItem(线路存储键, JSON.stringify(t || {})); } catch (e) { }
+  }
+  function 当前线路() {
+    var 名 = 读通道名(), 表 = 读线路缓存(), x = 表[名];
+    if (x && x.cluster && x.key) return { 名: 名, cluster: String(x.cluster), key: String(x.key) };
+    if (名 === 'A' && 配置.密钥) {
+      return { 名: 'A', cluster: '', key: String(配置.密钥), 主机: 配置.主机 };
+    }
+    return null;
+  }
+  function 应用线路数据(d) {
+    if (!d || typeof d !== 'object') return;
+    if (d.线路 && typeof d.线路 === 'object') 存线路缓存(d.线路);
+    var 名 = String(d.通道 || '').trim().toUpperCase();
+    var 已有 = '';
+    try { 已有 = String(global.localStorage.getItem(通道存储键) || ''); } catch (e) { }
+    if (!已有 && (名 === 'A' || 名 === 'B')) 存通道名(名);   // 首载按服务端上次选择
+    var 应连 = 读通道名();
+    if (_连接线路 && 应连 !== _连接线路) 重连();           // 服务端上次是另一条线 → 跟过去
+  }
+  // 取线路：优先同源 HTTP /api/线路；不可用（如 GitHub Pages）回落 WS 路由 `线路`。
+  function 取线路() {
+    var p;
+    try {
+      p = global.fetch('/api/' + encodeURIComponent('线路'), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { 应用线路数据(d); return d; });
+    } catch (e) { p = Promise.reject(e); }
+    return p['catch'](function () {
+      return 调用('线路', {}).then(function (d) { 应用线路数据(d); return d; });
+    });
+  }
+  function 通知服务端切通道(名) {
+    var 体 = JSON.stringify({ 通道: 名 });
+    try {
+      global.fetch('/api/' + encodeURIComponent('切换通道'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 体
+      })['catch'](function () { });
+    } catch (e) {
+      try { 调用('切换通道', { 通道: 名 })['catch'](function () { }); } catch (e2) { }
+    }
+  }
 
   /* ---------------- 身份：邮箱号（0.24 老板 2026-10-24 口径） ----------------
    * 每个 AI 用自己的邮箱号登录（如 `0019@1219299644`，只填 4 位数字自动补全称）；
@@ -388,20 +461,50 @@
   var _连续失败 = 0;
   var _重连定时 = null;
   var _最近错 = '';
+  var _拒绝原文 = '';
+  var _连接线路 = '';
   var _待发队列 = [];
   var _待应答 = {};
   var _收帧缓冲 = {};
 
   function 频道地址() {
+    var 线 = 当前线路();
+    if (线 && 线.cluster) {
+      return 'wss://' + 线.cluster + '.piesocket.com/v3/' + 频道名() + '?api_key=' + 线.key;
+    }
+    if (线 && 线.key && 线.主机) {
+      return 线.主机 + 频道名() + '?api_key=' + 线.key;
+    }
     return 配置.主机 + 频道名() + '?api_key=' + 配置.密钥;
   }
   function 有WS() { return !!ws && ws.readyState === 1; }
+  function 是被拒原文(s) {
+    var t = String(s == null ? '' : s).toLowerCase();
+    return t.indexOf('system:error') >= 0 || t.indexOf('quota') >= 0
+      || t.indexOf('exceeded') >= 0 || t.indexOf('over daily message quota') >= 0;
+  }
+  function 标被拒(原文) {
+    _连接态 = '被拒';
+    _拒绝原文 = String(原文 || '').slice(0, 600);
+    _最近错 = _拒绝原文;
+    var w = ws; ws = null;
+    try { if (w) w.close(); } catch (e) { }
+    通知状态();
+  }
   function 通知状态() {
     try {
       if (typeof global.任务面板_通道变化 === 'function') {
-        global.任务面板_通道变化(连接状态());
+        global.任务面板_通道变化(连接态对象());
       }
     } catch (e) { }
+  }
+
+  function 连接态对象() {
+    var 线 = 当前线路();
+    return { 状态: _连接态, 频道: 频道名(), 重试: _连续失败, 最近错: _最近错, 需口令: !有口令(),
+             通道: 读通道名(), 线路: (线 && 线.名) || 读通道名(),
+             线路集群: (线 && 线.cluster) || '',
+             被拒: _连接态 === '被拒', 拒绝原文: _拒绝原文 };
   }
 
   function 开连接() {
@@ -411,10 +514,10 @@
     if (!全局可WS()) { _宣告失败('本环境不支持 WebSocket'); return; }
     var w;
     try { w = new WebSocket(频道地址()); } catch (e) { _宣告失败('创建 WebSocket 失败：' + e); return; }
-    ws = w; _连接态 = '连接中'; 通知状态();
+    ws = w; _连接态 = '连接中'; _连接线路 = 读通道名(); 通知状态();
     w.onopen = function () {
       if (ws !== w) return;
-      _连接态 = '已连'; _连续失败 = 0; _最近错 = '';
+      _连接态 = '已连'; _连续失败 = 0; _最近错 = ''; _拒绝原文 = '';
       var 队 = _待发队列; _待发队列 = [];
       队.forEach(function (正文) { try { 发正文(正文); } catch (e) { } });
       通知状态();
@@ -424,6 +527,7 @@
     w.onclose = function () {
       if (ws !== w) return;
       ws = null;
+      if (_连接态 === '被拒') { 通知状态(); return; }
       if (_连接态 === '失败' || _连接态 === '未连') { 通知状态(); return; }
       _连接态 = '断开';
       排重连();
@@ -471,7 +575,7 @@
   function 重连() {
     if (_重连定时) { clearTimeout(_重连定时); _重连定时 = null; }
     if (ws) { try { ws.close(); } catch (e) { } ws = null; }
-    _连接态 = '未连'; _连续失败 = 0; _最近错 = '';
+    _连接态 = '未连'; _连续失败 = 0; _最近错 = ''; _拒绝原文 = '';
     开连接();
   }
 
@@ -506,6 +610,7 @@
   function 收消息(ev) {
     var raw = ev && ev.data;
     if (typeof raw !== 'string') return;
+    if (是被拒原文(raw)) { 标被拒(raw); return; }   // 服务端拒绝（quota/key）→ 明说，不再静默
     var h = 剥头(raw);
     if (!h || h.回声) return;
     if (h.total <= 1) { 消费(h.正文); return; }
@@ -540,7 +645,7 @@
     if (d.t === '服务器报到') { 记报到(d); return; }   // 报到帧：永远处理（自动发现，不受选中影响）
     if (!归属本机(d)) return;                          // 非本机所选服务器的帧 → 丢弃，不更新界面
     if (d.服务器) _最近应答 = String(d.服务器);         // 0.10：记住「真正应答的那台」，供界面如实提示
-    if (d.t === '投递受理' || d.t === '投递结果') { 广播分发(d); return; }   // 广播帧：不走应答配对
+    if (d.t === '投递受理' || d.t === '投递结果' || d.t === '清单R2结果') { 广播分发(d); return; }   // 广播帧：不走应答配对（0.41 加系统清单 R2 拉取结果）
     if (d.t !== 'res') return;
     if (d.to && d.to !== _网页号) return;          // 别的网页端的应答，丢弃
     var 待 = _待应答[d.id];
@@ -677,15 +782,32 @@
     重连();
   }
 
+  /* ---------------- 账号通道切换（P51） ----------------
+   * 选 A/B → 记住本地选择 → 通知服务端切到同一条线（持久化配置）→ 立即重连。
+   * 频道名不变（同一频道，只换 cluster+api_key）。 */
+  function 切换通道(名) {
+    var n = String(名 || '').trim().toUpperCase();
+    if (n !== 'A' && n !== 'B') return false;
+    var 旧 = 读通道名();
+    存通道名(n);
+    if (n !== 旧) 通知服务端切通道(n);
+    重连();
+    return true;
+  }
+
   /* ---------------- 对外接口（沿用既有语义，前端解析不用大改） ---------------- */
   var 接口 = {
     版本: 版本,
     raw: 调用,
 
-    连接状态: function () {
-      return { 状态: _连接态, 频道: 频道名(), 重试: _连续失败, 最近错: _最近错, 需口令: !有口令() };
-    },
+    连接状态: function () { return 连接态对象(); },
     重连: 重连,
+
+    /* P51 账号通道（A/B 双线路，同一频道名） */
+    线路: 取线路,
+    线路表: 读线路缓存,
+    当前通道: 读通道名,
+    切换通道: 切换通道,
 
     /* §19 口令（首登填、本地缓存） */
     需要口令: 需要口令,
@@ -945,6 +1067,8 @@
 
   // 首屏即尝试连接（静默：连上不宣告，只等应答）
   if (全局可WS()) 确保连接();
+  // P51：异步取线路配置（含服务端上次选择的通道），拿到后如与首连不同会自动重连
+  try { 取线路()['catch'](function () { }); } catch (e) { }
 
   global.接口 = 接口;
 })(window);
