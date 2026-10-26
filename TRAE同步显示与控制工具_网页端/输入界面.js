@@ -168,8 +168,13 @@ function revertRefill(snap){
   const t = ((snap && snap.inputText) || '').trim();
   if (!t) return;
   S.revertPend = 0;
-  /* 2.77：撤回取回的是「原文＋专属词三段」——剥掉三段标记还原纯正文（发送时会重拼） */
-  const clean = stripHintMarks(t);
+  /* 2.138（老板 2026-10-26 23:23）：撤回也只取回带 DID 的人类原话；clean 走 copyPlain，
+     DID／时间／方括号系统前缀／专属词三段／FOX 标记一并剥净（发送时会重拼）。 */
+  if (!hasUserDid(t)){
+    flash('撤回的这条没有 DID，不是可锚定的人类原话，已跳过回填', 'var(--red)', 5000);
+    return;
+  }
+  const clean = copyPlain(t, true);
   if (!el.ent.value.trim()){
     el.ent.value = clean;
     refreshSendBtn();
