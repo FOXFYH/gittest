@@ -111,8 +111,25 @@
   .手册右 table{margin:6px 0}
   .手册右 blockquote{margin:6px 0;padding-left:10px;border-left:3px solid var(--line);color:var(--dim)}
   .手册右 .hl{background:#fde68a}
-  .手册搜条{padding:5px 7px;border-radius:5px;font-size:11.5px;cursor:pointer;border-bottom:1px solid #f1f3f5}
-  .手册搜条:hover{background:#fff7ed}
+  /* P5 手册：套清单系统小绿卡阅读样式（层色 1~8，每层缩进 4px） */
+  .手册左 .页.子页{padding-left:22px;font-size:11.5px}
+  .手卡{--层底:#eaf7ee;--层边:#9ccfae;--题色:#23553a;border:1px solid var(--层边);
+    border-radius:8px;background:var(--层底);margin-bottom:4px;overflow:hidden}
+  .手行{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer}
+  .手箭{flex:0 0 auto;width:12px;font-size:11px;color:#4a7a5c}
+  .手题{font-size:13px;font-weight:600;color:var(--题色)}
+  .手文{display:none;white-space:pre-wrap;word-break:break-word;font-size:12.5px;
+    line-height:1.6;padding:6px 10px 8px;border-top:1px solid var(--层边);color:#2c3a33}
+  .手卡.开 > .手文{display:block}
+  .手子{display:none;padding:2px 0 4px 4px}
+  .手卡.开 > .手子{display:block}
+  .手卡.层2{--层底:#e9f2fd;--层边:#96bce9;--题色:#1f4677}
+  .手卡.层3{--层底:#f3edfd;--层边:#bc9fe6;--题色:#4a2d75}
+  .手卡.层4{--层底:#fdf3e4;--层边:#ecc691;--题色:#6b4a14}
+  .手卡.层5{--层底:#e7f8f6;--层边:#8fd6cf;--题色:#11504b}
+  .手卡.层6{--层底:#fdeef3;--层边:#f0b0c6;--题色:#7a2444}
+  .手卡.层7{--层底:#fbf7e1;--层边:#dfcd88;--题色:#574c12}
+  .手卡.层8{--层底:#eef1f7;--层边:#b6c1d5;--题色:#35415b}
   .btn.红{background:var(--红)}
   .only-m{display:none}
   /* ===== 首屏登录（全屏遮罩；不是藏在设置里） ===== */
@@ -282,21 +299,11 @@
   <!-- ================= P5 总管手册（数据驱动：目录里有什么就显示什么） ================= -->
   <section id="p5">
     <div class="条">
-      <div class="wrap"><button class="btn 红" onclick="我卡住了()">我卡住了 →</button><span class="cmd">手册.读 页=04_故障速查</span></div>
-      <div class="wrap"><button class="btn p" onclick="新建手动原话()">＋ 新建原话</button><span class="cmd">原话.新建手动</span></div>
-      <span class="小字">日期（自动渠道暂停时不用）：</span>
-      <input type="date" id="原话日" onchange="拉原话()"
-        style="padding:4px;border:1px solid var(--line);border-radius:5px;font-size:12px">
-      <input id="手册搜框" placeholder="全手册搜索，回车" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:200px"
-             onkeydown="if(event.key==='Enter')手册搜()">
-      <div class="wrap"><button class="btn" onclick="手册搜()">搜索</button><span class="cmd">手册.搜</span></div>
-      <div class="wrap"><button class="btn d" onclick="拉手册目录(true)">刷新目录</button><span class="cmd">手册.目录</span></div>
-      <div class="wrap"><button class="btn g" onclick="手册新建()">新建页</button><span class="cmd">手册.新建</span></div>
-      <div class="wrap"><button class="btn p" onclick="手册追加()">往本页追加</button><span class="cmd">手册.追加</span></div>
-      <span class="小字">内容来自磁盘 手册\ 目录，丢一个新 md 进去刷新就有</span>
+      <div class="wrap"><button class="btn 红" onclick="我卡住了()">我卡住了 →</button><span class="cmd">跳 4 故障速查</span></div>
+      <div class="wrap"><button class="btn d" onclick="拉手册目录()">刷新</button><span class="cmd">手册.一文</span></div>
+      <span class="小字">内容＝清单系统 <b id="手册编号">S36</b>《总管工作手册》，直接读源文件；左侧分页与这一篇锚定</span>
     </div>
-    <div id="手册搜结果" class="panel" style="display:none;margin-bottom:8px;max-height:24vh;overflow:auto"></div>
-    <select id="手册下拉" class="only-m" onchange="开手册页(this.value)"></select>
+    <select id="手册下拉" class="only-m" onchange="手册跳到(this.value,0)"></select>
     <div class="手册">
       <div class="手册左" id="手册目录"><div class="小字" style="padding:8px">载入中…</div></div>
       <div class="手册右" id="手册正文"><div class="小字">在左侧选一页（或点「我卡住了 →」直达 04 故障速查）</div></div>
@@ -357,12 +364,12 @@ const 命令列表 = [
   "分组.列表", "分组.新建", "分组.改名", "分组.删除",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.新建手动", "原话.统计",
   "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
-  "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建",
+  "手册.一文", "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建",
   "派工.复制预览", "派工.发送"
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.12";
+const H5_VER  = "0.5.13";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -1098,176 +1105,110 @@ function 吐司(文){
   吐司计时 = setTimeout(()=>t.classList.remove("on"), 2600);
 }
 
-/* ===== P5 总管手册：数据驱动，页名一律来自 手册.目录，代码里不写死任何页 ===== */
-let 手册页们 = [];
-let 当前页 = "";
-let 手册高亮 = "";
+/* ===== P5 总管手册：锚定清单系统 S36《总管工作手册》，直接读源文件，套清单系统绿卡阅读样式 ===== */
+let 手册一 = null;
+let 手册开 = {};
 
-function _行内(s){
-  let t = 转义(s);
-  t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
-  t = t.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-  if(手册高亮){
-    const 词 = 转义(手册高亮).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if(词) t = t.replace(new RegExp(词, "gi"), m => "<span class='hl'>" + m + "</span>");
+function 手册层(层){ return ((层 - 1) % 8) + 1; }
+
+function 画手册目录(){
+  const 左 = document.getElementById("手册目录");
+  if(!手册一 || !(手册一.节点 || []).length){
+    左.innerHTML = "<div class='小字' style='padding:8px'>手册为空</div>";
+    return;
   }
-  return t;
+  let h = "";
+  手册一.节点.forEach((n, i) => {
+    h += "<div class='页" + (i === 0 ? " on" : "") + "' data-页='" + i +
+         "' onclick=\"手册跳到(" + i + ",0)\">" +
+         "<div>" + 转义(n.题 || "") + "</div>" +
+         "<div class='m'>" + ((n.子 || []).length) + " 条</div></div>";
+    (n.子 || []).forEach((c, j) => {
+      h += "<div class='页 子页' data-页='" + i + "." + j +
+           "' onclick=\"手册跳到(" + i + "," + j + ")\">" +
+           "<div>" + 转义((j + 1) + ") " + (c.题 || "")) + "</div></div>";
+    });
+  });
+  左.innerHTML = h;
 }
 
-/* 极简 Markdown：标题/列表/表格/代码块/引用/分隔线/行内代码/加粗/搜索高亮 */
-function 渲染手册(md){
-  const 行们 = String(md || "").split(/\r?\n/);
-  const 出 = [];
-  let 在码 = false, 码 = [], 在表 = false;
-  const 关表 = () => { if(在表){ 出.push("</tbody></table>"); 在表 = false; } };
-  for(let i = 0; i < 行们.length; i++){
-    const 原 = 行们[i];
-    const 行 = 原.replace(/\s+$/, "");
-    if(/^```/.test(行)){
-      if(在码){ 出.push("<pre>" + 转义(码.join("\n")) + "</pre>"); 码 = []; 在码 = false; }
-      else { 关表(); 在码 = true; }
-      continue;
-    }
-    if(在码){ 码.push(原); continue; }
-    if(!行.trim()){ 关表(); continue; }
-    if(/^\|/.test(行)){
-      const 格 = 行.replace(/^\|/, "").replace(/\|$/, "").split("|").map(x => x.trim());
-      if(格.every(x => /^:?-{2,}:?$/.test(x))) continue;
-      if(!在表){
-        出.push("<table><thead><tr>" + 格.map(x => "<th>" + _行内(x) + "</th>").join("") + "</tr></thead><tbody>");
-        在表 = true;
-      }else{
-        出.push("<tr>" + 格.map(x => "<td>" + _行内(x) + "</td>").join("") + "</tr>");
-      }
-      continue;
-    }
-    关表();
-    const 标 = 行.match(/^(#{1,4})\s+(.*)$/);
-    if(标){
-      const 级 = Math.min(标[1].length, 3);
-      出.push("<h" + 级 + ">" + _行内(标[2]) + "</h" + 级 + ">");
-      continue;
-    }
-    if(/^(-{3,}|\*{3,})$/.test(行.trim())){ 出.push("<hr>"); continue; }
-    if(/^>\s?/.test(行)){ 出.push("<blockquote>" + _行内(行.replace(/^>\s?/, "")) + "</blockquote>"); continue; }
-    if(/^\s*([-*+]|\d+\.)\s+/.test(行)){
-      出.push("<ul><li>" + _行内(行.replace(/^\s*([-*+]|\d+\.)\s+/, "")) + "</li></ul>");
-      continue;
-    }
-    出.push("<p>" + _行内(行) + "</p>");
+function 画手册卡(n, 层, 路){
+  const 有子 = (n.子 || []).length > 0;
+  const 开 = !!手册开[路];
+  let h = "<div class='手卡 层" + 手册层(层) + (开 ? " 开" : "") + "' id='手卡-" + 路 + "'>";
+  h += "<div class='手行' onclick=\"手册开合('" + 路 + "')\">" +
+       "<span class='手箭'>" + (有子 ? (开 ? "▾" : "▸") : "•") + "</span>" +
+       "<span class='手题'>" + 转义(n.题 || "") + "</span></div>";
+  h += "<div class='手文'>" + 转义(n.文 || "") + "</div>";
+  if(有子){
+    h += "<div class='手子'>";
+    (n.子 || []).forEach((c, j) => { h += 画手册卡(c, 层 + 1, 路 + "." + j); });
+    h += "</div>";
   }
-  if(在码) 出.push("<pre>" + 转义(码.join("\n")) + "</pre>");
-  关表();
-  return 出.join("\n").replace(/<\/ul>\s*<ul>/g, "");
+  h += "</div>";
+  return h;
+}
+
+function 画手册正文(){
+  const 右 = document.getElementById("手册正文");
+  if(!手册一 || !(手册一.节点 || []).length){
+    右.innerHTML = "<div class='小字'>手册为空</div>";
+    return;
+  }
+  let h = "<div class='小字' style='margin:0 0 6px'>清单系统 " + 转义(手册一.编号 || "") +
+          "《" + 转义(手册一.标题 || "") + "》 v" + (手册一.版本号 || 0) +
+          " · 更新 " + 转义(手册一.更新时间 || "") + " · " + (手册一.字数 || 0) + " 字</div>";
+  h += 手册一.节点.map((n, i) => 画手册卡(n, 1, String(i))).join("");
+  右.innerHTML = h;
+  const 号 = document.getElementById("手册编号");
+  if(号) 号.textContent = 手册一.编号 || "S36";
+}
+
+function 手册开合(路){
+  手册开[路] = !手册开[路];
+  画手册正文();
+}
+
+function 手册跳到(i, j){
+  i = parseInt(i, 10) || 0;
+  j = parseInt(j, 10) || 0;
+  手册开[String(i)] = true;
+  if(j) 手册开[String(i) + "." + j] = true;
+  画手册正文();
+  document.querySelectorAll("#手册目录 .页").forEach(d => {
+    d.classList.toggle("on", d.getAttribute("data-页") === (j ? i + "." + j : String(i)));
+  });
+  const 下 = document.getElementById("手册下拉");
+  if(下) 下.value = String(i);
+  const 卡 = document.getElementById("手卡-" + i + (j ? "." + j : ""));
+  if(卡) 卡.scrollIntoView({block:"start"});
 }
 
 async function 拉手册目录(){
-  const j = await 调("手册.目录", {}, true);
   const 左 = document.getElementById("手册目录");
+  左.innerHTML = "<div class='小字' style='padding:8px'>载入中…</div>";
+  const j = await 调("手册.一文", {}, true);
   if(!j.ok){
-    左.innerHTML = "<div class='小字' style='padding:8px;color:#c53030'>读不到目录：" + 转义(j.说明 || "") + "</div>";
+    左.innerHTML = "<div class='小字' style='padding:8px;color:#c53030'>读不到：" + 转义(j.说明 || "") + "</div>";
     return;
   }
-  手册页们 = (j.数据 && j.数据.页) || [];
-  if(!手册页们.length){
-    左.innerHTML = "<div class='小字' style='padding:8px'>手册目录是空的。丢一个 .md 进去，再点「刷新目录」。</div>";
-  }else{
-    左.innerHTML = 手册页们.map(p => {
-      const 名 = 转义(p.页 || "");
-      return "<div class='页" + (p.页 === 当前页 ? " on" : "") + "' data-页='" + 名 +
-        "' onclick=\"开手册页('" + 名 + "')\">" +
-        "<div>" + 转义(p.标题 || p.页) + "</div>" +
-        "<div class='m'>" + 转义(p.文件名 || "") + " · " + (p.条目数 || 0) + " 条 · " + 转义(p.mtime || "") + "</div></div>";
-    }).join("");
-  }
+  手册一 = j.数据 || {节点: []};
+  手册开 = {};
+  if((手册一.节点 || []).length) 手册开["0"] = true;
+  画手册目录(); 画手册正文();
   const 下 = document.getElementById("手册下拉");
   if(下){
-    下.innerHTML = 手册页们.map(p =>
-      "<option value='" + 转义(p.页 || "") + "'" + (p.页 === 当前页 ? " selected" : "") + ">" +
-      转义(p.标题 || p.页) + "</option>").join("");
-    if(当前页) 下.value = 当前页;
+    下.innerHTML = (手册一.节点 || []).map((n, i) =>
+      "<option value='" + i + "'>" + 转义(n.题 || "") + "</option>").join("");
   }
-  if(!当前页 && 手册页们.length) 开手册页(手册页们[0].页);
 }
 
-async function 开手册页(页, 行号){
-  if(!页) return;
-  当前页 = 页;
-  手册高亮 = 行号 ? 手册高亮 : "";
-  document.querySelectorAll("#手册目录 .页").forEach(d => {
-    d.classList.toggle("on", d.getAttribute("data-页") === 页);
-  });
-  const 下 = document.getElementById("手册下拉");
-  if(下 && 下.value !== 页) 下.value = 页;
-  const 右 = document.getElementById("手册正文");
-  右.innerHTML = "<div class='小字'>载入 " + 转义(页) + " …</div>";
-  const j = await 调("手册.读", {"页":页}, true);
-  if(!j.ok){
-    右.innerHTML = "<div class='小字' style='color:#c53030'>读不到：" + 转义(j.说明 || "") + "</div>";
-    return;
-  }
-  const d = j.数据 || {};
-  右.innerHTML = "<div class='小字' style='margin-bottom:4px'>" + 转义(d.文件名 || "") +
-    " · " + (d.行数 || 0) + " 行 · " + (d.字节 || 0) + " 字节</div>" + 渲染手册(d.正文);
-  右.scrollTop = 0;
-  const 首 = 右.querySelector(".hl");
-  if(首) 首.scrollIntoView({block:"center"});
-}
-
-async function 手册搜(){
-  const 词 = (document.getElementById("手册搜框").value || "").trim();
-  const 框 = document.getElementById("手册搜结果");
-  if(!词){ 框.style.display = "none"; return; }
-  const j = await 调("手册.搜", {"词":词}, true);
-  框.style.display = "block";
-  if(!j.ok){
-    框.innerHTML = "<div class='小字' style='padding:8px;color:#c53030'>搜索失败：" + 转义(j.说明 || "") + "</div>";
-    return;
-  }
-  const 命中 = (j.数据 && j.数据.命中) || [];
-  if(!命中.length){
-    框.innerHTML = "<div class='小字' style='padding:8px'>「" + 转义(词) + "」没有命中</div>";
-    return;
-  }
-  框.innerHTML = "<div class='小字' style='padding:6px 8px'>「" + 转义(词) + "」命中 " + 命中.length +
-    " 条（点一条跳过去）</div>" + 命中.map(h =>
-      "<div class='手册搜条' onclick=\"手册跳('" + 转义(h.页) + "'," + (h.行 || 0) + ")\">" +
-      "<b>" + 转义(h.页) + "</b> <span class='小字'>第 " + (h.行 || 0) + " 行</span><br>" +
-      转义(h.片段) + "</div>").join("");
-}
-
-async function 手册跳(页, 行){
-  手册高亮 = (document.getElementById("手册搜框").value || "").trim();
-  await 开手册页(页, 行);
-  document.getElementById("手册搜结果").style.display = "none";
-}
-
-/* 「我卡住了」＝一键直达故障速查；04 页不在就按标题含\"故障/速查\"退，再退第一页 */
+/* 「我卡住了」＝一键直达故障速查节点 */
 function 我卡住了(){
-  const 框 = document.getElementById("手册搜框");
-  框.focus(); 框.select();
-  let 页 = "04_故障速查";
-  if(手册页们.length && !手册页们.some(p => p.页 === 页)){
-    const 替 = 手册页们.filter(p => /故障|速查/.test((p.标题 || "") + (p.页 || "")))[0] || 手册页们[0];
-    页 = 替.页;
-  }
-  手册高亮 = "";
-  开手册页(页);
-}
-
-async function 手册新建(){
-  const 标题 = prompt("新页标题（会自动编号）：", "");
-  if(!标题) return;
-  const j = await 调("手册.新建", {"标题":标题.trim()});
-  if(j.ok){ 当前页 = ""; 拉手册目录(); }
-}
-
-async function 手册追加(){
-  if(!当前页){ 吐司("先在左边选一页，再追加"); return; }
-  const 话 = prompt("往「" + 当前页 + "」追加一条（自动加时间前缀）：", "");
-  if(!话) return;
-  const j = await 调("手册.追加", {"页":当前页, "话":话.trim()});
-  if(j.ok){ 手册高亮 = ""; 开手册页(当前页); }
+  if(!手册一 || !(手册一.节点 || []).length){ 拉手册目录(); return; }
+  let 中 = 手册一.节点.findIndex(n => /故障|速查/.test(n.题 || ""));
+  if(中 < 0) 中 = 0;
+  手册跳到(中, 0);
 }
 
 /* ===== P9 快速派工单 ===== */
