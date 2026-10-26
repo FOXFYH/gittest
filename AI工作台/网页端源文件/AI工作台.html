@@ -352,7 +352,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.7";
+const H5_VER  = "0.5.8";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -861,7 +861,8 @@ async function 发派工单(单号){
 function 回复单(单号){
   const 话 = prompt("把工作结论回复到派工单 " + 单号 + "：", "");
   if(!话) return;
-  调("派工单.回复", {"单":单号, "话":话.trim()}, false).then(j=>{
+  const 态 = prompt("新状态（待发/已派/已受理/已回复/已完成/已退回）", "已回复") || "已回复";
+  调("派工单.回复", {"单":单号, "话":话.trim(), "新状态":态.trim()}, false).then(j=>{
     吐司(j.ok ? (单号 + "：已回复") : (单号 + "：" + (j.说明||"回复失败")));
     if(选中卡) 拉派工单(选中卡);
     上次ts = 0; 拉状态(true);
