@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.01">
+<meta name="清单系统版本" content="1.02">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -69,11 +69,13 @@
 <title>清单系统 1.0 · 手机遥控页</title>
 <!--
   【清单系统】网页端 · 清单系统.html（手机遥控页 · 单页）
-  版本：1.01
+  版本：1.02
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.02（2026-10-26）顶级卡点顶部短编号＝展开/收起。
+    版本对齐：网页端 1.02 / 清单页.js 0.58 / 接口.js 0.34 / 面板.js 0.34 / 卡片.js 0.12。
   v1.01（2026-10-26）设置页改独立整页（可下拉滚动，不再弹窗）；新增设置「只打开一卡」。
     版本对齐：网页端 1.01 / 清单页.js 0.57 / 接口.js 0.34 / 面板.js 0.34 / 卡片.js 0.12。
   v1.0（2026-10-26）正式更名「清单系统 1.0」：网页标题/顶栏/服务名全部换名；
@@ -950,7 +952,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.01</span>
+    <span class="版本">v1.02</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -1193,7 +1195,7 @@
 
 <script src="网页模块/接口.js?v=0.34"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.57"></script>
+<script src="网页模块/清单页.js?v=0.58"></script>
 <script src="网页模块/面板.js?v=0.34"></script>
 </body>
 </html>
