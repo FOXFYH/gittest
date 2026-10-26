@@ -1,7 +1,9 @@
 /* ============================================================
  * 【清单系统】网页模块 · 清单页.js
- * 版本：0.58
+ * 版本：0.59
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
+ *   · 0.59（2026-10-26）「只打开一卡」扩到正文里的小绿卡：同一张卡正文只留一条展开，
+ *     点开新的一条会自动收起其它已展开的条目（祖级别收，当前条不会被连带藏起）。
  *   · 0.58（2026-10-26）顶级卡点顶部短编号＝展开/收起（与【展开】按钮同动作）。
  *   · 0.57（2026-10-26）设置页「只打开一卡」：开启后展开一张卡会先收起与它并列的已展开卡；
  *     设置页改独立整页后，关闭设置用 `恢复页面()` 回到打开前的页面。
@@ -272,7 +274,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.58';
+  var 版本 = '0.59';
 
   // ---------------- 状态 ----------------
   var 清单缓存 = [];         // 清单摘要列表（[{编号,名称,类型,详情,任务数,未完成数}]）
@@ -329,6 +331,18 @@
       for (var i = 0; i < bs.length; i++) {
         if (文字(bs[i].textContent) === '收起') { bs[i].click(); break; }
       }
+    });
+  }
+  // 0.59（2026-10-26）「只开一卡」也管正文里的小绿卡：同一张卡的正文里只留一条展开；
+  //   祖级别收（否则当前条一起被藏进去）。
+  function 收起并列绿卡(当前夹) {
+    if (!只开一卡() || !当前夹 || !当前夹.parentElement) return;
+    var 区 = 当前夹.parentElement;
+    while (区 && !(区.classList && 区.classList.contains('绿卡区'))) 区 = 区.parentElement;
+    if (!区) return;
+    Array.prototype.forEach.call(区.querySelectorAll('.绿卡夹.开'), function (x) {
+      if (x === 当前夹 || x.contains(当前夹)) return;
+      x.classList.remove('开');
     });
   }
 
@@ -988,7 +1002,10 @@
         小文.appendChild(子盒);
       }
       if (!g.文.trim() && !(g.子 && g.子.length)) 夹.classList.add('空文');
-      行.addEventListener('click', function () { 夹.classList.toggle('开'); });
+      行.addEventListener('click', function () {
+        if (!夹.classList.contains('开')) 收起并列绿卡(夹);   // 0.59：只开一卡连小绿卡也管
+        夹.classList.toggle('开');
+      });
       夹.appendChild(行);
       夹.appendChild(小文);
       容器.appendChild(夹);
