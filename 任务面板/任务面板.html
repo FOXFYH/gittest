@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.73">
+<meta name="任务面板版本" content="0.74">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -55,14 +55,20 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.73</title>
+<title>任务面板 · 手机遥控页 v0.74</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.73
+  版本：0.74
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.74（2026-10-26）A6 设置页「**网络诊断**」（老板口径：一眼分清服务器问题 / WS 问题）：
+    最上一行一句话判定（红/绿），下面服务器（HTTP）与 WS 各自独立成行：
+    服务器行＝已连/不可达＋地址＋往返毫秒＋服务版本，不可达红字写原因（超时/连接被拒/跨域）；
+    WS 行＝通道/线路/状态/频道/最近收帧时间（或「从未收到」）/最近错原文，被拒红字并保留
+    「切到线路B」一键钮。数据优先 `GET /api/status`，新增【重测】按钮即时刷新全部指标。
+    版本对齐：任务面板 0.74 / 接口.js 0.27 / 面板.js 0.27；清单页.js 0.49、卡片.js 0.11 未改。
   v0.73（2026-10-26）P51：设置里新增「**账号通道**」——下拉 主A（free.blr2）/ 副B（s20307.nyc1），
     选完立即切换并通知服务端持久化；状态行显示当前线路与连接状态，被服务端拒绝（quota/key）时
     红字「线路X 被拒：<原文>」并出现「切到线路B」一键切换钮。两账号同一个频道名，只换 cluster+key。
@@ -473,6 +479,20 @@
   .设置面板 .联动命令标 { width: 60px; }
   .设置面板 .联动命令态 { color: #2a7; flex: 0 0 auto; }
   .设置面板 .服务器态.自动 { background: #e6ecf5; color: #334; }
+  /* 0.74 设置页 · 网络诊断（服务器 / WS 各自独立成行；判定一句话放最上面） */
+  .设置面板 .网络判定行 { align-items: center; }
+  .设置面板 .网络判定 { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 1.45;
+    white-space: normal; word-break: break-all; color: #667; }
+  .设置面板 .网络判定.绿 { color: #0a7a3d; font-weight: 600; }
+  .设置面板 .网络判定.红 { color: #c00; font-weight: 600; }
+  .设置面板 .网络行 { align-items: flex-start; flex-wrap: wrap; }
+  .设置面板 .网络标 { width: 52px; }
+  .设置面板 .网络态 { flex: 0 0 auto; font-weight: 600; color: #223; }
+  .设置面板 .网络态.绿 { color: #0a7a3d; }
+  .设置面板 .网络态.红 { color: #c00; }
+  .设置面板 .网络细节 { flex: 1 1 100%; min-width: 0; font-size: 12px; color: #667;
+    line-height: 1.45; white-space: normal; word-break: break-all; }
+  .设置面板 .网络钮 { flex: 0 0 auto; }
   /* 主体 */
   main { padding: 12px 3px; }
   .区 { margin-bottom: 18px; }
@@ -862,7 +882,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.73</span>
+    <span class="版本">v0.74</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -873,6 +893,21 @@
   </div>
 </header>
 <div id="设置面板" class="设置面板 隐藏">
+  <!-- 0.74 网络诊断：一句话判定（红/绿）+ 重测；服务器与 WS 各自独立成行 -->
+  <div class="设置行 网络判定行">
+    <span id="网络_判定" class="网络判定">网络诊断：读取中…</span>
+    <button id="按钮_网络重测" class="小钮 网络钮" type="button">重测</button>
+  </div>
+  <div class="设置行 网络行">
+    <span class="设置标 网络标">服务器</span>
+    <span id="网络_服务器态" class="网络态">–</span>
+    <span id="网络_服务器详情" class="网络细节">–</span>
+  </div>
+  <div class="设置行 网络行">
+    <span class="设置标 网络标">WS</span>
+    <span id="网络_WS态" class="网络态">–</span>
+    <span id="网络_WS详情" class="网络细节">–</span>
+  </div>
   <div class="设置行">
     <span class="设置标">版本</span>
     <span class="设置值">网页版 <span id="设置_网页版版本">–</span>　|　服务器 <span id="设置_服务器版本">–</span></span>
@@ -1078,9 +1113,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.26"></script>
+<script src="网页模块/接口.js?v=0.27"></script>
 <script src="网页模块/卡片.js?v=0.11"></script>
 <script src="网页模块/清单页.js?v=0.49"></script>
-<script src="网页模块/面板.js?v=0.26"></script>
+<script src="网页模块/面板.js?v=0.27"></script>
 </body>
 </html>
