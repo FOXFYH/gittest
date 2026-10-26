@@ -285,6 +285,8 @@ function onEv(kind, v){
         由服务端 0.49 同步清空，不留同一份残留；本端改完重新发送即重新排队。 */
       S.qedit = null;
       const raw = (typeof v === 'string' ? v : '').trim();
+      /* 2.139：收到取回即回执 → 服务端停补发；20 秒没回执服务端会再补发。 */
+      try { srvOpSend('pend_edit_ack', 1, '取回回执'); } catch(e){}
       /* 2.138（老板 2026-10-26 23:23）：只取回「带 DID 的人类原话」——首行没有 14 位 DID
          的一律不回填（AI/程序塞进输入框的字不是原话，取回来会污染我自己的输入）。 */
       if (raw && !hasUserDid(raw)){
