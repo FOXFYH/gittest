@@ -210,12 +210,15 @@
       <div class="wrap"><button class="btn" onclick="刷新员工()">刷新</button><span class="cmd">员工.列表</span></div>
       <span class="小字">🟢 干活中（3 分内有动静）　⚪ 待命/闲置（正常）　🟡 有任务却闲置 &gt;30 分（需关注）　🔴 TRAE 异常<br>
         人员全集＝员工名册.json（含「未开」）；时间一律显示「忙碌/闲置」，不再甩绝对时刻</span>
+      <span class="小字">员工：</span><select id="员工筛" onchange="画员工()" style="padding:5px;border:1px solid var(--line);border-radius:5px;font-size:12px"></select>
+      <span class="小字">任务：</span><select id="近期筛" onchange="画员工()" style="padding:5px;border:1px solid var(--line);border-radius:5px;font-size:12px">
+        <option>近7天</option><option>全部</option></select>
     </div>
     <div class="banner" id="员工横幅" style="display:none"></div>
     <div class="panel" style="padding:0;overflow:auto">
       <table id="员工表">
         <thead><tr><th>终身号</th><th>会话名</th><th>灯</th><th>状态时长</th>
-          <th class="hide-m">今日消息</th><th class="hide-m">手上任务</th><th>操作</th></tr></thead>
+          <th class="hide-m">今日消息</th><th>名下任务（名称/状态/时间）</th><th>操作</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -348,7 +351,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.4";
+const H5_VER  = "0.5.5";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -647,9 +650,32 @@ function 画全部(){
   画任务();
 }
 
+function _卡日(s){
+  if(!s) return null;
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if(m) return new Date(+m[1], +m[2]-1, +m[3]);
+  m = /^(\d{2}):(\d{2})/.exec(s);
+  if(m){ const d = new Date(); d.setHours(+m[1], +m[2], 0, 0); return d; }
+  return null;
+}
 function 画员工(){
   const tb = document.querySelector("#员工表 tbody");
-  const 员工 = (状态 && 状态.员工) || [];
+  let 员工 = (状态 && 状态.员工) || [];
+  const 筛 = document.getElementById("员工筛");
+  if(筛){
+    const 旧 = 筛.value;
+    筛.innerHTML = "<option value=''>全部员工</option>" + 员工.map(p=>"<option value='"+
+      转义(p.终身号||"")+"'>"+转义((p.终身号? p.终身号+" " : "")+p.会话名)+"</option>").join("");
+    筛.value = 旧 || "";
+  }
+  const 近 = (document.getElementById("近期筛")||{}).value || "近7天";
+  if(筛 && 筛.value) 员工 = 员工.filter(p=>String(p.终身号||"")===筛.value);
+  if(近 === "近7天"){
+    员工 = 员工.map(p=>{
+      const t=(p.任务明细||[]).filter(x=>{ const d=_卡日(x.更新); return d && (Date.now()-d.getTime()) <= 7*86400000; });
+      return Object.assign({}, p, {任务明细: t});
+    });
+  }
   const 错 = (状态 && 状态.员工错误) || "";
   const 横 = document.getElementById("员工横幅");
   if(横){
@@ -663,7 +689,8 @@ function 画员工(){
       : "<span class='小字'>—</span>";
     return "<tr class='"+人.灯+"'><td>"+转义(号)+"</td><td>"+转义(人.会话名)+"</td><td>"+转义(人.灯)+"</td>"+
       "<td>"+转义(人.时长||人.最后活动||"—")+"</td>"+
-      "<td class='hide-m'>"+转义(人.今日消息数)+"</td><td class='hide-m'>"+转义((人.手上任务||[]).join(",")||"—")+"</td>"+
+      "<td class='hide-m'>"+转义(人.今日消息数)+"</td>"+
+      "<td>" + (((人.任务明细||[]).map(x=>转义(x.标题)+" <span class='小字'>"+转义(x.状态)+" · "+转义(x.更新)+"</span>").join("<br>")) || "暂无任务") + "</td>"+
       "<td>"+操作+"</td></tr>";
   }).join("") || ("<tr><td colspan='7' class='小字'>没有员工数据" +
     (错 ? "（" + 转义(错) + "）" : "（名册为空且账本无可推数据）") + "</td></tr>");
