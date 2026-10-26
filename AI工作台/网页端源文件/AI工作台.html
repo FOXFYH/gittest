@@ -343,6 +343,7 @@ const 命令列表 = [
   "员工.列表", "员工.催办",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档", "任务.删卡",
   "任务.关联原话", "任务.补来源原话", "任务.换分组",
+  "派工单.新建", "派工单.列表", "派工单.发送",
   "分组.列表", "分组.新建", "分组.改名", "分组.删除",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.新建手动", "原话.统计",
   "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
@@ -351,7 +352,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.5";
+const H5_VER  = "0.5.6";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -775,12 +776,17 @@ function 开卡(id){
     "<div class='evi'>"+转义((k.来源原话||[]).join("、")||"无对应原话")+"</div>"+
     "<div class='条'><div class='wrap'><button class='mini p' onclick=\"改来源原话('"+k.id+"')\">改关联原话</button>"+
       "<span class='cmd'>任务.关联原话</span></div></div>"+
+    "<div class='小字' style='margin-top:8px'>派工单（来源任务卡 "+转义(k.id)+"）</div>"+
+    "<div class='evi' id='派工单列表'>载入…</div>"+
+    "<div class='条'><div class='wrap'><button class='mini p' onclick=\"新建派工单('"+k.id+"')\">＋派工单</button>"+
+      "<span class='cmd'>派工单.新建</span></div></div>"+
     "<div class='小字'>证据（"+((k.证据||[]).length)+"）</div>"+
     "<div class='evi'>"+转义((k.证据||[]).join("\n")||"（无）")+"</div>"+
     "<div class='小字' style='margin-top:8px'>变更历史</div>"+
     "<div class='hist' id='历史框'>载入…</div>";
   document.getElementById("抽屉").classList.add("on");
   document.getElementById("遮罩").classList.add("on");
+  拉派工单(id);
   调("任务.列表", {}, true).then(j=>{
     const 全 = (j.数据 && j.数据.卡) || [];
     const me = 全.filter(x=>x.id===k.id)[0];
@@ -825,6 +831,30 @@ function 删分组(){
   if(组 === "全部"){ 吐司("先在「分组」下拉里选中要删的组"); return; }
   if(!confirm("删分组「" + 组 + "」？组里的卡会落回未分类")) return;
   调("分组.删除", {"名":组}, true).then(j=>{ if(j.ok){ 上次ts=0; 拉状态(true); } });
+}
+async function 拉派工单(卡id){
+  const 框 = document.getElementById("派工单列表");
+  if(!框) return;
+  const j = await 调("派工单.列表", {"卡":卡id}, true);
+  const 单们 = (j.数据 && j.数据.单) || [];
+  框.innerHTML = 单们.map(x =>
+    "<div style='margin:4px 0'>"+转义(x.单号)+" ["+转义(x.状态)+"] 收件人："+转义((x.收件人||[]).join("、"))+
+    "　<button class='mini g' onclick=\"发派工单('"+x.单号+"')\">发送</button></div>"+
+    "<div class='小字'>来源原话："+转义((x.来源原话||[]).join("、")||"无对应原话")+"</div>"
+  ).join("") || "（这张卡还没有派工单）";
+}
+function 新建派工单(卡id){
+  const 收 = prompt("收件人（会话名，可多个用、分隔）", "闲杂事务 1");
+  if(!收) return;
+  const 文 = prompt("派工单正文", "");
+  if(!文) return;
+  调("派工单.新建", {"卡":卡id, "收件人":收.trim(), "文":文.trim()}, false).then(j=>{ if(j.ok) 拉派工单(卡id); });
+}
+async function 发派工单(单号){
+  if(!confirm("把派工单 " + 单号 + " 发给全部收件人？")) return;
+  const j = await 调("派工单.发送", {"单":单号}, false);
+  吐司(j.ok ? (单号 + "：已派") : (单号 + "：" + (j.说明||"发送失败")));
+  if(选中卡) 拉派工单(选中卡);
 }
 function 删卡(id){
   if(!confirm("删除任务卡 " + id + " ？删了不进回收站（日志留痕）")) return;
@@ -910,9 +940,30 @@ function 选原话(键){
     "<div class='小字' style='margin-top:6px'>备注</div>"+
     "<div class='evi'>"+转义(条.备注||"（无）")+"</div>"+
     "<div class='小字' style='margin-top:6px'>证据</div>"+
-    "<div class='evi'>"+转义(条.证据||"（无）")+"</div>";
+    "<div class='evi'>"+转义(条.证据||"（无）")+"</div>"+
+    "<div class='小字' style='margin-top:8px'>三级链条（原话→卡→派工单）</div>"+
+    "<div class='evi' id='链条款'>载入…</div>";
   document.getElementById("抽屉").classList.add("on");
   document.getElementById("遮罩").classList.add("on");
+  画链条(键);
+}
+async function 画链条(键){
+  const 条 = (原话数据&&原话数据.条||[]).filter(x=>x.键===键)[0] || {};
+  const 卡们 = 条.关联卡 || [];
+  const 框 = document.getElementById("链条款");
+  if(!框) return;
+  框.innerHTML = "载入…";
+  const 行 = [];
+  行.push("原话："+转义(条.键||"")+" → 任务卡 "+卡们.length+" 张");
+  for(const 卡id of 卡们){
+    let 单们 = [];
+    try{
+      const j = await 调("派工单.列表", {"卡":卡id}, true);
+      单们 = (j.数据 && j.数据.单) || [];
+    }catch(e){}
+    行.push("· "+转义(卡id)+" → 派工单 "+(单们.length? 单们.map(x=>转义(x.单号+"["+x.状态+"]")).join("、"):"（无）"));
+  }
+  框.innerHTML = 行.join("<br>");
 }
 async function 原话操作(命令){
   if(!选中原话){ 吐司("先在表里点一行原话"); return; }
