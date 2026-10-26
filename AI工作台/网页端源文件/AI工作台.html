@@ -247,6 +247,15 @@
   <!-- ================= P4 ================= -->
   <section id="p4">
     <div class="banner" id="原话横幅">载入中…</div>
+    <div class="panel" style="margin-bottom:8px">
+      <div class="小字">手动录入一条原话（自动渠道已暂停；第一行作摘要）</div>
+      <textarea id="原话输入" placeholder="把老板原话粘/打在这里…"
+        style="width:100%;height:80px;margin-top:4px;padding:8px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:inherit"></textarea>
+      <div class="条" style="margin-top:6px">
+        <div class="wrap"><button class="btn" onclick="保存手动原话()">保存原话</button><span class="cmd">原话.新建手动</span></div>
+        <span class="小字" id="原话输入回音"></span>
+      </div>
+    </div>
     <div class="条">
       <select id="筛选" onchange="画原话()">
         <option>全部</option><option>只看未派</option><option>只看未落实</option><option>只看已验收</option>
@@ -270,7 +279,8 @@
   <section id="p5">
     <div class="条">
       <div class="wrap"><button class="btn 红" onclick="我卡住了()">我卡住了 →</button><span class="cmd">手册.读 页=04_故障速查</span></div>
-      <span class="小字">日期：</span>
+      <div class="wrap"><button class="btn p" onclick="新建手动原话()">＋ 新建原话</button><span class="cmd">原话.新建手动</span></div>
+      <span class="小字">日期（自动渠道暂停时不用）：</span>
       <input type="date" id="原话日" onchange="拉原话()"
         style="padding:4px;border:1px solid var(--line);border-radius:5px;font-size:12px">
       <input id="手册搜框" placeholder="全手册搜索，回车" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:200px"
@@ -328,17 +338,17 @@
 const 命令列表 = [
   "trae.状态", "trae.重采集",
   "员工.列表", "员工.催办",
-  "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档",
+  "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档", "任务.删卡",
   "任务.关联原话", "任务.补来源原话", "任务.换分组",
   "分组.列表", "分组.新建", "分组.改名", "分组.删除",
-  "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.统计",
+  "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.新建手动", "原话.统计",
   "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
   "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建",
   "派工.复制预览", "派工.发送"
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.3";
+const H5_VER  = "0.5.4";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -728,7 +738,9 @@ function 开卡(id){
     "<div class='条'><div class='wrap'><button class='mini o' onclick=\"加备注('"+k.id+"')\">加备注</button>"+
       "<span class='cmd'>任务.加备注</span></div>"+
       "<div class='wrap'><button class='mini' onclick=\"归档('"+k.id+"')\">归档</button>"+
-      "<span class='cmd'>任务.归档</span></div></div>"+
+      "<span class='cmd'>任务.归档</span></div>"+
+      "<div class='wrap'><button class='mini o' onclick=\"删卡('"+k.id+"')\">删除卡</button>"+
+      "<span class='cmd'>任务.删卡</span></div></div>"+
     "<div class='小字' style='margin-top:8px'>分组："+转义(k.分组||"未分类")+"</div>"+
     "<div class='条'><div class='wrap'><button class='mini p' onclick=\"换分组('"+k.id+"')\">换分组</button>"+
       "<span class='cmd'>任务.换分组</span></div></div>"+
@@ -787,6 +799,26 @@ function 删分组(){
   if(!confirm("删分组「" + 组 + "」？组里的卡会落回未分类")) return;
   调("分组.删除", {"名":组}, true).then(j=>{ if(j.ok){ 上次ts=0; 拉状态(true); } });
 }
+function 删卡(id){
+  if(!confirm("删除任务卡 " + id + " ？删了不进回收站（日志留痕）")) return;
+  调("任务.删卡", {"卡":id}, true).then(j=>{
+    关抽屉(); 上次ts=0; 拉状态(true);
+    if(!j.ok) 吐司("删卡失败：" + (j.说明||""));
+  });
+}
+function 保存手动原话(){
+  const 文 = (document.getElementById("原话输入").value || "").trim();
+  if(!文){ 吐司("先写一条原话"); return; }
+  调("原话.新建手动", {"文":文}, true).then(j=>{
+    document.getElementById("原话输入回音").textContent = j.ok ? (j.说明||"已保存") : ("失败：" + (j.说明||""));
+    if(j.ok){ document.getElementById("原话输入").value = ""; 拉原话(); }
+  });
+}
+function 新建手动原话(){
+  const 文 = prompt("手动录入一条原话（第一行作摘要）：", "");
+  if(!文) return;
+  调("原话.新建手动", {"文":文}, true).then(j=>{ if(j.ok) 拉原话(); });
+}
 function 改来源原话(id){
   const 旧 = (找卡(id)||{}).来源原话 || [];
   const 新值 = prompt("填写关联的原话ID（可多张，用、分隔；格式 2026-10-25#042）", 旧.join("、"));
@@ -811,7 +843,7 @@ async function 拉原话(){
   原话数据 = j.数据;
   const 统计 = 原话数据.统计 || {};
   const 横 = document.getElementById("原话横幅");
-  横.textContent = "今日原话 " + (统计.总数||0) + " 条 · 已派 " + (统计.已派||0) +
+  横.textContent = ((原话数据.模式==="手动") ? "手动原话 " : "今日原话 ") + (统计.总数||0) + " 条 · 已派 " + (统计.已派||0) +
     "（" + (统计.覆盖率||0) + "%）· 已验收 " + (统计.已验收||0) + " · 未派 " + (统计.未派||0) +
     "（含待派 " + (统计.待派||0) + "）";
   横.className = "banner" + ((统计.未派||0) > 0 ? " bad" : "");
