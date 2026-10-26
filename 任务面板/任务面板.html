@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="任务面板版本" content="0.79">
+<meta name="任务面板版本" content="0.80">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「任务面板_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -55,14 +55,19 @@
   } catch (e) { /* 静默跳过 */ }
 })();
 </script>
-<title>任务面板 · 手机遥控页 v0.79</title>
+<title>任务面板 · 手机遥控页 v0.80</title>
 <!--
   【任务面板】网页端 · 任务面板.html（手机遥控页 · 单页）
-  版本：0.79
+  版本：0.80
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="任务面板版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v0.80（2026-10-26）设置页「**连接诊断**」照 TRAE 手机网页版同款：
+    fieldset 内「频道 / 本端连上中转 / 收到电脑端回应 / 最近回应时间 / 断线重连·出错次数 /
+    事件日志（最近 8 条）/ 立即重连 / 测电脑端回应（5s）/ 判定」，全是 WS 语义，
+    不再出现本机 127/8901 之类地址。
+    版本对齐：任务面板 0.80 / 接口.js 0.32 / 面板.js 0.30；清单页.js 0.49、卡片.js 0.11 未改。
   v0.79（2026-10-26）按《16_手机网页版开发规范》§16.8 回归**固定口令**：
     频道 = 前缀 TASKHUB + 固定口令 31415926fF@；用户只输口令部分，前缀内置。
     口令缓存键升级为 任务面板_口令2（一次性重新输入）。
@@ -494,20 +499,27 @@
   .设置面板 .联动命令标 { width: 60px; }
   .设置面板 .联动命令态 { color: #2a7; flex: 0 0 auto; }
   .设置面板 .服务器态.自动 { background: #e6ecf5; color: #334; }
-  /* 0.74 设置页 · 网络诊断（服务器 / WS 各自独立成行；判定一句话放最上面） */
-  .设置面板 .网络判定行 { align-items: center; }
-  .设置面板 .网络判定 { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 1.45;
-    white-space: normal; word-break: break-all; color: #667; }
-  .设置面板 .网络判定.绿 { color: #0a7a3d; font-weight: 600; }
-  .设置面板 .网络判定.红 { color: #c00; font-weight: 600; }
-  .设置面板 .网络行 { align-items: flex-start; flex-wrap: wrap; }
-  .设置面板 .网络标 { width: 52px; }
-  .设置面板 .网络态 { flex: 0 0 auto; font-weight: 600; color: #223; }
-  .设置面板 .网络态.绿 { color: #0a7a3d; }
-  .设置面板 .网络态.红 { color: #c00; }
-  .设置面板 .网络细节 { flex: 1 1 100%; min-width: 0; font-size: 12px; color: #667;
-    line-height: 1.45; white-space: normal; word-break: break-all; }
-  .设置面板 .网络钮 { flex: 0 0 auto; }
+  /* 0.80 设置页 · 连接诊断（照 TRAE 手机网页版设置页：频道/本端/电脑端/时间/次数/日志） */
+  .设置面板 .诊断组 { border: 1px solid #d8dfe8; border-radius: 10px; padding: 8px 10px;
+    margin: 6px 0 10px; background: #fafcff; }
+  .设置面板 .诊断组题 { font-weight: 700; font-size: 13px; color: #334; margin: 2px 0 6px; }
+  .设置面板 .诊断行 { display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; font-size: 12px; color: #556; padding: 3px 0; }
+  .设置面板 .诊断行 > span { flex: 0 0 auto; color: #667; }
+  .设置面板 .诊断值 { flex: 1 1 auto; min-width: 0; text-align: right; font-weight: 600;
+    color: #223; word-break: break-all; }
+  .设置面板 .诊断值.绿 { color: #0a7a3d; }
+  .设置面板 .诊断值.橙 { color: #b26a00; }
+  .设置面板 .诊断值.红 { color: #c00; }
+  .设置面板 .诊断日志头 { margin-top: 4px; }
+  .设置面板 .诊断日志 { max-height: 150px; overflow: auto; background: #fff;
+    border: 1px solid #e4e9f0; border-radius: 8px; padding: 6px; font-size: 11px;
+    color: #667; line-height: 1.5; }
+  .设置面板 .诊断日志 .红 { color: #c00; }
+  .设置面板 .诊断日志 .绿 { color: #0a7a3d; }
+  .设置面板 .诊断日志 .暗 { color: #999; }
+  .设置面板 .诊断钮行 { display: flex; gap: 8px; margin: 8px 0 4px; }
+  .设置面板 .诊断钮行 .小钮 { flex: 1 1 0; }
   /* 主体 */
   main { padding: 12px 3px; }
   .区 { margin-bottom: 18px; }
@@ -897,7 +909,7 @@
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
     <span class="题名">任务面板</span>
-    <span class="版本">v0.79</span>
+    <span class="版本">v0.80</span>
     <span id="角色" class="角色">连接中…</span>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
   </div>
@@ -908,20 +920,22 @@
   </div>
 </header>
 <div id="设置面板" class="设置面板 隐藏">
-  <!-- 0.74 网络诊断：一句话判定（红/绿）+ 重测；服务器与 WS 各自独立成行 -->
-  <div class="设置行 网络判定行">
-    <span id="网络_判定" class="网络判定">网络诊断：读取中…</span>
-    <button id="按钮_网络重测" class="小钮 网络钮" type="button">重测</button>
-  </div>
-  <div class="设置行 网络行">
-    <span class="设置标 网络标">服务器</span>
-    <span id="网络_服务器态" class="网络态">–</span>
-    <span id="网络_服务器详情" class="网络细节">–</span>
-  </div>
-  <div class="设置行 网络行">
-    <span class="设置标 网络标">WS</span>
-    <span id="网络_WS态" class="网络态">–</span>
-    <span id="网络_WS详情" class="网络细节">–</span>
+  <!-- 0.80 连接诊断：照 TRAE 手机网页版设置页的同款面板（频道/本端/电脑端/时间/次数/日志） -->
+  <div class="诊断组">
+    <div class="诊断组题">连接诊断</div>
+    <div class="诊断行"><span>频道（双方约定的房间名）</span><b id="诊断_频道" class="诊断值">—</b></div>
+    <div class="诊断行"><span>本端连上中转</span><b id="诊断_本端" class="诊断值">—</b></div>
+    <div class="诊断行"><span>收到电脑端回应</span><b id="诊断_电脑端" class="诊断值">—</b></div>
+    <div class="诊断行"><span>最近回应时间</span><b id="诊断_最近" class="诊断值">—</b></div>
+    <div class="诊断行"><span>断线重连 / 出错次数</span><b id="诊断_次数" class="诊断值">—</b></div>
+    <div class="诊断行 诊断日志头"><span>事件日志（最近 8 条）</span>
+      <button id="按钮_诊断清空" class="小钮" type="button">清空</button></div>
+    <div id="诊断_日志" class="诊断日志"></div>
+    <div class="诊断钮行">
+      <button id="按钮_诊断重连" class="小钮" type="button">立即重连</button>
+      <button id="按钮_诊断测试" class="小钮" type="button">测电脑端回应（5s）</button>
+    </div>
+    <div class="诊断行"><span>判定</span><b id="网络_判定" class="诊断值">读取中…</b></div>
   </div>
   <div class="设置行">
     <span class="设置标">版本</span>
@@ -1131,6 +1145,6 @@
 <script src="网页模块/接口.js?v=0.32"></script>
 <script src="网页模块/卡片.js?v=0.11"></script>
 <script src="网页模块/清单页.js?v=0.49"></script>
-<script src="网页模块/面板.js?v=0.29"></script>
+<script src="网页模块/面板.js?v=0.30"></script>
 </body>
 </html>
