@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.09">
+<meta name="清单系统版本" content="1.10">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -70,11 +70,13 @@
 <title>清单系统 1.0 · 手机遥控页</title>
 <!--
   【清单系统】网页端 · 清单系统.html（手机遥控页 · 单页）
-  版本：1.09
+  版本：1.10
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.10（2026-10-27）顶部新增【查卡】：输终身号 A00025 或短号 S21/L1 → 只读打开本卡＋全部下级。
+    版本对齐：网页端 1.10 / 清单页.js 0.63 / 接口.js 0.35 / 面板.js 0.35 / 卡片.js 0.12。
   v1.09（2026-10-26）小绿卡每行都有菱形（有下级◆ / 无下级◇）；右侧四格统一照抄「终身号」小方标。
     版本对齐：网页端 1.09 / 清单页.js 0.63 / 接口.js 0.35 / 面板.js 0.34 / 卡片.js 0.12。
   v1.08（2026-10-26）系统清单统一平铺写法；小绿卡四钮两行（卡号/编辑、评定/删除），
@@ -1026,13 +1028,15 @@
   <!-- 1.03 两行紧凑：第一行＝软件名+版本（最左）＋连接角色胶囊 -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.09</span>
+    <span class="版本">v1.10</span>
     <span id="角色" class="角色">连接中…</span>
   </div>
   <!-- 第二行＝方形按钮与身份胶囊同高（26px）；0.68 登录入口：可【换身份】 -->
   <div class="顶操作">
     <button id="按钮_新建" class="小钮 新建钮">新建</button>
     <button id="按钮_返回主页" class="小钮 新建钮">返回主页</button>
+    <!-- 1.10：凭号查卡（只读插卡）——终身号 A00025 或短号 S21/L1 -->
+    <button id="按钮_查卡" class="小钮">查卡</button>
     <span id="身份" class="身份">未登录</span>
     <button id="按钮_换身份" class="小钮" style="display:none;">换身份</button>
     <button id="按钮_设置" class="小钮 设置钮">设置</button>
@@ -1279,11 +1283,27 @@
     </div>
   </div>
 </div>
+<div id="查卡弹窗" class="遮罩 隐藏">
+  <div class="弹窗">
+    <h3>查卡（只读）</h3>
+    <p style="font-size:14px;color:#556;margin:0 0 6px;line-height:1.6;">
+      输入<b>终身号</b>（如 A00025）或顶级卡<b>短号</b>（如 S21 / L1），
+      直接只读打开这张卡和它的全部下级；不判账号、不显示编辑/删除/呼叫AI。
+    </p>
+    <label class="字段" for="查卡_号">卡号</label>
+    <input id="查卡_号" type="text" autocomplete="off" placeholder="A00025 或 S21 / L1"
+           style="width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;">
+    <div class="弹窗底">
+      <button id="查卡_取消" class="次钮">取消</button>
+      <button id="查卡_确定" class="主钮">确定</button>
+    </div>
+  </div>
+</div>
 <div id="提示" class="提示 隐藏"></div>
 
 <script src="网页模块/接口.js?v=0.35"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
 <script src="网页模块/清单页.js?v=0.63"></script>
-<script src="网页模块/面板.js?v=0.34"></script>
+<script src="网页模块/面板.js?v=0.35"></script>
 </body>
 </html>
