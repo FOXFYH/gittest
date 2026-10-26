@@ -236,7 +236,7 @@
     <div class="panel" style="padding:0;overflow:auto">
       <table id="员工表">
         <thead><tr><th>终身号</th><th>会话名</th><th>灯</th><th>状态时长</th>
-          <th class="hide-m">今日消息</th><th>名下任务（名称/状态/时间）</th><th>操作</th></tr></thead>
+          <th>系统排队</th><th class="hide-m">今日消息</th><th>名下任务（名称/状态/时间）</th><th>操作</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -356,7 +356,7 @@
 /* ===== 网页端声明支持的命令：唯一一份，按钮绑的就是它。系统.对齐自检 会来比对 ===== */
 const 命令列表 = [
   "trae.状态", "trae.重采集",
-  "员工.列表", "员工.催办",
+  "员工.列表", "员工.排队", "员工.催办",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档", "任务.删卡",
   "任务.关联原话", "任务.补来源原话", "任务.换分组",
   "叮嘱.列表", "任务.改详情", "派工单.新建", "派工单.列表", "派工单.发送", "派工单.留言",
@@ -369,7 +369,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.14";
+const H5_VER  = "0.5.15";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -705,15 +705,32 @@ function 画员工(){
     const 操作 = 人.终身号
       ? "<div class='wrap'><button class='mini o' onclick=\"催办('"+人.终身号+"')\">催办</button><span class='cmd'>员工.催办</span></div>"
       : "<span class='小字'>—</span>";
+    const 排数 = Number(人.排队条数 || 0);
+    const 排格 = (排数 > 0 && 人.终身号)
+      ? "<button class='mini o' onclick=\"看排队('"+转义(人.终身号)+"')\" title='点开看排队原文'>"+排数+" 条</button>"
+      : "<span class='小字'>0</span>";
     return "<tr class='"+人.灯+"'><td>"+转义(号)+"</td><td>"+转义(人.会话名)+"</td><td>"+转义(人.灯)+"</td>"+
       "<td>"+转义(人.时长||人.最后活动||"—")+"</td>"+
+      "<td>"+排格+"</td>"+
       "<td class='hide-m'>"+转义(人.今日消息数)+"</td>"+
       "<td>" + (((人.任务明细||[]).map(x=>转义(x.标题)+" <span class='小字'>"+转义(x.状态)+" · "+转义(x.更新)+"</span>").join("<br>")) || "暂无任务") + "</td>"+
       "<td>"+操作+"</td></tr>";
-  }).join("") || ("<tr><td colspan='7' class='小字'>没有员工数据" +
+  }).join("") || ("<tr><td colspan='8' class='小字'>没有员工数据" +
     (错 ? "（" + 转义(错) + "）" : "（名册为空且账本无可推数据）") + "</td></tr>");
 }
 function 刷新员工(){ 调("员工.列表", {}, true); }
+
+async function 看排队(号){
+  const j = await 调("员工.排队", {"号":号}, true);
+  if(!j.ok){ 弹窗("系统排队条 · " + 号, "<div class='evi'>" + 转义(j.说明 || "") + "</div>"); return; }
+  const d = j.数据 || {};
+  const 条 = d.条 || [];
+  let 内 = "<div class='小字'>更新：" + 转义(d.时刻 || "（暂无）") + " ｜ 共 " + 条.length + " 条</div>";
+  内 += 条.length
+    ? 条.map((t,i)=>"<div class='evi' style='margin-top:6px'><b>"+(i+1)+".</b> "+转义(t)+"</div>").join("")
+    : "<div class='小字' style='margin-top:8px'>没有排队条（消息已进入对话流）</div>";
+  弹窗("系统排队条 · " + 号, 内);
+}
 function 催办(号){
   const 话 = prompt("给 " + 号 + " 催办说什么？", "请立刻回一行当前进度");
   if(!话) return;
