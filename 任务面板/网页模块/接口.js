@@ -1,7 +1,10 @@
 /* ============================================================
  * 【任务面板】网页模块 · 接口.js
- * 版本：0.28
+ * 版本：0.29
  * 职责：网页版与服务器的通信层——由 fetch(/api/*) 改为 WebSocket（WS）请求层。
+ *   · 0.29（2026-10-26）老板口径「GitHub 部署版＝纯 WS 遥控」：**彻底删除本机 HTTP 通道**
+ *     （不再 fetch /api/*、不再探测 8901）；线路读取/切换、状态诊断一律走 WS 帧。
+ *     首连默认线路改为 B（s20307.nyc1，A 配额已耗尽），口令拼频道规则不变。
  *   · 0.27（2026-10-26）A6 设置页网络诊断配套：本层不改协议，仅版本对齐（0.26→0.27）；
  *     `连接状态()` 继续供 HTTP `/api/status` 不可达时作 WS 行参考；频道/线路/被拒字段未动。
  *   · 0.26（2026-10-26）P51：账号通道 A/B 双频道可自由切换——
@@ -105,7 +108,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.27';
+  var 版本 = '0.29';
 
   /* ---------------- 可配置常量（页面里可覆盖） ----------------
    * §19 对外页面安全：**频道号当口令**——连接频道 = 固定前缀 + 口令，【源码不写死频道名】。
@@ -115,10 +118,10 @@
    * 密钥（api_key）是 PieSocket 通道【基础设施】凭据（与 TTS 同一把），非频道口令。 */
   var 口令存储键 = '任务面板_口令';
   var 默认配置 = {
-    主机: 'wss://free.blr2.piesocket.com/v3/',
+    主机: 'wss://s20307.nyc1.piesocket.com/v3/',
     前缀: 'TASKHUB',                       // 固定前缀（本项目自定、非敏感）
     口令: '',                              // 口令（默认空＝首登填；由 取口令() 供值）
-    密钥: 'ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
+    密钥: 'IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL',   // 线路 B（A 配额已耗尽）
     单段上限: 10000,                       // 单段正文最大字节数（FOX 帧切片）
     请求超时: 20000,                        // 默认单请求超时（毫秒）
     退避: [3, 6, 12, 24, 48, 60]           // 断线逐次退避（秒），用尽即宣告失败
@@ -140,6 +143,15 @@
   function 清缓存口令() {
     try { global.localStorage.removeItem(口令存储键); } catch (e) { }
   }
+  // 0.29 一次性迁移：旧口令（31415926fF@）已轮换为独立口令，清掉旧缓存让用户重新输入
+  function 迁移旧口令() {
+    try {
+      if (String(global.localStorage.getItem(口令存储键) || '') === '31415926fF@') {
+        global.localStorage.removeItem(口令存储键);
+      }
+    } catch (e) { }
+  }
+  迁移旧口令();
   // 生效口令：优先本地缓存 → 页面覆盖提供的 配置.口令 → 空（空＝需要首登填）
   function 取口令() {
     var v = 读缓存口令();
@@ -178,8 +190,8 @@
   function 当前线路() {
     var 名 = 读通道名(), 表 = 读线路缓存(), x = 表[名];
     if (x && x.cluster && x.key) return { 名: 名, cluster: String(x.cluster), key: String(x.key) };
-    if (名 === 'A' && 配置.密钥) {
-      return { 名: 'A', cluster: '', key: String(配置.密钥), 主机: 配置.主机 };
+    if (名 === 'B' && 配置.密钥) {
+      return { 名: 'B', cluster: '', key: String(配置.密钥), 主机: 配置.主机 };
     }
     return null;
   }
@@ -193,27 +205,12 @@
     var 应连 = 读通道名();
     if (_连接线路 && 应连 !== _连接线路) 重连();           // 服务端上次是另一条线 → 跟过去
   }
-  // 取线路：优先同源 HTTP /api/线路；不可用（如 GitHub Pages）回落 WS 路由 `线路`。
+  // 取线路：一律走 WS 路由 `线路`（GitHub Pages 无后端，绝不再碰本机 HTTP）
   function 取线路() {
-    var p;
-    try {
-      p = global.fetch('/api/' + encodeURIComponent('线路'), { cache: 'no-store' })
-        .then(function (r) { return r.json(); })
-        .then(function (d) { 应用线路数据(d); return d; });
-    } catch (e) { p = Promise.reject(e); }
-    return p['catch'](function () {
-      return 调用('线路', {}).then(function (d) { 应用线路数据(d); return d; });
-    });
+    return 调用('线路', {}).then(function (d) { 应用线路数据(d); return d; });
   }
   function 通知服务端切通道(名) {
-    var 体 = JSON.stringify({ 通道: 名 });
-    try {
-      global.fetch('/api/' + encodeURIComponent('切换通道'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 体
-      })['catch'](function () { });
-    } catch (e) {
-      try { 调用('切换通道', { 通道: 名 })['catch'](function () { }); } catch (e2) { }
-    }
+    try { 调用('切换通道', { 通道: 名 })['catch'](function () { }); } catch (e) { }
   }
 
   /* ---------------- 身份：邮箱号（0.24 老板 2026-10-24 口径） ----------------
@@ -332,64 +329,7 @@
   // 慢接口单独放宽超时（端刷新要扫共享数据库，可能较久）
   var 请求超时表 = { 'ends/refresh': 180000 };
 
-  // 路由 → 本机 HTTP 兜底（仅同源 http(s) 且非 GitHub Pages 时启用；供本机调试）
-  var HTTP表 = {
-    'ping':         { 路径: '/api/ping',         方法: 'GET' },
-    'accounts':     { 路径: '/api/accounts',     方法: 'GET' },
-    'tasks':        { 路径: '/api/tasks',        方法: 'GET' },
-    'tree':         { 路径: '/api/tree',         方法: 'GET' },
-    'ends':         { 路径: '/api/ends',         方法: 'GET' },
-    'ends/refresh': { 路径: '/api/ends/refresh', 方法: 'GET' },
-    'conv':         { 路径: '/api/conv',         方法: 'GET' },
-    'publish':      { 路径: '/api/publish',      方法: 'POST' },
-    'reply':        { 路径: '/api/reply',        方法: 'POST' },
-    'state':        { 路径: '/api/state',        方法: 'POST' },
-    'cardstate':    { 路径: '/api/cardstate',    方法: 'POST' },
-    'detail':       { 路径: '/api/detail',       方法: 'GET' },
-    'card':         { 路径: '/api/card',         方法: 'GET' },
-    /* 0.25 A5 凭号直达（只读；按卡号前缀分流，服务端不判可见性） */
-    'card_any':     { 路径: '/api/card_any',     方法: 'GET' },
-    'redeliver':    { 路径: '/api/redeliver',    方法: 'POST' },
-    'del':          { 路径: '/api/del',          方法: 'POST' },
-    /* 0.09 清单库（HTTP 镜像，供本机调试；WS 请求帧的 r 直接用路由名）——
-       照 网页服务.py 0.12 的 _路径路由（服务端未提供 /api/point_get，故此处亦无）。 */
-    'lists':        { 路径: '/api/lists',        方法: 'GET' },
-    'list_new':     { 路径: '/api/list_new',     方法: 'POST' },
-    'list_get':     { 路径: '/api/list_get',     方法: 'GET' },
-    'list_rename':  { 路径: '/api/list_rename',  方法: 'POST' },
-    'list_del':     { 路径: '/api/list_del',     方法: 'POST' },
-    'task_new':     { 路径: '/api/task_new',     方法: 'POST' },
-    'task_get':     { 路径: '/api/task_get',     方法: 'GET' },
-    'task_edit':    { 路径: '/api/task_edit',     方法: 'POST' },
-    'task_state':   { 路径: '/api/task_state',    方法: 'POST' },
-    'task_del':     { 路径: '/api/task_del',      方法: 'POST' },
-    'point_new':    { 路径: '/api/point_new',     方法: 'POST' },
-    'point_get':    { 路径: '/api/point_get',     方法: 'GET' },
-    'point_edit':   { 路径: '/api/point_edit',    方法: 'POST' },
-    'point_toggle': { 路径: '/api/point_toggle',  方法: 'POST' },
-    'point_del':    { 路径: '/api/point_del',     方法: 'POST' },
-    'call_ai':      { 路径: '/api/call_ai',       方法: 'POST' },
-    /* 0.18 补齐本机 HTTP 回退表（此前只有 WS 能走这些路由，本机调试一旦断 WS 就报「未知接口」） */
-    'list_edit':    { 路径: '/api/list_edit',     方法: 'POST' },
-    'card_hist':    { 路径: '/api/card_hist',     方法: 'GET' },
-    'move_targets': { 路径: '/api/move_targets',  方法: 'GET' },
-    'card_move':    { 路径: '/api/card_move',     方法: 'POST' },
-    'card_merge':   { 路径: '/api/card_merge',    方法: 'POST' },
-    'card_reply':   { 路径: '/api/card_reply',    方法: 'POST' },
-    'green_state':  { 路径: '/api/green_state',   方法: 'POST' },
-    /* 0.20 流水账与小标题按键（查一条小正文 / 追评 / 改一条 / 删一条 / 允许改历史开关） */
-    'list_append':  { 路径: '/api/list_append',   方法: 'POST' },
-    'green_get':    { 路径: '/api/green_get',     方法: 'GET' },
-    'green_edit':   { 路径: '/api/green_edit',    方法: 'POST' },
-    'green_del':    { 路径: '/api/green_del',     方法: 'POST' },
-    /* 0.21 小绿卡转细分卡（整棵子树迁移） */
-    'green_split':  { 路径: '/api/green_split',   方法: 'POST' },
-    'list_hist':    { 路径: '/api/list_hist',     方法: 'POST' },
-    'settings_get': { 路径: '/api/settings_get',  方法: 'GET' },
-    'settings_set': { 路径: '/api/settings_set',  方法: 'POST' },
-    /* 0.23 清单【发起联动】勾选/取消（服务端后台执行宿主 CLI） */
-    '联动/切换': { 路径: '/api/联动/切换', 方法: 'POST' }
-  };
+  /* 0.29：本机 HTTP 路由表已删除——GitHub 部署版不再使用任何 /api/* 调用。 */
 
   /* ---------------- 小工具 ---------------- */
   function 随机(k, 字母) {
@@ -690,56 +630,7 @@
     });
   }
 
-  function 查询串(参数) {
-    var 段 = [];
-    if (参数) {
-      for (var k in 参数) {
-        if (!Object.prototype.hasOwnProperty.call(参数, k)) continue;
-        var v = 参数[k];
-        if (v === undefined || v === null || v === '') continue;
-        段.push(encodeURIComponent(k) + '=' + encodeURIComponent(String(v)));
-      }
-    }
-    return 段.length ? ('?' + 段.join('&')) : '';
-  }
-
-  function 可HTTP回退() {
-    try {
-      var p = global.location.protocol, h = global.location.hostname || '';
-      if (p !== 'http:' && p !== 'https:') return false;
-      if (/\.github\.io$/i.test(h)) return false;      // GitHub Pages 是静态页、无后端
-      return true;
-    } catch (e) { return false; }
-  }
-
-  function HTTP请求(路由, 载荷) {
-    var 项 = HTTP表[路由];
-    if (!项) return Promise.reject(new Error('未知接口：' + 路由));
-    载荷 = 载荷 || {};
-    var 地址 = 项.路径, init = { method: 项.方法, headers: {} };
-    if (项.方法 === 'GET') {
-      地址 += 查询串(载荷);
-    } else {
-      init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(载荷);
-    }
-    return fetch(地址, init).then(function (响应) {
-      return 响应.text().then(function (文本) {
-        var 数据 = null;
-        try { 数据 = 文本 ? JSON.parse(文本) : {}; } catch (e) {
-          throw new Error('后端返回非 JSON（HTTP ' + 响应.status + '）');
-        }
-        if (!响应.ok || (数据 && 数据.ok === false)) {
-          throw new Error((数据 && 数据.err) || ('请求失败 HTTP ' + 响应.status));
-        }
-        return 数据;
-      });
-    }, function (e) {
-      throw new Error('网络不可达：' + ((e && e.message) ? e.message : e));
-    });
-  }
-
-  // 统一调用：优先 WS；同源 http(s) 且 WS 连不上时回落本机 HTTP（供本机调试）
+  // 统一调用：只走 WS（GitHub 部署版＝纯 WS 遥控，无任何本机 HTTP 回退）
   function 调用(路由, 载荷, 选项) {
     载荷 = 载荷 || {};
     选项 = 选项 || {};
@@ -752,13 +643,11 @@
     } catch (e) { }
     if (有WS()) return WS请求(路由, 载荷, 选项);
     if (_连接态 === '失败') {
-      if (可HTTP回退()) return HTTP请求(路由, 载荷);
       return Promise.reject(new Error('通道未连接：' + _最近错));
     }
     return 等连接(2500).then(function (ok) {
       if (ok) return WS请求(路由, 载荷, 选项);
-      if (可HTTP回退()) return HTTP请求(路由, 载荷);
-      return WS请求(路由, 载荷, 选项);   // 最终仍走 WS（连接超时后 reject）
+      return WS请求(路由, 载荷, 选项);   // 连接超时后由 WS 请求 reject
     });
   }
 
@@ -1071,20 +960,6 @@
   if (全局可WS()) 确保连接();
   // P51：异步取线路配置（含服务端上次选择的通道），拿到后如与首连不同会自动重连
   try { 取线路()['catch'](function () { }); } catch (e) { }
-
-  // P52（2026-10-26）：同源直连 8901 时，用 HTTP 自检**先播种「服务器在线」**——
-  //   不必再等最多 60 秒才来一条 WS 报到帧（老板反馈「刚打开显示宿舍离线」）。
-  try {
-    if (global.location && String(global.location.port) === '8901') {
-      fetch('/api/status', { cache: 'no-store' }).then(function (r) { return r.json(); })
-        .then(function (d) {
-          var s = (d && d.状态) || d || {};
-          var sv = String(s.服务器实例号 || '').trim();
-          if (sv) 记报到({ t: '服务器报到', 名称: s.服务器名称 || '', 服务器: sv,
-                          版本: s.版本 || '', 地址: s.地址 || '' });
-        })['catch'](function () { });
-    }
-  } catch (e) { }
 
   global.接口 = 接口;
 })(window);
