@@ -269,11 +269,20 @@ function renderMsgs(msgs, finish, opts, ask, pend){
         }
         if (k === 'edit'){
           const it = msgs[parseInt(b.dataset.i)];
-          /* v2.84：重编回填纯正文（不带旧 DID），重发时首行只打一个新 DID */
-          el.ent.value = it ? (it[0] === 'u' ? stripHeadDid(it[1]) : (it[1] || '')) : '';
+          /* 2.138（老板 2026-10-26 23:23）：只取回带 DID 的人类原话，且用 copyPlain 全剥
+             （DID＋专属词三段＋FOX 标记＋系统外壳）；AI 回复一律不取回。 */
+          if (!it || it[0] !== 'u'){
+            flash('只能取回我发的人类原话，AI 回复不取回', 'var(--red)', 5000);
+            return;
+          }
+          if (!hasUserDid(it[1])){
+            flash('该条没有 DID，不是可锚定的人类原话，已跳过取回', 'var(--red)', 5000);
+            return;
+          }
+          el.ent.value = copyPlain(it[1], true);
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
-          flash('已回填输入框，可修改后重新发送', 'var(--blue)');
+          flash('已回填原话（已去 DID/前后缀），可修改后重新发送', 'var(--blue)');
           return;
         }
         if (k === 'rewind'){
