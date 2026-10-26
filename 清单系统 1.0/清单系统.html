@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.17">
+<meta name="清单系统版本" content="1.18">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -70,11 +70,14 @@
 <title>清单系统 1.0 · 手机遥控页</title>
 <!--
   【清单系统】网页端 · 清单系统.html（手机遥控页 · 单页）
-  版本：1.17
+  版本：1.18
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.18（2026-10-27）大白话字数移到「清单正文大白话」同行最右；手机编辑框加高
+    （正文 60vh、小正文/追评 36vh、标题框 40px 高、字号 15px）。
+    版本对齐：网页端 1.18 / 清单页.js 0.70 / 接口.js 0.37 / 面板.js 0.38 / 卡片.js 0.12。
   v1.17（2026-10-27）分享条显示「服务端 vX」：回包带 服务端版本，一眼看出是否旧服务端应答。
     版本对齐：网页端 1.17 / 清单页.js 0.69 / 接口.js 0.37 / 面板.js 0.38 / 卡片.js 0.12。
   v1.16（2026-10-27）系统清单硬口径：只能有正文——新建任务卡/小点被拒；保存正文时若仍有子卡
@@ -851,6 +854,8 @@
   .卡.展开 .大白话 { display: block; font-size: 13px; color: #334;
     line-height: 1.5; background: #fafbfd; border: 1px solid #e6eaf2; border-radius: 8px; padding: 8px 3px; }
   .卡白题 { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+  /* 1.18：大白话字数与标题同一行、靠最右（不再独占一整行） */
+  .卡白题 .白计 { margin: 0 0 0 auto; font-size: 11.5px; }
   .卡白名 { font-size: 12px; font-weight: 700; color: #2b5fb0; cursor: pointer; }
   .朗钮 { flex: 0 0 auto; font-size: 12px; padding: 2px 8px; min-height: 24px;
     background: #eef4ff; border-color: #b8d0f5; color: #2b5fb0; }
@@ -865,8 +870,8 @@
             color: #24364d; background: #fbfcff; border: 1px dashed #c8d6ea; border-radius: 6px;
             padding: 4px 6px; min-height: 34px; resize: vertical; }
   .卡文输 { width: 100%; box-sizing: border-box; border: none; background: transparent;
-    resize: vertical; min-height: 76px; font-family: inherit; font-size: 14px; color: #1c2430;
-    line-height: 1.5; padding: 0; }
+    resize: vertical; min-height: 60vh; font-family: inherit; font-size: 15px; color: #1c2430;
+    line-height: 1.55; padding: 4px 2px; }
   .卡文存 { display: inline-block; margin: 6px 3px 2px; }
   /* 正文里的小绿卡（0.43 起＝**小标题**：一张小标题带一段小正文，点小标题展开/收起）
      一行一张；尾部状态灯可点改。浏览模式下只显示全部小标题。 */
@@ -937,10 +942,11 @@
   .绿卡夹.编辑中 > .绿卡小文 > .绿卡正文,
   .绿卡夹.编辑中 > .绿卡小文 > .绿卡子 { display: none; }
   .绿卡内编 { display: flex; flex-direction: column; gap: 5px; padding: 6px 2px 2px; }
-  .绿卡题输 { width: 100%; box-sizing: border-box; font-size: 13px; font-weight: 600;
-    padding: 5px 7px; border: 1px solid #c4ccd8; border-radius: 6px; }
-  .绿卡文输 { width: 100%; box-sizing: border-box; font-size: 13px; line-height: 1.5;
-    min-height: 66px; padding: 5px 7px; border: 1px solid #c4ccd8; border-radius: 6px; resize: vertical; }
+  .绿卡题输 { width: 100%; box-sizing: border-box; font-size: 15px; font-weight: 600;
+    min-height: 40px; padding: 8px 9px; border: 1px solid #c4ccd8; border-radius: 6px; }
+  /* 1.18：手机编辑给足高度——小正文约屏幕 1/3，顶部留 2/3 编辑、下面留给输入法 */
+  .绿卡文输 { width: 100%; box-sizing: border-box; font-size: 15px; line-height: 1.55;
+    min-height: 36vh; padding: 9px; border: 1px solid #c4ccd8; border-radius: 6px; resize: vertical; }
   .绿卡编钮 { display: flex; gap: 4px; }
   .绿卡编钮 .小钮 { flex: 0 0 auto; font-size: 12px; padding: 4px 9px; min-height: 28px; }
   /* 0.71（P46）：正文结构异常红条——正文区顶部，逐行列「第N行 说明」；`.绿` 用作补号结果提示 */
@@ -1031,10 +1037,10 @@
   .流水开关 input { width: 16px; height: 16px; }
   /* 追评区（流水账的「编辑」模式）：每条＝小标题（≤60 字）＋小正文（≤500 字） */
   .追区 { margin: 6px 3px 4px; border-top: 1px dashed #e2e8f2; padding-top: 6px; }
-  .追题 { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 14px;
-    border: 1px solid #c4ccd8; border-radius: 8px; padding: 8px 3px; }
-  .追文 { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 14px;
-    border: 1px solid #c4ccd8; border-radius: 8px; padding: 8px 3px; min-height: 80px; resize: vertical; }
+  .追题 { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 15px;
+    min-height: 40px; border: 1px solid #c4ccd8; border-radius: 8px; padding: 8px 9px; }
+  .追文 { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 15px;
+    border: 1px solid #c4ccd8; border-radius: 8px; padding: 9px; min-height: 36vh; resize: vertical; }
   .追计 { display: block; text-align: right; font-size: 11px; color: #889; margin: 2px 0 6px; }
   .追计.超 { color: #c0392b; font-weight: 700; }
   .追存 { display: inline-block; }
@@ -1073,7 +1079,7 @@
   <!-- 1.12：第一行＝软件名+版本 … 最右【查卡】+连接状态（点状态进设置·连接诊断） -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.17</span>
+    <span class="版本">v1.18</span>
     <!-- 凭号查卡（只读插卡）：终身号 A00025 或短号 S21/L1 -->
     <button id="按钮_查卡" class="小钮">查卡</button>
     <button id="角色" class="角色" type="button" title="点这里打开设置（连接诊断）">连接中…</button>
@@ -1348,7 +1354,7 @@
 
 <script src="网页模块/接口.js?v=0.37"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.69"></script>
+<script src="网页模块/清单页.js?v=0.70"></script>
 <script src="网页模块/面板.js?v=0.38"></script>
 </body>
 </html>
