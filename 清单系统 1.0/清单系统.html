@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.10">
+<meta name="清单系统版本" content="1.11">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -70,11 +70,14 @@
 <title>清单系统 1.0 · 手机遥控页</title>
 <!--
   【清单系统】网页端 · 清单系统.html（手机遥控页 · 单页）
-  版本：1.10
+  版本：1.11
   【维护】依《09_版本号与维护记录规范》：版本号每次改动 +0.01；本项目不留 .bak（2026-10-16 用户口径）。
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.11（2026-10-27）只读查卡改成层级正文（外层只列标题、点开才看正文）＋两个捷径：
+    全部下级卡名称、关键词搜索（直接回卡号）。
+    版本对齐：网页端 1.11 / 清单页.js 0.64 / 接口.js 0.35 / 面板.js 0.36 / 卡片.js 0.12。
   v1.10（2026-10-27）顶部新增【查卡】：输终身号 A00025 或短号 S21/L1 → 只读打开本卡＋全部下级。
     版本对齐：网页端 1.10 / 清单页.js 0.63 / 接口.js 0.35 / 面板.js 0.35 / 卡片.js 0.12。
   v1.09（2026-10-26）小绿卡每行都有菱形（有下级◆ / 无下级◇）；右侧四格统一照抄「终身号」小方标。
@@ -660,6 +663,28 @@
     color: #33455c; font-size: 14px; white-space: pre-wrap; }
   .分享正文 { margin: 4px 3px; padding: 8px; border-radius: 6px; border: 1px solid #e2e7ee;
     color: #1c2430; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+  /* 1.11 只读分享：正文按层级显示 + 两个捷径（全部下级名称 / 关键词搜卡号） */
+  .分享工具 { display: flex; gap: 6px; align-items: center; margin: 8px 0 6px; flex-wrap: wrap; }
+  .分享工具 .小钮 { font-size: 12px; padding: 4px 9px; min-height: 28px; }
+  .分享搜 { flex: 1 1 120px; min-width: 0; font-size: 13px; padding: 5px 8px;
+    border: 1px solid #c4ccd8; border-radius: 6px; }
+  .分享名单 { margin: 6px 0 8px; border: 1px solid #e2e7ee; border-radius: 8px;
+    background: #fbfcfe; padding: 4px 6px; }
+  .分享名行, .分享结果行 { display: flex; align-items: center; gap: 8px; padding: 4px 2px;
+    cursor: pointer; border-bottom: 1px solid #eef1f5; font-size: 13px; }
+  .分享名行:last-child, .分享结果行:last-child { border-bottom: 0; }
+  .分享名题, .分享结果题文 { flex: 1 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .分享名号 { font-size: 11px; color: #889; flex: 0 0 auto; }
+  .分享结果 { margin: 6px 0 8px; border: 1px solid #e2e7ee; border-radius: 8px;
+    background: #fff; padding: 6px 8px; }
+  .分享结果 .分享结果题 { font-size: 12px; color: #667; margin-bottom: 4px; }
+  .分享结果片 { font-size: 11.5px; color: #889; max-width: 42%; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }
+  .分享树 { margin: 6px 0 2px; }
+  /* 分享里的卡号/评定小标按内容自适应宽，保证 6 位卡号不被截断 */
+  .分享树 .绿卡块, .分享名单 .绿卡块, .分享结果行 .绿卡块 {
+    width: auto; min-width: 54px; padding: 0 6px; }
   /* 卡片日期（终身代号）：20261020-20:20:59 */
   .代号 { font-size: 12px; color: #556; background: #eef1f5; border-radius: 4px; padding: 1px 6px;
     font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1028,7 +1053,7 @@
   <!-- 1.03 两行紧凑：第一行＝软件名+版本（最左）＋连接角色胶囊 -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.10</span>
+    <span class="版本">v1.11</span>
     <span id="角色" class="角色">连接中…</span>
   </div>
   <!-- 第二行＝方形按钮与身份胶囊同高（26px）；0.68 登录入口：可【换身份】 -->
@@ -1303,7 +1328,7 @@
 
 <script src="网页模块/接口.js?v=0.35"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.63"></script>
-<script src="网页模块/面板.js?v=0.35"></script>
+<script src="网页模块/清单页.js?v=0.64"></script>
+<script src="网页模块/面板.js?v=0.36"></script>
 </body>
 </html>
