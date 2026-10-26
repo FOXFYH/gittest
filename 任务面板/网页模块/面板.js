@@ -241,22 +241,10 @@
     }
   }
 
-  // ---------------- 0.27 网络诊断（服务器 HTTP / WS 通道各自独立成行；判定一句话） ----------------
+  // ---------------- 0.28 网络诊断（服务器行＝WS 是否应答 / WS 行＝网页自身连接；判定一句话） ----------------
   var _网络测中 = false;
-  var _网络上次 = null;       // { HTTP:{可用,地址,耗时,版本,原因}, WS:{...} }
+  var _网络上次 = null;       // { HTTP:{可用,耗时,版本,原因}, WS:{...} }（0.28 起 HTTP 仅作「WS 是否应答」的判定键）
 
-  // 服务器基址：同源 http(s) 用相对路径；GitHub Pages 等静态站默认指向本机 8901（可用
-  // localStorage `任务面板_网络服务器` 覆盖，例如另一台机器的局域网地址）。
-  function 网络服务器基址() {
-    var 基 = '';
-    try { 基 = String(global.localStorage.getItem('任务面板_网络服务器') || '').trim(); } catch (e) { }
-    if (基) return 基.replace(/\/+$/, '');      // 显式指定优先（如另一台机器的局域网地址）
-    try {
-      var p = global.location.protocol, h = global.location.hostname || '';
-      if ((p === 'http:' || p === 'https:') && !/\.github\.io$/i.test(h)) return '';
-    } catch (e) { }
-    return 'http://127.0.0.1:8901';
-  }
   function 设网络态(元, 文案, 色) {
     if (!元) return;
     元.textContent = 文案;
