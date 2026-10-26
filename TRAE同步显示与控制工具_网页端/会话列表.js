@@ -108,9 +108,14 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       /* 2.40：会话名后追加（备注）——钩子由 会话备注.js 提供，缺失回退空串 */
       /* 2.47：会话名后追加（备注）+ 定时闹钟（⏰）——两钩子各自缺失则回退空串 */
       const nm = document.createElement('span');
-      /* 2.135（老板同日追加口径）：「只要名称和忙闲灯就够了，一行一个会话」——
-         定时闹钟后缀（⏰）也从名称行撤下。定时任务照旧跑，只是不在列表里挂标记。 */
-      nm.textContent = title + (window.备注后缀 ? 备注后缀(sKey) : '');
+      /* 2.137（老板 2026-10-26 08:49 口径：「我网页版还看不到铃铛啊……有个叫延时的，
+         我让他自我定时，我查得到他的定时消息，但是没显示铃铛」）——
+         **恢复 ⏰ 铃铛**，并按**终身号**绑定显示：sKey＝稳定键(sid,title)＝4 位终身号，
+         与定时任务库里的 `锚`（终身号）同口径，跨天/改名都不丢铃铛。
+         2.135 撤下铃铛的口径就此作废（以本条为准）。 */
+      nm.textContent = title
+        + (window.备注后缀 ? 备注后缀(sKey) : '')
+        + (window.闹钟后缀 ? 闹钟后缀(sKey) : '');
       nm.style.cssText = 'display:block;overflow:hidden;text-overflow:ellipsis';
       tspan.appendChild(nm);
       /* 2.134（老板 2026-10-25：「每个列表只要有自己的名称、加上原来那个忙闲灯就够了；
