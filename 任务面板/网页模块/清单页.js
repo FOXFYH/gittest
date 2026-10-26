@@ -2570,6 +2570,7 @@
     if (定) 定.disabled = true;
     global.接口.清单新建(名, 文, 类, 白).then(function (r) {
       if (r && r.ok === false) {
+        if (r.码 === 'cardno_pool_exhausted') { 弹号池尽(r.err); return; }
         var 错 = (r.错误 && r.错误[0]) || null;
         提示('新建失败：' + ((r && r.err) || '')
           + (错 ? (' · 第' + 错.行 + '行 ' + (错.说明 || 错.码 || '')) : ''));
@@ -2727,6 +2728,22 @@
     清单指纹 = '';
     if (页栈.length) return 画节点页(true);
     return 载入主页(true);
+  }
+
+  // 0.52：号码池发满（A00001→Z99999→a→z 全部用完）→ 弹窗提醒，不再静默失败
+  function 弹号池尽(说明) {
+    var 遮 = el('div', '遮罩');
+    var 框 = el('div', '弹窗');
+    框.appendChild(el('h3', null, '号码池不够用'));
+    框.appendChild(el('p', '确认文',
+      '终身号已全部发完（A00001→Z99999→a…z），现在无法再给新卡发号。'
+      + (说明 ? ('\n' + 说明) : '') + '\n请先联系管理员扩充号码池。'));
+    var 底 = el('div', '弹窗底');
+    底.appendChild(钮('知道了', '次钮', function () { 遮.remove(); }));
+    框.appendChild(底);
+    遮.appendChild(框);
+    遮.addEventListener('click', function (ev) { if (ev.target === 遮) 遮.remove(); });
+    document.body.appendChild(遮);
   }
 
   // ============================================================ 分享视图（0.52）
