@@ -356,7 +356,7 @@
 /* ===== 网页端声明支持的命令：唯一一份，按钮绑的就是它。系统.对齐自检 会来比对 ===== */
 const 命令列表 = [
   "trae.状态", "trae.重采集",
-  "员工.列表", "员工.排队", "员工.催办",
+  "员工.列表", "员工.排队", "员工.排队查询", "员工.催办",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档", "任务.删卡",
   "任务.关联原话", "任务.补来源原话", "任务.换分组",
   "叮嘱.列表", "任务.改详情", "派工单.新建", "派工单.列表", "派工单.发送", "派工单.留言",
@@ -369,7 +369,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.15";
+const H5_VER  = "0.5.16";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -706,9 +706,11 @@ function 画员工(){
       ? "<div class='wrap'><button class='mini o' onclick=\"催办('"+人.终身号+"')\">催办</button><span class='cmd'>员工.催办</span></div>"
       : "<span class='小字'>—</span>";
     const 排数 = Number(人.排队条数 || 0);
-    const 排格 = (排数 > 0 && 人.终身号)
-      ? "<button class='mini o' onclick=\"看排队('"+转义(人.终身号)+"')\" title='点开看排队原文'>"+排数+" 条</button>"
-      : "<span class='小字'>0</span>";
+    const 排格 = (人.终身号)
+      ? "<div style='display:flex;gap:4px;align-items:center'>" +
+        "<button class='mini o' onclick=\"看排队('"+转义(人.终身号)+"')\" title='看本会话档案里的排队条'>"+(排数||0)+"</button>" +
+        "<button class='mini' onclick=\"排队查询('"+转义(人.终身号)+"')\" title='主动切到该 TRAE 会话查实时排队条并写回共享库'>查</button></div>"
+      : "<span class='小字'>—</span>";
     return "<tr class='"+人.灯+"'><td>"+转义(号)+"</td><td>"+转义(人.会话名)+"</td><td>"+转义(人.灯)+"</td>"+
       "<td>"+转义(人.时长||人.最后活动||"—")+"</td>"+
       "<td>"+排格+"</td>"+
@@ -719,6 +721,17 @@ function 画员工(){
     (错 ? "（" + 转义(错) + "）" : "（名册为空且账本无可推数据）") + "</td></tr>");
 }
 function 刷新员工(){ 调("员工.列表", {}, true); }
+
+async function 排队查询(号){
+  const btn = 吐司面板 && 0;
+  调("员工.排队查询", {"号":号}, true).then(j=>{
+    if(!j.ok){ 弹窗("主动查排队 · " + 号, "<div class='evi'>" + 转义(j.说明||"") + "</div>"); 刷新员工(); return; }
+    const d = j.数据 || {};
+    看排队(号);
+    吐司((d.写库 ? "已写回共享库" : "读到了但写库未成") + "：" + (d.条数||0) + " 条");
+    刷新员工();
+  });
+}
 
 async function 看排队(号){
   const j = await 调("员工.排队", {"号":号}, true);
