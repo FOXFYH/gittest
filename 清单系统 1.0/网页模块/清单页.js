@@ -1,7 +1,9 @@
 /* ============================================================
  * 【清单系统】网页模块 · 清单页.js
- * 版本：0.70
+ * 版本：0.71
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
+ *   · 0.71（2026-10-27）正常模式正文最上方加窄扁小工具条（全部下级卡名称＋搜关键词，
+ *     点结果定位/展开）；小绿卡保存按钮：未改灰、改动变绿醒目。
  *   · 0.70（2026-10-27）大白话字数挪进「清单正文大白话」标题行、靠最右，不再独占一整行。
  *   · 0.69（2026-10-27）分享条显示「服务端 vX」——一眼看出是哪台/哪个版本在应答，
  *     避免拿旧服务端复测。
@@ -297,7 +299,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.70';
+  var 版本 = '0.71';
   // ---------------- 状态 ----------------
   var 清单缓存 = [];         // 清单摘要列表（[{编号,名称,类型,详情,任务数,未完成数}]）
   var 清单指纹 = '';         // 清单列表「版本指纹」（差额：无变化不重绘）
@@ -992,6 +994,11 @@
   function 画正文(节点, 览, 原文) {
     if (!览) return;
     览.innerHTML = '';
+    var 正 = 览.parentElement;
+    if (正) {
+      var 旧工 = 正.querySelector('[data-正文工具]');
+      if (旧工) 旧工.remove();
+    }
     // 0.62（老板 2026-10-26 口径）：正文不符合标准 → 不显示正文内容，只由红条提示异常，人工改对再恢复。
     if (节点.结构异常 && 节点.结构异常.length) return;
     var 解 = 拆树(原文 === undefined ? 节点.详情 : 原文);
@@ -1003,6 +1010,11 @@
     if (!解.根.length) {
       // P45⑤（老板 2026-10-25）：正文为空不再显示独立灰字块——引导语只在编辑框 placeholder 里露一次脸。
       return;
+    }
+    // 1.19：正文真正加载后才有卡可列——在此重建小工具条（窄扁一条，放在正文最上方）
+    if (正) {
+      var 工盒 = 建正文工具(节点, 览);
+      if (工盒) { 工盒.dataset.正文工具 = '1'; 正.insertBefore(工盒, 览); }
     }
     var 覆盖 = 节点.绿卡状态 || {};
     var 绿区 = el('div', '绿卡区');
@@ -1016,6 +1028,7 @@
       //   6 玫红 / 7 黄橄榄 / 8 灰蓝；超过 8 层从第 1 色重新循环（第 9 层＝第 1 色）。
       var 色 = ((层 - 1) % 8) + 1;
       var 夹 = el('div', '绿卡夹 层' + 色);
+      if (g.号) 夹.setAttribute('data-号', g.号);   // 1.19：正文工具（名单/搜索）定位用
       // 0.32（用户 2026-10-22 20:19）：左侧**每层 4px**、右侧充满——JS 仍不加 paddingLeft，
       //   层级位移全交给 CSS（.绿卡小文 的 border-left 2px ＋ padding-left 2px＝4px/层）；
       //   展开一条＝只显示它自己的小正文＋**下一级标题**（下一级默认闭合，再下一级不展开）。
@@ -1153,6 +1166,17 @@
         画正文(节点, 览, 节点.详情);
       })['catch'](function (e) { 存.disabled = false; 提示('保存失败：' + ((e && e.message) || e)); });
     });
+    // 1.19（用户 2026-10-27）：没改动时【保存】灰着；一改动就变醒目绿色，提示可以存。
+    存.disabled = true;
+    function 刷存态() {
+      var 改 = (String(题输.value || '') !== String(g.题 || '')) ||
+              (String(文输.value || '') !== String(g.文 || ''));
+      存.disabled = !改;
+      存.classList.toggle('有改', 改);
+    }
+    题输.addEventListener('input', 刷存态);
+    文输.addEventListener('input', 刷存态);
+    刷存态();
     var 取 = 钮('取消', '小钮', function () { 画正文(节点, 览, 节点.详情); });
     var 左 = 钮('左移', '小钮', function () { 调层('左'); });
     var 右移 = 钮('右移', '小钮', function () { 调层('右'); });
@@ -1338,6 +1362,83 @@
   }
 
   // 0.49（P46）：「转卡」入口随停用一并移除（后端恒拒；避免页面出现停用术语）。
+
+  // 1.19（用户 2026-10-27）：正常模式正文最上方的小工具条——「全部下级卡名称」＋搜关键词，
+  //   与查卡页同款但更窄更扁；正文已在本机，不用再向服务端取。
+  function 定位正文节点(览, 号) {
+    if (!览 || !号) return;
+    var 夹 = null;
+    Array.prototype.forEach.call(览.querySelectorAll('.绿卡夹'), function (x) {
+      if (!夹 && x.getAttribute('data-号') === 号) 夹 = x;
+    });
+    if (!夹) return;
+    Array.prototype.forEach.call(览.querySelectorAll('.绿卡夹.开'), function (x) {
+      if (x === 夹 || x.contains(夹)) return;
+      x.classList.remove('开');
+    });
+    var p = 夹.parentElement;
+    while (p && p !== 览) {
+      if (p.classList && p.classList.contains('绿卡夹')) p.classList.add('开');
+      p = p.parentElement;
+    }
+    夹.classList.add('开');
+    try { 夹.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { 夹.scrollIntoView(); }
+  }
+  function 建正文工具(节点, 览) {
+    var 列 = 平铺分享节点(拆树(文字(节点.详情)).根, 1).map(function (n) {
+      var g = n.g || {};
+      return { 号: g.号 || n.号 || '', 题: g.题 || g.项 || n.题 || '',
+               层: n.层 || 1, 文: g.文 || '', 备注: g.备注 || '' };
+    });
+    if (!列.length) return null;
+    var 盒 = el('div', '正文工具盒');
+    var 条 = el('div', '正文工具');
+    var 名区 = null;
+    var 钮名 = 钮('全部下级卡名称 (' + 列.length + ')', '小钮 正文工具钮', function () {
+      if (!名区) {
+        名区 = el('div', '正文工具名单');
+        列.forEach(function (n) {
+          var 行 = el('div', '正文工具行');
+          行.appendChild(el('span', '绿卡块', n.号 || '—'));
+          行.appendChild(el('span', '正文工具题', n.题 || '（无标题）'));
+          行.style.paddingLeft = (4 + (n.层 - 1) * 12) + 'px';
+          行.addEventListener('click', function () { 定位正文节点(览, n.号); });
+          名区.appendChild(行);
+        });
+        盒.appendChild(名区);
+      } else {
+        名区.classList.toggle('隐藏');
+      }
+    });
+    var 搜 = document.createElement('input');
+    搜.className = '正文工具搜'; 搜.placeholder = '搜关键词';
+    var 果 = el('div', '正文工具果 隐藏');
+    function 搜一下() {
+      var q = String(搜.value || '').trim();
+      果.innerHTML = '';
+      if (!q) { 果.classList.add('隐藏'); return; }
+      果.classList.remove('隐藏');
+      var 命中 = [];
+      列.forEach(function (n) {
+        var 文 = (n.题 || '') + '\n' + (n.文 || '');
+        if (文.indexOf(q) >= 0) 命中.push(n);
+      });
+      if (!命中.length) { 果.appendChild(el('div', '空样', '没有命中「' + q + '」')); return; }
+      果.appendChild(el('div', '正文工具果题', '命中 ' + 命中.length + ' 条（点卡号定位）'));
+      命中.slice(0, 80).forEach(function (n) {
+        var 行 = el('div', '正文工具行');
+        行.appendChild(el('span', '绿卡块', n.号 || '—'));
+        行.appendChild(el('span', '正文工具题', n.题 || ''));
+        行.addEventListener('click', function () { 定位正文节点(览, n.号); });
+        果.appendChild(行);
+      });
+    }
+    var 搜钮 = 钮('搜索', '小钮 正文工具钮', 搜一下);
+    搜.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 搜一下(); } });
+    条.appendChild(钮名); 条.appendChild(搜); 条.appendChild(搜钮);
+    盒.appendChild(条); 盒.appendChild(果);
+    return 盒;
+  }
 
   function 建卡(节点, 层级) {
     var 卡 = el('div', '卡 层' + 层级);
