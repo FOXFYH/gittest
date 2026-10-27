@@ -328,8 +328,12 @@
       <div class="小字" style="margin-top:8px">收件人（多选）</div>
       <div id="派工收件人" style="max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:5px;padding:6px;margin-top:4px"></div>
       <div class="小字" style="margin-top:10px">派工正文</div>
+      <div class="小字" style="margin-top:6px">派工正文</div>
       <textarea id="派工正文" placeholder="在这里写派工内容；第一行会作为任务卡标题"
-        style="width:100%;height:180px;margin-top:4px;padding:8px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:inherit"></textarea>
+        style="width:100%;height:150px;margin-top:4px;padding:8px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:inherit"></textarea>
+      <div class="小字" style="margin-top:6px">验收标准（必填）</div>
+      <textarea id="派工验收" placeholder="完成到什么程度才算合格，写清楚验收判据"
+        style="width:100%;height:60px;margin-top:4px;padding:8px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:inherit"></textarea>
       <div class="条" style="margin-top:8px">
         <div class="wrap"><button class="btn" onclick="派工复制()">复制</button><span class="cmd">派工.复制预览</span></div>
         <div class="wrap"><button class="btn p" onclick="建派工单()">建派工单</button><span class="cmd">派工单.新建</span></div>
@@ -370,7 +374,7 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.17";
+const H5_VER  = "0.5.18";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
@@ -936,8 +940,10 @@ async function 建派工单(){
   const 收 = 派工选中();
   const 文 = (document.getElementById("派工正文").value||"").trim();
   const 嘱 = (document.getElementById("派工叮嘱").value||"").trim();
+  const 验 = (document.getElementById("派工验收").value||"").trim();
   if(!卡 || !收.length || !文){ 吐司("要卡号、收件人、正文"); return; }
-  const j = await 调("派工单.新建", {"卡":卡, "收件人":收.join("、"), "文":文, "叮嘱":嘱}, false);
+  if(!验){ 吐司("验收标准必填"); return; }
+  const j = await 调("派工单.新建", {"卡":卡, "收件人":收.join("、"), "文":文, "验收标准":验, "叮嘱":嘱}, false);
   吐司(j.ok ? (j.说明||"已建单") : ("建单失败：" + (j.说明||"")));
 }
 function 改验收标准(id){
