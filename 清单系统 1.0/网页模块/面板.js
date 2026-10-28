@@ -1,6 +1,8 @@
 /* ============================================================
  * 【清单系统】网页模块 · 面板.js
- * 版本：0.40
+ * 版本：0.41
+ *   · 0.41（2026-10-28）R2 版本冲突裁决弹窗：拉取/自动推送遇「本地版本不高于云端」时，
+ *     不覆盖，弹窗逐文件列出 本地v/云端v，人工逐条选「本地终极」或「云端终极」再执行。
  *   · 0.40（2026-10-28）服务器改「固定选中＋常驻清单」：列表长期记住出现过的服务器（离线不消失），
  *     每行带 × 手动删除；点行即切换；报到不再自动改选中；顶栏第一行显示当前服务器昵称。
  * 职责：页面【装配层】——《软件架构设计》§6 手机网页版。
@@ -101,7 +103,7 @@
 (function (global) {
   'use strict';
 
-  var 版本 = '0.39';
+  var 版本 = '0.41';
   var 提示定时 = null;
   var _联动已载 = false;      // 0.21：设置里的联动命令是否已从服务端回填（没回填不写，免得清空）
   var _已启动 = false;        // 0.22：邮箱登录后是否已继续原有口令/首载流程
@@ -117,7 +119,66 @@
     提示定时 = setTimeout(function () { 条.classList.add('隐藏'); }, 2600);
   }
 
-  // ---------------- 0.25 系统清单 R2 手动拉取（上传全自动、下载纯手动） ----------------
+  // ---------------- R2 系统清单（上传全自动；下载手动；版本冲突人工裁决） ----------------
+  var _R2冲突 = [];            // 当前弹窗里的冲突项
+  var _R2冲突开着 = false;
+
+  function 开R2冲突(项) {
+    项 = 项 || [];
+    var 罩 = $('R2冲突弹窗'), 列 = $('R2冲突列表');
+    if (!罩 || !列) return;
+    _R2冲突 = 项.slice();
+    列.innerHTML = '';
+    if (!项.length) {
+      var 空 = document.createElement('div');
+      空.textContent = '（没有冲突项）';
+      列.appendChild(空);
+    }
+    项.forEach(function (x, i) {
+      var 行 = document.createElement('div');
+      行.className = 'R2冲突行';
+      var 名 = document.createElement('div');
+      名.className = 'R2冲突名';
+      名.textContent = String(x.文件 || '') + '　本地 v' + (x.本地版本 == null ? '—' : x.本地版本)
+                    + ' / 云端 v' + (x.云端版本 == null ? '—' : x.云端版本)
+                    + (x.原因 ? '（' + x.原因 + '）' : '');
+      var 选 = document.createElement('div');
+      选.className = 'R2冲突选';
+      [['本地', '本地为终极（上传覆盖云端）'], ['云端', '云端为终极（下载覆盖本地）']].forEach(function (o) {
+        var lab = document.createElement('label');
+        var r = document.createElement('input');
+        r.type = 'radio'; r.name = 'r2c' + i; r.value = o[0];
+        if ((x.建议 || '云端') === o[0]) r.checked = true;
+        lab.appendChild(r);
+        lab.appendChild(document.createTextNode(' ' + o[1]));
+        选.appendChild(lab);
+      });
+      行.appendChild(名);
+      行.appendChild(选);
+      列.appendChild(行);
+    });
+    罩.classList.remove('隐藏');
+    _R2冲突开着 = true;
+  }
+  function 关R2冲突() {
+    var 罩 = $('R2冲突弹窗');
+    if (罩) 罩.classList.add('隐藏');
+    _R2冲突开着 = false;
+  }
+  function 执行R2冲突() {
+    var 上们 = [], 下们 = [];
+    (_R2冲突 || []).forEach(function (x, i) {
+      var r = document.querySelector('input[name="r2c' + i + '"]:checked');
+      var 选 = r ? r.value : '云端';
+      if (选 === '本地') 上们.push(String(x.文件 || '')); else 下们.push(String(x.文件 || ''));
+    });
+    if (!global.接口 || typeof global.接口.raw !== 'function') { 提示('接口未就绪'); return; }
+    if (上们.length) global.接口.raw('清单R2强制上', { 文件: 上们 })['catch'](function () { });
+    if (下们.length) global.接口.raw('清单R2强制下', { 文件: 下们 })['catch'](function () { });
+    提示('已按选择处理 ' + (_R2冲突 || []).length + ' 个冲突文件…');
+    _R2冲突 = [];
+    关R2冲突();
+  }
   function 装R2拉取() {
     var 钮 = $('按钮_R2拉取');
     if (钮 && !钮.getAttribute('data-r2绑')) {
@@ -126,25 +187,44 @@
         if (!global.接口 || typeof global.接口.raw !== 'function') { 提示('接口未就绪'); return; }
         提示('正在从 R2 拉取系统清单…');
         global.接口.raw('清单R2下', {}).then(function (r) {
-          if (r && r.ok === false) 提示((r && r.err) || '拉取请求失败');
+          if (r && r.ok === false && !((r.冲突 || []).length)) 提示((r && r.err) || '拉取请求失败');
           // ok=true 只是「已受理」，真正结果等服务端广播 清单R2结果 帧
         })['catch'](function (e) { 提示('拉取请求失败：' + ((e && e.message) || e)); });
       });
+    }
+    var 执 = $('按钮_R2冲突执行');
+    if (执 && !执.getAttribute('data-r2绑')) {
+      执.setAttribute('data-r2绑', '1');
+      执.addEventListener('click', 执行R2冲突);
+    }
+    var 取 = $('按钮_R2冲突取消');
+    if (取 && !取.getAttribute('data-r2绑')) {
+      取.setAttribute('data-r2绑', '1');
+      取.addEventListener('click', 关R2冲突);
     }
     if (global.接口 && typeof global.接口.订阅广播 === 'function') {
       global.接口.订阅广播(function (帧) {
         if (!帧 || 帧.t !== '清单R2结果') return;
         var 结 = 帧.结果 || {};
         if (结.忙) { 提示('正在拉取中，请稍候'); return; }
+        if ((结.冲突 || []).length) { 开R2冲突(结.冲突); return; }
         if (结.ok) {
           if (结.已是最新) 提示('系统清单已是最新 · 远端版本 V' + (结.远端版本 || 0));
           else if (结.说明) 提示((结.说明) + ' · 远端版本 V' + (结.远端版本 || 0));
-          else 提示('已拉取 ' + (结.拉取文件数 || 0) + ' 个文件 · 远端版本 V' + (结.远端版本 || 0));
+          else 提示('已处理 ' + ((结.拉取文件数 || 0) + (结.上传数 || 0)) + ' 个文件 · 远端版本 V' + (结.远端版本 || 0));
         } else {
-          提示('拉取失败：' + (结.err || '未知原因'));
+          提示('处理失败：' + (结.err || '未知原因'));
         }
       });
     }
+    // 每 60 秒问一次状态：自动推送若因冲突被拦，服务端会写进状态，这里直接弹窗
+    setInterval(function () {
+      if (_R2冲突开着 || !global.接口 || typeof global.接口.raw !== 'function') return;
+      global.接口.raw('清单R2态', {}).then(function (r) {
+        var 冲 = r && r.态 && r.态.冲突;
+        if (冲 && (冲.项 || []).length && !_R2冲突开着) 开R2冲突(冲.项);
+      })['catch'](function () { });
+    }, 60000);
   }
 
   // ---------------- 顶栏角色（ping → 已连接，不并列服务端版本号） ----------------
