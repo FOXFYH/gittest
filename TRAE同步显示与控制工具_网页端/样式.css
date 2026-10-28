@@ -25,11 +25,6 @@ select{font-size:12px;}
 .h1row .title{font-weight:bold; color:var(--blue); font-size:14px;
   min-width:0; flex:0 1 auto;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-/* 2.120（老板 2026-10-22 15:29「那个位置本来就是管服务端的…可以放到顶部…节约宽度」）：
-   「↻ 本会话」从抽屉服务端行挪到顶栏第一行（操控:xx 之后），抽屉只留管服务端那个；
-   顶栏给紧凑尺寸，标题让位省略，保证窄屏一行不溢出。 */
-#hdr #btn_panerefresh{flex:none; font-size:11px; padding:1px 6px; margin:0;
-  border-radius:7px; white-space:nowrap;}
 #lbl_rlink{margin-left:auto; font-weight:bold; font-size:12px;
   white-space:nowrap; cursor:pointer;}
 /* 1.12：当前操控的服务端（点击进抽屉切换） */
@@ -632,8 +627,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 .srvttl{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;
   white-space:nowrap;}
 .srvbtns{flex:none; display:flex; gap:4px; margin-left:8px;}
-#btn_srvrefresh,#btn_panerefresh{flex:none; margin-left:0; font-size:12px; padding:2px 8px;
+#btn_srvrefresh{flex:none; margin-left:0; font-size:12px; padding:2px 8px;
   border:1px solid var(--bd); border-radius:12px; background:#fff;
   color:var(--blue); cursor:pointer; white-space:nowrap; line-height:1.4;}
-#btn_srvrefresh:active,#btn_panerefresh:active{background:#eef4fb;}
-#btn_srvrefresh:disabled,#btn_panerefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
+#btn_srvrefresh:active{background:#eef4fb;}
+#btn_srvrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
