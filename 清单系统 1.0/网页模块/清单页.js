@@ -1,6 +1,6 @@
 /* ============================================================
  * 【清单系统】网页模块 · 清单页.js
- * 版本：0.72
+ * 版本：0.73
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
  *   · 0.72（2026-10-27）属性页显示「创建者」＝终身号＋昵称（共享数据库会话名）；节点带创建者字段。
  *   · 0.71（2026-10-27）正常模式正文最上方加窄扁小工具条（全部下级卡名称＋搜关键词，
@@ -3516,7 +3516,28 @@
         })['catch'](function () { 结果区.appendChild(el('div', '空样', '搜索失败')); });
       });
       搜框.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); 搜钮.click(); } });
-      工.appendChild(名单钮); 工.appendChild(搜框); 工.appendChild(搜钮);
+      var 全文钮 = 钮('获取全文' + (r.全文K ? ' (' + r.全文K + 'K)' : ''), '小钮', function () {
+        if (!global.接口 || !global.接口.分享取卡) { 提示('接口未就绪'); return; }
+        全文钮.disabled = true;
+        global.接口.分享取卡(文字(根.编号), false).then(function (x) {
+          全文钮.disabled = false;
+          if (!x || !x.ok) { 提示('取全文失败'); return; }
+          var 行们 = [文字(根.名称) || 文字(根.编号)];
+          (x.正文 || []).forEach(function (n) {
+            行们.push('');
+            行们.push((n.题 || '') + '  [' + (n.号 || '') + ']');
+            行们.push(n.正文 || n.详情 || '');
+          });
+          var 块 = el('pre', '分享全文');
+          块.textContent = 行们.join('\n');
+          块.style.whiteSpace = 'pre-wrap'; 块.style.maxHeight = '60vh'; 块.style.overflow = 'auto';
+          块.style.margin = '0'; 块.style.fontSize = '12px';
+          结果区.innerHTML = ''; 结果区.classList.remove('隐藏');
+          结果区.appendChild(el('div', '分享结果题', '全文（' + (x.全文K || r.全文K || '?') + ' K）'));
+          结果区.appendChild(块);
+        })['catch'](function () { 全文钮.disabled = false; 提示('取全文失败'); });
+      });
+      工.appendChild(名单钮); 工.appendChild(全文钮); 工.appendChild(搜框); 工.appendChild(搜钮);
       框.appendChild(工);
       框.appendChild(结果区);
       框.appendChild(主区);
