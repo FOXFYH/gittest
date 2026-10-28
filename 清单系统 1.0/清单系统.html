@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.21">
+<meta name="清单系统版本" content="1.22">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -75,6 +75,9 @@
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.22（2026-10-28）R2 系统清单版本冲突人工裁决：本地版本不高于云端时不再覆盖，
+    弹窗逐条选「本地终极/云端终极」后强推或强拉；R2 凭据已焊死在代码里（同代码即同配置）。
+    版本对齐：网页端 1.22 / 清单页.js 0.72 / 接口.js 0.39 / 面板.js 0.41 / 卡片.js 0.12。
   v1.21（2026-10-28）服务器选择固定＋服务器簿常驻：选中哪台就一直是哪台（连不上也不自动跳）；
     出现过的服务器长期记住、离线不消失，行内 × 手动删除；顶栏第一行显示当前服务器昵称。
     版本对齐：网页端 1.21 / 清单页.js 0.72 / 接口.js 0.39 / 面板.js 0.40 / 卡片.js 0.12。
@@ -593,6 +596,12 @@
   .顶栏服务器 { font-size: 12px; color: #fff; background: rgba(255,255,255,.22);
     border-radius: 999px; padding: 2px 9px; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; max-width: 26vw; }
+  /* 1.22 R2 版本冲突裁决弹窗 */
+  .R2冲突行 { border: 1px solid #e3e7ee; border-radius: 8px; padding: 7px 9px;
+    margin-bottom: 6px; background: #fbfcfe; }
+  .R2冲突名 { font-size: 12px; color: #223; word-break: break-all; line-height: 1.5; }
+  .R2冲突选 { display: flex; flex-direction: column; gap: 2px; margin-top: 4px;
+    font-size: 12px; color: #556; }
   /* 1.01 设置页＝独立整页（不再弹窗）：占满主区、可纵向滚动 */
   .设置面板 {
     position: static; width: auto; max-width: 760px; margin: 0 auto; z-index: auto;
@@ -1125,7 +1134,7 @@
   <!-- 1.12：第一行＝软件名+版本 … 最右【查卡】+连接状态（点状态进设置·连接诊断） -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.21</span>
+    <span class="版本">v1.22</span>
     <span id="顶栏_服务器" class="顶栏服务器" title="当前选中的服务器">未选服务器</span>
     <!-- 凭号查卡（只读插卡）：终身号 A00025 或短号 S21/L1 -->
     <button id="按钮_查卡" class="小钮">查卡</button>
@@ -1398,11 +1407,24 @@
     </div>
   </div>
 </div>
+<div id="R2冲突弹窗" class="遮罩 隐藏">
+  <div class="弹窗">
+    <h3>系统清单版本冲突</h3>
+    <p style="font-size:13px;color:#556;margin:0 0 8px;line-height:1.6;">
+      以下文件「本地版本不高于云端」，按规矩没有覆盖。请逐条选终极版本，再点【按选择执行】。
+    </p>
+    <div id="R2冲突列表" style="max-height:220px;overflow:auto;"></div>
+    <div class="弹窗底">
+      <button id="按钮_R2冲突取消" class="次钮">取消</button>
+      <button id="按钮_R2冲突执行" class="主钮">按选择执行</button>
+    </div>
+  </div>
+</div>
 <div id="提示" class="提示 隐藏"></div>
 
 <script src="网页模块/接口.js?v=0.39"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.72"></script>
-<script src="网页模块/面板.js?v=0.40"></script>
+<script src="网页模块/清单页.js?v=0.73"></script>
+<script src="网页模块/面板.js?v=0.41"></script>
 </body>
 </html>
