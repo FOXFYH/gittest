@@ -631,5 +631,6 @@ function paneRefreshNow(){
   if (!ok) _paneReqWait = null;
   return ok;
 }
-try { const _bpn = $('btn_panerefresh'); if (_bpn) _bpn.onclick = paneRefreshNow; } catch(e){}
+/* 2.141：顶栏「↻ 本会话」按钮已撤（老板 2026-10-27 令，浏览器自带刷新即可），
+   绑定点随之移除；paneRefreshNow / paneReqDone 保留——pane_req 仍属 snap_pane 单会话补帧链路。 */
 
