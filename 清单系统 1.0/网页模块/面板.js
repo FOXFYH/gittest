@@ -1,6 +1,8 @@
 /* ============================================================
  * 【清单系统】网页模块 · 面板.js
- * 版本：0.39
+ * 版本：0.40
+ *   · 0.40（2026-10-28）服务器改「固定选中＋常驻清单」：列表长期记住出现过的服务器（离线不消失），
+ *     每行带 × 手动删除；点行即切换；报到不再自动改选中；顶栏第一行显示当前服务器昵称。
  * 职责：页面【装配层】——《软件架构设计》§6 手机网页版。
  *   · 顶栏：左【新建】【返回主页】、中题名+【网页版版本（唯一）】+角色、右【设置】。
  *   · 【设置】菜单：收纳 **连接诊断**＋**服务器选择**（含在线/离线小标）＋**账号通道 A/B**
@@ -427,80 +429,87 @@
     诊断记('诊断面板已就绪', '暗');
   }
 
-  // ---------------- 服务器切换（多服务器 / 自动发现 / 定向谁应答） ----------------
-  function 服务器选项(值, 文本) {
-    var o = document.createElement('option');
-    o.value = 值; o.textContent = 文本;
-    return o;
-  }
+  // ---------------- 服务器切换（固定选中 / 长期清单 / 手动删除） ----------------
   function 画服务器() {
-    var 框 = $('服务器_选择');
-    if (!框) return;
+    var 盒 = $('服务器_簿');
+    if (!盒) return;
     var 选 = { 实例号: '', 名称: '' }, 表 = [];
     try { 选 = global.接口.选中服务器() || 选; 表 = global.接口.服务器列表() || []; } catch (e) { }
-    框.innerHTML = '';
-    // P54：取消「自动（谁先答算谁）」——只列真实客户端，由用户主动选；未选时显示等待占位
-    if (!选.实例号 && !表.length) 框.appendChild(服务器选项('', '（等待客户端上线…）'));
-    表.forEach(function (服) {
-      框.appendChild(服务器选项(服.实例号,
-        服.名称 + '（' + 服.实例号 + '） · ' + (服.在线 ? '在线' : '离线')));
-    });
-    框.appendChild(服务器选项('__手动__', '手动输入实例号…'));
-    var 在列 = 表.some(function (服) { return 服.实例号 === 选.实例号; });
-    if (选.实例号 && !在列) {
-      框.appendChild(服务器选项(选.实例号,
-        (选.名称 || '（未知）') + '（' + 选.实例号 + '） · 离线'));
+    盒.innerHTML = '';
+    if (!表.length) {
+      var 空 = document.createElement('span');
+      空.className = '服务器空';
+      空.textContent = '（还没有服务器记录；某台上线报到一次就会永久记住）';
+      盒.appendChild(空);
     }
-    框.value = 选.实例号 || '';
+    表.forEach(function (服) {
+      var 行 = document.createElement('div');
+      行.className = '服务器行' + (服.实例号 === 选.实例号 ? ' 选中' : '');
+      行.title = '点这一行＝切换到该服务器';
+      var 名 = document.createElement('span');
+      名.className = '服务器名';
+      名.textContent = (服.名称 || '（未命名）') + '（' + 服.实例号 + '）';
+      var 标 = document.createElement('span');
+      标.className = '服务器态 ' + (服.在线 ? '在线' : '离线');
+      标.textContent = 服.在线 ? '在线' : '离线';
+      var 删 = document.createElement('button');
+      删.type = 'button'; 删.className = '服务器删'; 删.title = '从列表删除这台（永久）';
+      删.textContent = '×';
+      删.addEventListener('click', function (e) {
+        if (e) e.stopPropagation();
+        try { global.接口.删除服务器(服.实例号); } catch (err) { }
+        提示('已删除服务器 ' + (服.名称 || 服.实例号));
+        画服务器(); 重载数据();
+      });
+      行.appendChild(名); 行.appendChild(标); 行.appendChild(删);
+      行.addEventListener('click', function () {
+        if (服.实例号 === 选.实例号) return;
+        try { global.接口.设置服务器(服.实例号, 服.名称); } catch (e) { }
+        提示('已切换到服务器 ' + (服.名称 || 服.实例号));
+        画服务器(); 保存设置(); 重载数据();
+      });
+      盒.appendChild(行);
+    });
+    var 手 = document.createElement('button');
+    手.type = 'button'; 手.className = '小钮 服务器手';
+    手.textContent = '手动输入实例号…';
+    手.addEventListener('click', function () {
+      var 输 = global.prompt ? global.prompt('请输入要定向的服务器实例号（如 1219299644）', '') : '';
+      输 = String(输 || '').trim();
+      if (!输) return;
+      try { global.接口.设置服务器(输, ''); } catch (e) { }
+      提示('已定向到服务器 ' + 输);
+      画服务器(); 保存设置(); 重载数据();
+    });
+    盒.appendChild(手);
     画服务器态(选, 表);
   }
   function 画服务器态(选, 表) {
     var 态 = $('服务器_态');
-    if (!态) return;
-    if (!选.实例号) { 态.textContent = '未选择客户端'; 态.className = '服务器态 自动'; return; }
-    var 在线 = 表.some(function (服) { return 服.实例号 === 选.实例号 && 服.在线; });
-    态.textContent = '所选：' + (选.名称 || 选.实例号) + (在线 ? ' 在线' : ' 离线');
-    态.className = '服务器态 ' + (在线 ? '在线' : '离线');
-  }
-  function 切服务器() {
-    var 框 = $('服务器_选择');
-    if (!框) return;
-    var v = String(框.value || '');
-    if (v === '__手动__') {
-      var 输 = global.prompt ? global.prompt('请输入要定向的服务器实例号（如 1219299644）', '') : '';
-      输 = String(输 || '').trim();
-      if (!输) { 画服务器(); return; }
-      global.接口.设置服务器(输, '');
-      提示('已定向到服务器 ' + 输);
-    } else if (!v) {
-      画服务器();                 // P54：不再有「自动」项，空值＝未选择，保持原样
+    var 顶 = $('顶栏_服务器');
+    if (!选.实例号) {
+      if (态) { 态.textContent = '未选择服务器'; 态.className = '服务器态 自动'; }
+      if (顶) 顶.textContent = '未选服务器';
       return;
-    } else {
-      var 名 = '';
-      try {
-        (global.接口.服务器列表() || []).forEach(function (服) { if (服.实例号 === v) 名 = 服.名称; });
-      } catch (e) { }
-      global.接口.设置服务器(v, 名);
-      提示('已切换到服务器 ' + (名 || v));
     }
-    画服务器();
-    保存设置();
-    重载数据();
+    var 在线 = 表.some(function (服) { return 服.实例号 === 选.实例号 && 服.在线; });
+    var 显示 = 选.名称 || 选.实例号;
+    if (态) {
+      态.textContent = '所选：' + 显示 + (在线 ? ' 在线' : ' 离线');
+      态.className = '服务器态 ' + (在线 ? '在线' : '离线');
+    }
+    if (顶) 顶.textContent = 显示;
   }
   function 重载数据() {
     载角色();
     try { if (global.清单页 && global.清单页.重载) global.清单页.重载(); } catch (e) { }
   }
   function 装服务器() {
-    var 框 = $('服务器_选择');
-    if (!框) return;
+    var 盒 = $('服务器_簿');
+    if (!盒) return;
     画服务器();
     try { global.接口.订阅服务器(function () { 画服务器(); }); } catch (e) { }
-    setInterval(function () {
-      if (document.activeElement === 框) return;
-      画服务器();
-    }, 5000);
-    框.addEventListener('change', 切服务器);
+    setInterval(function () { 画服务器(); }, 5000);
   }
 
   // ---------------- 设置落盘（0.20：不随版本升级清理；服务端存 使用痕迹\配置文件） ----------------
