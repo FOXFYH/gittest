@@ -305,7 +305,12 @@ el.td_cancel.onclick = () => {     /* 取消：锁定模式没开 TRAE 输入区
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
 
-el.attach.onclick = () => el.file.click();
+/* 2.142（2026-10-29 老板令「附件点不开」）：按钮 -> 原生弹选择器；
+   失败要如实提示，绝不静默（手机内置浏览器对隐藏 input 的 click 可能被拦）。 */
+el.attach.onclick = () => {
+  try { el.file.click(); }
+  catch(e){ flash('附件选择器打不开：' + ((e && e.message) || e), 'var(--red)'); }
+};
 el.file.onchange = async () => {
   const files = [...el.file.files];
   el.file.value = '';
@@ -326,10 +331,37 @@ el.file.onchange = async () => {
     if (b64 === null){ flash('读取 ' + f.name + ' 失败'); return; }
     arr.push({n: f.name, d: b64});
   }
+  /* 2.142（2026-10-29 老板令「插入指定的那个对话」）：附件跟消息同口径，带锚定会话
+     完整 sid＋归还锚——服务端先切到该会话注入，注入完按 anchor 归还，绝不落错会话。 */
+  /* 目标 sid 必须取【当前快照里的真 sid】：锚定键是终身号（跨天/改名不变），
+     S.anchorFull 可能是昨天缓存的旧完整 sid（会话早换了），直接拿去切会切不到。 */
+  let _tgt = '';
+  try {
+    if (S.anchorSid && typeof 稳定键 === 'function'){
+      for (const _r of ((S.snap && S.snap.convs) || [])){
+        if (_r && _r[0] === 'c' && _r[4] && 稳定键(_r[4], _r[1]) === S.anchorSid){
+          _tgt = _r[4]; break; }
+      }
+    }
+  } catch(e){}
+  _tgt = _tgt || (typeof curSid === 'function' ? curSid() : '') || S.anchorFull || '';
+  /* 还必须在【当前会话列表】里：锚定会话已消失（跨天换 sid / 被删）时拿旧 sid
+     去切只会切空，宁可如实拒发并提示，绝不静默落错会话。 */
+  let _在列 = false;
+  try {
+    for (const _r of ((S.snap && S.snap.convs) || [])){
+      if (_r && _r[0] === 'c' && _r[4] && _r[4] === _tgt){ _在列 = true; break; }
+    }
+  } catch(e){}
+  if (!_tgt || !_在列){
+    flash('⚠ 目标会话不在列表（锚定：' + (S.anchorTitle || '—') + '），请先点一个会话再传附件',
+          'var(--orange)');
+    return;
+  }
   S.attach_pending = arr.map(f => f.n);     // 反馈①：灰 chips 占位
   renderAttach([]);
-  /* 2.109：非 cmd 帧统一四态出口——②＋服务端 rcpt ③④（attach_done 事件仍回填结果）。 */
-  srvOpSendJson({t: 'attach_files', files: arr}, '附加附件', arr.length + ' 个文件');
+  srvOpSendJson({t: 'attach_files', files: arr, sid: _tgt, anchor: _tgt},
+                '附加附件', arr.length + ' 个文件');
 };
 
 /* —— 1.07：导出功能整体移除（用户要求网页版不要导出）：
