@@ -629,7 +629,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <button id="btn_urgent" title="加急插入对话流（勾上后本次发送若进托管队列则立即插队发送、不干等队尾；默认不记忆）" data-page-node-id="WBurgentT63Btn20261019">急</button>
   <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
-  <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
+  <input type="file" id="file_pick" multiple style="position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
 
 <button id="fexit" title="退出历史全屏">↓ 回到最新</button>
@@ -723,7 +723,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <table id="ck_tbl">
       <thead><tr>
         <th>账号名称</th><th>签到时间</th><th class="num">积分增加</th>
-        <th class="num">签到后总积分</th><th>状态</th>
+        <th class="num">签到后总积分</th><th>凭证到期/剩余</th><th>状态</th>
       </tr></thead>
       <tbody id="ck_body">
         <tr><td colspan="5" style="color:#999;">打开面板即拉取账号列表…</td></tr>
@@ -2973,7 +2973,8 @@ function renderAcctSel(){
 }
 
 /* 2.00：批量签到遥控面板——渲染服务端 checkin_state 下发的合并行。
-   行字段＝{账号,名称,时间,本次增加,签到后总积分,状态}（服务端 批量签到.视图()）。
+   行字段＝{账号,名称,时间,本次增加,签到后总积分,凭证到期,凭证剩余,状态}
+   （服务端 批量签到.视图()，1.02 起带凭证两字段）。
    本端只用 DOM，无任何本地签到动作。 */
 function fmtNum(v){                       /* 积分友好显示：空→''；整数去零 */
   if (v === null || v === undefined || v === '') return '';
@@ -2981,6 +2982,12 @@ function fmtNum(v){                       /* 积分友好显示：空→''；整
   if (!isFinite(f)) return String(v);
   return (Math.abs(f - Math.round(f)) < 1e-9)
     ? String(Math.round(f)) : f.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+function ckCred(r){                       /* 2.23：凭证到期/剩余 合并显示，缺→未知 */
+  const 到 = String((r && r.凭证到期) || '').trim();
+  const 剩 = String((r && r.凭证剩余) || '').trim();
+  if ((!到 && !剩) || 到 === '未知' || 剩 === '未知') return '未知';
+  return ((到 + ' ' + 剩).trim()) || '未知';
 }
 function ckStatusCls(s){                  /* 状态着色：成功绿 / 已签到等橙 / 失败红 */
   s = String(s || '');
@@ -2993,16 +3000,21 @@ function renderCheckin(){
   if (!el.ck_body) return;
   const rows = S.checkin_rows || [];
   if (!rows.length){
-    el.ck_body.innerHTML = '<tr><td colspan="5" style="color:#999;">（无账号）</td></tr>';
+    el.ck_body.innerHTML = '<tr><td colspan="6" style="color:#999;">（无账号）</td></tr>';
   } else {
     el.ck_body.innerHTML = rows.map(r => {
       const nm  = esc((r && (r.名称 || r.账号)) || '—');
       const ts  = esc((r && r.时间) || '');
       const add = esc(fmtNum(r && r.本次增加));
       const bal = esc((r && r.签到后总积分) || '');
+      const cr  = esc(ckCred(r));
       const st  = String((r && r.状态) || '');
+      /* 2.23：凭证快到期/已过期 → 橙色（列级着色，不动整行） */
+      const 剩 = String((r && r.凭证剩余) || '');
+      const cls = (剩 === '⚠即将到期' || 剩 === '已过期') ? ' class="warn"' : '';
       return '<tr><td>' + nm + '</td><td>' + ts + '</td>'
         + '<td class="num">' + add + '</td><td class="num">' + bal + '</td>'
+        + '<td' + cls + '>' + cr + '</td>'
         + '<td class="' + ckStatusCls(st) + '">' + esc(st) + '</td></tr>';
     }).join('');
   }
@@ -5019,7 +5031,10 @@ const APP_NAME = 'wb远程';
       过期回包（sid 不符）静默丢弃。配套服务端 cmd_router v3.04（hist_ls /
       hist_msgs 两命令）与 __init__.py WEB_VERSION 恒等 2.21。
    以下为上一版（2.20）说明存档。 */
-const VER = '2.25';   /* 2.25（2026-10-26，P53）：专属提示词折叠卡点不开根治——键改安全指纹（不再把 \u0001 写进 data-fhkey）、点标签改 document 捕获委托（任何渲染路径都不会再出死按钮）。
+const VER = '2.27';   /* 2.27（2026-10-29 老板令「Attachment 点不开/要显示/要能撤回」）：input 由 display:none 改屏幕外 1px 可点（手机必弹选择框）+ 按钮 click 失败如实提示；附件 chips 与 ✕ 撤回沿用既有 attach_rm。原 2.26（2026-10-26，老板令「批量签到显示凭证剩余到期时间」）：批量签到面板
+   加「凭证到期/剩余」列（ckCred 合并显示 '11-08 剩12天'，缺→未知；⚠即将到期/已过期 橙色），
+   数据源＝服务端 批量签到.视图() 1.02 的 凭证到期/凭证剩余 两字段；与 wb_cli.WEB_VERSION 恒等 2.26。
+   2.25（2026-10-26，P53）：专属提示词折叠卡点不开根治——键改安全指纹（不再把 \u0001 写进 data-fhkey）、点标签改 document 捕获委托（任何渲染路径都不会再出死按钮）。
    2.24（2026-10-26 老板令）：FOX 单段上限 10KB→64KB（-57 头），
                          与 TRAE 对齐，同样 13KB 快照由 2 段降为 1 段。 */
 const _VER_OLD = '2.23';   /* 2.23（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
@@ -7079,7 +7094,12 @@ el.ck_refreshpts.onclick = () => {       /* 批量刷新积分：逐个账号查
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
 
-el.attach.onclick = () => el.file.click();
+/* 2.27（2026-10-29 老板令「附件点不开」）：按钮 -> 原生弹选择器；
+   失败要如实提示，绝不静默（手机内置浏览器对隐藏 input 的 click 可能被拦）。 */
+el.attach.onclick = () => {
+  try { el.file.click(); }
+  catch(e){ flash('附件选择器打不开：' + ((e && e.message) || e), 'var(--red)'); }
+};
 el.file.onchange = async () => {
   const files = [...el.file.files];
   el.file.value = '';
