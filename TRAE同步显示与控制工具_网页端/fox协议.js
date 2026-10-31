@@ -316,11 +316,14 @@ function newDid(){
      **自动插入正文第一行**，作这条输入消息的 DID（服务端扫快照每条消息首行
      ^\d{14}$ 命中 ⇒ 已进流）。仅「网页版发出的消息」带 DID；AI 借输入框发的
      消息不带 DID、绝不出占位卡。 */
-function didNow(){
+/* v3.00（广播整改规范 V1.0 二-1）：DID ＝ 14 位时标 + 1 位来源后缀。
+   A=人类常规输入 / B=主管命令 / C=闹钟触发（后续可继续追加）。 */
+function didNow(sfx){
   const d = new Date();
   const p = n => String(n).padStart(2, '0');
   return String(d.getFullYear()) + p(d.getMonth() + 1) + p(d.getDate())
-       + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+       + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds())
+       + (sfx || 'A');
 }
 /* 2.105（02-P0-2）：会话级动作发帧必须带目标会话 sid（不再只靠 arg 夹带）。
    · SESS_CMDS：作用于【当前会话】、且 arg 本身不带 sid 的动作（终止生成/排队条/撤回/

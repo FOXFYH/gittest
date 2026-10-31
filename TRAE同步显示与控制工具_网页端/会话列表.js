@@ -92,12 +92,17 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       const light = cfx && cfx.status ? (cfx.status.light || '') : '';
       const uread = cfx ? !!(cfx.status && cfx.status.unread) :
         ((st === 'done') && (useId && sid ? uri.has(sid) : ur.has(title)));
+      /* P1（2026-10-31）：第三态 wait＝待确认（琥珀灯）——服务端 convs_full 的
+         status.light==='wait' 与原始 st==='wait' 两条路径都要认；旧服务端不产出
+         wait 时本分支永不命中，零回归。 */
       const dotCls = cfx
-        ? (light === 'busy' ? 'stdot-run'
+        ? (light === 'wait' ? 'stdot-wait'
+          : light === 'busy' ? 'stdot-run'
           : light === 'fail' ? 'stdot-fail'
           : light === 'stop' ? 'stdot-stop'
           : light === 'unread' ? 'stdot-uread' : '')
-        : (st === 'run' ? 'stdot-run' : st === 'fail' ? 'stdot-fail'
+        : (st === 'wait' ? 'stdot-wait'
+          : st === 'run' ? 'stdot-run' : st === 'fail' ? 'stdot-fail'
           : st === 'stop' ? 'stdot-stop' : uread ? 'stdot-uread' : '');
       if (dotCls){
         const dot = document.createElement('span');

@@ -865,3 +865,213 @@ function snapIdbBoot(sk){
 }
 setInterval(() => snapIdbTick(), 10000);                       /* 2.98：10 秒节流（原 5 秒） */
 setInterval(() => { snapIdbPrune(); snapIdbPruneMissing(); }, 10 * 60 * 1000);
+
+/* ============ v3.00 P3（规范三-2）：前端小账册——只留最近 5 轮 ============
+   单轮＝一条人类提问（官方系统 ID）＋其对应回复；回复三态：
+     完整＝有 DID 主动回复；残缺＝只有 CDP 抓取的系统 ID 回复；空＝两问之间无回复。
+   存储：内存 _smCache ＋ localStorage（按缓存键隔离；只存 5 轮，体积极小）。
+   用途：① 切任意会话时秒看最近 5 轮；② 对账上报 5 组 (提问mid, 回复id)。 */
+const LS_SMALL = 'trae_webm_sm5';
+const SMALL_ROUNDS = 5;
+let _smCache = null;                    /* {key, sids:{sidKey:{rounds:[...]}}} */
+/* v3.00 返工2（规范三-2「完整」态真机可达）：服务端广播 msgs 被 WS桥截 7 列
+   （`list(_m)[:7]`），没有第 8 位可判 ⇒ 不再看 m[7]，改由**帧字段 d.did** 标记：
+     · _smDidAsk[提问mid] = did  ← msg_evt（role='u'）带 did
+     · _smDidRep[回复id] = 1     ← msg_evt（role='a'）带 did，或对账轮次字典「回复类型」
+   完整＝该轮有回复且命中 DID 标记；残缺＝只有 CDP 抓取；空＝无回复。 */
+const _smDidAsk = {}, _smDidRep = {};
+function 记DID(mid, role, did){
+  const m = String(mid || ''), x = String(did || '');
+  if (!m || !x) return false;
+  if (String(role || '') === 'u') _smDidAsk[m] = x;
+  else _smDidRep[m] = 1;
+  return true;
+}
+function _smKeyNow(){ return cacheKeyNow(); }
+function _smSidKey(sid){
+  try { return 稳定键(sid, '') || String(sid || ''); } catch(e){ return String(sid || ''); }
+}
+function _smLoad(){
+  if (_smCache && _smCache.key === _smKeyNow()) return _smCache;
+  let o = null;
+  try { o = JSON.parse(localStorage.getItem(LS_SMALL) || 'null'); } catch(e){}
+  if (!o || o.key !== _smKeyNow()) o = {key: _smKeyNow(), sids: {}};
+  if (!o.sids || typeof o.sids !== 'object') o.sids = {};
+  _smCache = o;
+  return o;
+}
+function _smSave(){
+  try { if (_smCache) localStorage.setItem(LS_SMALL, JSON.stringify(_smCache)); } catch(e){}
+}
+/* 记一轮（任务书 D-1 同签名）：同 ask mid 已存在则覆盖，否则追加；超 5 轮丢最旧 */
+function 记一轮(sid, 提问mid, 回复id, 回复类型, 文本){
+  const sk = _smSidKey(sid);
+  if (!sk) return null;
+  const o = _smLoad();
+  let arr = o.sids[sk];
+  if (!Array.isArray(arr)) arr = [];
+  const ask = String(提问mid || '');
+  const rec = {ask: ask, askText: String(文本 || ''),
+               replyId: String(回复id || ''),
+               type: String(回复类型 || (回复id ? '残缺' : '空')),
+               ts: Date.now()};
+  const i = arr.findIndex(r => String(r.ask || '') === ask);
+  if (i >= 0) arr[i] = rec; else arr.push(rec);
+  if (arr.length > SMALL_ROUNDS) arr = arr.slice(-SMALL_ROUNDS);
+  o.sids[sk] = arr;
+  _smSave();
+  return rec;
+}
+function 小账册取(sid){
+  const o = _smLoad();
+  const arr = o.sids[_smSidKey(sid)];
+  return Array.isArray(arr) ? arr.slice() : [];
+}
+function 小账册清(sid){
+  const o = _smLoad();
+  delete o.sids[_smSidKey(sid)];
+  _smSave();
+}
+/* 从快照/账本 msgs 整段重算最近 5 轮（快照每拍都到，重算幂等、不重复计数） */
+function 小账册灌(sid, msgs){
+  const rounds = [];
+  let cur = null;
+  (msgs || []).forEach(m => {
+    if (!Array.isArray(m)) return;
+    const role = String(m[0] || ''), text = String(m[1] || '');
+    const mid = String(m[6] || '');
+    if (role === 'u'){
+      if (cur) rounds.push(cur);
+      cur = {ask: mid, askText: text, replyId: '', type: '空', replyText: ''};
+    } else if (role === 'a' && cur){
+      cur.replyId = mid;
+      cur.replyText = text;
+      /* 返工2：不再看第 8 位（广播 msgs 被截 7 列）——先记「有回复＝残缺」，
+         「完整」由 DID 标记在收尾统一覆盖（见下）。 */
+      cur.type = '残缺';
+    }
+  });
+  if (cur) rounds.push(cur);
+  /* v3.00 返工2：三态定稿——完整＝有回复且命中 DID 标记（帧 d.did／对账「回复类型」）；
+     残缺＝只有 CDP 抓取回复；空＝两问之间无回复。 */
+  rounds.forEach(r => {
+    if (!r.replyId){ r.type = '空'; return; }
+    r.type = (_smDidRep[r.replyId] || _smDidAsk[r.ask]) ? '完整' : '残缺';
+  });
+  const sk = _smSidKey(sid);
+  if (sk){
+    const o = _smLoad();
+    o.sids[sk] = rounds.slice(-SMALL_ROUNDS).map(r => ({
+      ask: r.ask, askText: r.askText || '', replyId: r.replyId || '',
+      /* V1.1 整改 R9：回复正文一并落进小账册（渲染取数要用；≤600 字控体积） */
+      replyText: String(r.replyText || '').slice(0, 600),
+      type: r.type || '空', ts: r.ts || 0
+    }));
+    _smSave();
+  }
+  return rounds.slice(-SMALL_ROUNDS);
+}
+/* V1.1 整改 R9（规范三-2 效果要求）：**渲染取数**——把小账册最近 5 轮转成渲染行。
+   切会话首屏 / 真帧尚未到达时由 消息渲染 取用；取不到返回 []（调用方继续走快照）。
+   行结构与广播 msgs 同构：['u'|'a', 文本, '', 0, 0, '', mid]。 */
+function 小账册渲染取(sid){
+  const out = [];
+  try {
+    (小账册取(sid) || []).forEach(r => {
+      const a = String(r.ask || '');
+      const at = String(r.askText || '');
+      const rid = String(r.replyId || '');
+      const rt = String(r.replyText || '');
+      if (at) out.push(['u', at, '', 0, 0, '', a]);
+      if (rt) out.push(['a', rt, '', 0, 0, '', rid]);
+    });
+  } catch(e){}
+  return out;
+}
+/* 对账上报 5 组：{ask:提问mid, reply:回复id（DID/系统ID/空）}（规范六-2） */
+function 小账册五组(sid){
+  return 小账册取(sid).slice(-SMALL_ROUNDS).map(r => ({
+    ask: String(r.ask || ''), reply: String(r.replyId || '')
+  }));
+}
+function 发对账(){
+  try {
+    if (!S.onLine) return false;
+    const sid = String((typeof curSid === 'function' ? curSid() : '') || '');
+    if (!sid) return false;
+    sendJson({t: '对账', sid: sid, lt: _smSidKey(sid), pairs: 小账册五组(sid)});
+    S.smDsAt = Date.now();
+    return true;
+  } catch(e){ return false; }
+}
+/* v3.00 返工2（规范六-3 真机口径）：A 包 `对账补差` 返回的是**轮次字典**——
+   键：提问mid／回复id／提问文本／回复文本／回复类型／时间（见 TRAE本地账本.py L1818-1924）；
+   兼容旧形状（数组行 / {mid,text,role} / 裸 mid 串）。返回 [行...]（提问行＋回复行）。 */
+function _sm轮次转行(r){
+  if (Array.isArray(r)) return [r];
+  if (typeof r === 'string') return r ? [['u', '', '', 0, 0, '', r]] : [];
+  if (!r || typeof r !== 'object') return [];
+  const askMid = String(r['提问mid'] != null ? r['提问mid'] : (r.mid || ''));
+  const repId = String(r['回复id'] != null ? r['回复id'] : (r.replyId || ''));
+  const askTxt = String(r['提问文本'] != null ? r['提问文本']
+                        : (r.askText != null ? r.askText : (r.text || '')));
+  const repTxt = String(r['回复文本'] != null ? r['回复文本'] : (r.replyText || ''));
+  const repType = String(r['回复类型'] != null ? r['回复类型'] : (r.type || ''));
+  const out = [];
+  if (askMid) out.push(['u', askTxt, '', 0, 0, '', askMid]);
+  if (repId){
+    out.push(['a', repTxt, '', 0, 0, '', repId]);
+    /* 轮次字典「回复类型」明确为 DID 回复 ⇒ 记 DID 标记（供「完整」态） */
+    if (repType && /did|完整/i.test(repType)) 记DID(repId, 'a', '1');
+  }
+  return out;
+}
+/* 收对账差额：只补「缺失」与「版本不一致」，不做全量重灌（规范六-3） */
+function 收对账结果(d){
+  try {
+    const dd = (d && d.v && typeof d.v === 'object') ? d.v : (d || {});
+    const cur = String((typeof curSid === 'function' ? curSid() : '') || '');
+    const rsid = String(dd.sid || (d && d.sid) || (dd['会话sid'] || ''));
+    if (rsid && cur && _smSidKey(rsid) !== _smSidKey(cur)) return 0;
+    const miss = dd['缺失'] || dd.missing || [];
+    const diff = dd['版本不一致'] || dd.conflict || [];
+    const arr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
+    if (!arr) return 0;
+    let added = 0, fixed = 0;
+    (miss || []).forEach(r => {
+      _sm轮次转行(r).forEach(row => {
+        const mid = String(row[6] || '');
+        if (!mid || arr.some(x => x && String(x[6] || '') === mid)) return;
+        arr.push(row); added++;
+      });
+    });
+    (diff || []).forEach(r => {
+      const rows = _sm轮次转行(r);
+      if (!rows.length) return;
+      /* 返工2/3：先处理提问行（缺就先补，保证顺序在回复行之前，小账册才建得成轮）；
+         再处理回复行（有则按 回复id 替换＝版本不一致，无则补齐）；
+         若该轮没回复id，则退而更新提问行。只动这一轮，非全量重灌。 */
+      const askRow = (rows[0] && rows[0][0] === 'u') ? rows[0] : null;
+      const repRow = (rows.length > 1 && rows[rows.length - 1][0] === 'a')
+                     ? rows[rows.length - 1] : null;
+      const askId = askRow ? String(askRow[6] || '') : '';
+      const repId = repRow ? String(repRow[6] || '') : '';
+      const askIdx = askId
+          ? arr.findIndex(x => x && String(x[6] || '') === askId) : -1;
+      const repIdx = repId
+          ? arr.findIndex(x => x && String(x[6] || '') === repId) : -1;
+      if (askId && askIdx < 0){ arr.push(askRow); fixed++; }
+      if (repId){
+        if (repIdx >= 0){ arr[repIdx] = repRow; fixed++; }
+        else { arr.push(repRow); fixed++; }
+      } else if (askId && askIdx >= 0){
+        arr[askIdx] = askRow; fixed++;     /* 无回复id：只更新提问行 */
+      }
+    });
+    if (added || fixed){
+      if (typeof renderAll === 'function') renderAll();
+      小账册灌(cur, arr);
+    }
+    return added + fixed;
+  } catch(e){ return 0; }
+}

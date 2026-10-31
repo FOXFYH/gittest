@@ -340,7 +340,7 @@ function fmtTime(iso){                    // 北京时间 + 完整日期（YYYY-
 function firstLineDid(text){
   const s = String(text == null ? '' : text);
   const head = s.split('\n', 1)[0].trim();
-  return /^\d{14}$/.test(head) ? head : '';
+  return /^\d{14}[A-Z]?$/.test(head) ? head : '';
 }
 /* v2.82／2.99：14 位 DID（YYYYMMDDHHMMSS）→ 与 fmtTime 同格式的北京时间串
    'YYYY-MM-DD HH:MM:SS'（「我自己发的消息」以首行 DID 的时间为准，不用系统时间）。 */
@@ -367,7 +367,7 @@ function didTimeOf(text){
 function stripHeadDid(text){
   let s = String(text == null ? '' : text);
   for (let i = 0; i < 4; i++){
-    const m = /^\s*(\d{14})(?!\d)[ \t]*\n?/.exec(s);
+    const m = /^\s*(\d{14}[A-Z]?)(?!\d)[ \t]*\n?/.exec(s);
     if (!m) break;
     s = s.slice(m[0].length);
   }
@@ -379,7 +379,7 @@ function stripHeadDid(text){
    卡就销不掉）。改取开头 14 位数字（其后须非数字）。 */
 function pendDidOf(text){
   const s = String(text == null ? '' : text).trim();
-  const m = /^(\d{14})(?!\d)/.exec(s);
+  const m = /^(\d{14}[A-Z]?)(?!\d)/.exec(s);
   return m ? m[1] : '';
 }
 function resolveTimes(msgs){

@@ -481,6 +481,12 @@ body.fmsg #msgs{padding-top:22px;}
 .stdot{flex:none; width:8px; height:8px; border-radius:50%;
   display:inline-block; vertical-align:middle;}
 .stdot-run{background:#1a73e8; animation:stdotp 1.1s ease-in-out infinite;}
+/* P1（2026-10-31）：第三态「待确认」——会话挂着等人点确认（TRAE 自带定时器/
+   授权动作）。琥珀 #f5a623 + 呼吸光晕，与 run 蓝 / fail 红 / stop 灰 区分；
+   旧前端没有 stdot-wait 类名，纯新增、零回归。 */
+.stdot-wait{background:#f5a623; animation:stdotw 1.4s ease-in-out infinite;}
+@keyframes stdotw{0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(245,166,35,.45);}
+  50%{opacity:.55; box-shadow:0 0 0 4px rgba(245,166,35,0);}}
 /* v1.49：完成已读=无灯（移除原 done 绿）；完成未读=橙灯 */
 .stdot-uread{background:#f57c00;}
 .stdot-fail{background:#d93025;}
@@ -632,3 +638,25 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   color:var(--blue); cursor:pointer; white-space:nowrap; line-height:1.4;}
 #btn_srvrefresh:active{background:#eef4fb;}
 #btn_srvrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
+
+/* ====== 2.145 包E（V3.00 P4a/P4 2026-10-31）======
+   五-1 服务端全量排队条（只读，无按钮）／七 思维流小卡片／七-3 最终暂存卡 */
+/* 排队条：与旧 .qpanel 同族虚线框，但只展示、不提供增删入口 */
+.qbar{margin:0 0 8px; border:1px dashed #b0bec5; border-radius:10px;
+  background:#fafbfc; padding:6px 8px; display:flex; flex-direction:column;
+  gap:4px;}
+.qbar .qbhead{font-size:11px; color:var(--gray); padding:0 2px;}
+.qbar .qbitem{display:flex; align-items:center; gap:6px; min-width:0;}
+.qbar .qbidx{flex:none; width:18px; text-align:right; font-size:11px;
+  color:var(--gray);}
+.qbar .qbcode{flex:1; min-width:0; font-size:13px; color:#263238;
+  line-height:1.45; word-break:break-all; white-space:normal;}
+/* 思维流小卡片：接在该条 AI 行下方，浅灰虚线、逐张递进 */
+.thinkbox{margin:4px 0 2px 12px; display:flex; flex-direction:column; gap:4px;}
+.thinkcard{border:1px dashed #cfd8dc; border-radius:8px; background:#fafafa;
+  padding:5px 8px;}
+.thinkcard .texp{font-size:11px; color:var(--gray); margin-bottom:2px;}
+.thinkcard .tbody{font-size:13px; color:#455a64; line-height:1.45;
+  word-break:break-word; white-space:pre-wrap;}
+/* 最终暂存卡（账本行到达即移除，不会与正式消息并存） */
+.finalcard .tm{color:var(--green, #2e7d32);}

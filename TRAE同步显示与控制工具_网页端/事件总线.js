@@ -1,6 +1,34 @@
 'use strict';
-/* 事件总线.js（网页端）  版本 2.131  日期 2026-10-24
+/* 事件总线.js（网页端）  版本 2.134  日期 2026-10-31
    【维护记录】
+   2.134  2026-10-31  返工3 两行都缺补整轮：`收对账结果` 的「版本不一致」遇上前端
+                      提问行／回复行都缺时，改为把该轮 `rows` 全量补进（提问行＋回复行），
+                      不再只补回复行（防「有答无问」孤儿行、小账册建不了轮、每轮重复白推）。
+   2.133  2026-10-31  返工1 钩子表 + 返工2 三项修复：
+                      · 返工1（部长裁决）：三处同名 `handleBody` 互相覆盖是 bug ⇒ 改「本文件
+                        （HTML 最后加载）定义唯一总入口 `window.handleBody`，其余登记进
+                        `window.__body钩子` 钩子表」；连接.js 改名 `_连接处理body` 并注册、
+                        消息渲染.js（包 E）注册钩子；单个钩子异常 try/catch 吞掉。
+                      · 返工2-①（六-3 真机口径）：`收对账结果` 认服务端**轮次字典**键
+                        （提问mid／回复id／提问文本／回复文本／回复类型），按 回复id 补差：
+                        缺失补「提问行＋回复行」、版本不一致替换回复行，仍不做全量重灌。
+                      · 返工2-②（三-2 完整态）：广播 msgs 被 WS桥截 7 列，改由**帧字段
+                        `d.did`** 标记 DID 路径（`记DID`）；完整＝有回复且命中 DID 标记。
+                      · 返工2-③（八-2 回执别名）：正式消息回执**双发** `{t:'ack',mid}`
+                        ＋`{t:'msg_ack',mid}`，C 包 `_ack_pending` 与命令路由两家都能停推。
+   2.132  2026-10-31  V3.00 P3/P8 2026-10-31（包 D 网页端数据层；真源＝广播机制整改规范
+                     V1.2 三-2／六／十-3／五-2）：
+                     ① 三-2 前端小账册：`小账册灌()`（快照每拍整段重算，只留最近 5 轮，
+                        三态 完整/残缺/空）＋`记一轮()`；`msg_evt` 到达即记账。
+                     ② 六 对账：登录 / 页面刷新 / 切会话 三场景 `发对账()` 上报 5 组
+                        `(提问mid, 回复id)`；收 `对账_结果` 只补「缺失」「版本不一致」，不全量重灌。
+                     ③ 十-3 非优先端：总入口（`window.handleBody`，2.133 起为唯一入口＋
+                        `__body钩子` 钩子表）按帧顶层 `for_cid` 过滤**过程帧**
+                        （pend_full/思维流/排队条），不匹配本端 MY_ID 直接丢弃；最终消息
+                        `msg_evt` 与快照不受影响 ⇒ 非优先端收发/对账/历史/最终回复照常。
+                     ④ 五-2 全量清空重灌：收 `ev/pend_full` → `清空排队条()`＋`灌排队条()`
+                        完全采用服务端全量（不合并、不自行增删），条目映射 `{t:body,canEdit}`
+                        供包 E 渲染（代号由服务端已算好，前端仍按前10后10 兜底）。
    2.131  2026-10-24  官方排队条「串台」（老板原话：「排队条一定要核实清楚属于
                      哪个会话，不能乱显示，是谁的就显示在谁那边」）：`case 'snap'`
                      收到快照后先按 `pend_sid`（旧服务端回退 `v.selSid`）比当前
@@ -12,6 +40,25 @@
                      WS桥 0.23。2.130→2.131。 */
 function onEv(kind, v){
   switch (kind){
+    case 'pend_full': {                /* v3.00 P5/P8（2.132）：官方排队条全量——
+        服务端「事件触发／60 秒保底／对账应答」三种来源一律是全量。规范五-2：前端
+        先清空本地，再完全采用服务端推送，不合并、不自行增删。服务端已剥 DID 并算好
+        代号；这里映射成包 E 认的条目形状（it.t＝正文 + canEdit），代号仍由 E 兜底算。 */
+      const pv = (v && typeof v === 'object') ? v : {};
+      const sid = String(pv.sid || '');
+      /* 只认当前锚定会话（规范五-1：仅展示当前选中会话的排队条） */
+      if (sid && typeof _paneIsAnchor === 'function' && !_paneIsAnchor(sid, '')
+          && !(typeof curSid === 'function' && sid === String(curSid() || ''))) return;
+      const items = (Array.isArray(pv.items) ? pv.items : []).map(it => ({
+        t: String((it && (it.body != null ? it.body
+                           : (it.t != null ? it.t : (it.text != null ? it.text : ''))) ) || ''),
+        canEdit: !!(it && it.canEdit),
+        code: String((it && it.code) || '')
+      }));
+      if (typeof 清空排队条 === 'function') 清空排队条();
+      if (typeof 灌排队条 === 'function') 灌排队条(items, sid);
+      return;
+    }
     case 'pendlist': {                 /* 1.35：服务端对账结果即时同步——
         撤卡/超时/排队推送不再等下一拍快照（poll=3s 时撤卡滞后 0~3s
         的根因）。服务端 _pend 是权威：列表里没有 = 已确认撤卡；
@@ -117,6 +164,23 @@ function onEv(kind, v){
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
+      /* v3.00 P3/P8（2.132）：① 快照到即重算前端小账册（只留最近 5 轮、三态）；
+         ② 侦测锚定会话变化（＝主动切会话）→ 主动发一次对账（规范六-1 三场景之一）。 */
+      try {
+        const _sidNow = String((typeof curSid === 'function' ? curSid() : '') || '');
+        if (_sidNow && Array.isArray(S.snap.msgs)
+            && typeof 小账册灌 === 'function'){
+          小账册灌(_sidNow, S.snap.msgs);
+        }
+        /* 登录/页面刷新首拍兜底：锚定未就绪时由快照触发一次对账（一次性） */
+        if (!S.smDsAt && typeof 发对账 === 'function') 发对账();
+        const _kNow = String(S.anchorSid || liveKey || '');
+        if (_kNow && S.smAnchor && S.smAnchor !== _kNow
+            && typeof 发对账 === 'function'){
+          发对账();
+        }
+        if (_kNow) S.smAnchor = _kNow;
+      } catch(e){}
       /* 2.131：走到这里的 pend 已确认属于本会话（别人的上面已先剥，锚定冻结
          留用的也是本会话旧帧）⇒ 回写 pend_sid，供 消息渲染.js 2.131 复验。 */
       if (Array.isArray(v.pend) && v.pend.length){
@@ -566,6 +630,97 @@ function onEv(kind, v){
       break;
   }
 }
+
+/* ============ v3.00 P2 规范八-2：事件帧 msg_evt 上屏 + 回执 ============
+   服务端 命令路由._on_snap 为新出现的正式消息推
+   {'t':'ev','k':'msg_evt','sid','mid','role','text','did'}——**字段在帧顶层，不在 v 里**；
+   规范（广播机制整改规范_V1.1 第八章）要求：前端收到即回执 msg_ack，服务端据此停止重推。
+   ⚠ 连接.js 的 handleBody 对 t:'ev' 只转发 `onEv(d.k, d.v)`，顶层 sid/mid 会在转发时丢掉，
+   故此处给 handleBody 包一层：先认领 msg_evt（读顶层字段），其余帧原样交回原实现
+   （事件总线.js 在 连接.js 之后加载，运行时调用的就是本包装函数；分支语义＝原 if/switch 的
+   `t==='ev' && k==='msg_evt'` 那一支）。 */
+function onMsgEvt(d){
+  const mid = String(d.mid || '');
+  /* ① 回执：无论是否上屏都回执（服务端据 _evt_pushed 不再重推）
+     v3.00 返工2（八-2 别名不一致）：**双发** `{t:'ack'}`＋`{t:'msg_ack'}`——
+     C 包 WS桥 `_ack_pending` 只认 `ack`（收到即停 8s×3 重推），命令路由只认 `msg_ack`；
+     两家都收到，前端按 mid 幂等，只多一帧。 */
+  if (mid){
+    try {
+      sendJson({t: 'ack', mid: mid});
+      sendJson({t: 'msg_ack', mid: mid});
+    } catch(e){}
+  }
+  /* v3.00 返工2（三-2「完整」态真机可达）：用帧字段 `d.did` 标 DID 路径，
+     不再依赖广播 msgs 的第 8 位（WS桥 已截 7 列）。 */
+  try {
+    if (d.did && mid && typeof 记DID === 'function'){
+      记DID(mid, String(d.role || ''), d.did);
+    }
+  } catch(e){}
+  /* ② 只认当前锚定/当前会话；不是的 → 只回执、不上屏 */
+  const sid = String(d.sid || '');
+  if (!sid || !_paneIsAnchor(sid, '')) return;
+  /* ③ 切换在途（锁死目标、目标正文未到）：此刻 S.snap 正文仍属旧会话，一行也不加 */
+  if (S.switch_pend && S.switch_pend.lockTarget && !S.switch_pend.arrived) return;
+  const role = String(d.role || '');
+  const text = String(d.text || '');
+  if (!mid || !role || !text) return;
+  const arr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
+  if (!arr) return;
+  /* ④ 去重：快照里已有同 mid 的行（事件与快照同源，常见）就不再插 */
+  if (arr.some(m => m && String(m[6] || '') === mid)) return;
+  /* ⑤ 复用现成渲染链路（同 snap_pane 分支）：按服务端行格式
+     [角色,正文,DOM时间,可回退,可删除,盖章时间,mid] 追加进 S.snap.msgs，再由
+     renderAll（→ curMsgs → orderMsgs 按 mid 全序 → renderMsgs）上屏；
+     行内时间留空，显示时间由 _midTime(mid) 解出，不在本地打戳。 */
+  arr.push([role, text, '', 0, 0, '', mid]);
+  /* v3.00 P3（2.132）：正式消息入账 → 前端小账册同步重算（只留最近 5 轮） */
+  try {
+    if (sid && typeof 小账册灌 === 'function') 小账册灌(sid, arr);
+  } catch(e){}
+  renderAll();
+}
+(function(){
+  /* v3.00（2026-10-31 部长裁决）：本文件在 HTML 里**最后加载**（L300），故 handleBody
+     定为**唯一总入口**——不再 `_hb0` 链式覆盖（消息渲染.js:784／连接.js:312／本文件:667
+     三处同名互相覆盖＝真 bug，后加载者赢、前面的整段被丢）：
+       ① 先跑事件总线自己的逻辑（srv 源头闸、对账_结果、for_cid 过程帧过滤、msg_evt）；
+       ② 其余一律交钩子表 `window.__body钩子`（连接.js 的正文处理、包 E 的帧钩子…），
+          逐个调用、**单个钩子异常 try/catch 吞掉**，绝不让一个钩子挂掉整条链路。 */
+  const _PROC_KINDS = {'pend_full': 1, 'pend_all': 1, '排队条': 1,
+                       '排队条对账_结果': 1, '思维流': 1, 'think': 1,
+                       'think_card': 1};
+  function _procDrop(d){
+    if (!d || d.t !== 'ev') return false;
+    if (!d.for_cid) return false;          /* 无定向标记＝公共帧，照收 */
+    if (String(d.for_cid) === String(MY_ID)) return false;
+    return !!_PROC_KINDS[String(d.k || '')];
+  }
+  function _body总入口(body){
+    let d = null;
+    try { d = JSON.parse(body); } catch(e){}
+    if (d && typeof d === 'object'){
+      /* 与连接.js 同两道闸：无源头名丢弃 / 非当前操控服务端忽略 */
+      if (!d.srv) return;
+      regSrv(d.srv, d);
+      if (d.srv !== S.cur) return;
+      if (d.t === '对账_结果'){
+        try { if (typeof 收对账结果 === 'function') 收对账结果(d); } catch(e){}
+        return;
+      }
+      if (d.t === 'ev'){
+        if (_procDrop(d)) return;          /* 十-3：非优先端不收过程帧 */
+        if (d.k === 'msg_evt'){ onMsgEvt(d); return; }
+      }
+    }
+    const hooks = window.__body钩子 || [];
+    for (let i = 0; i < hooks.length; i++){
+      try { hooks[i](body); } catch(e){}
+    }
+  }
+  window.handleBody = _body总入口;
+})();
 
 /* ============ 2.90（老板夜间令 B10／C7）：接服务端「四步提醒」回执 t:'rcpt' ============
    协议（单通道 + stage）：{"t":"rcpt","id":<网页端动作id>,"cmd":<命令名>,

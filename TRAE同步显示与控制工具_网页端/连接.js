@@ -2,9 +2,11 @@
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
-    const vm = APP_NAME + ' v' + VER;
-    const vd = 'v' + VER;
-    document.title = APP_NAME + ' v' + VER + tag;   /* 地址栏/标签标题带版本号 */
+    /* V3.00：VER 可能自带前导 V（如 'V3.00'），不再无条件拼 'v'，避免出现 vV3.00 */
+    const 版 = /^v/i.test(String(VER)) ? String(VER) : ('v' + VER);
+    const vm = APP_NAME + ' ' + 版;
+    const vd = 版;
+    document.title = APP_NAME + ' ' + 版 + tag;   /* 地址栏/标签标题带版本号 */
     if (el.lbl_title) el.lbl_title.textContent = vm;
     if (el.lbl_ver) el.lbl_ver.textContent = vd;
   }catch(e){ /* 版本渲染绝不影响连接 */ }
@@ -158,6 +160,10 @@ function cliLogin(reason){
   S.idbFirstFull = 1;
   S.anchor_reask = 1;
   sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
+  /* v3.00 P3（2.132·规范六-1）：登录/页面刷新即主动对账——上报本地小账册 5 组
+     (提问mid, 回复id)，服务端只回差额。首次登录锚定会话可能尚未就绪，
+     快照到达后 事件总线 会再补发一次（S.smDsAt 去重）。 */
+  try { if (typeof 发对账 === 'function' && curSid()) 发对账(); } catch(e){}
   lastBeatOk = Date.now();
   clearInterval(hbTimer);
   hbTimer = setInterval(cliBeat, HB_SEC * 1000);
@@ -305,7 +311,10 @@ function deliverFox(r){
   handleBody(body);
 }
 
-function handleBody(body){
+/* v3.00（2026-10-31 部长裁决）：原名 `handleBody` 与 消息渲染.js／事件总线.js 三处同名
+   互相覆盖（后加载者赢、前面的整段被丢）。现改名 `_连接处理body`，**不再抢注全局
+   handleBody**，改为注册进 `window.__body钩子`，由最后加载的 事件总线.js 统一调度。 */
+function _连接处理body(body){
   let d;
   try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
@@ -353,3 +362,10 @@ function handleBody(body){
 /* v1.84：名册落盘——网页端只认「电脑名称」（随机 ID/sid 只在后台识别用，
    界面一律不显示）。名称＋最后出现时间存 LS_SRVS，刷新/重开页面立即恢复
    清单（离线的也留一行 ○）；超 SRV_TTL(7 天) 未再出现的名称自动清理。 */
+
+/* v3.00（2026-10-31 部长裁决·钩子表）：本文件的正文处理注册为「钩子」，
+   统一由最后加载的 事件总线.js 调度（它先跑自己的 srv 闸/对账/for_cid/msg_evt，
+   末了遍历钩子逐个调用、单钩子异常吞掉）。若某部署缺 事件总线.js，则用本单位兜底。 */
+window.__body钩子 = window.__body钩子 || [];
+window.__body钩子.push(_连接处理body);
+if (!window.handleBody) window.handleBody = _连接处理body;

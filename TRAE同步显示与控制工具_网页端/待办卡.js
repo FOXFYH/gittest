@@ -1,4 +1,8 @@
 'use strict';
+/* 待办卡.js（网页端）  2.145  V3.00 P4a/P4 2026-10-31（包E·网页端 UI 层）
+   四-1 发送占位卡：点发送立刻挂卡（挂发送占位卡）→ 服务端「已入账」才撤卡
+   （撤发送占位卡 / 转正式消息）→ 正式行由账本/快照渲染，前端不伪造消息行。
+   旧的 DID 三渠道销卡（pendClearByDid / 快照自扫）保留兜底，二者互不冲突。 */
 function pendSig(){
   return S.pending.map(p => p.id + ':' + p.state).join(',');
 }
@@ -36,6 +40,47 @@ function pendAdd(kind, text){
              convSid: curSid()};
   S.pending.push(p);
   return p;
+}
+/* ====== 2.145 四-1：发送占位卡三件套（包E·V3.00 P4a/P4 2026-10-31）======
+   挂：点发送立刻挂卡（沿用 S.pending 体系渲染，不另起第二套卡片）；
+   撤：服务端「已入账」到达才撤卡（tempId / id 精确匹配，不按文本猜）；
+   转：正式消息由账本行渲染——本函数只做「撤同 mid 占位 + 归属登记」，
+       绝不在前端伪造消息行。 */
+/* 2.145：派工单 ① 写作「挂发送占位卡(tempId)」——本函数返回 tempId（卡片 id）；
+   若调用方自带 tempId（第二参数），就沿用它（同一 id 已在册则拒绝，防重复挂卡）。 */
+function 挂发送占位卡(text, tempId){
+  if (!text) return null;
+  if (tempId != null && Array.isArray(S.pending)
+      && S.pending.some(p => p && String(p.id) === String(tempId))) return null;
+  const p = _pe挂卡(text);
+  if (!p) return null;
+  if (tempId != null){ p.id = tempId; renderAll(); }
+  return p.id;
+}
+/* 内部：建卡并返回卡片对象（对外只暴露 id） */
+function _pe挂卡(text){
+  const p = pendAdd('send', text);
+  if (!p) return null;
+  p.state = 'sending';
+  renderAll();
+  return p;
+}
+function 撤发送占位卡(tempId){
+  if (tempId == null || !Array.isArray(S.pending)) return false;
+  const n = S.pending.length;
+  S.pending = S.pending.filter(p => !(p && String(p.id) === String(tempId)));
+  if (S.pending.length === n) return false;
+  renderAll();
+  return true;
+}
+function 转正式消息(mid, text){
+  mid = String(mid || '');
+  if (!mid || !Array.isArray(S.pending)) return false;
+  const n = S.pending.length;
+  S.pending = S.pending.filter(p => !(p && p.mid && String(p.mid) === mid));
+  const changed = S.pending.length !== n;
+  if (changed) renderAll();
+  return changed;
 }
 /* v2.84：占位卡展示/复制/改写用的【纯正文】——优先取建卡时剥好的 body 字段，
    老卡（IDB 恢复等无 body）现场剥首行 DID 兜底。 */

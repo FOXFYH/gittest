@@ -212,7 +212,7 @@ function stripFoxMarks(txt){
 /* 2.138（老板 2026-10-26 23:23）：DID＝人类原话锚点——只有首行 14 位 DID 的才是我亲手发的
    消息；取回只认这一种，且必须还原成纯原话（去 DID/时间/方括号系统前缀/前后缀）。 */
 function hasUserDid(txt){
-  return /^\s*\d{14}(?!\d)/.test(String(txt == null ? '' : txt));
+  return /^\s*\d{14}[A-Z]?(?!\d)/.test(String(txt == null ? '' : txt));
 }
 /* 剥系统注入外壳：开头时间行、首行【邮箱·到件】/【派工单提醒】/【监工…】方括号前缀、
    末尾「请打开『邮箱』分页查看。」 */
