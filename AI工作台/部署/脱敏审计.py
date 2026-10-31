@@ -85,7 +85,7 @@ _盘符 = "cdef"
     ("邮箱", re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "邮箱地址"),
     ("手机号", re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "手机号"),
     ("令牌", re.compile(
-        r"(?:token|api_key|apikey|secret|password|令牌)\s*[=:：]\s*[\"']?([A-Za-z0-9_\-\.]{16,})",
+        r"(?:token|api_key|apikey|secret|password|令牌)[\"']?\s*[=:：]\s*[\"']?([A-Za-z0-9_\-\.]{16,})",
         re.IGNORECASE), "疑似真令牌"),
     # 频道号＝凭据，只许活在 配置.json（不进仓库）。字面量拆开写，免得审到自己。
     ("频道号", re.compile("fox" + "ai" + "job" + "|" + "31415926" + "fF",
@@ -133,7 +133,24 @@ def 是已知可接受(相对路径, 规则名, 片段, 整行):
         return False
     if 规则名 != "本机路径":
         return False
-    return (_痕迹 in 片段) and ("总管面板" in 整行)
+    return (_痕迹 in 片段) and ("AI工作台" in 整行 or "总管面板" in 整行)
+
+
+def 是页面豁免(相对路径, 规则名, 片段):
+    """网页端主页面放行两类「半公开」常量（与任务面板同一做法）：
+         · 频道前缀（用户要能在占位提示里看到）
+         · PieSocket api_key（客户端连 WS 必须有，内置常量）
+       但真口令那半截（与频道前缀拼起来才是完整频道）任何文件都不许出现。
+    """
+    p = 相对路径.replace("\\", "/").lower()
+    if not p.endswith(("网页端源文件/" + "ai" + "工作台.html").lower()):
+        return False
+    if 规则名 == "令牌":
+        return True
+    if 规则名 == "频道号":
+        低 = 片段.lower()
+        return ("fox" + "ai" + "job") in 低 and ("31415926" not in 低)
+    return False
 
 
 def 是内部文档(文件名):
@@ -220,6 +237,8 @@ def 审计(起点=None, 仅待上传=False):
                     if not 片段:
                         continue
                     if 是已知可接受(相, 规则名, 片段, 行):
+                        continue
+                    if 是页面豁免(相, 规则名, 片段):
                         continue
                     命中.append({
                         "文件": 相, "行": 号, "规则": 规则名,

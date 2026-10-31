@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AI 工作台</title>
-<meta name="app-version" content="0.4.1">
+<meta name="app-version" content="0.5.22">
 <style>
   :root{
     --bg:#eef1f5; --card:#fff; --ink:#111827; --dim:#6b7280; --line:#e3e6ea;
@@ -40,10 +40,26 @@
   .wrap{position:relative;display:inline-block}
   .wrap .cmd{text-align:center}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin:8px 0}
-  .kpi{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
   .kpi b{display:block;font-size:10px;color:var(--dim);font-weight:400;margin-bottom:4px}
   .kpi span{font-size:19px;font-weight:700}
-  .panel{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;
+    box-shadow:0 1px 3px rgba(16,24,40,.05)}
+  /* ---- 填写区框体（老板 2026-10-27：各填写位置必须给足框） ---- */
+  main input:not([type=checkbox]):not([type=radio]), main select, main textarea,
+  .抽屉 input, .抽屉 select{
+    border:1px solid #cfd6e0 !important;border-radius:8px !important;
+    padding:8px 10px !important;background:#fff !important;font-size:12.5px;color:var(--ink);
+    font-family:inherit;box-shadow:inset 0 1px 2px rgba(16,24,40,.04);outline:none;
+    transition:border-color .15s,box-shadow .15s;
+  }
+  main textarea{min-height:92px;line-height:1.6;resize:vertical}
+  main input:focus, main select:focus, main textarea:focus,
+  .抽屉 input:focus, .抽屉 select:focus{
+    border-color:#7aa7ec !important;box-shadow:0 0 0 3px rgba(37,99,235,.12) !important;
+  }
+  main section>.条:first-child{border-bottom:1px solid #edf0f5;padding-bottom:8px;margin-bottom:8px}
+  #派工收件人{border-radius:8px !important;border-color:#cfd6e0 !important;background:#fcfdff}
   table{width:100%;border-collapse:collapse;font-size:12px}
   th,td{border-bottom:1px solid var(--line);padding:6px;text-align:left;vertical-align:top}
   th{background:#f9fafb;color:var(--dim);font-weight:400;position:sticky;top:0}
@@ -51,18 +67,47 @@
   tr.黄 td:first-child{border-left:3px solid var(--黄)}
   tr.绿 td:first-child{border-left:3px solid var(--绿)}
   tr.灰 td:first-child{border-left:3px solid var(--灰)}
-  .泳道{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;align-items:flex-start}
-  .lane{min-width:230px;flex:1 0 230px;background:transparent}
-  .lane h3{font-size:12px;margin:0 0 6px;color:var(--dim);font-weight:600}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:6px;margin-bottom:8px;
-    overflow:hidden;cursor:pointer}
-  .card:hover{border-color:#93c5fd}
-  .card .bar{height:3px}
-  .card .in{padding:7px 9px}
-  .card .t{font-size:12.5px;line-height:1.35;max-height:2.8em;overflow:hidden;display:block}
-  .card .m{font-size:10px;color:var(--dim);margin-top:4px}
-  .card .id{font-family:Consolas,monospace;font-size:11px;font-weight:700}
-  .抽屉{position:fixed;right:0;top:0;bottom:0;width:360px;max-width:92vw;background:#fff;
+  .泳道{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:flex-start}
+  /* P3 B2：平铺固定 3 列（桌面），窄屏 1 列；折叠树与续行 */
+  .平铺格{grid-template-columns:repeat(3,1fr)}
+  @media (max-width:760px){.平铺格{grid-template-columns:1fr}}
+  #折叠树 .折项{background:#f4f6fa;border:1px solid #e3e7ee;border-radius:10px;margin-bottom:8px}
+  #折叠树 .折头{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;
+    color:#41506b;padding:8px 10px;cursor:pointer;user-select:none}
+  #折叠树 .折头 .箭{width:12px;color:#7a879c}
+  #折叠树 .折头 b{margin-left:auto;font-size:11px;font-weight:700;color:#fff;background:#9aa7bd;
+    border-radius:9px;padding:1px 7px}
+  #折叠树 .折体{padding:0 8px 8px}
+  #折叠树 .续行{font-size:11.5px;color:#64748b;background:#eef2f7;border-radius:8px;
+    padding:5px 9px;margin:4px 0;cursor:default}
+  #折叠树 .卡窝{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  @media (max-width:760px){#折叠树 .卡窝{grid-template-columns:1fr}}
+  #分页器 .页码{font-size:12px;color:#41506b}
+  .lane{min-width:230px;flex:1 0 230px;background:#f4f6fa;border:1px solid #e3e7ee;
+    border-radius:12px;padding:8px 8px 10px}
+  .lane h3{display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 8px;
+    color:#41506b;font-weight:700;padding:1px 3px 8px;border-bottom:1px solid #e3e7ee}
+  .lane h3 i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 8px}
+  .lane h3 b{margin-left:auto;font-size:11px;font-weight:700;color:#fff;background:#9aa7bd;
+    border-radius:9px;padding:1px 7px}
+  .card{background:var(--card);border:1px solid #d7dde7;border-radius:10px;margin-bottom:10px;
+    overflow:hidden;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.06);
+    transition:box-shadow .15s,border-color .15s}
+  .card:last-child{margin-bottom:0}
+  .card:hover{border-color:#a8c3ee;box-shadow:0 4px 12px rgba(43,95,176,.14)}
+  .card .bar{height:4px}
+  .card .in{padding:9px 11px 10px}
+  .card .hd{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+  .chip{font-size:10px;border-radius:8px;padding:1px 7px;font-weight:700;white-space:nowrap}
+  .card .t{font-size:13.5px;font-weight:600;line-height:1.4;color:#1c2430;max-height:2.9em;
+    overflow:hidden;display:block}
+  .card .meta{margin-top:8px;background:#f7f9fc;border:1px solid #edf0f5;border-radius:8px;padding:5px 8px}
+  .card .m{display:flex;font-size:11px;color:#66748c;line-height:1.65}
+  .card .m em{font-style:normal;color:#99a4b5;flex:0 0 52px}
+  .card .m span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card .id{font-family:Consolas,monospace;font-size:11.5px;font-weight:700;color:#2b5fb0}
+  .抽屉{position:fixed;right:0;left:auto;top:0;bottom:0;width:min(360px,100vw);max-width:100vw;
+    box-sizing:border-box;background:#fff;
     border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,.12);padding:14px;
     overflow-y:auto;transform:translateX(105%);transition:transform .18s;z-index:40}
   .抽屉.on{transform:none}
@@ -74,6 +119,18 @@
   .mini.o{background:var(--蓝);color:#fff}
   .hist,.evi{background:#f9fafb;border-radius:4px;padding:6px;font-size:10.5px;color:#374151;
     white-space:pre-wrap;max-height:130px;overflow:auto;font-family:Consolas,monospace}
+  /* ---- P10 查派工单 ---- */
+  .筛{padding:5px 8px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:130px;
+    background:#fff;color:var(--ink);font-family:inherit}
+  .单卡{background:var(--card);border:1px solid #d7dde7;border-radius:10px;margin-bottom:10px;
+    overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .单头{padding:9px 11px;cursor:pointer;background:#fff;transition:background .15s}
+  .单头:hover{background:#f7f9fc}
+  .单一{font-size:13px;line-height:1.4}
+  .单卡 .id{font-family:Consolas,monospace;font-size:12px;font-weight:700;color:#2b5fb0}
+  .单二{font-size:11px;color:#66748c;margin-top:5px;line-height:1.55}
+  .单文{display:none;border-top:1px solid #edf0f5;padding:9px 11px;background:#fcfdff}
+  .单卡.开 .单文{display:block}
   .mask{position:fixed;inset:0;background:rgba(17,24,39,.45);display:none;z-index:35}
   .mask.on{display:block}
   .modal{position:fixed;left:50%;top:14%;transform:translateX(-50%);background:#fff;border-radius:8px;
@@ -156,8 +213,8 @@
     nav{top:64px}
     nav button{padding:9px 10px;font-size:12px}
     main{padding:8px}
-    .泳道{flex-direction:row;overflow-x:auto;-webkit-overflow-scrolling:touch}
-    .lane{min-width:78vw;flex:0 0 78vw}
+    .泳道{flex-direction:column;gap:10px;overflow:visible}
+    .lane{min-width:0;width:100%;flex:none}
     table{font-size:11px}
     th,td{padding:4px}
     .抽屉{width:100%;max-width:100%}
@@ -181,6 +238,10 @@
     <input id="频道输入" autocomplete="off" spellcheck="false"
            placeholder="输入频道号（末尾带 @，前面的 foxaijob 自动补上）">
     <div class="tip">频道号同时也是密码；请向老板获取，此页不再显示口令</div>
+    <label for="账号输入">终身号（可留空）</label>
+    <input id="账号输入" autocomplete="off" spellcheck="false"
+           placeholder="终身号（4 位数字，如 1111），留空即可直接进入">
+    <div class="tip">留空=所有人共用一个空间；要各看各的必须填</div>
     <div class="msg" id="登录提示"></div>
     <button class="btn 进入" id="登录按钮" onclick="登录()">进入</button>
     <div class="foot">口令只防误入；真正的闸在本机 Py 端校验同一条串。</div>
@@ -196,6 +257,7 @@
   <button class="mini" onclick="清除登录()" style="background:#7f1d1d;color:#fff;border:0;border-radius:4px;padding:4px 8px;cursor:pointer">退出登录</button>
   <div class="srv" id="srvPh">WS 未连 —— 点任意按钮会提示「WS 连接中」，命令不会发出</div>
 </header>
+<div id="结果条" style="display:none;margin:8px 10px 0;padding:8px 12px;border-radius:8px;font-size:12.5px;white-space:pre-wrap"></div>
 
 <nav id="页签">
   <button data-p="p1" class="on">TRAE</button>
@@ -203,7 +265,8 @@
   <button data-p="p3">任务</button>
   <button data-p="p4">原话</button>
   <button data-p="p5">手册</button>
-  <button data-p="p9">派工</button>
+  <button data-p="p9">写派工单</button>
+  <button data-p="p10">查派工单</button>
 </nav>
 
 <main>
@@ -235,11 +298,23 @@
     <div class="banner" id="员工横幅" style="display:none"></div>
     <div class="panel" style="padding:0;overflow:auto">
       <table id="员工表">
-        <thead><tr><th>终身号</th><th>会话名</th><th>灯</th><th>状态时长</th>
+        <thead><tr><th>终身号</th><th>会话名</th><th>软件类型</th><th class="hide-m">所属设备</th><th>在线状态</th><th>状态时长</th>
           <th>系统排队</th><th class="hide-m">今日消息</th><th>名下任务（名称/状态/时间）</th><th>操作</th></tr></thead>
-        <tr><td colspan="8" class="小字" style="background:#fff7ed;color:#92400e">TRAE 排队条可能滞后；点「查」为实时结果，以主动查询为准</td></tr>
+        <tr><td colspan="10" class="小字" style="background:#fff7ed;color:#92400e">TRAE 排队条可能滞后；点「查」为实时结果，以主动查询为准</td></tr>
         <tbody></tbody>
       </table>
+    </div>
+    <div class="panel" style="margin-top:8px">
+      <div class="条"><b>我的员工</b><span class="小字">派工只能派给这里的人（当前账号+当前端点）</span>
+        <button class="mini" onclick="拉我的员工()">刷新</button></div>
+      <div class="条">
+        <input id="我的名" placeholder="会话名" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:160px">
+        <select id="我的软件" style="padding:5px;border:1px solid var(--line);border-radius:5px;font-size:12px">
+          <option>WorkBuddy</option><option>TRIE</option></select>
+        <input id="我的电脑" placeholder="所属电脑（默认当前端点）" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:180px">
+        <button class="mini p" onclick="加我的员工()">＋加入</button>
+      </div>
+      <div class="evi" id="我的员工列表" style="white-space:pre-wrap">（还没载入，点「刷新」）</div>
     </div>
   </section>
 
@@ -248,6 +323,18 @@
     <div class="条">
       <div class="wrap"><button class="btn" onclick="弹建卡()">＋ 新任务</button><span class="cmd">任务.建卡</span></div>
       <span class="小字" id="任务汇总">未完成 0 / 已完成 0</span>
+      <span class="小字" id="卡源提示">卡片源：任务.列表（当前账号空间）</span>
+      <div class="wrap"><button class="mini" onclick="拉卡(true)">刷新卡片</button><span class="cmd">任务.列表</span></div>
+    </div>
+    <div class="条">
+      <span class="小字">预览：</span>
+      <select id="预览模式" onchange="切视图(this.value)">
+        <option value="平铺">平铺</option><option value="折叠">折叠</option><option value="泳道">泳道（旧）</option>
+      </select>
+      <span class="小字">排序：</span>
+      <select id="卡排序" onchange="切排序(this.value)">
+        <option value="最近">最近（默认）</option><option value="正序">正序</option><option value="倒序">倒序</option>
+      </select>
     </div>
     <div class="条">
       <span class="小字">分组：</span>
@@ -263,7 +350,10 @@
       <div class="wrap"><button class="mini" onclick="改名分组()">改名</button><span class="cmd">分组.改名</span></div>
       <div class="wrap"><button class="mini o" onclick="删分组()">删组</button><span class="cmd">分组.删除</span></div>
     </div>
+    <div id="平铺" class="grid 平铺格" style="display:none"></div>
+    <div id="折叠树" style="display:none"></div>
     <div class="泳道" id="泳道"></div>
+    <div class="条" id="分页器"></div>
   </section>
 
   <!-- ================= P4 ================= -->
@@ -311,15 +401,16 @@
     </div>
   </section>
 
-  <!-- ================= P9 快速派工单 ================= -->
+  <!-- ================= P9 写派工单（原快速派工单） ================= -->
   <section id="p9">
     <div class="条">
-      <b>快速派工单</b>
-      <span class="小字">收件人＝P2 同一份员工名册（可多选）；「复制」后自己粘贴，「一键发送」逐个投到 TRAE 会话</span>
+      <b>写派工单</b>
+      <span class="小字">收件人＝P2 同一份员工名册（可多选）；建单后到「查派工单」看全量列表与留言板</span>
     </div>
     <div class="panel">
       <div class="条"><span class="小字">来源任务卡卡号：</span>
         <input id="派工卡号" placeholder="T0001" style="padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12px;width:110px">
+        <button class="mini" onclick="选开单卡()">选卡</button>
         <span class="小字">（从任务卡点「派工」会自动预填）</span></div>
       <div class="小字" style="margin-top:8px">常用叮嘱（点胶囊加到下方）</div>
       <div id="叮嘱胶囊" style="margin-top:4px"></div>
@@ -328,7 +419,6 @@
       <div class="小字" style="margin-top:8px">收件人（多选）</div>
       <div id="派工收件人" style="max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:5px;padding:6px;margin-top:4px"></div>
       <div class="小字" style="margin-top:10px">派工正文</div>
-      <div class="小字" style="margin-top:6px">派工正文</div>
       <textarea id="派工正文" placeholder="在这里写派工内容；第一行会作为任务卡标题"
         style="width:100%;height:150px;margin-top:4px;padding:8px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:inherit"></textarea>
       <div class="小字" style="margin-top:6px">验收标准（必填）</div>
@@ -342,8 +432,59 @@
       </div>
       <div class="evi" id="派工结果" style="white-space:pre-wrap">（还没发送）</div>
     </div>
+    <div class="panel" style="margin-top:8px">
+      <div class="条"><span class="小字">单据操作（写）：</span>
+        <input id="操作单号" class="筛" style="flex:1;min-width:120px" placeholder="单号 G0001"></div>
+      <div class="条">
+        <button class="mini g" onclick="单据操作('发送')">发送</button>
+        <button class="mini" onclick="单据操作('留言')">留言</button>
+        <button class="mini" onclick="单据操作('交稿')">交稿</button>
+        <button class="mini o" onclick="单据操作('验收')">验收</button>
+        <button class="mini d" onclick="单据操作('提醒')">一键提醒</button>
+      </div>
+      <div class="小字">发送 / 留言 / 交稿 / 验收 / 提醒 都按上面的单号执行；结果到「查派工单」刷新可见</div>
+    </div>
   </section>
 
+  <!-- ================= P10 查派工单（全量管理视图） ================= -->
+  <section id="p10">
+    <div class="条">
+      <div class="wrap"><button class="btn" onclick="拉查派工单()">刷新</button><span class="cmd">派工单.列表</span></div>
+      <span class="小字" id="查单计数">全量派工单</span>
+    </div>
+    <div class="条" id="派工页签">
+      <button class="mini" id="派工发出" onclick="切派工角色('发出')">我发出的</button>
+      <button class="mini" id="派工收到" onclick="切派工角色('收到')">我收到的</button>
+      <span class="小字">五态按需求原词显示（待接单/已接单/已回复/已阅读/已闭环）</span>
+    </div>
+    <div class="panel" style="margin-bottom:8px">
+      <div class="条">
+        <input id="筛单号" class="筛" placeholder="单号 G0001" oninput="画查列表()">
+        <input id="筛来源卡" class="筛" placeholder="来源卡 T0001" oninput="画查列表()">
+        <input id="筛收件人" class="筛" placeholder="收件人" oninput="画查列表()">
+        <select id="筛状态" class="筛" onchange="画查列表()"><option value="">全部状态</option></select>
+      </div>
+    </div>
+    <div id="查单列表"><div class="panel"><div class="小字">点上方「刷新」载入全量派工单</div></div></div>
+    <div class="panel" id="收单操作" style="display:none;margin-top:8px">
+      <div class="条"><span class="小字">接单/交稿/留言（只对本单）</span>
+        <input id="收单单号" class="筛" placeholder="单号 G0001" style="flex:1;min-width:120px"></div>
+      <div class="条">
+        <button class="mini g" onclick="收单操作('接单')">已接单</button>
+        <button class="mini" onclick="收单操作('交稿')">提交交付</button>
+        <button class="mini p" onclick="收单操作('留言')">追加留言</button>
+      </div>
+      <div class="小字">交稿要先接单；完成程度五选一（已完成/部分完成/申请延期/无法执行/需求待确认）</div>
+    </div>
+    <div class="panel" id="派工令牌" style="margin-top:8px">
+      <div class="小字">免登录链接（登录态专用；明文只显示这一次，7 天有效）</div>
+      <div class="条"><input id="令牌单号" class="筛" placeholder="单号 G0001" style="flex:1;min-width:120px">
+        <button class="mini g" onclick="令牌操作('生成')">生成令牌</button>
+        <button class="mini" onclick="复制令牌()">复制链接</button>
+        <button class="mini o" onclick="令牌操作('作废')">作废令牌</button></div>
+      <div class="evi" id="令牌结果" style="white-space:pre-wrap">（还没生成）</div>
+    </div>
+  </section>
 
 </main>
 
@@ -360,12 +501,19 @@
 <script>
 /* ===== 网页端声明支持的命令：唯一一份，按钮绑的就是它。系统.对齐自检 会来比对 ===== */
 const 命令列表 = [
+  "账号.注册", "账号.登录", "账号.列表", "账号.改密", "账号.删除",
+  "标签.项目列表", "标签.模块列表", "标签.动作列表", "标签.新增", "标签.改名",
+  "标签.删除", "标签.同步预设", "标签.引用", "任务.换标签", "标签.数据位置", "标签.同步路径",
   "trae.状态", "trae.重采集",
   "员工.列表", "员工.排队", "员工.排队查询", "员工.催办",
+  "员工.我的列表", "员工.我的新增", "员工.我的删除",
+  "异常.列表", "异常.统计", "异常.标已处理",
+  "提醒.状态", "提醒.设忙闲", "提醒.标已推",
   "任务.列表", "任务.建卡", "任务.改状态", "任务.换负责人", "任务.加备注", "任务.归档", "任务.删卡",
   "任务.关联原话", "任务.补来源原话", "任务.换分组",
   "叮嘱.列表", "任务.改详情", "派工单.新建", "派工单.列表", "派工单.发送", "派工单.留言",
   "派工单.交稿", "派工单.验收", "派工单.提醒",
+  "派工单.投递", "派工单.接单", "派工单.已读", "派工单.闭环", "派工单.作废", "派工单.令牌",
   "分组.列表", "分组.新建", "分组.改名", "分组.删除",
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.新建手动", "原话.统计",
   "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
@@ -374,14 +522,15 @@ const 命令列表 = [
 ];
 
 /* ===== 频道常量：与 公共.py 的 外连/版本号 恒等；系统.自检 会逐字比对，漂了就 FAIL ===== */
-const H5_VER  = "0.5.18";
+const H5_VER  = "0.5.22";
 const H5_前缀 = "foxaijob";
 const H5_KEY  = "ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug";
 const H5_主机 = "wss://free.blr2.piesocket.com/v3/";
 const H5_名   = "AI工作台";
 const 存键    = "AI工作台.频道";
+const 账号存键 = "AI工作台.账号";   /* P1-B-1：sessionStorage 每标签各存各的，刷新不丢 */
 
-let 设置 = { 地址: "", 频道: "", 本机: false };
+let 设置 = { 地址: "", 频道: "", 账号: "", 本机: false };
 let 频道 = "";
 let WS = null;
 let WS已连 = false;
@@ -402,6 +551,10 @@ function 读设置(){
   设置.本机 = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/.test(location.origin) ||
              /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/.test(设置.地址);
   try{ 设置.频道 = localStorage.getItem(存键) || ""; }catch(e){ 设置.频道 = ""; }
+  /* P1-B-1：终身号用 sessionStorage（localStorage 按域名共享，两标签会互相覆盖账号） */
+  try{ 设置.账号 = sessionStorage.getItem(账号存键) || ""; }catch(e){ 设置.账号 = ""; }
+  const 号框 = document.getElementById("账号输入");
+  if(号框 && 设置.账号) 号框.value = 设置.账号;
 }
 function 头(){
   const h = {"Content-Type":"application/json"};
@@ -424,7 +577,7 @@ function 登录(){
   if(原.indexOf(H5_前缀) === 0) 原 = 原.slice(H5_前缀.length);
   if(/29fF@$/.test(原)){
     原 = 原.replace(/29fF@$/, "26fF@");
-    登录提示("黄", "已把 29 自动纠正为 26（正确尾巴是 31415926fF@）");
+    登录提示("黄", "已把 29 自动纠正为 26（正确尾巴向老板获取）");
   }
   if(!/^[0-9A-Za-z_-]+@$/.test(原)){
     登录提示("红", "只输频道号那一段（别带空格）");
@@ -483,6 +636,9 @@ function 进主界面(){
   已进 = true;
   try{ localStorage.setItem(存键, 频道); }catch(e){}
   设置.频道 = 频道;
+  const 号框 = document.getElementById("账号输入");
+  if(号框) 设置.账号 = (号框.value || "").trim();
+  try{ sessionStorage.setItem(账号存键, 设置.账号); }catch(e){}
   登录提示("绿", "已进入");
   document.getElementById("登录").classList.add("off");
   const 当 = document.getElementById("当前频道");
@@ -494,11 +650,19 @@ function 进主界面(){
   连状态("频道已连", false);
   上次ts = 0;
   拉状态(true);
+  拉卡(true);          /* P3：卡片区按当前账号从 任务.列表 拉，不再读 状态.json */
   拉手册目录();
 }
 
 function 清除登录(){
   try{ localStorage.removeItem(存键); }catch(e){}
+  try{ sessionStorage.removeItem(账号存键); }catch(e){}
+  设置.账号 = ""; 设置.频道 = "";
+  /* P3：退出后不留上一个账号的卡与“最近打开”顺序 */
+  卡库 = {卡:[], 统计:{}, 分组:[]}; 卡页 = 1; 展开 = {}; 最近打开 = {};
+  存最近(); 画任务();
+  const 号框 = document.getElementById("账号输入");
+  if(号框) 号框.value = "";
   频道 = ""; 已进 = false; WS已连 = false;
   try{ if(WS) WS.close(); }catch(e){}
   document.getElementById("登录").classList.remove("off");
@@ -556,6 +720,8 @@ function srvOpSend(命令, 参数, 幂等键){
   }
   const id = "r_" + 新幂等();
   const 参 = Object.assign({}, 参数 || {});
+  /* P1-B-1 身份随行：登录时填了终身号就随每条命令带上；留空/未登录 → 不带 → 后端走默认空间 */
+  if(设置.账号 && !参["账号"]) 参["账号"] = 设置.账号;
   if(幂等键) 参["幂等"] = 幂等键;
   return new Promise(解=>{
     const 闹 = setTimeout(()=>{
@@ -585,9 +751,11 @@ async function 调(命令, 参数, 静默, 幂等键){
     return j;
   }
   if(!静默) 吐司((j.ok?"OK ":"失败 ") + 命令 + "：" + (j.说明||""));
-  if(!j.ok && !静默 && !j.待确认) 弹窗("命令失败 · " + 命令, "<div class='evi'>"+转义(j.说明||"")+"</div>");
+  if(!j.ok && !静默 && !j.待确认) 结果条("失败", (命令 ? ("命令 " + 命令 + "：") : "") + (j.说明 || "失败"));
   上次ts = 0;
   拉状态(true);
+  /* 卡片区只认 任务.列表：任何 任务./标签./分组. 写命令后按当前账号重拉一次 */
+  if(命令 !== "任务.列表" && /^(任务\.|标签\.|分组\.)/.test(命令)) 拉卡(true);
   return j;
 }
 function 转义(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
@@ -639,6 +807,19 @@ function 画骨架(){
 
 const 色 = {绿:"#1f9d55", 黄:"#c9a227", 红:"#c53030", 灰:"#8a8f98"};
 
+/* P1 积分文案（阶段2，0.5.22）：只在展示层转，数据链路留原串。
+   能转整数→千分位；转不了→原样＋（格式异常）；空/0/负→—（未取到），绝不显示 0 */
+function 积分文案(t){
+  const 原 = (t && t.积分 != null) ? String(t.积分).trim() : "";
+  if(!原) return "—（未取到）";
+  const n = Number(原.replace(/,/g, ""));
+  if(!Number.isFinite(n)) return 原 + "（格式异常）";
+  if(n <= 0) return "—（未取到）";
+  const 数 = String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const 时 = String(t.积分时刻 || "").split(" ").pop().slice(0, 5);
+  return 数 + (/^\d{2}:\d{2}$/.test(时) ? "（" + 时 + " 更新）" : "");
+}
+
 function 画全部(){
   if(!状态) return;
   const t = 状态.trae || {};
@@ -656,6 +837,7 @@ function 画全部(){
     ["进程数", t.进程数], ["端口 9599", t.端口9599?"在":"不在"],
     ["端口 19876", t.端口19876?"在":"不在"], ["服务端 pid", t.服务端pid||"—"],
     ["服务端启动", t.服务端启动时刻||"—"], ["服务端版本", t.服务端版本||"—"],
+    ["积分", 积分文案(t)],
     ["10 分钟重启", t.服务端重启次数_10分钟], ["界面模式", t.界面模式||"未知"],
     ["模式读取", t.模式读取方式||"—"], ["判定", t.判定||"—"],
     ["采集耗时", (状态.采集耗时ms||0)+" ms"], ["采集时刻", (状态.ts||"").split(" ").pop()]
@@ -681,9 +863,18 @@ function _卡日(s){
   if(m){ const d = new Date(); d.setHours(+m[1], +m[2], 0, 0); return d; }
   return null;
 }
-function 画员工(){
+async function 画员工(){
   const tb = document.querySelector("#员工表 tbody");
   let 员工 = (状态 && 状态.员工) || [];
+  let 错 = (状态 && 状态.员工错误) || "";
+  /* P4-18a：页面三列的数据源改为 员工.列表（含 软件类型/所属设备/在线状态），名册只做兜底 */
+  try{
+    const j = await srvOpSend("员工.列表", {}, "");
+    if(j && j.ok && (j.数据 || {}).员工){
+      员工 = (j.数据 || {}).员工;
+      错 = (j.数据 || {}).员工错误 || "";
+    }
+  }catch(e){}
   const 筛 = document.getElementById("员工筛");
   if(筛){
     const 旧 = 筛.value;
@@ -699,7 +890,6 @@ function 画员工(){
       return Object.assign({}, p, {任务明细: t});
     });
   }
-  const 错 = (状态 && 状态.员工错误) || "";
   const 横 = document.getElementById("员工横幅");
   if(横){
     if(错){ 横.textContent = "员工数据读不到：" + 错; 横.className = "banner bad"; 横.style.display = ""; }
@@ -716,16 +906,42 @@ function 画员工(){
         "<button class='mini o' onclick=\"看排队('"+转义(人.终身号)+"')\" title='看本会话档案里的排队条'>"+(排数||0)+"</button>" +
         "<button class='mini' onclick=\"排队查询('"+转义(人.终身号)+"')\" title='主动切到该 TRAE 会话查实时排队条并写回共享库'>查</button></div>"
       : "<span class='小字'>—</span>";
-    return "<tr class='"+人.灯+"'><td>"+转义(号)+"</td><td>"+转义(人.会话名)+"</td><td>"+转义(人.灯)+"</td>"+
+    return "<tr class='"+人.灯+"'><td>"+转义(号)+"</td><td>"+转义(人.会话名)+"</td>"+
+      "<td>"+转义(人.软件类型||"未登记")+"</td>"+
+      "<td class='hide-m'>"+转义(人.所属设备||"")+"</td>"+
+      "<td>"+转义(人.在线状态||人.灯||"—")+"</td>"+
       "<td>"+转义(人.时长||人.最后活动||"—")+"</td>"+
       "<td>"+排格+"</td>"+
       "<td class='hide-m'>"+转义(人.今日消息数)+"</td>"+
       "<td>" + (((人.任务明细||[]).map(x=>转义(x.标题)+" <span class='小字'>"+转义(x.状态)+" · "+转义(x.更新)+"</span>").join("<br>")) || "暂无任务") + "</td>"+
       "<td>"+操作+"</td></tr>";
-  }).join("") || ("<tr><td colspan='8' class='小字'>没有员工数据" +
+  }).join("") || ("<tr><td colspan='10' class='小字'>没有员工数据" +
     (错 ? "（" + 转义(错) + "）" : "（名册为空且账本无可推数据）") + "</td></tr>");
 }
 function 刷新员工(){ 调("员工.列表", {}, true); }
+async function 拉我的员工(){
+  const 框 = document.getElementById("我的员工列表");
+  const j = await srvOpSend("员工.我的列表", {}, "");
+  if(!j || !j.ok){ if(框) 框.textContent = "读不到：" + ((j && j.说明) || ""); return; }
+  const 人 = ((j.数据 || {}).员工) || [];
+  框.textContent = 人.length ? 人.map(x=>x.会话名 + "（" + (x.软件类型||"") + " / " + (x.所属电脑||"") + "）").join("\n") : "（白名单为空）";
+  框.innerHTML = 人.length ? 人.map(x=>"<div>"+转义(x.会话名)+" <span class='小字'>（"+转义(x.软件类型||"")+" / "+转义(x.所属电脑||"")+"）</span> "+
+    "<button class='mini o' onclick=\"删我的员工('"+转义(x.会话名)+"')\">删除</button></div>").join("") : "（白名单为空）";
+  画派工收件人();
+}
+function 加我的员工(){
+  const 名 = (document.getElementById("我的名").value || "").trim();
+  const 软件 = (document.getElementById("我的软件").value || "").trim();
+  const 电脑 = (document.getElementById("我的电脑").value || "").trim();
+  if(!名){ 结果条("失败", "缺会话名"); return; }
+  调("员工.我的新增", {"会话名": 名, "软件": 软件, "电脑": 电脑}, false).then(j=>{
+    if(j.ok){ document.getElementById("我的名").value = ""; 拉我的员工(); }
+  });
+}
+function 删我的员工(名){
+  if(!confirm("从「我的员工」删除 " + 名 + " ？（只删白名单，不动会话）")) return;
+  调("员工.我的删除", {"会话名": 名}, false).then(j=>{ if(j.ok) 拉我的员工(); });
+}
 
 async function 排队查询(号){
   const btn = 吐司面板 && 0;
@@ -755,8 +971,221 @@ function 催办(号){
   调("员工.催办", {"号":号, "话":话});
 }
 
+/* ===== P3·B2 卡片页 =====
+   卡源＝任务.列表（按当前登录账号的空间拉取）；状态.json 只喂顶部状态条，不再当卡源。
+   视图：平铺 / 折叠(项目→模块→卡) / 泳道(旧)；分页 20 张/页；排序 正序/倒序/最近。 */
+let 卡库 = {卡:[], 统计:{}, 分组:[]};
+let 派工数 = {};
+let 标签缓存 = {项目:{}, 模块:{}, 动作:{}};
+let 卡视图 = "平铺";
+let 卡排序 = "最近";
+let 卡页 = 1;
+const 卡每页 = 20;
+let 拉卡中 = false;
+let 拉标签中 = false;
+let 展开 = {};
+const 最近键 = "AI工作台.最近打开";
+let 最近打开 = {};
+try{ 最近打开 = JSON.parse(sessionStorage.getItem(最近键)||"{}") || {}; }catch(e){ 最近打开 = {}; }
+
+function 存最近(){ try{ sessionStorage.setItem(最近键, JSON.stringify(最近打开)); }catch(e){} }
+
+/* 按当前账号拉卡：登录后、切账号后、写命令后都调这里 */
+async function 拉卡(提示){
+  if(!频道) return;
+  if(!WS || !WS已连){ if(提示) 吐司("WS 未连，暂不能拉卡片"); return; }
+  if(拉卡中) return;
+  拉卡中 = true;
+  try{
+    const j = await srvOpSend("任务.列表", {}, "");
+    if(j && j.ok && j.数据){ 卡库 = j.数据; }
+    else if(提示) 吐司("任务.列表 失败：" + ((j&&j.说明)||""));
+    const q = await srvOpSend("派工单.列表", {}, "");
+    if(q && q.ok){
+      派工数 = {};
+      ((q.数据||{}).单||[]).forEach(x=>{
+        const 卡 = String(x.来源卡 || "");
+        if(卡) 派工数[卡] = (派工数[卡] || 0) + 1;
+      });
+    }
+    画任务();
+    拉标签(false);
+  }catch(e){ if(提示) 吐司("任务.列表 异常：" + e.message); }
+  finally{ 拉卡中 = false; }
+}
+
+/* 标签名缓存：只读，按项目拉模块/动作（卡上只存 id） */
+async function 拉标签(提示){
+  if(!频道 || !WS || !WS已连) return;
+  if(拉标签中) return;
+  const 有标签 = (卡库.卡||[]).some(k=>k && k.标签 && k.标签.项目);
+  if(!有标签) return;
+  拉标签中 = true;
+  try{
+    const p = await srvOpSend("标签.项目列表", {"含已删": "是"}, "");
+    if(!(p && p.ok)) return;
+    标签缓存 = {项目:{}, 模块:{}, 动作:{}};
+    for(const x of ((p.数据||{}).项目||[])){
+      标签缓存.项目[x.id] = x;
+      const m = await srvOpSend("标签.模块列表", {"项目": x.id, "含已删": "是"}, "");
+      if(m && m.ok) ((m.数据||{}).模块||[]).forEach(y=>{ 标签缓存.模块[y.id] = y; });
+      const a = await srvOpSend("标签.动作列表", {"项目": x.id, "含已删": "是"}, "");
+      if(a && a.ok) ((a.数据||{}).动作||[]).forEach(y=>{ 标签缓存.动作[y.id] = y; });
+    }
+    画任务();
+  }catch(e){ if(提示) 吐司("标签缓存失败：" + e.message); }
+  finally{ 拉标签中 = false; }
+}
+
+function 切视图(v){ 卡视图 = v; 卡页 = 1; 画任务(); }
+function 切排序(v){ 卡排序 = v; 画任务(); }
+function 翻页(n){ 卡页 += n; 画任务(); }
+
+function 项目名(id){ const x = 标签缓存.项目[id]; return (x && x.名) ? x.名 : (id || "未分类"); }
+function 模块名(id){ const x = 标签缓存.模块[id]; return (x && x.名) ? x.名 : (id || "未分类模块"); }
+function 动作名(k){
+  const id = (k && k.标签 || {}).动作 || "";
+  const x = 标签缓存.动作[id];
+  return (x && x.名) ? x.名 : (id || "—");
+}
+function 比ID(a,b){ return String(a.id||"") < String(b.id||"") ? -1 : (String(a.id||"") > String(b.id||"") ? 1 : 0); }
+function 卡时间(k){ return String(k.创建 || k.更新 || ""); }
+function 状色(s){ return {"未做":"#9ca3af","在做":"#2563eb","已完成":"#1f9d55","卡住":"#c53030"}[s] || "#9ca3af"; }
+
+function 排卡(卡们){
+  const 列 = 卡们.slice();
+  if(卡排序 === "最近"){
+    列.sort((a,b)=> (最近打开[b.id]||0) - (最近打开[a.id]||0) || 比ID(a,b));
+  }else{
+    const 方 = 卡排序 === "倒序" ? -1 : 1;
+    列.sort((a,b)=>{ const x=卡时间(a), y=卡时间(b);
+      return (x<y?-1:(x>y?1:0))*方 || 比ID(a,b); });
+  }
+  return 列;
+}
+function 分页(列表){
+  const 总 = 列表.length;
+  const 总页 = Math.max(1, Math.ceil(总/卡每页));
+  if(卡页 > 总页) 卡页 = 总页;
+  if(卡页 < 1) 卡页 = 1;
+  const 起 = (卡页-1)*卡每页;
+  return {本: 列表.slice(起, 起+卡每页), 总: 总, 总页: 总页, 起: 起};
+}
+function 画分页器(总, 总页){
+  const el = document.getElementById("分页器");
+  if(!el) return;
+  el.innerHTML = "<span class='页码'>第 "+卡页+" / 共 "+总页+" 页 · 共 "+总+" 张</span>"+
+    "<button class='mini' onclick='翻页(-1)' "+(卡页<=1?"disabled":"")+">‹ 上一页</button>"+
+    "<button class='mini' onclick='翻页(1)' "+(卡页>=总页?"disabled":"")+">下一页 ›</button>";
+}
+function 卡片(k, 色值){
+  const 待 = (k.标签齐 === true) ? "" :
+    "<span class='chip' data-chip='待补全' style='color:#b45309;background:#fef3c7'>〔待补全〕</span>";
+  const c = 色值 || 状色(k.状态);
+  return "<div class='card' onclick=\"开卡('"+转义(k.id)+"')\">"+
+    "<div class='bar' style='background:"+c+"'></div><div class='in'>"+
+    "<div class='hd'>"+待+"<span class='chip' style='color:"+c+";background:"+c+"1a'>"+转义(k.状态||"未做")+"</span>"+
+      "<span class='chip' style='color:#41506b;background:#eef2f7'>"+转义(动作名(k))+"</span>"+
+      ((派工数[k.id]||0) ? "<span class='chip' style='color:#7c3aed;background:#ede9fe'>派工×"+派工数[k.id]+"</span>" : "")+"</div>"+
+    "<span class='t'>"+转义(k.标题)+"</span>"+
+    "<div class='meta'>"+
+    "<div class='m'><em>项目</em><span>"+转义(项目名((k.标签||{}).项目))+"</span></div>"+
+    "<div class='m'><em>模块</em><span>"+转义(模块名((k.标签||{}).模块))+"</span></div>"+
+    "<div class='m'><em>负责人</em><span>"+转义(k.负责人||"未指派")+"</span></div>"+
+    "<div class='m'><em>更新</em><span>"+转义(k.更新||"")+" · 证据 "+((k.证据||[]).length)+" 条</span></div>"+
+    "</div></div></div>";
+}
+function 画平铺(卡们){
+  const p = 分页(排卡(卡们));
+  document.getElementById("平铺").innerHTML =
+    p.本.map(k=>卡片(k)).join("") || "<div class='小字' style='padding:8px'>（空）</div>";
+  return p;
+}
+function 画折叠(卡们){
+  const 列 = 排卡(卡们);
+  const 组 = {};
+  const 序组 = [];
+  列.forEach(k=>{
+    const pj = (k.标签||{}).项目 || "";
+    const md = (k.标签||{}).模块 || "";
+    const 键 = pj + "|" + md;
+    if(!组[键]){ 组[键] = {p: pj, m: md, 卡: []}; 序组.push(键); }
+    组[键].卡.push(k);
+  });
+  序组.sort((a,b)=>{
+    const A = 组[a], B = 组[b];
+    const pa = 项目名(A.p), pb = 项目名(B.p);
+    if(pa !== pb) return pa < pb ? -1 : 1;
+    const ma = 模块名(A.m), mb = 模块名(B.m);
+    return ma < mb ? -1 : (ma > mb ? 1 : 0);
+  });
+  const 平序 = [];
+  序组.forEach(k=>{ 组[k].卡.forEach(c=>平序.push(c)); });
+  const p = 分页(平序);
+  const 本页起 = p.起, 本页止 = p.起 + p.本.length;
+  let 计 = 0;
+  const 区 = {};
+  序组.forEach(k=>{ 区[k] = {起: 计, 止: 计 + 组[k].卡.length}; 计 += 组[k].卡.length; });
+  const 项目序 = [];
+  序组.forEach(k=>{ if(项目序.indexOf(组[k].p) < 0) 项目序.push(组[k].p); });
+  let 内 = "";
+  项目序.forEach(pj=>{
+    const 项下 = 序组.filter(k=>组[k].p === pj);
+    const 卡数 = 项下.reduce((s,k)=>s+组[k].卡.length, 0);
+    const pj开 = !!展开["P:"+pj];
+    let 体 = "";
+    if(pj开){
+      项下.forEach(键=>{
+        const g = 组[键], 区项 = 区[键];
+        if(区项.止 <= 本页起 || 区项.起 >= 本页止) return;   // 这组不在本页
+        const 局部起 = Math.max(区项.起, 本页起);
+        const 局部止 = Math.min(区项.止, 本页止);
+        const m开 = !!展开["M:"+键];
+        const 续 = (局部起 > 区项.起)
+          ? "<div class='续行'>"+转义(项目名(pj))+" ▸ "+转义(模块名(g.m))+"（续，剩 "+(区项.止-局部起)+" 张）</div>"
+          : "";
+        体 += "<div class='折项' style='background:#fff;border-color:#edf0f5'>"+续+
+          "<div class='折头' onclick=\"折展('M:"+转义(键)+"')\"><span class='箭'>"+(m开?"▾":"▸")+"</span>"+
+            转义(模块名(g.m))+"<b>"+g.卡.length+"</b></div>"+
+          (m开 ? "<div class='折体'><div class='卡窝'>"+
+             g.卡.slice(局部起-区项.起, 局部止-区项.起).map(k=>卡片(k)).join("")+"</div></div>" : "")+
+          "</div>";
+      });
+    }
+    内 += "<div class='折项'>"+
+      "<div class='折头' onclick=\"折展('P:"+转义(pj)+"')\"><span class='箭'>"+(pj开?"▾":"▸")+"</span>"+
+        转义(项目名(pj))+"<b>"+卡数+"</b></div>"+
+      (pj开 ? "<div class='折体'>"+体+"</div>" : "")+
+      "</div>";
+  });
+  document.getElementById("折叠树").innerHTML = 内 || "<div class='小字' style='padding:8px'>（空）</div>";
+  return p;
+}
+function 折展(键){ 展开[键] = !展开[键]; 画任务(); }
+function 画泳道(卡们){
+  const 泳道们 = [["未做","#9ca3af"],["在做","#2563eb"],["已完成","#1f9d55"],["卡住","#c53030"]];
+  document.getElementById("泳道").innerHTML = 泳道们.map(([名,c])=>{
+    const 本列 = 卡们.filter(k=>k.状态===名);
+    const 卡html = 本列.map(k=>{
+      const 负责 = k.负责人 ? (k.负责人 + (k.负责人名 ? " " + k.负责人名 : "")) : "未指派";
+      return "<div class='card' onclick=\"开卡('"+k.id+"')\">"+
+        "<div class='bar' style='background:"+c+"'></div><div class='in'>"+
+        "<div class='hd'><span class='id'>"+转义(k.id)+"</span>"+
+          "<span class='chip' style='color:"+c+";background:"+c+"1a'>"+转义(k.状态)+"</span></div>"+
+        "<span class='t'>"+转义(k.标题)+"</span>"+
+        "<div class='meta'>"+
+        "<div class='m'><em>负责人</em><span>"+转义(负责)+"</span></div>"+
+        "<div class='m'><em>分组</em><span>"+转义(k.分组||"未分类")+"</span></div>"+
+        "<div class='m'><em>原话</em><span>"+转义((k.来源原话||[]).join("、")||"无对应原话")+"</span></div>"+
+        "<div class='m'><em>更新</em><span>"+转义(k.更新)+" · 证据 "+((k.证据||[]).length)+" 条</span></div>"+
+        "</div></div></div>";
+    }).join("") || "<div class='小字' style='padding:8px'>（空）</div>";
+    return "<div class='lane'><h3><i style='background:"+c+"'></i>"+名+"<b>"+本列.length+"</b></h3>"+卡html+"</div>";
+  }).join("");
+  return {总: 卡们.length, 总页: 1, 起: 0};
+}
 function 画任务(){
-  const 任务 = (状态 && 状态.任务) || {};
+  const 任务 = 卡库 || {};
   let 卡们 = 任务.卡 || [];
   const 组们 = 任务.分组 || ["未分类"];
   const 组筛 = document.getElementById("分组筛");
@@ -773,42 +1202,39 @@ function 画任务(){
   else if(态 !== "全部") 卡们 = 卡们.filter(k=>k.状态===态);
   if(词) 卡们 = 卡们.filter(k=>((k.标题||"")+(k.详情||"")).toLowerCase().indexOf(词)>=0);
   const 汇总 = 任务.统计 || {};
+  const 源提示 = document.getElementById("卡源提示");
+  if(源提示) 源提示.textContent = "卡片源：任务.列表（当前账号 " + (设置.账号 || "默认空间") + "）";
   document.getElementById("任务汇总").textContent =
     "未完成 " + ((汇总.未做||0)+(汇总.在做||0)+(汇总.卡住||0)) + " / 已完成 " +
     (汇总.已完成||0) + "　｜　筛出 " + 卡们.length + " 张";
-  const 泳道们 = [["未做","#9ca3af"],["在做","#2563eb"],["已完成","#1f9d55"],["卡住","#c53030"]];
-  document.getElementById("泳道").innerHTML = 泳道们.map(([名,c])=>{
-    const 本列 = 卡们.filter(k=>k.状态===名);
-    const 卡html = 本列.map(k=>{
-      const 负责 = k.负责人 ? ("负责：" + k.负责人 + " " + (k.负责人名||"")) : "负责：未指派";
-      return "<div class='card' onclick=\"开卡('"+k.id+"')\">"+
-        "<div class='bar' style='background:"+c+"'></div><div class='in'>"+
-        "<span class='id'>"+转义(k.id)+"</span> <span class='小字'>"+转义(k.状态)+"</span>"+
-        "<span class='t'>"+转义(k.标题)+"</span>"+
-        "<div class='m'>"+转义(负责)+"</div>"+
-        "<div class='m'>分组："+转义(k.分组||"未分类")+"</div>"+
-        "<div class='m'>来源原话："+转义((k.来源原话||[]).join("、")||"无对应原话")+"</div>"+
-        "<div class='m'>更新 "+转义(k.更新)+" · 证据 "+((k.证据||[]).length)+" 条</div>"+
-        "</div></div>";
-    }).join("") || "<div class='小字' style='padding:8px'>（空）</div>";
-    return "<div class='lane'><h3>"+名+" "+本列.length+"</h3>"+卡html+"</div>";
-  }).join("");
+  const 平 = document.getElementById("平铺"), 折 = document.getElementById("折叠树"), 泳 = document.getElementById("泳道");
+  [["平铺",平],["折叠",折],["泳道",泳]].forEach(([名,el])=>{ if(el) el.style.display = (卡视图===名 ? "" : "none"); });
+  let p;
+  if(卡视图 === "折叠") p = 画折叠(卡们);
+  else if(卡视图 === "泳道"){ 卡页 = 1; p = 画泳道(卡们); }
+  else p = 画平铺(卡们);
+  画分页器(p.总, p.总页);
 }
 
 function 找卡(id){
-  const 卡们 = ((状态&&状态.任务)||{}).卡 || [];
+  const 卡们 = (卡库 && 卡库.卡) || [];
   return 卡们.filter(k=>k.id===id)[0];
 }
 function 开卡(id){
   选中卡 = id;
   const k = 找卡(id);
   if(!k) return;
+  /* 最近口径：只有「打开详情」算，划过/悬停不算 */
+  最近打开[k.id] = Date.now(); 存最近();
   const 员工 = ((状态&&状态.员工)||[]).filter(p=>p.终身号);
   const 选项 = "<option value=''>（未指派）</option>" + 员工.map(p=>
     "<option value='"+p.终身号+"' "+(p.终身号===k.负责人?"selected":"")+">"+p.终身号+" "+转义(p.会话名)+"</option>").join("");
   document.getElementById("抽屉标题").textContent = k.id + "  [" + k.状态 + "]";
   document.getElementById("抽屉体").innerHTML =
     "<div style='font-size:13px;margin-bottom:8px'>"+转义(k.标题)+"</div>"+
+    "<div class='小字' style='margin-bottom:8px'>项目："+转义(项目名((k.标签||{}).项目))+
+      "　模块："+转义(模块名((k.标签||{}).模块))+"　动作："+转义(动作名(k))+
+      ((k.标签齐 === true) ? "" : "　<span class='chip' style='color:#b45309;background:#fef3c7'>〔待补全〕</span>")+"</div>"+
     "<div class='条'>"+["未做","在做","已完成","卡住"].map(s=>
       "<button class='mini' onclick=\"改状态('"+k.id+"','"+s+"')\">"+s+"</button>").join("")+"</div>"+
     "<div class='wrap'><span class='cmd'>任务.改状态</span></div>"+
@@ -853,6 +1279,8 @@ function 开卡(id){
 function 关抽屉(){
   document.getElementById("抽屉").classList.remove("on");
   document.getElementById("遮罩").classList.remove("on");
+  /* 最近口径：关掉详情立刻按“最近打开”重排（不刷新页面） */
+  画任务();
 }
 function 改状态(id, 到){ 调("任务.改状态", {"卡":id, "到":到}); }
 function 换人(id, 号){ 调("任务.换负责人", {"卡":id, "号":号}); }
@@ -863,7 +1291,7 @@ function 加备注(id){
 }
 function 归档(id){ if(confirm("把 " + id + " 归档（作废）？")) 调("任务.归档", {"卡":id}); }
 async function 换分组(id){
-  const 组们 = ((状态&&状态.任务)||{}).分组 || ["未分类"];
+  const 组们 = (卡库 && 卡库.分组) || ["未分类"];
   const 新值 = prompt("归到哪个分组？（现有：" + 组们.join("、") + "；也可输新名）", (找卡(id)||{}).分组 || "未分类");
   if(新值 === null) return;
   const j = await 调("任务.换分组", {"卡":id, "分组":新值.trim()}, true);
@@ -916,11 +1344,28 @@ function 留言单(单号){
   });
 }
 function 去派工(卡id){
-  选中卡 = 卡id;
-  document.querySelector('[data-p=p9]').click();
+  const 卡 = 找卡(卡id);
+  if(卡 && 卡.标签齐 !== true){
+    结果条("失败", "该卡标签待补全，不可派工：" + (卡.标签齐说明 || "项目/模块/动作没齐"));
+    return;
+  }
+  选中卡 = 卡id;  document.querySelector('[data-p=p9]').click();
   const 框 = document.getElementById("派工卡号");
   if(框) 框.value = 卡id;
   画派工收件人();
+}
+function 选开单卡(){
+  const 好 = (卡库.卡 || []).filter(k=>k.标签齐 === true);
+  const 内 = 好.length
+    ? 好.map(k=>"<div style='margin:4px 0'><button class='mini p' onclick=\"选卡定('"+转义(k.id)+"')\">选</button> "+
+        转义(k.id)+" "+转义(k.标题)+" <span class='小字'>"+转义(动作名(k))+"</span></div>").join("")
+    : "<div class='小字'>没有标签齐的卡（〔待补全〕卡不列出）</div>";
+  弹窗("选任务卡（只列标签齐的卡）", 内);
+}
+function 选卡定(id){
+  const 框 = document.getElementById("派工卡号");
+  if(框) 框.value = id;
+  关弹窗();
 }
 async function 画叮嘱胶囊(){
   const 框 = document.getElementById("叮嘱胶囊");
@@ -943,7 +1388,14 @@ async function 建派工单(){
   const 验 = (document.getElementById("派工验收").value||"").trim();
   if(!卡 || !收.length || !文){ 吐司("要卡号、收件人、正文"); return; }
   if(!验){ 吐司("验收标准必填"); return; }
-  const j = await 调("派工单.新建", {"卡":卡, "收件人":收.join("、"), "文":文, "验收标准":验, "叮嘱":嘱}, false);
+  const 卡k = 找卡(卡);
+  if(!卡k){ 结果条("失败", "卡不存在：" + 卡); return; }
+  if(卡k.标签齐 !== true){ 结果条("失败", "该卡标签待补全，不可派工：" + (卡k.标签齐说明 || "")); return; }
+  const 预估 = prompt("预估完成时间（必填，格式 2026-10-31 18:00:00）：", "");
+  if(!预估) return;
+  const 交付夹 = prompt("交付文件夹（选填，可空）：", "") || "";
+  const j = await 调("派工单.新建", {"卡":卡, "收件人":收.join("、"), "文":文,
+              "验收标准":验, "叮嘱":嘱, "预估":预估.trim(), "交付夹":交付夹.trim()}, false);
   吐司(j.ok ? (j.说明||"已建单") : ("建单失败：" + (j.说明||"")));
 }
 function 改验收标准(id){
@@ -980,6 +1432,145 @@ function 提醒单(单号){
     吐司(j.ok ? (单号 + "：已提醒") : (单号 + "：" + (j.说明||"提醒失败")));
   });
 }
+function 发派工单(单号){
+  /* F6：界面发送改走 派工单.投递（会回写 投递.状态；派工单.发送 保留为别名） */
+  调("派工单.投递", {"单": 单号}, false).then(j=>{
+    吐司(j.ok ? (单号 + "：" + (j.说明||"已发送")) : (单号 + "：" + (j.说明||"发送失败")));
+    if(选中卡) 拉派工单(选中卡);
+  });
+}
+function 单据操作(动){
+  const 单 = (document.getElementById("操作单号").value || "").trim().toUpperCase();
+  if(!单){ 吐司("先填要操作的单号（G0001）"); return; }
+  if(动 === "发送") 发派工单(单);
+  else if(动 === "留言") 留言单(单);
+  else if(动 === "交稿") 交稿单(单);
+  else if(动 === "验收") 验收单(单);
+  else if(动 === "提醒") 提醒单(单);
+}
+/* ===== P10 查派工单：全量列表 + 单号/来源卡/收件人/状态四维筛选 + 行内详情与留言板 ===== */
+let 查单们 = [];
+let 查单开 = {};
+let 查单角色 = "发出";
+async function 拉查派工单(){
+  const 框 = document.getElementById("查单列表");
+  if(框) 框.innerHTML = "<div class='panel'><div class='小字'>载入中…</div></div>";
+  const j = await 调("派工单.列表", {"角色": 查单角色}, true);
+  if(!j.ok){
+    if(框) 框.innerHTML = "<div class='panel'><div class='小字' style='color:#c53030'>读不到："+转义(j.说明||"")+"</div></div>";
+    return;
+  }
+  查单们 = (j.数据 && j.数据.单) || [];
+  const 状 = document.getElementById("筛状态");
+  if(状){
+    const 旧 = 状.value;
+    状.innerHTML = "<option value=''>全部状态</option>" +
+      ((j.数据 && j.数据.状态集) || []).map(x=>"<option value='"+转义(x)+"'>"+转义(x)+"</option>").join("");
+    状.value = 旧 || "";
+  }
+  画查列表();
+}
+function 单态色(s){
+  return {"待发":"#9ca3af","已派":"#2563eb","已受理":"#2563eb","已回复":"#0e7490",
+    "已完成":"#1f9d55","已退回":"#c53030"}[s] || "#6b7280";
+}
+function 画查列表(){
+  const 框 = document.getElementById("查单列表");
+  if(!框) return;
+  const 单号 = (document.getElementById("筛单号").value || "").trim().toUpperCase();
+  const 卡 = (document.getElementById("筛来源卡").value || "").trim().toUpperCase();
+  const 人 = (document.getElementById("筛收件人").value || "").trim();
+  const 状 = (document.getElementById("筛状态").value || "").trim();
+  const 选 = 查单们.filter(x=>{
+    if(单号 && String(x.单号||"").toUpperCase().indexOf(单号) < 0) return false;
+    if(卡 && String(x.来源卡||"").toUpperCase().indexOf(卡) < 0) return false;
+    if(人 && (x.收件人||[]).join("、").indexOf(人) < 0) return false;
+    if(状 && String(x.状态||"") !== 状) return false;
+    return true;
+  });
+  const 数 = document.getElementById("查单计数");
+  if(数) 数.textContent = "全量 " + 查单们.length + " 张，筛出 " + 选.length + " 张";
+  框.innerHTML = 选.map(x=>{
+    const 开 = !!查单开[x.单号];
+    const 时 = x.发出 || x.创建 || "";
+    const 板 = (x.留言||[]).map(r=>"<div class='小字'>· "+转义(r.时间||"")+" "+转义(r.谁||"")+"["+转义(r.身份||"")+"]："+转义(r.正文||"")+"</div>").join("");
+    const 回 = (x.回复||[]).map(r=>"<div class='小字'>↳ "+转义(r.谁||"")+" · "+转义(r.时间||"")+"："+转义(r.正文||"")+"</div>").join("");
+    return "<div class='单卡"+(开?" 开":"")+"'>"+
+      "<div class='单头' onclick=\"查单开合('"+转义(x.单号)+"')\">"+
+        "<div class='单一'><span class='id'>"+转义(x.单号)+"</span> "+
+          "<span class='chip' style='color:"+单态色(x.整体状态||x.状态)+";background:"+单态色(x.整体状态||x.状态)+"1a'>"+转义(x.整体状态_展示||x.状态||"")+"</span> "+
+          "<span class='小字'>来源卡 "+转义(x.来源卡||"")+"</span> "+转义(x.来源卡标题||"")+"</div>"+
+        "<div class='单二'>派工对象："+转义(x.派工对象名||(x.收件人||[]).join("、"))+
+          " ｜ 预估："+转义(x.预估完成||"—")+" ｜ 投递："+转义(x.投递状态||"未投递")+
+          " ｜ 接单："+转义(x.接单状态||"未接单")+" ｜ 回复："+转义(x.回复状态||"未回复")+
+          " ｜ 阅读："+转义(x.阅读状态||"—")+" ｜ "+转义(时)+"</div>"+
+      "</div>"+
+      "<div class='单文'>"+
+        "<div class='小字'>验收标准："+转义(x.验收标准||"（未写）")+"</div>"+
+        "<div class='evi' style='margin-top:4px;max-height:200px'>"+转义(x.正文||"")+"</div>"+
+        ((x.叮嘱||[]).length ? "<div class='小字' style='margin-top:6px'>叮嘱："+转义(x.叮嘱.join("；"))+"</div>" : "")+
+        "<div class='小字' style='margin-top:6px'>留言板（"+((x.留言||[]).length)+"）</div>"+(板||"<div class='小字'>（暂无留言）</div>")+
+        "<div class='小字' style='margin-top:6px'>回复（"+((x.回复||[]).length)+"）</div>"+(回||"<div class='小字'>（暂无回复）</div>")+
+      "</div></div>";
+  }).join("") || "<div class='panel'><div class='小字'>没有符合条件的派工单</div></div>";
+}
+function 查单开合(单号){ 查单开[单号] = !查单开[单号]; 画查列表(); }
+function 切派工角色(角色){
+  查单角色 = 角色;
+  const 发 = document.getElementById("派工发出"), 收 = document.getElementById("派工收到");
+  if(发) 发.style.background = (角色 === "发出") ? "#2b5fb0" : "";
+  if(收) 收.style.background = (角色 === "收到") ? "#2b5fb0" : "";
+  const 单框 = document.getElementById("收单操作");
+  if(单框) 单框.style.display = (角色 === "收到") ? "" : "none";
+  拉查派工单();
+}
+function 收单操作(动){
+  const 单号 = (document.getElementById("收单单号").value || "").trim().toUpperCase();
+  if(!单号){ 吐司("先填单号"); return; }
+  if(动 === "接单"){
+    调("派工单.接单", {"单": 单号}, false).then(j=>{ if(j.ok) 拉查派工单(); });
+    return;
+  }
+  if(动 === "留言"){
+    const 话 = prompt("追加留言：", "");
+    if(!话) return;
+    调("派工单.留言", {"单": 单号, "话": 话}, false).then(j=>{ if(j.ok) 拉查派工单(); });
+    return;
+  }
+  const 证据 = prompt("交付证据（做了什么/在哪）：", "");
+  if(!证据) return;
+  const 完成 = prompt("完成程度（已完成/部分完成/申请延期/无法执行/需求待确认）：", "已完成");
+  if(!完成) return;
+  const 异常 = prompt("异常备注（可空；填了会进异常汇总）：", "") || "";
+  调("派工单.交稿", {"单": 单号, "证据": 证据, "完成程度": 完成,
+                "异常备注": 异常}, false).then(j=>{ if(j.ok) 拉查派工单(); });
+}
+let 最近令牌链接 = "";
+function 令牌操作(动){
+  const 单号 = (document.getElementById("令牌单号").value || "").trim().toUpperCase();
+  const 果 = document.getElementById("令牌结果");
+  if(!单号){ 吐司("先填单号"); return; }
+  if(动 === "作废"){
+    调("派工单.令牌", {"单": 单号, "动作": "作废"}, false).then(j=>{
+      if(果) 果.textContent = j.说明 || "";
+    });
+    return;
+  }
+  调("派工单.令牌", {"单": 单号, "动作": "生成"}, false).then(j=>{
+    if(!j.ok){ if(果) 果.textContent = j.说明 || ""; return; }
+    const d = j.数据 || {};
+    最近令牌链接 = d.链接 || "";
+    if(果) 果.textContent = "单号 " + d.单号 + "\n链接 " + (d.链接 || "") +
+      "\n明文 " + (d.令牌 || "") + "\n过期 " + (d.过期 || "") + "\n（明文只显示这一次）";
+  });
+}
+function 复制令牌(){
+  const 果 = document.getElementById("令牌结果");
+  if(!最近令牌链接 && 果) 最近令牌链接 = (果.textContent.match(/\/\?t=[0-9a-f]+/) || [""])[0];
+  if(!最近令牌链接){ 吐司("先点「生成令牌」"); return; }
+  try{ navigator.clipboard.writeText(最近令牌链接); 吐司("链接已复制"); }
+  catch(e){ 吐司("复制失败，请手动选中复制"); }
+}
 function 删卡(id){
   if(!confirm("删除任务卡 " + id + " ？删了不进回收站（日志留痕）")) return;
   调("任务.删卡", {"卡":id}, true).then(j=>{
@@ -1009,12 +1600,68 @@ function 改来源原话(id){
   });
 }
 
-function 弹建卡(){
-  const 标题 = prompt("新任务标题：", "");
-  if(!标题) return;
-  const 负责人 = prompt("负责人终身号（可空）：", "") || "";
-  /* 一次点击一个幂等键：连点/超时重试都只建一张卡 */
-  调("任务.建卡", {"标题":标题, "负责人":负责人}, false, 新幂等());
+async function 弹建卡(){
+  const p = await srvOpSend("标签.项目列表", {"含已删": "是"}, "");
+  const 项目 = ((p && p.ok && (p.数据 || {}).项目) || []).filter(x=>!x.删);
+  if(!项目.length){ 结果条("失败", "还没有项目标签：先在「任务卡片→标签设置」或这里新建项目"); }
+  const 项html = 项目.map(x=>"<option value='"+转义(x.id)+"'>"+转义(x.名)+"</option>").join("");
+  弹窗("＋ 新任务（项目/模块/动作 三必填）",
+    "<div class='条'><input id='建标题' placeholder='标题（必填）' style='flex:1;min-width:200px'></div>"+
+    "<div class='条'>项目：<select id='建项目' onchange='建项目变()'>"+项html+"</select>"+
+      "<button class='mini' onclick='新建项目()'>＋新建项目</button></div>"+
+    "<div class='条'>模块：<select id='建模块'></select>"+
+      "<button class='mini' onclick=\"新建子标签('模块')\">＋新建模块</button></div>"+
+    "<div class='条'>动作：<select id='建动作'></select>"+
+      "<button class='mini' onclick=\"新建子标签('动作')\">＋新建动作</button></div>"+
+    "<div class='条'><input id='建负责人' placeholder='负责人终身号（可空）' style='width:200px'></div>"+
+    "<div class='条'><button class='btn' onclick='存新卡()'>保存</button>"+
+      "<span class='小字'>三样都选齐才能保存</span></div>");
+  建项目变();
+}
+async function 建项目变(){
+  const 项 = (document.getElementById("建项目")||{}).value || "";
+  const m = await srvOpSend("标签.模块列表", {"项目": 项, "含已删": "是"}, "");
+  const a = await srvOpSend("标签.动作列表", {"项目": 项, "含已删": "是"}, "");
+  const 填 = (id, 列表)=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    const 好 = (列表 || []).filter(x=>!x.删);
+    el.innerHTML = 好.map(x=>"<option value='"+转义(x.id)+"'>"+转义(x.名)+"</option>").join("");
+  };
+  填("建模块", (m && m.ok && (m.数据||{}).模块) || []);
+  填("建动作", (a && a.ok && (a.数据||{}).动作) || []);
+}
+function 新建项目(){
+  const 路 = prompt("项目文件夹（相对工作台、必须真实存在，如 临时测试）：", "");
+  if(!路) return;
+  const 名 = 路.replace(/[\\/]+$/,"").split(/[\\/]/).pop();
+  调("标签.新增", {"层级": "项目", "名": 名, "路径": 路}, false).then(j=>{
+    if(j.ok){ 关弹窗(); 弹建卡(); }
+  });
+}
+function 新建子标签(层){
+  const 项 = (document.getElementById("建项目")||{}).value || "";
+  if(!项){ 结果条("失败", "先选项目，再新建" + 层); return; }
+  const 名 = prompt(层 + "名称：", "");
+  if(!名) return;
+  调("标签.新增", {"层级": 层, "名": 名.trim(), "项目": 项}, false).then(j=>{
+    if(j.ok) 建项目变();
+  });
+}
+async function 存新卡(){
+  const 标 = (document.getElementById("建标题").value || "").trim();
+  const 项 = (document.getElementById("建项目")||{}).value || "";
+  const 模 = (document.getElementById("建模块")||{}).value || "";
+  const 动 = (document.getElementById("建动作")||{}).value || "";
+  const 负 = (document.getElementById("建负责人").value || "").trim();
+  if(!标){ 结果条("失败", "缺少必填项：标题"); return; }
+  if(!项 || !模 || !动){ 结果条("失败", "缺少必填项：项目/模块/动作（三样都要选齐）"); return; }
+  const j = await 调("任务.建卡", {"标题": 标, "负责人": 负}, false, 新幂等());
+  if(!j.ok) return;
+  const 卡id = ((j.数据 || {}).卡 || {}).id || "";
+  if(!卡id){ 结果条("失败", "建卡成功但没拿到卡号"); return; }
+  const r = await 调("任务.换标签", {"卡": 卡id, "项目": 项, "模块": 模, "动作": 动}, false);
+  if(r.ok){ 关弹窗(); 拉卡(true); 结果条("成功", "已建卡 " + 卡id); }
 }
 
 async function 拉原话(){
@@ -1141,6 +1788,19 @@ function 吐司(文){
   clearTimeout(吐司计时);
   吐司计时 = setTimeout(()=>t.classList.remove("on"), 2600);
 }
+/* 页面顶部结果条：失败必须走这里（模态弹窗不算过；3号 P3复看 §四.6） */
+function 结果条(类型, 文){
+  const el = document.getElementById("结果条");
+  if(!el) return;
+  const 失败 = (类型 === "失败");
+  el.style.display = "";
+  el.style.background = 失败 ? "#fef2f2" : "#ecfdf5";
+  el.style.color = 失败 ? "#b91c1c" : "#047857";
+  el.style.border = "1px solid " + (失败 ? "#fecaca" : "#a7f3d0");
+  el.innerHTML = "<b>" + 转义(类型) + "</b>：" + 转义(文 || "") +
+    " <button class='mini' style='float:right' onclick=\"document.getElementById('结果条').style.display='none'\">×</button>";
+  try{ el.scrollIntoView({block: "nearest"}); }catch(e){}
+}
 
 /* ===== P5 总管手册：锚定清单系统 S36《总管工作手册》，直接读源文件，套清单系统绿卡阅读样式 ===== */
 let 手册一 = null;
@@ -1249,18 +1909,21 @@ function 我卡住了(){
 }
 
 /* ===== P9 快速派工单 ===== */
-function 画派工收件人(){
+async function 画派工收件人(){
   const 框 = document.getElementById("派工收件人");
   if(!框) return;
-  const 员工 = (状态 && 状态.员工) || [];
   const 已选 = new Set(Array.from(框.querySelectorAll("input:checked")).map(x=>x.value));
+  /* P4-16：派工对象只列「我的员工」白名单（当前账号+当前端点），不再用 状态.员工 全量名册 */
+  const j = await srvOpSend("员工.我的列表", {}, "");
+  const 员工 = (j && j.ok && (j.数据 || {}).员工) || [];
   框.innerHTML = 员工.map(人=>{
     const 名 = 人.会话名 || "";
     if(!名) return "";
+    const 副 = [(人.软件类型 || ""), (人.所属电脑 || "")].filter(x=>x).join(" / ");
     return "<label style='display:inline-block;margin:2px 12px 2px 0;font-size:12px;cursor:pointer'>" +
       "<input type='checkbox' value='"+转义(名)+"' "+(已选.has(名)?"checked":"")+"> " +
-      转义((人.终身号 ? 人.终身号+" " : "") + 名) + "</label>";
-  }).join("") || "<span class='小字'>员工名册为空</span>";
+      转义(名) + (副 ? " <span class='小字'>（"+转义(副)+"）</span>" : "") + "</label>";
+  }).join("") || "<span class='小字'>「我的员工」白名单为空——先在员工页「我的员工」加人，才可选派工对象</span>";
 }
 function 派工选中(){
   return Array.from(document.querySelectorAll("#派工收件人 input:checked")).map(x=>x.value);
@@ -1306,8 +1969,10 @@ document.querySelectorAll("#页签 button").forEach(btn=>{
     document.querySelectorAll("section").forEach(s=>s.classList.remove("on"));
     btn.classList.add("on");
     document.getElementById(btn.dataset.p).classList.add("on");
+    if(btn.dataset.p === "p2") 拉我的员工();
     if(btn.dataset.p === "p4") 拉原话();
     if(btn.dataset.p === "p9"){ 画派工收件人(); 画叮嘱胶囊(); }
+    if(btn.dataset.p === "p10") 拉查派工单();
     if(btn.dataset.p === "p5") 拉手册目录();
   };
 });

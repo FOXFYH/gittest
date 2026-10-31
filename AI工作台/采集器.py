@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-总管面板 · 采集器
+AI工作台 · 采集器
 ------------------------------------------------------------
-1 秒一轮，只观测、只写 使用痕迹\总管面板\状态.json（.tmp + os.replace 原子写）。
+1 秒一轮，只观测、只写 使用痕迹\AI工作台\状态.json（.tmp + os.replace 原子写）。
 红线：
   1. 不杀、不重启任何真进程，本模块只读。
   2. 单区块出错只把该区块写成 {"判定":"灰","判定原因":"采集异常: …"}，整份不许崩。
@@ -160,6 +160,42 @@ def 读界面模式(端口=9599):
 
 # ---------------------------------------------------------------- TRAE 区块
 
+# TRAE 侧（抓取轮询 0.67 起）主动推来的积分文件；缓存判据＝stat 快照
+# （mtime_ns + size 都没变就不 open；与相隔几秒无关，1 秒节拍不再撞阈值）
+_积分缓存 = {"签名": None, "值": {}}
+
+
+def _读积分(路径=None):
+    """读 <数据目录>\\TRAE积分.json，返回 {积分 / 积分时刻 / 积分账号}。
+
+    文件不在 / 坏了 → 返回空 dict（字段留空，不报错、不猜）；
+    (st_mtime_ns, st_size) 与上次相同 → 直接返回上次解析好的字典，
+    不 open、不 json.loads（跟隔了几秒无关，只看文件变没变）。
+    """
+    路径 = 路径 or os.path.join(公共.数据目录, "TRAE积分.json")
+    try:
+        st = os.stat(路径)
+        签名 = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {}
+    if 签名 == _积分缓存["签名"]:
+        return _积分缓存["值"]
+    数据 = 公共.读json(路径, {}) or {}
+    值 = {}
+    if isinstance(数据, dict):
+        积分 = 数据.get("points")
+        if not (isinstance(积分, (int, float)) or
+                (isinstance(积分, str) and 积分.strip())):
+            积分 = ""
+        值 = {
+            "积分": 积分,
+            "积分时刻": str(数据.get("时刻") or ""),
+            "积分账号": str(数据.get("name") or ""),
+        }
+    _积分缓存.update({"签名": 签名, "值": 值})
+    return 值
+
+
 def 采trae(配置, 监听表=None):
     进程名 = 配置.get("进程名") or "TRAE SOLO CN.exe"
     端口CDP = int(配置.get("端口9599") or 9599)
@@ -197,6 +233,8 @@ def 采trae(配置, 监听表=None):
         判定 = 公共.最坏([判定, "黄"])
         原因.append("10 分钟内重启 %d 次，疑似崩溃循环" % 重启次数)
 
+    积分信息 = _读积分()
+
     return {
         "进程数": len(明细),
         "进程名": 进程名,
@@ -211,6 +249,9 @@ def 采trae(配置, 监听表=None):
         "服务端重启次数_10分钟": 重启次数,
         "判定": 判定,
         "判定原因": "；".join(原因),
+        "积分": 积分信息.get("积分", ""),
+        "积分时刻": 积分信息.get("积分时刻", ""),
+        "积分账号": 积分信息.get("积分账号", ""),
     }
 
 
@@ -235,80 +276,247 @@ def _记重启(当前启动时间):
 
 # ---------------------------------------------------------------- 员工区块
 
-def 采员工(配置, trae块=None, 卡表=None):
-    """数据源：TRAE 聊天账本.db 的 msgs 表，按 title 取 max(tm)。
-    灯：<180s 绿干活中 / 180~900 灰待命 / >900 黄失联；TRAE 崩 → 全红。
-    """
-    账本 = 配置.get("账本路径") or ""
-    if not 账本 or not os.path.isfile(账本):
-        raise RuntimeError("未找到账本（配置.账本路径 为空或文件不存在）")
-    import sqlite3
-    连接 = sqlite3.connect("file:%s?mode=ro" % 账本.replace("\\", "/"), uri=True, timeout=3)
-    try:
-        名表 = {}
-        try:
-            for 标题, 名 in 连接.execute("select title, name from conv_meta"):
-                名表[标题] = (名 or "").strip()
-        except Exception:
-            pass
-        行们 = list(连接.execute(
-            "select title, tm from msgs order by rowid desc limit 20000"))
-    finally:
-        连接.close()
+最后员工错误 = ""
 
-    今天 = 公共.今天前缀()
+
+def _读名册():
+    """读 <数据目录>\员工名册.json（A 方案：名册＝人员全集）。返回 (名册dict|None, 路径)。"""
+    路径 = os.path.join(公共.数据目录, "员工名册.json")
+    if not os.path.isfile(路径):
+        return None, 路径
+    数据 = 公共.读json(路径, None)
+    if not isinstance(数据, dict) or not isinstance(数据.get("员工"), list):
+        return None, 路径
+    return 数据, 路径
+
+
+_档案缓存 = {"时刻": 0.0, "人": [], "来源": "", "错": "", "读于": ""}
+
+
+def _档案库路径():
+    """云档案库.db 路径（使用痕迹下「共享数据库使用痕迹*」取最新；可用 配置.会话档案库 指定）。"""
+    配置 = 公共.读配置() or {}
+    指定 = str(配置.get("会话档案库") or "").strip()
+    if 指定 and os.path.isfile(指定):
+        return 指定
+    根 = str(配置.get("痕迹根") or "").strip() or os.path.dirname(公共.数据目录)
+    候选 = []
+    try:
+        for 名 in os.listdir(根):
+            if 名.startswith("共享数据库使用痕迹"):
+                候 = os.path.join(根, 名, "云档案库.db")
+                if os.path.isfile(候):
+                    候选.append(候)
+    except Exception:
+        return ""
+    if not 候选:
+        return ""
+    候选.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    return 候选[0]
+
+
+def 读会话档案名册(强制=False, 刷新秒=60):
+    """（老板 2026-10-27 口径）员工＝共享数据库「会话档案」库 TRae 里
+    `终身号状态=采集存在` 的会话，锚定 4 位终生号；CDP 实时维护，本端 60 秒刷新一次。
+    返回 (人, 来源, 错, 读于)。DB 读不到就返回空并给出原因，由 采员工 退回 员工名册.json。"""
+    现在 = time.time()
+    if not 强制 and _档案缓存["人"] and (现在 - _档案缓存["时刻"] < 刷新秒):
+        return _档案缓存["人"], _档案缓存["来源"], _档案缓存["错"], _档案缓存["读于"]
+    库 = _档案库路径()
+    人 = []
+    错 = ""
+    来源 = ""
+    if not 库:
+        错 = "找不到云档案库.db"
+    else:
+        try:
+            import sqlite3
+            连接 = sqlite3.connect("file:%s?mode=ro" % 库.replace("\\", "/"), uri=True, timeout=3)
+            try:
+                行 = {}
+                for 键, 字段, 值 in 连接.execute("select 行键,字段,值 from 值 where 库='TRae'"):
+                    try:
+                        值 = json.loads(值)
+                    except Exception:
+                        pass
+                    行.setdefault(键, {})[字段] = 值
+            finally:
+                连接.close()
+            for _键, 档 in 行.items():
+                if str(档.get("终身号状态") or "").strip() != "采集存在":
+                    continue
+                号 = str(档.get("终生号") or "").strip()
+                if not (号.isdigit() and len(号) == 4):
+                    continue
+                名 = str(档.get("会话名") or "").strip()
+                排 = 档.get("系统排队条情况")
+                排数, 排时, 排条 = 0, "", []
+                if isinstance(排, str) and 排.strip():
+                    try:
+                        q = json.loads(排)
+                        if isinstance(q, dict):
+                            排数 = int(q.get("条数") or 0)
+                            排时 = str(q.get("时刻") or "")
+                            排条 = [str(x) for x in (q.get("条") or [])]
+                    except Exception:
+                        pass
+                人.append({"号": 号, "题": 号, "会话名": 名 or 号, "册距今": None,
+                          "sid": str(档.get("SID") or "").strip(),
+                          "排队条数": 排数, "排队时刻": 排时, "排队条": 排条})
+            人.sort(key=lambda x: x["号"])
+            来源 = "会话档案·采集存在（CDP 实时）"
+        except Exception as e:
+            错 = "云档案库读不到：%s" % e
+            来源 = ""
+    _档案缓存.update({"时刻": 现在, "人": 人, "来源": 来源, "错": 错,
+                      "读于": time.strftime("%H:%M:%S")})
+    return 人, 来源, 错, _档案缓存["读于"]
+
+
+def _时长文本(距):
+    """距上次活动 → 人话：忙碌 X 分 / 闲置 Y 分（或 小时 分）。取不到给 —。"""
+    if 距 is None or 距 < 0:
+        return "—"
+    if 距 < 60:
+        return "忙碌 <1 分"
+    if 距 < 180:
+        return "忙碌 %d 分" % (距 // 60)
+    if 距 < 3600:
+        return "闲置 %d 分" % (距 // 60)
+    return "闲置 %d 小时 %d 分" % (距 // 3600, (距 % 3600) // 60)
+
+
+def 采员工(配置, trae块=None, 卡表=None):
+    """人员全集＝员工名册.json（A 方案，含「未开」）；账本只补 最后活动/距今秒/今日消息数。
+    名册缺失 → 退化为「账本现推」并写明来源（不静默）；
+    账本读不到 → 名册照列，原因写进 最后员工错误（上屏横幅）。
+    灯：<180s 绿干活中 / 180~900 灰待命 / >900 黄失联；TRAE 崩 → 全红。"""
+    global 最后员工错误
+    最后员工错误 = ""
+    账本 = 配置.get("账本路径") or ""
+    名表 = {}
     聚合 = {}
-    for 标题, tm in 行们:
-        if not 标题:
-            continue
-        项 = 聚合.setdefault(标题, {"末": "", "末值": None, "今日": 0})
-        值 = 公共.解析时间(tm)
-        if 值 is not None:
-            if 项["末值"] is None or 值 > 项["末值"]:
-                项["末值"] = 值
-                项["末"] = tm
-            if 值.strftime("%Y-%m-%d") == 今天:
-                项["今日"] += 1
-        elif tm:
-            if not 项["末"]:
-                项["末"] = tm
+    账本错 = ""
+    if not 账本 or not os.path.isfile(账本):
+        账本错 = "账本读不到：%s" % (账本 or "（配置.账本路径 为空，或文件不存在）")
+        最后员工错误 = 账本错
+    else:
+        try:
+            import sqlite3
+            连接 = sqlite3.connect("file:%s?mode=ro" % 账本.replace("\\", "/"), uri=True, timeout=3)
+            try:
+                try:
+                    for 标题, 名 in 连接.execute("select title, name from conv_meta"):
+                        名表[标题] = (名 or "").strip()
+                except Exception:
+                    pass
+                行们 = list(连接.execute(
+                    "select title, tm from msgs order by rowid desc limit 20000"))
+            finally:
+                连接.close()
+            今天 = 公共.今天前缀()
+            for 标题, tm in 行们:
+                if not 标题:
+                    continue
+                项 = 聚合.setdefault(标题, {"末": "", "末值": None, "今日": 0})
+                值 = 公共.解析时间(tm)
+                if 值 is not None:
+                    if 项["末值"] is None or 值 > 项["末值"]:
+                        项["末值"] = 值
+                        项["末"] = tm
+                    if 值.strftime("%Y-%m-%d") == 今天:
+                        项["今日"] += 1
+                elif tm:
+                    if not 项["末"]:
+                        项["末"] = tm
+        except Exception as 错:
+            账本错 = "账本读不到：%s" % 错
+            最后员工错误 = 账本错
+            聚合 = {}
+            名表 = {}
 
     只取号 = 配置.get("员工只取终身号", True)
     卡表 = 卡表 if 卡表 is not None else 任务卡库.读().get("卡", [])
     trae崩 = bool(trae块 and trae块.get("判定") == "红")
+    档案人, 档案来源, 档案错, 档案读于 = 读会话档案名册()
+    名册, _名册路径 = _读名册()
+    名册人 = []
+    if 档案人:
+        # 唯一真源＝CDP 维护的会话档案（终身号状态=采集存在），锚定 4 位终生号
+        名册人 = list(档案人)
+        来源前缀 = "会话档案(采集存在)+账本"
+        if 账本错:
+            来源前缀 = "会话档案(采集存在)（账本读不到）"
+    elif isinstance(名册, dict):
+        for 人 in (名册.get("员工") or []):
+            人 = 人 if isinstance(人, dict) else {}
+            号 = str(人.get("终身号") or "").strip()
+            题 = str(人.get("账本title") or 号).strip()
+            if not 题:
+                continue
+            if 只取号 and not (题.isdigit() and len(题) == 4):
+                continue
+            名册人.append({"号": 号, "题": 题,
+                          "会话名": str(人.get("会话名") or 题),
+                          "册距今": 人.get("距今秒")})
+        来源前缀 = "名册+账本"
+    if not 名册人:
+        名册人 = [{"号": 题 if (题.isdigit() and len(题) == 4) else "",
+                  "题": 题, "会话名": (名表.get(题) or 题), "册距今": None}
+                 for 题 in 聚合.keys()]
+        来源前缀 = "账本（名册缺失）"
+        if not 名册人 and 账本错:
+            raise RuntimeError(账本错)
+    if 档案错 and not 账本错:
+        最后员工错误 = 档案错 + ("（已退回 员工名册.json）" if 名册人 else "（名册也缺，已退回账本）")
+    if 名册人 and 账本错 and 档案人:
+        来源前缀 = "会话档案(采集存在)（账本读不到）"
 
     员工们 = []
-    for 标题, 项 in 聚合.items():
-        是号 = bool(标题.isdigit() and len(标题) == 4)
-        if 只取号 and not 是号:
-            continue
+    for 项 in 名册人:
+        聚合项 = 聚合.get(项["题"]) or {}
         距 = None
-        if 项["末值"] is not None:
-            距 = max(0, int((time.time() - 项["末值"].timestamp())))
+        if 聚合项.get("末值") is not None:
+            距 = max(0, int((time.time() - 聚合项["末值"].timestamp())))
+        elif isinstance(项.get("册距今"), (int, float)):
+            距 = int(项["册距今"])
+        手上 = [卡.get("id") for 卡 in 卡表
+              if 卡.get("负责人") == 项["题"] and 卡.get("状态") in ("未做", "在做", "卡住")]
+        # 灯分档（2026-10-26 老板口径：别再 35/37 全黄）：
+        #   绿＝3 分钟内有动静；黄＝有任务却闲置超 30 分钟（才需要管）；灰＝其余正常待命；红＝TRAE 崩
         if trae崩:
             灯 = "红"
         elif 距 is None:
             灯 = "灰"
         elif 距 < 180:
             灯 = "绿"
-        elif 距 <= 900:
-            灯 = "灰"
-        else:
+        elif 手上 and 距 > 1800:
             灯 = "黄"
-        手上 = [卡.get("id") for 卡 in 卡表
-              if 卡.get("负责人") == 标题 and 卡.get("状态") in ("未做", "在做", "卡住")]
-        员工们.append({
-            "终身号": 标题 if 是号 else "",
-            "会话名": 名表.get(标题) or 标题,
-            "标题": 标题,
+        else:
+            灯 = "灰"
+        员 = {
+            "终身号": 项["号"],
+            "会话名": 项["会话名"] or 名表.get(项["题"]) or 项["题"],
+            "标题": 项["题"],
             "灯": 灯,
-            "最后活动": (项["末"].split(" ")[-1] if 项["末"] else ""),
-            "最后活动原文": 项["末"],
+            "最后活动": (聚合项["末值"].strftime("%H:%M:%S")
+                        if 聚合项.get("末值") is not None
+                        else (聚合项.get("末") or "").split(" ")[-1]),
+            "最后活动原文": 聚合项.get("末") or "",
             "距今秒": 距 if 距 is not None else -1,
-            "今日消息数": 项["今日"],
+            "时长": _时长文本(距),
+            "今日消息数": 聚合项.get("今日", 0),
             "手上任务": 手上,
-            "来源": "账本",
-        })
+            "任务明细": [{"id": c.get("id"), "标题": c.get("标题", ""),
+                         "状态": c.get("状态", ""), "更新": c.get("更新", "")}
+                        for c in 卡表 if c.get("负责人") == 项["题"]],
+            "来源": 来源前缀 if 聚合项 else ("名册（账本无此 title）" if 名册人 else "账本（名册缺失）"),
+            "名册来源": 来源前缀,
+            "档案刷新": 档案读于,
+            "排队条数": 项.get("排队条数", 0),
+            "排队时刻": 项.get("排队时刻", ""),
+        }
+        员工们.append(员)
     员工们.sort(key=lambda e: (e["距今秒"] if e["距今秒"] >= 0 else 10 ** 9))
     return 员工们
 
@@ -333,12 +541,14 @@ def 采任务(员工们=None):
             "优先级": 卡.get("优先级", ""),
             "截止": 卡.get("截止", ""),
             "来源": 卡.get("来源", ""),
+            "来源原话": 卡.get("来源原话", []) or [],
+            "分组": 卡.get("分组", "未分类") or "未分类",
             "证据": 卡.get("证据", []),
             "创建": 卡.get("创建", ""),
             "更新": 卡.get("更新", ""),
         })
     卡们.sort(key=lambda c: c["id"])
-    return {"统计": 统计, "卡": 卡们}
+    return {"统计": 统计, "卡": 卡们, "分组": list(数据.get("分组") or ["未分类"])}
 
 
 # ---------------------------------------------------------------- 服务区块
@@ -391,6 +601,8 @@ def 采集一轮(配置, 网页端口=0):
     try:
         员工们 = 采员工(配置, 结果.get("trae"), None)
         结果["员工"] = 员工们
+        if 最后员工错误:
+            结果["员工错误"] = 最后员工错误
     except Exception as 错:
         结果["员工"] = []
         结果["员工错误"] = "采集异常: %s" % 错
@@ -425,16 +637,23 @@ def 采集一轮(配置, 网页端口=0):
     if trae块.get("界面模式") not in ("Code", None):
         横幅.append("当前模式 %s" % trae块.get("界面模式"))
 
+    if 结果.get("员工错误"):
+        横幅.append(结果["员工错误"])
     for 人 in 结果.get("员工", []):
         灯们.append(人.get("灯", "灰"))
 
-    失联 = [人 for 人 in 结果.get("员工", []) if 人.get("灯") == "黄" and 人.get("距今秒", 0) > 900]
+    失联 = [人 for 人 in 结果.get("员工", []) if 人.get("灯") == "黄" and 人.get("距今秒", 0) > 1800]
     失联.sort(key=lambda e: e.get("距今秒", 0))
-    for 人 in 失联[:3]:
-        横幅.append("%s 已失联 %s" % (人.get("终身号") or 人.get("会话名", "?"),
-                                    公共.格式化秒(人.get("距今秒"))))
-    if len(失联) > 3:
-        横幅.append("另有 %d 人失联" % (len(失联) - 3))
+    # 顶部只报「真正需要处理」的：有任务却失联；其余只给一个总数，避免整屏刷黄
+    需处理 = [人 for 人 in 失联 if (人.get("手上任务") or [])]
+    for 人 in 需处理[:3]:
+        横幅.append("%s 有任务却失联 %s（%s）" % (
+            人.get("终身号") or 人.get("会话名", "?"),
+            公共.格式化秒(人.get("距今秒")), ",".join(人.get("手上任务") or [])))
+    if len(需处理) > 3:
+        横幅.append("另有 %d 人有任务且失联" % (len(需处理) - 3))
+    if 失联 and not 需处理:
+        横幅.append("失联 %d 人（均无在手任务，仅作提示）" % len(失联))
     for 服务 in 结果.get("服务", []):
         灯们.append(服务.get("灯", "灰"))
     for 卡 in (结果.get("任务") or {}).get("卡", []):
