@@ -542,6 +542,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   renderPending();                  // 1.09：占位气泡永远排在末尾
   if (_e2q) _e2RenderQbar(_e2q);    // 2.145（五-1）：只渲染服务端推的全量排队条
   _e2RenderFinal(msgs);             // 2.145（七-3）：最终回复暂存卡（账本行到达即自动让位）
+  _e2RenderOrphanThink(msgs);       // 2026-11-01：账本行未到时，思维卡也要立即显示
   if (inF && !S.pinBottom){
     fprog(savedTop);                /* 2.64：改走 fprog（程序滚动）——设静默期 + 作废手势窗口，
                                        位置不被快照拽回，也不会误触发上翻判定；
@@ -697,6 +698,34 @@ function _e2RenderThink(m){
   });
   box.innerHTML = h;
   el.msgs.appendChild(box);
+}
+/* 2026-11-01（老板实测「思维小卡片不及时」）：账本行还没到（msg_evt 未推/慢）时，
+   思维卡不能因为「找不到挂靠的 AI 行」就不显示——没有对应 mid 的全部思维卡，
+   按 mid 顺序作为**独立思考卡**挂在正文末尾；账本行到达后由 _e2RenderThink 接管。 */
+function _e2RenderOrphanThink(msgs){
+  try {
+    const st = _e2S();
+    const arr = Array.isArray(msgs) ? msgs : [];
+    const have = {};
+    arr.forEach(m => { if (m && m[6]) have[String(m[6])] = 1; });
+    Object.keys(st.v3think || {}).forEach(mid => {
+      if (have[mid]) return;
+      const cards = st.v3think[mid] || [];
+      if (!cards.length) return;
+      const box = document.createElement('div');
+      box.className = 'thinkbox';
+      box.dataset.mid = mid;
+      let h = '';
+      cards.forEach((k, i) => {
+        h += '<div class="thinkcard">'
+           + '<div class="texp">💭 思维 ' + (i + 1) + '</div>'
+           + '<div class="tbody">' + esc(String(k.text == null ? '' : k.text)) + '</div>'
+           + '</div>';
+      });
+      box.innerHTML = h;
+      el.msgs.appendChild(box);
+    });
+  } catch(e){}
 }
 /* 七-3：最终回复到达后统一撤卡；账本行到达即自动让位（绝不重复两条） */
 function _e2RenderFinal(msgs){
