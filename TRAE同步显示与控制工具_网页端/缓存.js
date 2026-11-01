@@ -779,6 +779,27 @@ function snapIdbShow(sid, title){
   if (!sid) return;
   S.liveGot = false; S.livePend = sid;
   S.liveFrame = null;            /* 2.57B：旧会话 A 的正文退场（防张冠李戴） */
+  /* V1.1 二期收口（施工单 B-2 · 规范六-1）：切会话/首屏——**先显示本地缓存、
+     后台对账补差**。切会话本身就是三大对账触发场景之一，这里立即发一次，
+     差额（含首次的「空映射→全量差额」）由 `对账_结果` 按 §六 并入，绝不旁路。 */
+  try { if (typeof 发对账 === 'function') 发对账(); } catch(e){}
+  /* 正文缓存首选**本会话小账册最近 5 轮**（规范三-2 效果要求）；有就一次性铺上，
+     不再等整帧存帧读盘。无小账册（新会话）才退回下方的旧存帧兜底。 */
+  let _sm = [];
+  try { if (typeof 小账册渲染取 === 'function') _sm = 小账册渲染取(sid); } catch(e){}
+  if (_sm && _sm.length){
+    S.liveFrame = {msgs: _sm, finish: null, tail: '', sendIdle: true,
+                   inputText: '', opts: [], ask: null, pend: [],
+                   attach: [], model: ''};
+    S.swFrameReady = true;
+    try {
+      if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+      S.snap.msgs = _sm.slice();
+      S.msgsSid = _smSidKey(sid);
+    } catch(e){}
+    renderAll();
+    return;
+  }
   /* 2.64：先读到目标会话的存帧、再渲染「一次」——不再先画一版空帧。
      原实现先 renderAll() 空帧、再异步补缓存，中间那版空版面会把消息区
      scrollTop 夹回 0 并抛 scroll 事件，成为「自动跳顶 + 拉历史」的源头。
@@ -1035,8 +1056,18 @@ function 收对账结果(d){
     if (rsid && cur && _smSidKey(rsid) !== _smSidKey(cur)) return 0;
     const miss = dd['缺失'] || dd.missing || [];
     const diff = dd['版本不一致'] || dd.conflict || [];
-    const arr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
-    if (!arr) return 0;
+    /* V1.1 二期收口（施工单 B · 规范六）：独立整帧快照通道已撤，正文骨架由本端
+       维护——同一会话已拼好的延用；没有/换了会话则以**本会话小账册 5 轮**起底
+       （＝协议初始形态：空映射→首次对账即全量差额），只把差额并进来。 */
+    let arr;
+    if (S.snap && Array.isArray(S.snap.msgs) && S.msgsSid === _smSidKey(cur)){
+      arr = S.snap.msgs;
+    } else {
+      arr = (typeof 小账册渲染取 === 'function' ? 小账册渲染取(cur) : []).slice();
+    }
+    if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+    S.snap.msgs = arr;
+    S.msgsSid = _smSidKey(cur);
     let added = 0, fixed = 0;
     (miss || []).forEach(r => {
       _sm轮次转行(r).forEach(row => {
@@ -1060,9 +1091,21 @@ function 收对账结果(d){
           ? arr.findIndex(x => x && String(x[6] || '') === askId) : -1;
       const repIdx = repId
           ? arr.findIndex(x => x && String(x[6] || '') === repId) : -1;
+      /* 版本不一致＝服务端已有更高优先级回复（如「残缺→DID」）。本地旧回复行
+         按「小账册里该轮的旧回复 id」定位并**就地替换**——若追加到尾部，会被
+         `_组轮次` 记到下一轮，表现为「换了等于没换」（C-2 实测坑）。 */
+      let oldRep = '';
+      try {
+        const rr = (typeof 小账册取 === 'function' ? 小账册取(cur) : [])
+            .find(x => String((x && x.ask) || '') === askId);
+        if (rr) oldRep = String(rr.replyId || '');
+      } catch(e){}
+      const oldIdx = (oldRep && oldRep !== repId)
+          ? arr.findIndex(x => x && String(x[6] || '') === oldRep) : -1;
       if (askId && askIdx < 0){ arr.push(askRow); fixed++; }
       if (repId){
         if (repIdx >= 0){ arr[repIdx] = repRow; fixed++; }
+        else if (oldIdx >= 0){ arr[oldIdx] = repRow; fixed++; }
         else { arr.push(repRow); fixed++; }
       } else if (askId && askIdx >= 0){
         arr[askIdx] = askRow; fixed++;     /* 无回复id：只更新提问行 */

@@ -1,6 +1,14 @@
 'use strict';
-/* 事件总线.js（网页端）  版本 2.134  日期 2026-10-31
+/* 事件总线.js（网页端）  版本 2.135  日期 2026-11-01
    【维护记录】
+   2.135  2026-11-01  V1.1 二期收口（施工单 03 · A/R8/R9 + B/R18，判据 规范六）：
+                     ① 服务端已撤独立整帧快照通道（常规快照帧盖 `msgs_对账取:1`、不带
+                        msgs）：本文件收 snap 时——同一会话沿用本端已拼正文；换了会话
+                        立即换成本会话小账册 5 轮（秒显），差额由切会话触发的 `发对账`
+                        按 §六 补齐，绝不再拿上一会话整帧顶屏。
+                     ② `msg_evt` 增量在无骨架时以本会话小账册 5 轮起底再追加，并记
+                        `S.msgsSid` 供对账结果辨识归属。
+                     ③ 切账号（`k='account'` 值变化）新增为对账触发场景（六-1 三场景之一）。
    2.134  2026-10-31  返工3 两行都缺补整轮：`收对账结果` 的「版本不一致」遇上前端
                       提问行／回复行都缺时，改为把该轮 `rows` 全量补进（提问行＋回复行），
                       不再只补回复行（防「有答无问」孤儿行、小账册建不了轮、每轮重复白推）。
@@ -137,10 +145,26 @@ function onEv(kind, v){
       /* 2.105（老板 2026-10-20 15:43「头晕脑胀」主因·最高优先）：判据由「仅 msgs 缺失」
          放宽为「msgs 不是数组」——服务端框架版快照 `_light_snap` 会把 msgs 头整个拿走
          （`pop('msgs')`），也可能送来 null/非数组；旧判据漏掉这些形态 ⇒ S.snap.msgs 落到
-         非数组 ⇒ curMsgs 回落账本（行数骤减，实测 8→3）。⇒ 来帧若【无 msgs 数组】一律
-         只更新会话列表/状态/锚定，正文【保留上一拍已上屏的 msgs】。 */
-      if (!Array.isArray(v.msgs) && S.snap && Array.isArray(S.snap.msgs)){
-        v.msgs = S.snap.msgs;
+         非数组 ⇒ curMsgs 回落账本（行数骤减，实测 8→3）。
+         V1.1 二期收口（施工单 B · 规范六）：常规快照已**不再下发正文**（服务端帧盖
+         `msgs_对账取:1`，独立整帧通道已撤）。此处：
+           · 同一会话 → 沿用本端已拼的正文（msg_evt 增量持续维护）；
+           · 换了会话 → 立刻换成本端该会话的小账册 5 轮（缓存秒显），差额由切会话
+             触发的 `发对账` 按 §六 补齐——绝不再拿上一会话的整帧顶屏。 */
+      const _liveSid9 = selSidOf(v);
+      const _liveKey9 = 稳定键(_liveSid9, selTitleOf(v));
+      if (!Array.isArray(v.msgs)){
+        if (S.snap && Array.isArray(S.snap.msgs)
+            && _liveKey9 && S.anchorSid && _liveKey9 === S.anchorSid){
+          v.msgs = S.snap.msgs;               /* 同一会话：保留已拼正文 */
+        } else {
+          let _sm9 = [];
+          try {
+            const _sid9 = String((typeof curSid === 'function' ? curSid() : '') || '');
+            if (_sid9 && typeof 小账册渲染取 === 'function') _sm9 = 小账册渲染取(_sid9);
+          } catch(e){}
+          v.msgs = _sm9;                      /* 目标会话：小账册 5 轮兜底显示 */
+        }
       }
       /* 本专项 B3：先记下这拍快照「桌面当前选中行」——它就是直播帧的归属
          会话；当前锚定会话的真直播帧一到，立即撤「正在获取直播帧」小条。 */
@@ -171,6 +195,7 @@ function onEv(kind, v){
         if (_sidNow && Array.isArray(S.snap.msgs)
             && typeof 小账册灌 === 'function'){
           小账册灌(_sidNow, S.snap.msgs);
+          try { S.msgsSid = 稳定键(_sidNow, ''); } catch(e){}
         }
         /* 登录/页面刷新首拍兜底：锚定未就绪时由快照触发一次对账（一次性） */
         if (!S.smDsAt && typeof 发对账 === 'function') 发对账();
@@ -444,10 +469,15 @@ function onEv(kind, v){
               + (v.th ? '（阈值 ' + v.th + '）' : '')
               + '，已通知钉钉');
       break;
-    case 'account':                        /* 1.27：登录账号名 */
-      S.acct = String(v || '');
+    case 'account': {                      /* 1.27：登录账号名 */
+      const _ac = String(v || '');
+      const _chg = (S.acct !== _ac);
+      S.acct = _ac;
       renderAcct();
+      /* V1.1 二期收口（规范六-1）：**切换账号**是主动对账的三大触发场景之一 */
+      if (_chg && typeof 发对账 === 'function' && S.onLine) 发对账();
       break;
+    }
     case 'notice':                         /* 1.41：服务端提示（如语音键拒点） */
       flash(String(v || ''), 'var(--blue)');
       break;
@@ -666,8 +696,15 @@ function onMsgEvt(d){
   const role = String(d.role || '');
   const text = String(d.text || '');
   if (!mid || !role || !text) return;
-  const arr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
-  if (!arr) return;
+  let arr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
+  if (!arr){
+    /* V1.1 二期收口（施工单 B）：常规快照不再带正文，骨架由本端维护——
+       还没有骨架时以小账册 5 轮起底，再把这条增量并进去。 */
+    arr = (typeof 小账册渲染取 === 'function' ? 小账册渲染取(sid) : []).slice();
+    if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+    S.snap.msgs = arr;
+  }
+  try { S.msgsSid = 稳定键(sid, ''); } catch(e){}
   /* ④ 去重：快照里已有同 mid 的行（事件与快照同源，常见）就不再插 */
   if (arr.some(m => m && String(m[6] || '') === mid)) return;
   /* ⑤ 复用现成渲染链路（同 snap_pane 分支）：按服务端行格式
