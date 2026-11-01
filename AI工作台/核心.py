@@ -410,9 +410,15 @@ def _cmd_账号注册(参数, 来源):
 
 
 def _cmd_账号列表(参数, 来源):
+    # P6：昵称不重复存——就地取自 服务端.json（实例号对得上才带）
+    服 = _读服务端()
+    名 = {str(x.get("实例号") or ""): str(x.get("昵称") or "") for x in (服.get("服务端") or [])}
     出 = [{"终身号": x.get("终身号"), "免密": not str(x.get("密码") or ""),
-           "注册": x.get("注册", "")} for x in _读账号表().get("账号", [])]
-    return _成功({"账号": 出, "条数": len(出)}, "共 %d 个已注册账号" % len(出))
+           "注册": x.get("注册", ""), "昵称": 名.get(str(x.get("终身号") or ""), ""),
+           "是否当前服务端": str(x.get("终身号") or "") == str(服.get("当前") or "")}
+          for x in _读账号表().get("账号", [])]
+    return _成功({"账号": 出, "条数": len(出), "当前服务端": str(服.get("当前") or "")},
+                "共 %d 个已注册账号" % len(出))
 
 
 def _cmd_账号改密(参数, 来源):
@@ -3659,6 +3665,379 @@ def _cmd_任务换标签(参数, 来源):
                 "已换标签 %s（标签齐=%s%s）" % (卡id, 齐, "" if 齐 else "：" + 说))
 
 
+# ---------------------------------------------------------------- P6 服务端切换器（实例号＋昵称）
+
+服务端版本 = "1.0"
+
+
+def _服务端路径():
+    """服务端.json 与 配置.json 同目录（机器级清单，不落 状态.json、不分账号空间）。"""
+    目录 = os.path.dirname(str(getattr(公共, "配置文件路径", "") or "").strip())
+    return os.path.join(目录 or 公共.取路径("数据目录"), "服务端.json")
+
+
+def _读服务端():
+    d = 公共.读json(_服务端路径(), None)
+    if not isinstance(d, dict):
+        d = {}
+    d.setdefault("版本", 服务端版本)
+    d.setdefault("更新", 公共.现在全())
+    d.setdefault("当前", "")
+    if not isinstance(d.get("服务端"), list):
+        d["服务端"] = []
+    return d
+
+
+def _写服务端(d):
+    d["版本"] = 服务端版本
+    d["更新"] = 公共.现在全()
+    公共.原子写json(_服务端路径(), d)
+
+
+def _网址合法(网址):
+    """https ＋ 公网站点；禁 127/局域网/本机回环（网页版一律 GitHub Pages）。"""
+    网 = str(网址 or "").strip().lower()
+    if not 网.startswith("https://"):
+        return False, "网址必须以 https:// 开头（网页版一律 GitHub Pages，禁 127）"
+    if ("127." in 网) or ("localhost" in 网) or ("0.0.0.0" in 网) or ("192.168." in 网):
+        return False, "网址不许用本机/局域网地址（127、localhost、192.168 一律禁）"
+    if ("github.io" not in 网) and ("pages" not in 网):
+        return False, "网址须是 GitHub Pages 站点（含 github.io）"
+    return True, ""
+
+
+def _探网址(网址, 超时=5.0):
+    """单次连通探：返回 (ok, 耗时ms, 证据/错误原文)。"""
+    import time as _t
+    import urllib.parse as _up
+    import urllib.request
+    起 = _t.time()
+    址 = _up.quote(str(网址 or "").strip(), safe=":/?#[]@!$&'()*+,;=%")
+    try:
+        with urllib.request.urlopen(址, timeout=超时) as r:
+            码 = int(getattr(r, "status", 200) or 200)
+    except Exception as e:
+        return False, int((_t.time() - 起) * 1000), "%s" % e
+    耗 = int((_t.time() - 起) * 1000)
+    if 码 >= 400:
+        return False, 耗, "HTTP %d" % 码
+    return True, 耗, "HTTP %d, %dms" % (码, 耗)
+
+
+def _服务端挑(表, 键):
+    """按 实例号 或 昵称 找一条。"""
+    键 = str(键 or "").strip()
+    if not 键:
+        return None
+    for x in 表.get("服务端") or []:
+        if str(x.get("实例号") or "").strip() == 键 or str(x.get("昵称") or "").strip() == 键:
+            return x
+    return None
+
+
+def _服务端探(条, 超时=6.0):
+    """本机条目探本机网页端口；外机条目探 Pages 网址（网址里绝不写 127）。"""
+    if str((条 or {}).get("端点") or "").strip() == 端点名():
+        端口 = 19900
+        try:
+            端口 = int((公共.读配置() or {}).get("网页端口") or 19900)
+        except Exception:
+            端口 = 19900
+        return _探端口(端口, min(2.0, 超时))
+    return _探网址((条 or {}).get("网址"), 超时)
+
+
+def _cmd_服务端列表(参数, 来源):
+    表 = _读服务端()
+    当前 = str(表.get("当前") or "")
+    行 = []
+    for x in 表.get("服务端") or []:
+        好, 耗, 证 = _服务端探(x, 3.0)
+        行.append({"实例号": str(x.get("实例号") or ""), "昵称": str(x.get("昵称") or ""),
+                  "网址": str(x.get("网址") or ""), "端点": str(x.get("端点") or ""),
+                  "当前": str(x.get("实例号") or "") == 当前,
+                  "连通": "ok" if 好 else "fail", "延迟": 耗, "证据": 证})
+    return _成功({"当前": 当前, "服务端": 行, "条数": len(行), "路径": _服务端路径()},
+                "服务端 %d 条（当前=%s）" % (len(行), 当前 or "未选"))
+
+
+def _cmd_服务端当前(参数, 来源):
+    表 = _读服务端()
+    条 = _服务端挑(表, 表.get("当前"))
+    if 条 is None:
+        return _失败("还没选当前服务端（先 服务端.新增 再 服务端.切换）",
+                     {"原因码": "not_found", "路径": _服务端路径()})
+    return _成功({"实例号": str(条.get("实例号") or ""), "昵称": str(条.get("昵称") or ""),
+                "网址": str(条.get("网址") or ""), "端点": str(条.get("端点") or ""),
+                "来源": "服务端.json"},
+                "当前服务端：%s（%s）" % (条.get("实例号"), 条.get("昵称") or "-"))
+
+
+def _cmd_服务端新增(参数, 来源):
+    号 = str(_取参数(参数, "实例号") or "").strip()
+    昵 = str(_取参数(参数, "昵称") or "").strip()
+    网 = str(_取参数(参数, "网址") or "").strip()
+    端 = str((参数 or {}).get("端点") or "").strip()
+    if not 号 or not 昵 or not 网:
+        return _失败("缺参数：实例号 / 昵称 / 网址（三个都必填）",
+                     {"原因码": "bad_param"})
+    if not 号.isdigit() or len(号) < 4:
+        return _失败("实例号必须是 4 位以上数字（收到：%s）" % 号, {"原因码": "bad_param"})
+    好, 说 = _网址合法(网)
+    if not 好:
+        return _失败(说, {"原因码": "bad_param", "实际收到": 网})
+    表 = _读服务端()
+    for x in 表.get("服务端") or []:
+        if str(x.get("实例号") or "") == 号:
+            return _失败("实例号已存在：%s（要改名字用 服务端.改名）" % 号,
+                         {"原因码": "dup_server", "字段": "实例号"})
+        if str(x.get("昵称") or "") == 昵:
+            return _失败("昵称已存在：%s（换一个昵称）" % 昵,
+                         {"原因码": "dup_server", "字段": "昵称"})
+    条 = {"实例号": 号, "昵称": 昵, "网址": 网, "端点": 端 or 端点名(),
+          "备注": str((参数 or {}).get("备注") or ""), "最后连通": "", "连通": ""}
+    表["服务端"].append(条)
+    if not str(表.get("当前") or ""):
+        表["当前"] = 号
+    _写服务端(表)
+    return _成功({"服务端": 条, "当前": 表.get("当前"), "条数": len(表["服务端"])},
+                "已新增服务端 %s（%s）" % (号, 昵))
+
+
+def _cmd_服务端改名(参数, 来源):
+    号 = str(_取参数(参数, "实例号") or "").strip()
+    昵 = str(_取参数(参数, "昵称") or "").strip()
+    if not 号 or not 昵:
+        return _失败("缺参数：实例号 / 昵称", {"原因码": "bad_param"})
+    表 = _读服务端()
+    条 = _服务端挑(表, 号)
+    if 条 is None:
+        return _失败("服务端不存在：%s" % 号, {"原因码": "not_found"})
+    for x in 表.get("服务端") or []:
+        if x is not 条 and str(x.get("昵称") or "") == 昵:
+            return _失败("昵称已被占用：%s" % 昵, {"原因码": "dup_server", "字段": "昵称"})
+    旧昵 = str(条.get("昵称") or "")
+    条["昵称"] = 昵
+    _写服务端(表)
+    return _成功({"实例号": str(条.get("实例号") or ""), "昵称": 昵, "原名": 旧昵},
+                "%s 昵称：%s → %s" % (号, 旧昵, 昵))
+
+
+def _cmd_服务端切换(参数, 来源):
+    键 = str(_取参数(参数, "实例号") or _取参数(参数, "昵称") or "").strip()
+    if not 键:
+        return _失败("缺参数：实例号 或 昵称（二选一）", {"原因码": "bad_param"})
+    表 = _读服务端()
+    条 = _服务端挑(表, 键)
+    if 条 is None:
+        return _失败("服务端不存在：%s" % 键, {"原因码": "not_found"})
+    好, 耗, 证 = _服务端探(条, 6.0)
+    if not 好:
+        条.update({"连通": "fail", "最后连通": 公共.现在全(), "延迟": 耗})
+        _写服务端(表)   # 只记证据，当前不动（不半改）
+        return _失败("连不上该服务端，请检查网址/端口（%s）" % 证,
+                     {"原因码": "server_unreach", "实例号": str(条.get("实例号") or ""),
+                      "错误": 证, "耗时ms": 耗})
+    旧 = str(表.get("当前") or "")
+    表["当前"] = str(条.get("实例号") or "")
+    条.update({"连通": "ok", "最后连通": 公共.现在全(), "延迟": 耗})
+    _写服务端(表)
+    return _成功({"当前": 表["当前"], "前一个": 旧, "切换时刻": 公共.现在全(),
+                "昵称": str(条.get("昵称") or ""), "耗时ms": 耗},
+                "已切到 %s（%s），不用重启" % (表["当前"], 条.get("昵称") or "-"))
+
+
+def _cmd_服务端测试(参数, 来源):
+    键 = str(_取参数(参数, "实例号") or _取参数(参数, "昵称") or "").strip()
+    表 = _读服务端()
+    条 = _服务端挑(表, 键 or 表.get("当前"))
+    if 条 is None:
+        return _失败("服务端不存在：%s" % (键 or "（未选当前）"),
+                     {"原因码": "not_found", "路径": _服务端路径()})
+    好, 耗, 证 = _服务端探(条, 6.0)
+    条.update({"连通": "ok" if 好 else "fail", "最后连通": 公共.现在全(), "延迟": 耗})
+    _写服务端(表)
+    if not 好:
+        return _失败("连不上该服务端，请检查网址/端口（%s）" % 证,
+                     {"原因码": "server_unreach", "实例号": str(条.get("实例号") or ""),
+                      "耗时ms": 耗, "错误": 证})
+    return _成功({"实例号": str(条.get("实例号") or ""), "ok": True, "耗时ms": 耗,
+                "错误": "", "证据": 证},
+                "%s 连通 ok（%dms）" % (条.get("实例号"), 耗))
+
+
+# ---------------------------------------------------------------- P6 网络诊断（四探）
+
+def _探端口(端口, 超时=2.0):
+    import socket as _s
+    import time as _t
+    起 = _t.time()
+    s = _s.socket()
+    s.settimeout(超时)
+    try:
+        s.connect(("127.0.0.1", int(端口)))
+        耗 = int((_t.time() - 起) * 1000)
+        return True, 耗, "connect ok, %dms" % 耗
+    except Exception as e:
+        return False, int((_t.time() - 起) * 1000), "%s" % e
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def _探账本():
+    import sqlite3
+    import time as _t
+    路 = str((公共.读配置() or {}).get("账本路径") or "").strip() or 公共.探测账本路径()
+    起 = _t.time()
+    if not 路 or not os.path.isfile(路):
+        return False, 0, "账本不存在：%s" % (路 or "（配置.json 没写 账本路径）"), 路
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % 路.replace("\\", "/"), uri=True)
+        try:
+            数 = int(con.execute("select count(*) from msgs").fetchone()[0])
+        finally:
+            con.close()
+        return True, int((_t.time() - 起) * 1000), "msgs=%d" % 数, 路
+    except Exception as e:
+        return False, int((_t.time() - 起) * 1000), "%s" % e, 路
+
+
+def _探频道桥(超时=12.0):
+    import json as _j
+    import time as _t
+    import websocket
+    import 公网桥
+    起 = _t.time()
+    频道 = 公共.频道全()
+    if not str(公共.外连.get("api_key") or "").strip() or not str(公共.外连.get("尾") or "").strip():
+        return False, 0, "频道未配置（配置.json「公网桥」缺 api_key/尾）"
+    址 = 公网桥.频道地址(频道, 公共.外连["api_key"], 公共.外连["主机"])
+    try:
+        ws = websocket.create_connection(址, timeout=8.0)
+    except Exception as e:
+        return False, int((_t.time() - 起) * 1000), "连不上频道：%s" % e
+    try:
+        请求 = {"类型": "请求", "id": "diag%d" % int(_t.time()), "命令": "系统.版本",
+                "参数": {}, "口令": 频道}
+        ws.send(_j.dumps(请求, ensure_ascii=False))
+        限 = _t.time() + 超时
+        while _t.time() < 限:
+            try:
+                文 = ws.recv()
+            except Exception:
+                continue
+            if not 文:
+                continue
+            try:
+                m = _j.loads(文)
+            except Exception:
+                continue
+            if isinstance(m, dict) and m.get("类型") == "ack":
+                耗 = int((_t.time() - 起) * 1000)
+                return True, 耗, "ack ok, %dms" % 耗
+        return False, int((_t.time() - 起) * 1000), "等 ack 超时（桥没应答）"
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+
+def _探延迟(网址, 端口):
+    """3 次往返取中位数（有服务端网址就走 HTTP，否则走本机端口 TCP）。"""
+    import socket as _s
+    import time as _t
+    各 = []
+    if str(网址 or "").strip():
+        for _i in range(3):
+            好, 耗, _证 = _探网址(网址, 4.0)
+            各.append(耗 if 好 else 9999)
+    else:
+        for _i in range(3):
+            起 = _t.time()
+            s = _s.socket()
+            s.settimeout(2.0)
+            try:
+                s.connect(("127.0.0.1", int(端口)))
+                各.append(int((_t.time() - 起) * 1000))
+            except Exception:
+                各.append(9999)
+            finally:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+    中 = sorted(各)[1] if 各 else 9999
+    慢 = 中 > 500
+    return (not 慢 and 中 < 9999), 中, ("%dms%s" % (中, "（慢）" if 慢 else "")), 各
+
+
+def _cmd_诊断四探(参数, 来源):
+    起 = time.time()
+    表 = _读服务端()
+    键 = str((参数 or {}).get("服务端") or 表.get("当前") or "").strip()
+    条 = _服务端挑(表, 键) if 键 else None
+    网 = str((条 or {}).get("网址") or "").strip()
+    端口 = 19900
+    try:
+        端口 = int((公共.读配置() or {}).get("网页端口") or 19900)
+    except Exception:
+        端口 = 19900
+    好1, 耗1, 证1 = _探端口(端口)
+    端口探 = {"ok": 好1, "耗时ms": 耗1, "证据": 证1, "目标": "127.0.0.1:%d" % 端口}
+    ok2, 耗2, 证2, 路 = _探账本()
+    账本探 = {"ok": ok2, "耗时ms": 耗2, "证据": 证2, "路径": 路}
+    ok3, 耗3, 证3 = _探频道桥()
+    桥探 = {"ok": ok3, "耗时ms": 耗3, "证据": 证3}
+    本机 = str((条 or {}).get("端点") or "").strip() == 端点名()
+    ok4, 中, 证4, 各 = _探延迟("" if 本机 else 网, 端口)
+    延探 = {"ok": ok4, "耗时ms": 中, "证据": 证4, "三次": 各,
+            "目标": "127.0.0.1:%d" % 端口 if 本机 or not 网 else 网}
+    四 = [端口探, 账本探, 桥探, 延探]
+    通 = len([x for x in 四 if x["ok"]])
+    结论 = "全通" if 通 == 4 else ("全失败" if 通 == 0 else "部分失败")
+    return _成功({"服务端": {"实例号": (条 or {}).get("实例号", ""), "昵称": (条 or {}).get("昵称", ""),
+                          "网址": 网},
+                "端口": 端口探, "账本": 账本探, "频道桥": 桥探, "延迟": 延探,
+                "通数": 通, "总耗时ms": int((time.time() - 起) * 1000), "结论": 结论},
+                "诊断四探：%s（%d/4）" % (结论, 通))
+
+
+# ---------------------------------------------------------------- P6 链路自检（原话→卡→标签→派工单）
+
+def _cmd_系统链路自检(参数, 来源):
+    原 = _手动条们()
+    卡们 = 任务卡库.读().get("卡", []) or []
+    标 = 标签库.读()
+    单们 = _读派工单().get("单", []) or []
+    原时 = max([str(x.get("时刻") or "") for x in 原] or [""])
+    卡时 = max([str(x.get("更新") or x.get("创建") or "") for x in 卡们] or [""])
+    单时 = max([str(x.get("创建") or "") for x in 单们] or [""])
+    齐卡 = len([c for c in 卡们 if 标签库.标签齐(c)[0]])
+    项目数 = len(标.get("项目") or [])
+    段们 = [
+        {"段": "原话卡", "ok": bool(原), "条数": len(原), "最近时刻": 原时,
+         "说明": "" if 原 else "还没有老板原话（原话.新建手动 补一句）"},
+        {"段": "任务卡", "ok": bool(卡们), "条数": len(卡们), "最近时刻": 卡时,
+         "说明": "" if 卡们 else "还没有任务卡（任务.建卡）"},
+        {"段": "标签", "ok": bool(项目数 and 齐卡), "条数": 项目数, "项目数": 项目数,
+         "卡数": len(卡们), "三标签齐卡": 齐卡,
+         "最近时刻": str(标.get("更新") or ""),
+         "说明": "" if (项目数 and 齐卡) else ("标签库还没有项目（标签.新增 项目）" if not 项目数
+                                          else "有卡三标签不齐（补齐后才能开单）")},
+        {"段": "派工单", "ok": bool(单们), "条数": len(单们), "最近时刻": 单时,
+         "说明": "" if 单们 else "还没有派工单（卡→派工单.新建）"},
+    ]
+    缺 = [x["段"] for x in 段们 if not x["ok"]]
+    return _成功({"段": 段们, "缺": 缺, "全通": not 缺,
+                "结论": "全链路全通" if not 缺 else "断在：" + "、".join(缺),
+                "检查时刻": 公共.现在全()},
+                "链路自检：%s" % ("全通" if not 缺 else "断在 " + "、".join(缺)))
+
+
 # ---------------------------------------------------------------- 命令表
 
 命令表 = [
@@ -3821,6 +4200,22 @@ def _cmd_任务换标签(参数, 来源):
      "说明": "页末追加一条（自动时间前缀）", "实现": _cmd_手册追加},
     {"命令": "手册.新建", "参数": {"标题": "…"}, "读写": "写", "页": "P5",
      "说明": "新建 NN_标题.md，套三段模板", "实现": _cmd_手册新建},
+    {"命令": "服务端.列表", "参数": {}, "读写": "读", "页": "P6",
+     "说明": "服务端清单（实例号＋昵称＋当前标记＋当场连通/延迟）", "实现": _cmd_服务端列表},
+    {"命令": "服务端.当前", "参数": {}, "读写": "读", "页": "P6",
+     "说明": "当前服务端（实例号/昵称/网址/端点/来源）", "实现": _cmd_服务端当前},
+    {"命令": "服务端.新增", "参数": {"实例号": "1111", "昵称": "家里", "网址": "https://…github.io/…/", "端点": "家里电脑"}, "读写": "写", "页": "P6",
+     "说明": "新增服务端（昵称/网址必填；网址须 https＋pages；重名 dup_server）", "实现": _cmd_服务端新增},
+    {"命令": "服务端.改名", "参数": {"实例号": "1111", "昵称": "家里"}, "读写": "写", "页": "P6",
+     "说明": "改昵称（实例号不变、只增不复用）", "实现": _cmd_服务端改名},
+    {"命令": "服务端.切换", "参数": {"实例号": "1111"}, "读写": "写", "页": "P6",
+     "说明": "切当前服务端（实例号或昵称二选一；连不上 server_unreach 且当前不动、不重启）", "实现": _cmd_服务端切换},
+    {"命令": "服务端.测试", "参数": {"实例号": "1111"}, "读写": "写", "页": "P6",
+     "说明": "单次连通探（ok/耗时ms/错误；失败 server_unreach）", "实现": _cmd_服务端测试},
+    {"命令": "诊断.四探", "参数": {"服务端": "1111"}, "读写": "读", "页": "P6",
+     "说明": "端口/账本/频道桥/延迟四探；结论只有 全通/部分失败/全失败", "实现": _cmd_诊断四探},
+    {"命令": "系统.链路自检", "参数": {}, "读写": "读", "页": "P6",
+     "说明": "原话卡→任务卡→标签→派工单 四段 ok/条数/最近时刻，缺段给原因", "实现": _cmd_系统链路自检},
 ]
 
 命令映射 = {项["命令"]: 项 for 项 in 命令表}

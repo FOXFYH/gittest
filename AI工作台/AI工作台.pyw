@@ -115,6 +115,14 @@ import 公网桥  # noqa: E402
     "手册.搜",
     "手册.追加",
     "手册.新建",
+    "服务端.列表",
+    "服务端.当前",
+    "服务端.新增",
+    "服务端.改名",
+    "服务端.切换",
+    "服务端.测试",
+    "诊断.四探",
+    "系统.链路自检",
 ]
 
 灯色 = {"绿": "#1f9d55", "黄": "#c9a227", "红": "#c53030", "灰": "#8a8f98"}
@@ -198,6 +206,32 @@ class 网页服务(object):
             return True
         return bool(self.附加令牌) and 值 == self.附加令牌
 
+    # ---- P6：派工单免登录页（/?t=<令牌>）只放这四个动作，其余接口一律 401
+    免登录白名单 = ("派工单.列表", "派工单.接单", "派工单.已读", "派工单.交稿")
+
+    def _链接令牌单号(self, 值):
+        """校验派工单链接令牌（sha256(明文+单号)、7 天）；返回 (单号, 说明)。"""
+        值 = str(值 or "").strip()
+        if not 值 or len(值) < 16:
+            return "", "链接令牌格式不对"
+        try:
+            回 = 核心.执行("派工单.令牌", {"动作": "校验", "链接令牌": 值}, "网页·免登录")
+        except Exception as e:
+            return "", "校验异常：%s" % e
+        if not 回.get("ok"):
+            return "", str(回.get("说明") or "链接已失效")
+        return str((回.get("数据") or {}).get("单号") or ""), "ok"
+
+    def _取令牌值(self, 头, 报文):
+        """从 Authorization: Bearer / 报文 里取链接令牌原文。"""
+        值 = ""
+        if 头:
+            头 = 头.strip()
+            值 = 头[7:].strip() if 头.lower().startswith("bearer ") else 头
+        if not 值 and isinstance(报文, dict):
+            值 = str(报文.get("链接令牌") or 报文.get("令牌") or "")
+        return 值.strip()
+
     # ---- 起停
     def 启动(self):
         首选 = self.指定端口 or int(公共.读配置().get("网页端口") or 19900)
@@ -255,12 +289,23 @@ class 网页服务(object):
                                      "Access-Control-Allow-Methods": "GET,POST,OPTIONS"})
 
             def do_GET(self):
-                路径 = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
+                解析 = urllib.parse.urlparse(self.path)
+                路径 = urllib.parse.unquote(解析.path)
+                查询 = urllib.parse.parse_qs(解析.query or "")
                 if 路径 in ("/", "/index.html"):
+                    # P6：/?t=<链接令牌> 免登录页——只认令牌，令牌不认就 401
+                    链接 = (查询.get("t") or [""])[0].strip()
+                    if 链接:
+                        单号, 说 = 服务._链接令牌单号(链接)
+                        if not 单号:
+                            服务._记拒绝(self.client_address[0], "GET /?t=", "链接令牌无效：%s" % 说)
+                            self._回json(401, {"ok": False, "说明": "401 %s" % 说})
+                            return
                     try:
                         with open(公共.网页首页, "rb") as f:
                             体 = f.read()
-                        self._回(200, 体, "text/html; charset=utf-8")
+                        self._回(200, 体, "text/html; charset=utf-8",
+                                 头={"X-Bypass-Login": "1" if 链接 else "0"})
                     except Exception as 错:
                         self._回(500, ("网页源缺失: %s" % 错).encode("utf-8"),
                                 "text/plain; charset=utf-8")
@@ -310,15 +355,20 @@ class 网页服务(object):
                     self._回json(400, {"ok": False, "说明": "报文不是 JSON: %s" % 错})
                     return
                 命令 = str(报文.get("命令") or "")
+                免登单 = ""
                 if 服务.需要令牌 and not 服务._令牌对(self.headers.get("Authorization"), 报文):
-                    服务._记拒绝(self.client_address[0], 命令, "没带口令/口令不对")
-                    self._回json(401, {"ok": False, "说明": "401 需要口令：Authorization: Bearer <完整频道号>"})
-                    return
+                    # P6：免登录页带链接令牌时，只放白名单四动作；其余命令照样 401
+                    免登单, _说 = 服务._链接令牌单号(服务._取令牌值(self.headers.get("Authorization"), 报文))
+                    if not 免登单 or 命令 not in 服务.免登录白名单:
+                        服务._记拒绝(self.client_address[0], 命令, "没带口令/口令不对")
+                        self._回json(401, {"ok": False, "说明": "401 需要口令：Authorization: Bearer <完整频道号>"})
+                        return
                 if not 核心.有命令(命令):
                     服务._记拒绝(self.client_address[0], 命令, "未知命令")
                     self._回json(400, {"ok": False, "说明": "未知命令：%s" % 命令})
                     return
-                来源 = "网页·远程" if (服务.对外 or 服务.附加令牌) else "网页"
+                来源 = ("网页·免登录" if 免登单 else
+                       ("网页·远程" if (服务.对外 or 服务.附加令牌) else "网页"))
                 幂等键 = str(报文.get("幂等") or "").strip()
                 if 幂等键:
                     with 服务._幂等锁:

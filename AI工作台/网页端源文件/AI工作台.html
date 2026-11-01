@@ -238,9 +238,11 @@
     <input id="频道输入" autocomplete="off" spellcheck="false"
            placeholder="输入频道号（末尾带 @，前面的 foxaijob 自动补上）">
     <div class="tip">频道号同时也是密码；请向老板获取，此页不再显示口令</div>
-    <label for="账号输入">终身号（可留空）</label>
-    <input id="账号输入" autocomplete="off" spellcheck="false"
+    <label for="账号输入">账号（下拉＝全部已注册；留空＝默认空间）</label>
+    <input id="账号输入" list="账号候选" autocomplete="off" spellcheck="false"
+           onchange="换账号()"
            placeholder="终身号（4 位数字，如 1111），留空即可直接进入">
+    <datalist id="账号候选"></datalist>
     <div class="tip">留空=所有人共用一个空间；要各看各的必须填</div>
     <div class="msg" id="登录提示"></div>
     <button class="btn 进入" id="登录按钮" onclick="登录()">进入</button>
@@ -518,6 +520,8 @@ const 命令列表 = [
   "原话.列表", "原话.备注", "原话.关联卡", "原话.建卡", "原话.新建手动", "原话.统计",
   "系统.版本", "系统.状态", "系统.自检", "系统.对齐自检", "系统.日志",
   "手册.一文", "手册.目录", "手册.读", "手册.搜", "手册.追加", "手册.新建",
+  "服务端.列表", "服务端.当前", "服务端.新增", "服务端.改名", "服务端.切换", "服务端.测试",
+  "诊断.四探", "系统.链路自检",
   "派工.复制预览", "派工.发送"
 ];
 
@@ -651,7 +655,34 @@ function 进主界面(){
   上次ts = 0;
   拉状态(true);
   拉卡(true);          /* P3：卡片区按当前账号从 任务.列表 拉，不再读 状态.json */
+  拉账号候选();        /* P6：账号下拉＝账号.列表（禁写死） */
   拉手册目录();
+}
+
+/* ===== P6：账号下拉＝账号.列表（禁写死）；切换后重拉 任务.列表 / 员工.列表 / 派工单.列表 ===== */
+async function 拉账号候选(){
+  try{
+    const j = await 调("账号.列表", {}, true);
+    if(!j || !j.ok) return;
+    const 们 = (j.数据 && j.数据.账号) || [];
+    const 框 = document.getElementById("账号候选");
+    if(!框) return;
+    框.innerHTML = 们.map(function(x){
+      const 昵 = x.昵称 ? "（" + x.昵称 + "）" : "";
+      return '<option value="' + x.终身号 + '">' + x.终身号 + 昵 + '</option>';
+    }).join("");
+  }catch(e){}
+}
+
+async function 换账号(){
+  const 号框 = document.getElementById("账号输入");
+  设置.账号 = 号框 ? (号框.value || "").trim() : "";
+  try{ sessionStorage.setItem(账号存键, 设置.账号); }catch(e){}
+  if(!已进) return;                  /* 登录前只记账，进主界面统一拉 */
+  拉卡(true);                        /* 任务.列表 */
+  刷新员工();                        /* 员工.列表 */
+  拉查派工单();                      /* 派工单.列表 */
+  吐司("已切到 " + (设置.账号 || "默认空间"));
 }
 
 function 清除登录(){
