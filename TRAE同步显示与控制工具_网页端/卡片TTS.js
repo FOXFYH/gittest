@@ -231,6 +231,9 @@ function stripSysWrapper(txt){
 /* 复制/取回统一入口：isUser=true 时先剥系统外壳、首行 DID 与三段专属词，再剥 FOX 标记。 */
 function copyPlain(txt, isUser){
   let s = String(txt == null ? '' : txt);
+  /* 2026-11-01（老板令「复制只要最原始的无前后缀正文」）：服务端追加的定向指令尾
+     「【定向回复】本轮请…」与专属词同属小尾巴，**复制一律剥净**（它恒在消息末尾一行）。 */
+  s = s.replace(/\n*【定向回复】[^\n]*$/g, '');
   if (isUser){
     s = stripSysWrapper(s);
     s = stripHeadDid(s);
