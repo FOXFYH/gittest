@@ -1,6 +1,11 @@
 'use strict';
-/* 事件总线.js（网页端）  版本 2.136  日期 2026-11-01
+/* 事件总线.js（网页端）  版本 2.137  日期 2026-11-01
    【维护记录】
+   2.137  2026-11-01  按架构书整顿上一轮审核偏离项（§二-2/§十-3）：
+                      ①AI 回复二选一：msg_evt 带 `提问mid`，收到优选回复先删同轮其它
+                        AI 行再上屏（DID 回复 > CDP 回复，绝不双显）。
+                      ②`_procDrop` 扩到**顶层 t** 过程帧（思维流/最终回复），非优先端
+                        （for_cid≠MY_ID）一律丢弃（§十-3）。
    2.136  2026-11-01  老板实测「发出去的话一直挂占位卡、手机端迟迟不显示」：
                       ① `onMsgEvt` 认锚定改 `_evtAnchorOk`——服务端 msg_evt 的 `sid`
                          实测是**账本键**「会话名（临时）」，旧 `_paneIsAnchor` 只认完整
@@ -732,6 +737,23 @@ function onMsgEvt(d){
     S.snap.msgs = arr;
   }
   try { S.msgsSid = 稳定键(sid, ''); } catch(e){}
+  /* 2026-11-01（整顿 §二-2/九-4）：AI 回复二选一——同轮只留优先回复。
+     服务端 msg_evt 带 `提问mid`；本条是优选回复（DID 回复）时，先删掉该提问之后、
+     下一条提问之前的所有其它 AI 行（旧 CDP 回复），再追加，绝不双显。 */
+  try {
+    const _ask = String(d['提问mid'] || d.askMid || '');
+    if (role === 'a' && _ask){
+      const _ai = arr.findIndex(m => m && m[0] === 'u'
+                                    && String(m[6] || '') === _ask);
+      if (_ai >= 0){
+        for (let j = arr.length - 1; j > _ai; j--){
+          if (arr[j] && arr[j][0] === 'u') break;
+          if (arr[j] && arr[j][0] === 'a'
+              && String(arr[j][6] || '') !== mid) arr.splice(j, 1);
+        }
+      }
+    }
+  } catch(e){}
   /* ④ 去重：快照里已有同 mid 的行（事件与快照同源，常见）就不再插 */
   if (arr.some(m => m && String(m[6] || '') === mid)) return;
   /* ⑤ 复用现成渲染链路（同 snap_pane 分支）：按服务端行格式
@@ -762,11 +784,15 @@ function onMsgEvt(d){
   const _PROC_KINDS = {'pend_full': 1, 'pend_all': 1, '排队条': 1,
                        '排队条对账_结果': 1, '思维流': 1, 'think': 1,
                        'think_card': 1};
+  const _PROC_TOP = {'思维流': 1, 'think': 1, 'think_card': 1,
+                     '最终回复': 1, 'final': 1, 'final_reply': 1};
   function _procDrop(d){
-    if (!d || d.t !== 'ev') return false;
-    if (!d.for_cid) return false;          /* 无定向标记＝公共帧，照收 */
+    if (!d || !d.for_cid) return false;    /* 无定向标记＝公共帧，照收 */
     if (String(d.for_cid) === String(MY_ID)) return false;
-    return !!_PROC_KINDS[String(d.k || '')];
+    /* 2026-11-01（整顿 §十-3）：过程帧不止 `t='ev'` 一种——思维流/最终回复等
+       是**顶层 t**，同样按 for_cid 定向过滤（非优先端丢弃，不再照收）。 */
+    if (d.t === 'ev') return !!_PROC_KINDS[String(d.k || '')];
+    return !!_PROC_TOP[String(d.t || '')];
   }
   function _body总入口(body){
     let d = null;
@@ -776,14 +802,12 @@ function onMsgEvt(d){
       if (!d.srv) return;
       regSrv(d.srv, d);
       if (d.srv !== S.cur) return;
+      if (_procDrop(d)) return;            /* §十-3：非优先端不收任何过程帧 */
       if (d.t === '对账_结果'){
         try { if (typeof 收对账结果 === 'function') 收对账结果(d); } catch(e){}
         return;
       }
-      if (d.t === 'ev'){
-        if (_procDrop(d)) return;          /* 十-3：非优先端不收过程帧 */
-        if (d.k === 'msg_evt'){ onMsgEvt(d); return; }
-      }
+      if (d.t === 'ev' && d.k === 'msg_evt'){ onMsgEvt(d); return; }
     }
     const hooks = window.__body钩子 || [];
     for (let i = 0; i < hooks.length; i++){
