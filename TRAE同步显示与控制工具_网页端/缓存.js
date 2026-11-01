@@ -1111,6 +1111,17 @@ function 收对账结果(d){
         arr[askIdx] = askRow; fixed++;     /* 无回复id：只更新提问行 */
       }
     });
+    /* 2026-11-01（老板实测）：对账补差同样按 DID 撤发送占位卡——刷新/切回/重连
+       时若「已入账」帧错过（离线/丢帧），这里是兜底销卡通道。 */
+    try {
+      if (typeof pendClearByDid === 'function'){
+        arr.forEach(m => {
+          if (!m || m[0] !== 'u') return;
+          const _d = (typeof firstLineDid === 'function') ? firstLineDid(m[1]) : '';
+          if (_d) pendClearByDid(_d, cur);
+        });
+      }
+    } catch(e){}
     if (added || fixed){
       if (typeof renderAll === 'function') renderAll();
       小账册灌(cur, arr);

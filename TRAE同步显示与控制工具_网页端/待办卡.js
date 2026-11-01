@@ -231,8 +231,15 @@ function pendClearByDid(did, conv){
   const keep = [];
   S.pending.forEach(p => {
     if (p.did && p.did === did){
-      if (conv && p.conv && p.conv !== conv){ keep.push(p); return; }
-      changed = true; return;                                 /* 命中即撤 */
+      /* 2026-11-01（老板实测：占位卡一直挂着）：服务端「已入账」帧的 `conv` 是
+         **会话 sid**，而卡片 p.conv 存的是**会话标题** —— 旧判据 `p.conv !== conv`
+         把卡永远留下。改为「标题 或 稳定 sid 任一命中即算本会话」，都不命中才保持
+         （仍防跨会话误销）。 */
+      if (conv && p.conv && p.conv !== conv
+          && (p.convSid ? p.convSid !== conv : true)){
+        keep.push(p); return;
+      }
+      changed = true; return;
     }
     keep.push(p);
   });

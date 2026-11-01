@@ -1,6 +1,13 @@
 'use strict';
-/* 事件总线.js（网页端）  版本 2.135  日期 2026-11-01
+/* 事件总线.js（网页端）  版本 2.136  日期 2026-11-01
    【维护记录】
+   2.136  2026-11-01  老板实测「发出去的话一直挂占位卡、手机端迟迟不显示」：
+                      ① `onMsgEvt` 认锚定改 `_evtAnchorOk`——服务端 msg_evt 的 `sid`
+                         实测是**账本键**「会话名（临时）」，旧 `_paneIsAnchor` 只认完整
+                         sid ⇒ 帧被丢弃（§八-1 违反）。现认三种形态：完整 sid／
+                         会话名／会话名（临时）／稳定键。
+                      ② 账本一确认正式消息，立即按 `d.did` 调 `pendClearByDid` 撤发送占位卡
+                         （§四-2-4），不再依赖快照（快照已不带正文）。
    2.135  2026-11-01  V1.1 二期收口（施工单 03 · A/R8/R9 + B/R18，判据 规范六）：
                      ① 服务端已撤独立整帧快照通道（常规快照帧盖 `msgs_对账取:1`、不带
                         msgs）：本文件收 snap 时——同一会话沿用本端已拼正文；换了会话
@@ -57,11 +64,14 @@ function onEv(kind, v){
       /* 只认当前锚定会话（规范五-1：仅展示当前选中会话的排队条） */
       if (sid && typeof _paneIsAnchor === 'function' && !_paneIsAnchor(sid, '')
           && !(typeof curSid === 'function' && sid === String(curSid() || ''))) return;
-      const items = (Array.isArray(pv.items) ? pv.items : []).map(it => ({
+      const items = (Array.isArray(pv.items) ? pv.items : []).map((it, idx) => ({
         t: String((it && (it.body != null ? it.body
                            : (it.t != null ? it.t : (it.text != null ? it.text : ''))) ) || ''),
         canEdit: !!(it && it.canEdit),
-        code: String((it && it.code) || '')
+        code: String((it && it.code) || ''),
+        /* 2026-11-01（老板令）：服务端条目自带的快照内序号 `i` 必须保留——排队条的
+           ⚡发送/✎/🗑 按钮要按它对 TRAE 队列直点，丢了序号按钮就无从执行。 */
+        i: (it && it.i != null) ? Number(it.i) : idx
       }));
       if (typeof 清空排队条 === 'function') 清空排队条();
       if (typeof 灌排队条 === 'function') 灌排队条(items, sid);
@@ -669,6 +679,23 @@ function onEv(kind, v){
    故此处给 handleBody 包一层：先认领 msg_evt（读顶层字段），其余帧原样交回原实现
    （事件总线.js 在 连接.js 之后加载，运行时调用的就是本包装函数；分支语义＝原 if/switch 的
    `t==='ev' && k==='msg_evt'` 那一支）。 */
+/* 2026-11-01（老板实测：消息进对话流后手机端迟迟不显示）：
+   服务端 msg_evt 的 `sid` 取的是**账本键**（TRAE 侧＝「会话名（临时）」），
+   而 `_paneIsAnchor` 只认完整 sid／稳定锚点 ⇒ 帧被丢弃（§八-1 违反、也撤不了占位卡）。
+   这里按三种形态认锚定：完整 sid / 账本键（会话名、会话名（临时））/ 稳定键。 */
+function _evtAnchorOk(sid){
+  if (!sid) return false;
+  try { if (typeof _paneIsAnchor === 'function' && _paneIsAnchor(sid, '')) return true; } catch(e){}
+  try {
+    const t = String((typeof curTitle === 'function' ? curTitle() : '') || '');
+    if (t && (String(sid) === t || String(sid) === t + '（临时）')) return true;
+  } catch(e){}
+  try {
+    if (S.anchorSid && typeof 稳定键 === 'function'
+        && 稳定键(sid, '') === S.anchorSid) return true;
+  } catch(e){}
+  return false;
+}
 function onMsgEvt(d){
   const mid = String(d.mid || '');
   /* ① 回执：无论是否上屏都回执（服务端据 _evt_pushed 不再重推）
@@ -690,7 +717,7 @@ function onMsgEvt(d){
   } catch(e){}
   /* ② 只认当前锚定/当前会话；不是的 → 只回执、不上屏 */
   const sid = String(d.sid || '');
-  if (!sid || !_paneIsAnchor(sid, '')) return;
+  if (!sid || !_evtAnchorOk(sid)) return;
   /* ③ 切换在途（锁死目标、目标正文未到）：此刻 S.snap 正文仍属旧会话，一行也不加 */
   if (S.switch_pend && S.switch_pend.lockTarget && !S.switch_pend.arrived) return;
   const role = String(d.role || '');
@@ -715,6 +742,13 @@ function onMsgEvt(d){
   /* v3.00 P3（2.132）：正式消息入账 → 前端小账册同步重算（只留最近 5 轮） */
   try {
     if (sid && typeof 小账册灌 === 'function') 小账册灌(sid, arr);
+  } catch(e){}
+  /* 2026-11-01（老板实测：占位卡一直挂着）：账本一确认正式消息就**立刻按 DID 撤卡**
+     （规范四-2-4「前端撤下发送占位卡」）；不能等快照（快照已不带正文）。 */
+  try {
+    const _dd = String(d.did || '') || (typeof firstLineDid === 'function'
+                                        ? firstLineDid(text) : '');
+    if (_dd && typeof pendClearByDid === 'function') pendClearByDid(_dd, sid);
   } catch(e){}
   renderAll();
 }

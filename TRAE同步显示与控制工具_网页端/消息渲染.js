@@ -627,7 +627,10 @@ function _e2Qtext(it){
   if (typeof it === 'string') return it;
   return String(it.t != null ? it.t : (it.text != null ? it.text : ''));
 }
-/* 五-1：排队条【只渲染】——无删除/发送/编辑按钮，前端不增不删 */
+/* 五-1：排队条数据仍**只渲染**（前端不自行增删），但按钮必须齐全——
+   2026-11-01 老板令：「官方排队条的 ⚡发送 / ✎取出编辑 / 🗑删除 都没了」。
+   按钮只发服务端命令（pend_sendnow / pend_edit / pend_del），按服务端条目自带的
+   快照内序号 `i` 直点 TRAE 队列，与坐在电脑前管理排队等效。 */
 function _e2RenderQbar(q){
   const items = (q && Array.isArray(q.items)) ? q.items : [];
   if (!items.length) return;
@@ -635,14 +638,44 @@ function _e2RenderQbar(q){
   box.className = 'qbar';
   box.dataset.sid = String(q.sid || '');
   let h = '<div class="qbhead">⏳ 官方排队条</div>';
-  items.forEach((it, i) => {
+  items.forEach((it, n) => {
     const txt = _e2Qtext(it);
+    const qi = (it && it.i != null) ? Number(it.i) : n;
     h += '<div class="qbitem">'
-       + '<span class="qbidx">' + (i + 1) + '</span>'
+       + '<span class="qbidx">' + (n + 1) + '</span>'
        + '<span class="qbcode" title="' + esc(txt) + '">'
-       + esc(_e2Qcode(txt)) + '</span></div>';
+       + esc(_e2Qcode(txt)) + '</span>'
+       + '<span class="qbtns">'
+       + '<button class="go qsend" data-qi="' + qi + '" data-qk="send">⚡发送</button>'
+       + '<div class="qsub">'
+       + '<button data-qi="' + qi + '" data-qk="edit">✎</button>'
+       + '<button class="del" data-qi="' + qi + '" data-qk="del">🗑</button>'
+       + '</div></span></div>';
   });
   box.innerHTML = h;
+  box.querySelectorAll('.qbtns button').forEach(b => {
+    b.onclick = () => {
+      if (b.disabled) return;
+      const i = parseInt(b.dataset.qi, 10);
+      const k = b.dataset.qk;
+      const one = items.find(x => (x && x.i != null ? Number(x.i) : -1) === i) || {};
+      if (k === 'del'){
+        uiConfirm('🗑 删除排队消息',
+          '确认删除排队消息「' + esc(_e2Qtext(one).slice(0, 40))
+          + '」？<br>删除后不会发送。', '删除', () => {
+            b.disabled = true;
+            srvOpSend('pend_del', i, '删除排队消息');
+          });
+      } else if (k === 'edit'){
+        b.disabled = true;
+        S.qedit = i;                     /* 取出后回填输入框 */
+        srvOpSend('pend_edit', i, '取出到输入框');
+      } else {
+        b.disabled = true;
+        srvOpSend('pend_sendnow', i, '立即发送');
+      }
+    };
+  });
   el.msgs.appendChild(box);
 }
 
