@@ -842,10 +842,8 @@ function _e2OnFrame(d){
                        (d.文本 != null ? d.文本 : d.text));
   }
   /* 七-3：最终回复 */
-  /* 同上：最终回复帧一并停用，正文仍由快照/账本按原风格整段显示。 */
-  if ((t === '最终回复' || t === 'final' || t === 'final_reply') && !window.__THINK_CARDS){
-    return true;
-  }
+  /* 2026-11-02 修正：最终回复帧**必须保留**——它是「统一撤掉占位卡 + 定格正文」的唯一信号，
+     停掉会导致消息一直停在「等待浮现」。只停思维小卡片，正文照常由本帧整段渲染。 */
   if (t === '最终回复' || t === 'final' || t === 'final_reply'){
     if (!_e2OwnOk(d.sid)) return false;
     return 定格最终(d.mid, (d.文本 != null ? d.文本 : d.text));
