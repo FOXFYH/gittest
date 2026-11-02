@@ -1,54 +1,6 @@
 'use strict';
-/* 事件总线.js（网页端）  版本 2.137  日期 2026-11-01
+/* 事件总线.js（网页端）  版本 2.131  日期 2026-10-24
    【维护记录】
-   2.137  2026-11-01  按架构书整顿上一轮审核偏离项（§二-2/§十-3）：
-                      ①AI 回复二选一：msg_evt 带 `提问mid`，收到优选回复先删同轮其它
-                        AI 行再上屏（DID 回复 > CDP 回复，绝不双显）。
-                      ②`_procDrop` 扩到**顶层 t** 过程帧（思维流/最终回复），非优先端
-                        （for_cid≠MY_ID）一律丢弃（§十-3）。
-   2.136  2026-11-01  老板实测「发出去的话一直挂占位卡、手机端迟迟不显示」：
-                      ① `onMsgEvt` 认锚定改 `_evtAnchorOk`——服务端 msg_evt 的 `sid`
-                         实测是**账本键**「会话名（临时）」，旧 `_paneIsAnchor` 只认完整
-                         sid ⇒ 帧被丢弃（§八-1 违反）。现认三种形态：完整 sid／
-                         会话名／会话名（临时）／稳定键。
-                      ② 账本一确认正式消息，立即按 `d.did` 调 `pendClearByDid` 撤发送占位卡
-                         （§四-2-4），不再依赖快照（快照已不带正文）。
-   2.135  2026-11-01  V1.1 二期收口（施工单 03 · A/R8/R9 + B/R18，判据 规范六）：
-                     ① 服务端已撤独立整帧快照通道（常规快照帧盖 `msgs_对账取:1`、不带
-                        msgs）：本文件收 snap 时——同一会话沿用本端已拼正文；换了会话
-                        立即换成本会话小账册 5 轮（秒显），差额由切会话触发的 `发对账`
-                        按 §六 补齐，绝不再拿上一会话整帧顶屏。
-                     ② `msg_evt` 增量在无骨架时以本会话小账册 5 轮起底再追加，并记
-                        `S.msgsSid` 供对账结果辨识归属。
-                     ③ 切账号（`k='account'` 值变化）新增为对账触发场景（六-1 三场景之一）。
-   2.134  2026-10-31  返工3 两行都缺补整轮：`收对账结果` 的「版本不一致」遇上前端
-                      提问行／回复行都缺时，改为把该轮 `rows` 全量补进（提问行＋回复行），
-                      不再只补回复行（防「有答无问」孤儿行、小账册建不了轮、每轮重复白推）。
-   2.133  2026-10-31  返工1 钩子表 + 返工2 三项修复：
-                      · 返工1（部长裁决）：三处同名 `handleBody` 互相覆盖是 bug ⇒ 改「本文件
-                        （HTML 最后加载）定义唯一总入口 `window.handleBody`，其余登记进
-                        `window.__body钩子` 钩子表」；连接.js 改名 `_连接处理body` 并注册、
-                        消息渲染.js（包 E）注册钩子；单个钩子异常 try/catch 吞掉。
-                      · 返工2-①（六-3 真机口径）：`收对账结果` 认服务端**轮次字典**键
-                        （提问mid／回复id／提问文本／回复文本／回复类型），按 回复id 补差：
-                        缺失补「提问行＋回复行」、版本不一致替换回复行，仍不做全量重灌。
-                      · 返工2-②（三-2 完整态）：广播 msgs 被 WS桥截 7 列，改由**帧字段
-                        `d.did`** 标记 DID 路径（`记DID`）；完整＝有回复且命中 DID 标记。
-                      · 返工2-③（八-2 回执别名）：正式消息回执**双发** `{t:'ack',mid}`
-                        ＋`{t:'msg_ack',mid}`，C 包 `_ack_pending` 与命令路由两家都能停推。
-   2.132  2026-10-31  V3.00 P3/P8 2026-10-31（包 D 网页端数据层；真源＝广播机制整改规范
-                     V1.2 三-2／六／十-3／五-2）：
-                     ① 三-2 前端小账册：`小账册灌()`（快照每拍整段重算，只留最近 5 轮，
-                        三态 完整/残缺/空）＋`记一轮()`；`msg_evt` 到达即记账。
-                     ② 六 对账：登录 / 页面刷新 / 切会话 三场景 `发对账()` 上报 5 组
-                        `(提问mid, 回复id)`；收 `对账_结果` 只补「缺失」「版本不一致」，不全量重灌。
-                     ③ 十-3 非优先端：总入口（`window.handleBody`，2.133 起为唯一入口＋
-                        `__body钩子` 钩子表）按帧顶层 `for_cid` 过滤**过程帧**
-                        （pend_full/思维流/排队条），不匹配本端 MY_ID 直接丢弃；最终消息
-                        `msg_evt` 与快照不受影响 ⇒ 非优先端收发/对账/历史/最终回复照常。
-                     ④ 五-2 全量清空重灌：收 `ev/pend_full` → `清空排队条()`＋`灌排队条()`
-                        完全采用服务端全量（不合并、不自行增删），条目映射 `{t:body,canEdit}`
-                        供包 E 渲染（代号由服务端已算好，前端仍按前10后10 兜底）。
    2.131  2026-10-24  官方排队条「串台」（老板原话：「排队条一定要核实清楚属于
                      哪个会话，不能乱显示，是谁的就显示在谁那边」）：`case 'snap'`
                      收到快照后先按 `pend_sid`（旧服务端回退 `v.selSid`）比当前
@@ -60,28 +12,6 @@
                      WS桥 0.23。2.130→2.131。 */
 function onEv(kind, v){
   switch (kind){
-    case 'pend_full': {                /* v3.00 P5/P8（2.132）：官方排队条全量——
-        服务端「事件触发／60 秒保底／对账应答」三种来源一律是全量。规范五-2：前端
-        先清空本地，再完全采用服务端推送，不合并、不自行增删。服务端已剥 DID 并算好
-        代号；这里映射成包 E 认的条目形状（it.t＝正文 + canEdit），代号仍由 E 兜底算。 */
-      const pv = (v && typeof v === 'object') ? v : {};
-      const sid = String(pv.sid || '');
-      /* 只认当前锚定会话（规范五-1：仅展示当前选中会话的排队条） */
-      if (sid && typeof _paneIsAnchor === 'function' && !_paneIsAnchor(sid, '')
-          && !(typeof curSid === 'function' && sid === String(curSid() || ''))) return;
-      const items = (Array.isArray(pv.items) ? pv.items : []).map((it, idx) => ({
-        t: String((it && (it.body != null ? it.body
-                           : (it.t != null ? it.t : (it.text != null ? it.text : ''))) ) || ''),
-        canEdit: !!(it && it.canEdit),
-        code: String((it && it.code) || ''),
-        /* 2026-11-01（老板令）：服务端条目自带的快照内序号 `i` 必须保留——排队条的
-           ⚡发送/✎/🗑 按钮要按它对 TRAE 队列直点，丢了序号按钮就无从执行。 */
-        i: (it && it.i != null) ? Number(it.i) : idx
-      }));
-      if (typeof 清空排队条 === 'function') 清空排队条();
-      if (typeof 灌排队条 === 'function') 灌排队条(items, sid);
-      return;
-    }
     case 'pendlist': {                 /* 1.35：服务端对账结果即时同步——
         撤卡/超时/排队推送不再等下一拍快照（poll=3s 时撤卡滞后 0~3s
         的根因）。服务端 _pend 是权威：列表里没有 = 已确认撤卡；
@@ -160,26 +90,10 @@ function onEv(kind, v){
       /* 2.105（老板 2026-10-20 15:43「头晕脑胀」主因·最高优先）：判据由「仅 msgs 缺失」
          放宽为「msgs 不是数组」——服务端框架版快照 `_light_snap` 会把 msgs 头整个拿走
          （`pop('msgs')`），也可能送来 null/非数组；旧判据漏掉这些形态 ⇒ S.snap.msgs 落到
-         非数组 ⇒ curMsgs 回落账本（行数骤减，实测 8→3）。
-         V1.1 二期收口（施工单 B · 规范六）：常规快照已**不再下发正文**（服务端帧盖
-         `msgs_对账取:1`，独立整帧通道已撤）。此处：
-           · 同一会话 → 沿用本端已拼的正文（msg_evt 增量持续维护）；
-           · 换了会话 → 立刻换成本端该会话的小账册 5 轮（缓存秒显），差额由切会话
-             触发的 `发对账` 按 §六 补齐——绝不再拿上一会话的整帧顶屏。 */
-      const _liveSid9 = selSidOf(v);
-      const _liveKey9 = 稳定键(_liveSid9, selTitleOf(v));
-      if (!Array.isArray(v.msgs)){
-        if (S.snap && Array.isArray(S.snap.msgs)
-            && _liveKey9 && S.anchorSid && _liveKey9 === S.anchorSid){
-          v.msgs = S.snap.msgs;               /* 同一会话：保留已拼正文 */
-        } else {
-          let _sm9 = [];
-          try {
-            const _sid9 = String((typeof curSid === 'function' ? curSid() : '') || '');
-            if (_sid9 && typeof 小账册渲染取 === 'function') _sm9 = 小账册渲染取(_sid9);
-          } catch(e){}
-          v.msgs = _sm9;                      /* 目标会话：小账册 5 轮兜底显示 */
-        }
+         非数组 ⇒ curMsgs 回落账本（行数骤减，实测 8→3）。⇒ 来帧若【无 msgs 数组】一律
+         只更新会话列表/状态/锚定，正文【保留上一拍已上屏的 msgs】。 */
+      if (!Array.isArray(v.msgs) && S.snap && Array.isArray(S.snap.msgs)){
+        v.msgs = S.snap.msgs;
       }
       /* 本专项 B3：先记下这拍快照「桌面当前选中行」——它就是直播帧的归属
          会话；当前锚定会话的真直播帧一到，立即撤「正在获取直播帧」小条。 */
@@ -203,24 +117,6 @@ function onEv(kind, v){
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
-      /* v3.00 P3/P8（2.132）：① 快照到即重算前端小账册（只留最近 5 轮、三态）；
-         ② 侦测锚定会话变化（＝主动切会话）→ 主动发一次对账（规范六-1 三场景之一）。 */
-      try {
-        const _sidNow = String((typeof curSid === 'function' ? curSid() : '') || '');
-        if (_sidNow && Array.isArray(S.snap.msgs)
-            && typeof 小账册灌 === 'function'){
-          小账册灌(_sidNow, S.snap.msgs);
-          try { S.msgsSid = 稳定键(_sidNow, ''); } catch(e){}
-        }
-        /* 登录/页面刷新首拍兜底：锚定未就绪时由快照触发一次对账（一次性） */
-        if (!S.smDsAt && typeof 发对账 === 'function') 发对账();
-        const _kNow = String(S.anchorSid || liveKey || '');
-        if (_kNow && S.smAnchor && S.smAnchor !== _kNow
-            && typeof 发对账 === 'function'){
-          发对账();
-        }
-        if (_kNow) S.smAnchor = _kNow;
-      } catch(e){}
       /* 2.131：走到这里的 pend 已确认属于本会话（别人的上面已先剥，锚定冻结
          留用的也是本会话旧帧）⇒ 回写 pend_sid，供 消息渲染.js 2.131 复验。 */
       if (Array.isArray(v.pend) && v.pend.length){
@@ -484,15 +380,10 @@ function onEv(kind, v){
               + (v.th ? '（阈值 ' + v.th + '）' : '')
               + '，已通知钉钉');
       break;
-    case 'account': {                      /* 1.27：登录账号名 */
-      const _ac = String(v || '');
-      const _chg = (S.acct !== _ac);
-      S.acct = _ac;
+    case 'account':                        /* 1.27：登录账号名 */
+      S.acct = String(v || '');
       renderAcct();
-      /* V1.1 二期收口（规范六-1）：**切换账号**是主动对账的三大触发场景之一 */
-      if (_chg && typeof 发对账 === 'function' && S.onLine) 发对账();
       break;
-    }
     case 'notice':                         /* 1.41：服务端提示（如语音键拒点） */
       flash(String(v || ''), 'var(--blue)');
       break;
@@ -675,147 +566,6 @@ function onEv(kind, v){
       break;
   }
 }
-
-/* ============ v3.00 P2 规范八-2：事件帧 msg_evt 上屏 + 回执 ============
-   服务端 命令路由._on_snap 为新出现的正式消息推
-   {'t':'ev','k':'msg_evt','sid','mid','role','text','did'}——**字段在帧顶层，不在 v 里**；
-   规范（广播机制整改规范_V1.1 第八章）要求：前端收到即回执 msg_ack，服务端据此停止重推。
-   ⚠ 连接.js 的 handleBody 对 t:'ev' 只转发 `onEv(d.k, d.v)`，顶层 sid/mid 会在转发时丢掉，
-   故此处给 handleBody 包一层：先认领 msg_evt（读顶层字段），其余帧原样交回原实现
-   （事件总线.js 在 连接.js 之后加载，运行时调用的就是本包装函数；分支语义＝原 if/switch 的
-   `t==='ev' && k==='msg_evt'` 那一支）。 */
-/* 2026-11-01（老板实测：消息进对话流后手机端迟迟不显示）：
-   服务端 msg_evt 的 `sid` 取的是**账本键**（TRAE 侧＝「会话名（临时）」），
-   而 `_paneIsAnchor` 只认完整 sid／稳定锚点 ⇒ 帧被丢弃（§八-1 违反、也撤不了占位卡）。
-   这里按三种形态认锚定：完整 sid / 账本键（会话名、会话名（临时））/ 稳定键。 */
-function _evtAnchorOk(sid){
-  if (!sid) return false;
-  try { if (typeof _paneIsAnchor === 'function' && _paneIsAnchor(sid, '')) return true; } catch(e){}
-  try {
-    const t = String((typeof curTitle === 'function' ? curTitle() : '') || '');
-    if (t && (String(sid) === t || String(sid) === t + '（临时）')) return true;
-  } catch(e){}
-  try {
-    if (S.anchorSid && typeof 稳定键 === 'function'
-        && 稳定键(sid, '') === S.anchorSid) return true;
-  } catch(e){}
-  return false;
-}
-function onMsgEvt(d){
-  const mid = String(d.mid || '');
-  /* ① 回执：无论是否上屏都回执（服务端据 _evt_pushed 不再重推）
-     v3.00 返工2（八-2 别名不一致）：**双发** `{t:'ack'}`＋`{t:'msg_ack'}`——
-     C 包 WS桥 `_ack_pending` 只认 `ack`（收到即停 8s×3 重推），命令路由只认 `msg_ack`；
-     两家都收到，前端按 mid 幂等，只多一帧。 */
-  if (mid){
-    try {
-      sendJson({t: 'ack', mid: mid});
-      sendJson({t: 'msg_ack', mid: mid});
-    } catch(e){}
-  }
-  /* v3.00 返工2（三-2「完整」态真机可达）：用帧字段 `d.did` 标 DID 路径，
-     不再依赖广播 msgs 的第 8 位（WS桥 已截 7 列）。 */
-  try {
-    if (d.did && mid && typeof 记DID === 'function'){
-      记DID(mid, String(d.role || ''), d.did);
-    }
-  } catch(e){}
-  /* ② 只认当前锚定/当前会话；不是的 → 只回执、不上屏 */
-  const sid = String(d.sid || '');
-  if (!sid || !_evtAnchorOk(sid)) return;
-  /* ③ 切换在途（锁死目标、目标正文未到）：此刻 S.snap 正文仍属旧会话，一行也不加 */
-  if (S.switch_pend && S.switch_pend.lockTarget && !S.switch_pend.arrived) return;
-  const role = String(d.role || '');
-  const text = String(d.text || '');
-  if (!mid || !role || !text) return;
-  let arr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
-  if (!arr){
-    /* V1.1 二期收口（施工单 B）：常规快照不再带正文，骨架由本端维护——
-       还没有骨架时以小账册 5 轮起底，再把这条增量并进去。 */
-    arr = (typeof 小账册渲染取 === 'function' ? 小账册渲染取(sid) : []).slice();
-    if (!S.snap || typeof S.snap !== 'object') S.snap = {};
-    S.snap.msgs = arr;
-  }
-  try { S.msgsSid = 稳定键(sid, ''); } catch(e){}
-  /* 2026-11-01（整顿 §二-2/九-4）：AI 回复二选一——同轮只留优先回复。
-     服务端 msg_evt 带 `提问mid`；本条是优选回复（DID 回复）时，先删掉该提问之后、
-     下一条提问之前的所有其它 AI 行（旧 CDP 回复），再追加，绝不双显。 */
-  try {
-    const _ask = String(d['提问mid'] || d.askMid || '');
-    if (role === 'a' && _ask){
-      const _ai = arr.findIndex(m => m && m[0] === 'u'
-                                    && String(m[6] || '') === _ask);
-      if (_ai >= 0){
-        for (let j = arr.length - 1; j > _ai; j--){
-          if (arr[j] && arr[j][0] === 'u') break;
-          if (arr[j] && arr[j][0] === 'a'
-              && String(arr[j][6] || '') !== mid) arr.splice(j, 1);
-        }
-      }
-    }
-  } catch(e){}
-  /* ④ 去重：快照里已有同 mid 的行（事件与快照同源，常见）就不再插 */
-  if (arr.some(m => m && String(m[6] || '') === mid)) return;
-  /* ⑤ 复用现成渲染链路（同 snap_pane 分支）：按服务端行格式
-     [角色,正文,DOM时间,可回退,可删除,盖章时间,mid] 追加进 S.snap.msgs，再由
-     renderAll（→ curMsgs → orderMsgs 按 mid 全序 → renderMsgs）上屏；
-     行内时间留空，显示时间由 _midTime(mid) 解出，不在本地打戳。 */
-  arr.push([role, text, '', 0, 0, '', mid]);
-  /* v3.00 P3（2.132）：正式消息入账 → 前端小账册同步重算（只留最近 5 轮） */
-  try {
-    if (sid && typeof 小账册灌 === 'function') 小账册灌(sid, arr);
-  } catch(e){}
-  /* 2026-11-01（老板实测：占位卡一直挂着）：账本一确认正式消息就**立刻按 DID 撤卡**
-     （规范四-2-4「前端撤下发送占位卡」）；不能等快照（快照已不带正文）。 */
-  try {
-    const _dd = String(d.did || '') || (typeof firstLineDid === 'function'
-                                        ? firstLineDid(text) : '');
-    if (_dd && typeof pendClearByDid === 'function') pendClearByDid(_dd, sid);
-  } catch(e){}
-  renderAll();
-}
-(function(){
-  /* v3.00（2026-10-31 部长裁决）：本文件在 HTML 里**最后加载**（L300），故 handleBody
-     定为**唯一总入口**——不再 `_hb0` 链式覆盖（消息渲染.js:784／连接.js:312／本文件:667
-     三处同名互相覆盖＝真 bug，后加载者赢、前面的整段被丢）：
-       ① 先跑事件总线自己的逻辑（srv 源头闸、对账_结果、for_cid 过程帧过滤、msg_evt）；
-       ② 其余一律交钩子表 `window.__body钩子`（连接.js 的正文处理、包 E 的帧钩子…），
-          逐个调用、**单个钩子异常 try/catch 吞掉**，绝不让一个钩子挂掉整条链路。 */
-  const _PROC_KINDS = {'pend_full': 1, 'pend_all': 1, '排队条': 1,
-                       '排队条对账_结果': 1, '思维流': 1, 'think': 1,
-                       'think_card': 1};
-  const _PROC_TOP = {'思维流': 1, 'think': 1, 'think_card': 1,
-                     '最终回复': 1, 'final': 1, 'final_reply': 1};
-  function _procDrop(d){
-    if (!d || !d.for_cid) return false;    /* 无定向标记＝公共帧，照收 */
-    if (String(d.for_cid) === String(MY_ID)) return false;
-    /* 2026-11-01（整顿 §十-3）：过程帧不止 `t='ev'` 一种——思维流/最终回复等
-       是**顶层 t**，同样按 for_cid 定向过滤（非优先端丢弃，不再照收）。 */
-    if (d.t === 'ev') return !!_PROC_KINDS[String(d.k || '')];
-    return !!_PROC_TOP[String(d.t || '')];
-  }
-  function _body总入口(body){
-    let d = null;
-    try { d = JSON.parse(body); } catch(e){}
-    if (d && typeof d === 'object'){
-      /* 与连接.js 同两道闸：无源头名丢弃 / 非当前操控服务端忽略 */
-      if (!d.srv) return;
-      regSrv(d.srv, d);
-      if (d.srv !== S.cur) return;
-      if (_procDrop(d)) return;            /* §十-3：非优先端不收任何过程帧 */
-      if (d.t === '对账_结果'){
-        try { if (typeof 收对账结果 === 'function') 收对账结果(d); } catch(e){}
-        return;
-      }
-      if (d.t === 'ev' && d.k === 'msg_evt'){ onMsgEvt(d); return; }
-    }
-    const hooks = window.__body钩子 || [];
-    for (let i = 0; i < hooks.length; i++){
-      try { hooks[i](body); } catch(e){}
-    }
-  }
-  window.handleBody = _body总入口;
-})();
 
 /* ============ 2.90（老板夜间令 B10／C7）：接服务端「四步提醒」回执 t:'rcpt' ============
    协议（单通道 + stage）：{"t":"rcpt","id":<网页端动作id>,"cmd":<命令名>,
