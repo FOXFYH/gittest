@@ -1,21 +1,6 @@
 'use strict';
-/* 消息渲染.js（网页端）  版本 2.147  日期 2026-11-01
+/* 消息渲染.js（网页端）  版本 2.131  日期 2026-10-24
    【维护记录】
-   2.147  2026-11-01  老板实测「思维小卡片不及时」：新增 `_e2RenderOrphanThink`——
-                      账本行还没到时（msg_evt 未推/慢），思维卡不再因为找不到挂靠的
-                      AI 行就不显示；无对应 mid 的卡按顺序作为独立思考卡挂正文末尾。
-   2.146  2026-10-31  V3.00 P3/E返工 2026-10-31：不再给全局 handleBody 赋值——
-                     手机版加载序（待办卡L291 → 缓存L292 → 消息渲染L295 → 连接L298
-                     → 事件总线L300）里后加载者会覆盖前加载者，原 2.145 直接赋值
-                     的包装在真机上从未执行。改为注册 `window.__body钩子` 钩子表，
-                     由事件总线.js（唯一总入口）遍历调用；本钩子只处理自己的帧，
-                     不消费、不阻断，其余帧仍交回 连接.js 原实现。
-   2.145  2026-10-31  V3.00 P4a/P4 2026-10-31（包E·网页端 UI 层）
-                     ① 四-1 发送占位卡：收到服务端「已入账」才撤卡，正式行由账本驱动；
-                     ② 七 思维流三阶段：占位 → 逐张思维卡接续 → 最终回复统一撤卡；
-                     ③ 五-1 排队条只渲染：服务端全量推送接管显示，代号＝前10＋…＋后10，
-                        前端不增不删；未收到全量前维持旧快照面板（兼容）。
-                     帧钩子改为注册 `window.__body钩子`（2.146 已改，原「包 handleBody 内层」作废）。
    2.131  2026-10-24  官方排队条「串台」（老板原话：「排队条一定要核实清楚属于
                      哪个会话，不能乱显示，是谁的就显示在谁那边」）：`renderMsgs`
                      画「⏳ 官方排队条」前先校验归属——取快照顶层 `pend_sid`
@@ -140,18 +125,6 @@ function _pendOwnerOk(pend){
 
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
-  /* V1.1 整改 R9（规范三-2 效果要求）：**渲染取数接小账册**——真帧为空（切会话/
-     首屏）时用本地小账册最近 5 轮先铺，真帧到达后由上层照常覆盖。
-     取不到（无小账册函数/无记录）时保持原样，零回归。 */
-  try {
-    if ((!msgs || !msgs.length)
-        && typeof 小账册渲染取 === 'function'
-        && typeof curSid === 'function') {
-      const _sid9 = String(curSid() || '');
-      const _sm9 = _sid9 ? 小账册渲染取(_sid9) : [];
-      if (_sm9 && _sm9.length) msgs = _sm9;
-    }
-  } catch(e){}
   /* 2.131：不是当前会话的排队条，一律不画（也不进 #qp: 指纹）。 */
   if (!_pendOwnerOk(pend)) pend = [];
   /* 2.97：记下本次实参——切换「持屏」期（通用工具.js renderAll）原样重放，
@@ -178,12 +151,6 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   /* 1.09：待确认占位参与指纹（状态推进/撤下要重画）；
      2.60：切换在途条已删，指纹不再纳入 switch_pend。 */
   key += '#pend:' + pendSig();
-  /* 2.145：包E 三样状态进指纹——服务端全量排队条 / 思维卡 / 最终暂存。
-     不加就会「数据变了但 key 没变 ⇒ 重画被跳过」，卡片永远不出现。 */
-  const _e2q = _e2QbarNow();
-  key += '#e2q:' + (_e2q ? (_e2q.items || []).map(q => String(q && (q.t || q) || '').slice(0, 30)).join('|') : '~');
-  key += '#e2t:' + _e2ThinkFp();
-  key += '#e2f:' + _e2FinalFp();
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -200,12 +167,12 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
   if (empty && !S.pending.length && !S.switch_pend
-      && !(pend || []).length && !_e2q){
+      && !(pend || []).length){
     el.msgs.innerHTML =
       '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
   }
-  if (empty){ renderPending(); if (_e2q) _e2RenderQbar(_e2q); return; }
+  if (empty){ renderPending(); return; }
   const times = resolveTimes(msgs);
   let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
   msgs.forEach((m, i) => {
@@ -341,9 +308,6 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       };
     });
     el.msgs.appendChild(d);
-    /* 2.145（七-2）：该条 AI 行的思维流小卡片——按 mid 定位，逐张接续其下。
-       人类行不挂；没有该 mid 的思维卡时不产生任何节点（零开销）。 */
-    if (!user) _e2RenderThink(m);
   });
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 TRAE
      AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
@@ -464,9 +428,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      生成中插队/排队的消息在这里列出，可删除/立即发送/取出编辑，
      与坐在电脑前管理排队等效。索引用快照内序号（服务端 JS 直点
      同序 DOM 条目，坐标点击会因面板秒级重渲染失效——研究报告结论）。 */
-  /* 2.145（五-1）：服务端全量排队条到达并接管时，旧快照面板（可编辑队列）
-     不再画——一份数据只出一处，避免「两套排队条并存」。 */
-  if (!_e2q && pend && pend.length){
+  if (pend && pend.length){
     const qp = document.createElement('div');
     qp.className = 'qpanel';
     /* 2.03：顶部只留标题（用户 2026-09-30 规定）——原先挂着「（AI 完成
@@ -543,9 +505,6 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     el.msgs.appendChild(qp);
   }
   renderPending();                  // 1.09：占位气泡永远排在末尾
-  if (_e2q) _e2RenderQbar(_e2q);    // 2.145（五-1）：只渲染服务端推的全量排队条
-  _e2RenderFinal(msgs);             // 2.145（七-3）：最终回复暂存卡（账本行到达即自动让位）
-  _e2RenderOrphanThink(msgs);       // 2026-11-01：账本行未到时，思维卡也要立即显示
   if (inF && !S.pinBottom){
     fprog(savedTop);                /* 2.64：改走 fprog（程序滚动）——设静默期 + 作废手势窗口，
                                        位置不被快照拽回，也不会误触发上翻判定；
@@ -578,310 +537,3 @@ function renderMsgs(msgs, finish, opts, ask, pend){
    （450ms 内忽略 scroll 回调）；② enterFmsg 布局变化后按高度差补偿
    scrollTop，视野停留在同一段内容上（dist 不变，不会立即误退）。 */
 var fLockUntil = 0;                 // 程序滚动/进出全屏后的静默截止
-
-/* ============ 2.145 包E（V3.00 P4a/P4 2026-10-31）==========================
-   规范条目：四-1 发送占位卡 / 五-1 排队条只渲染 / 七 思维流三阶段。
-   原则：
-   ① 本段只管【UI 状态与渲染】，绝不伪造消息行——正式消息永远由账本/快照驱动；
-   ② 服务端帧统一入口 _e2OnFrame，注册在 `window.__body钩子` 钩子表（2.146：
-      不再覆盖全局 handleBody；由事件总线.js 唯一总入口遍历调用，本钩子不消费不阻断）；
-   ③ 三种状态互斥：同一 mid 不允许同时出现「发送占位卡」与「思维卡」。
-   帧约定（与服务端 C/B 包对齐，字段两种命名都收）：
-     {t:"排队条"|"pend_all"|"排队条全量", sid, items:[{t}|"文本"]}
-     {t:"思维流"|"think", mid, 序号|seq, 文本|text}
-     {t:"最终回复"|"final", mid, 文本|text}
-     {t:"已入账"|"sent_ok", tempId|id, mid, did, conv}
-   ====================================================================== */
-
-/* 状态懒初始化（不改 状态与DOM.js；S 是全局对象） */
-function _e2S(){
-  if (!S.v3think) S.v3think = {};                 // mid -> [{seq,text}]
-  if (!S.v3final) S.v3final = {};                 // mid -> {text,ts}
-  if (S.v3qbar === undefined) S.v3qbar = null;    // {sid,items,ts}；null＝未接管
-  return S;
-}
-function _e2Sid(){
-  try { return String((typeof curSid === 'function' && curSid()) || ''); }
-  catch(e){ return ''; }
-}
-/* 五-1：只显示当前选中会话的排队条；归属不明一律不画（宁缺不留残影） */
-function _e2OwnOk(fsid){
-  const qs = String(fsid || ''), cs = _e2Sid();
-  if (!qs) return true;                  /* 服务端本就只推当前选中会话 ⇒ 空 sid 视为当前 */
-  if (!cs) return false;
-  if (qs === cs) return true;
-  return !!(typeof 稳定键 === 'function' && 稳定键(qs, '') === 稳定键(cs, ''));
-}
-function _e2QbarNow(){
-  const q = _e2S().v3qbar;
-  if (!q) return null;
-  if (!_e2OwnOk(q.sid)) return null;
-  return q;
-}
-/* 五-1：代号＝前 10 ＋ … ＋ 后 10（内容净化：后端已剥 DID，这里兜底再剥一次） */
-function _e2Qcode(t){
-  let s = String(t == null ? '' : t);
-  if (typeof stripHeadDid === 'function') s = stripHeadDid(s);
-  s = s.replace(/\s+/g, ' ').trim();
-  if (s.length <= 20) return s;
-  return s.slice(0, 10) + '…' + s.slice(-10);
-}
-function _e2Qtext(it){
-  if (it == null) return '';
-  if (typeof it === 'string') return it;
-  return String(it.t != null ? it.t : (it.text != null ? it.text : ''));
-}
-/* 五-1：排队条数据仍**只渲染**（前端不自行增删），但按钮必须齐全——
-   2026-11-01 老板令：「官方排队条的 ⚡发送 / ✎取出编辑 / 🗑删除 都没了」。
-   按钮只发服务端命令（pend_sendnow / pend_edit / pend_del），按服务端条目自带的
-   快照内序号 `i` 直点 TRAE 队列，与坐在电脑前管理排队等效。 */
-function _e2RenderQbar(q){
-  const items = (q && Array.isArray(q.items)) ? q.items : [];
-  if (!items.length) return;
-  const box = document.createElement('div');
-  box.className = 'qbar';
-  box.dataset.sid = String(q.sid || '');
-  let h = '<div class="qbhead">⏳ 官方排队条</div>';
-  items.forEach((it, n) => {
-    const txt = _e2Qtext(it);
-    const qi = (it && it.i != null) ? Number(it.i) : n;
-    h += '<div class="qbitem">'
-       + '<span class="qbidx">' + (n + 1) + '</span>'
-       + '<span class="qbcode" title="' + esc(txt) + '">'
-       + esc(_e2Qcode(txt)) + '</span>'
-       + '<span class="qbtns">'
-       + '<button class="go qsend" data-qi="' + qi + '" data-qk="send">⚡发送</button>'
-       + '<div class="qsub">'
-       + '<button data-qi="' + qi + '" data-qk="edit">✎</button>'
-       + '<button class="del" data-qi="' + qi + '" data-qk="del">🗑</button>'
-       + '</div></span></div>';
-  });
-  box.innerHTML = h;
-  box.querySelectorAll('.qbtns button').forEach(b => {
-    b.onclick = () => {
-      if (b.disabled) return;
-      const i = parseInt(b.dataset.qi, 10);
-      const k = b.dataset.qk;
-      const one = items.find(x => (x && x.i != null ? Number(x.i) : -1) === i) || {};
-      if (k === 'del'){
-        uiConfirm('🗑 删除排队消息',
-          '确认删除排队消息「' + esc(_e2Qtext(one).slice(0, 40))
-          + '」？<br>删除后不会发送。', '删除', () => {
-            b.disabled = true;
-            srvOpSend('pend_del', i, '删除排队消息');
-          });
-      } else if (k === 'edit'){
-        b.disabled = true;
-        S.qedit = i;                     /* 取出后回填输入框 */
-        srvOpSend('pend_edit', i, '取出到输入框');
-      } else {
-        b.disabled = true;
-        srvOpSend('pend_sendnow', i, '立即发送');
-      }
-    };
-  });
-  el.msgs.appendChild(box);
-}
-
-/* 七-1/七-2：思维卡逐张接续（挂在对应 mid 的 AI 行下方） */
-function _e2RenderThink(m){
-  const mid = String((m && m[6]) || '');
-  if (!mid) return;
-  const arr = _e2S().v3think[mid];
-  if (!arr || !arr.length) return;
-  const box = document.createElement('div');
-  box.className = 'thinkbox';
-  box.dataset.mid = mid;
-  let h = '';
-  arr.forEach((k, i) => {
-    h += '<div class="thinkcard">'
-       + '<div class="texp">💭 思维 ' + (i + 1) + '</div>'
-       + '<div class="tbody">' + esc(String(k.text == null ? '' : k.text)) + '</div>'
-       + '</div>';
-  });
-  box.innerHTML = h;
-  el.msgs.appendChild(box);
-}
-/* 2026-11-01（老板实测「思维小卡片不及时」）：账本行还没到（msg_evt 未推/慢）时，
-   思维卡不能因为「找不到挂靠的 AI 行」就不显示——没有对应 mid 的全部思维卡，
-   按 mid 顺序作为**独立思考卡**挂在正文末尾；账本行到达后由 _e2RenderThink 接管。 */
-function _e2RenderOrphanThink(msgs){
-  try {
-    const st = _e2S();
-    const arr = Array.isArray(msgs) ? msgs : [];
-    const have = {};
-    arr.forEach(m => { if (m && m[6]) have[String(m[6])] = 1; });
-    Object.keys(st.v3think || {}).forEach(mid => {
-      if (have[mid]) return;
-      const cards = st.v3think[mid] || [];
-      if (!cards.length) return;
-      const box = document.createElement('div');
-      box.className = 'thinkbox';
-      box.dataset.mid = mid;
-      let h = '';
-      cards.forEach((k, i) => {
-        h += '<div class="thinkcard">'
-           + '<div class="texp">💭 思维 ' + (i + 1) + '</div>'
-           + '<div class="tbody">' + esc(String(k.text == null ? '' : k.text)) + '</div>'
-           + '</div>';
-      });
-      box.innerHTML = h;
-      el.msgs.appendChild(box);
-    });
-  } catch(e){}
-}
-/* 七-3：最终回复到达后统一撤卡；账本行到达即自动让位（绝不重复两条） */
-function _e2RenderFinal(msgs){
-  const st = _e2S();
-  const arr = Array.isArray(msgs) ? msgs : [];
-  Object.keys(st.v3final).forEach(mid => {
-    if (arr.some(m => m && String(m[6] || '') === mid)) { delete st.v3final[mid]; return; }
-    const f = st.v3final[mid] || {};
-    const d = document.createElement('div');
-    d.className = 'msg agent finalcard';
-    d.dataset.mid = mid;
-    d.innerHTML = '<div class="who">TraeWork'
-                + '<span class="tm">最终回复</span></div>'
-                + '<div class="body">' + esc(String(f.text || '')) + '</div>';
-    el.msgs.appendChild(d);
-  });
-}
-function _e2ThinkFp(){
-  const st = _e2S();
-  return Object.keys(st.v3think).map(mid => {
-    const a = st.v3think[mid] || [];
-    return mid + ':' + a.length + ':' + a.map(x => String(x.text || '').length).join(',');
-  }).join(';');
-}
-function _e2FinalFp(){
-  const st = _e2S();
-  return Object.keys(st.v3final)
-    .map(mid => mid + ':' + String((st.v3final[mid] || {}).text || '').length)
-    .join(';');
-}
-/* 互斥：撤掉某 mid 的发送占位卡（思维卡/最终卡一出现，占位必须让位） */
-function _e2DropPendByMid(mid){
-  mid = String(mid || '');
-  if (!mid || !Array.isArray(S.pending)) return false;
-  const n = S.pending.length;
-  S.pending = S.pending.filter(p => !(p && p.mid && String(p.mid) === mid));
-  return S.pending.length !== n;
-}
-
-/* ---------- 对外函数（七-1 占位 / 七-2 流式 / 七-3 定格 / 五 排队条） ---------- */
-/* 七-1：接一张思维卡。序号缺省＝追加；同 mid 的发送占位卡立即撤下（三态互斥）。 */
-function 接一张思维卡(mid, 序号, 文本){
-  mid = String(mid || '');
-  if (!mid) return false;
-  const st = _e2S();
-  const arr = st.v3think[mid] || (st.v3think[mid] = []);
-  const n = Number(序号);
-  const seq = (序号 == null || !isFinite(n) || n <= 0) ? (arr.length + 1) : n;
-  if (arr.some(x => x.seq === seq)) return false;          /* 丢包重推：同序号不重复 */
-  arr.push({seq: seq, text: String(文本 == null ? '' : 文本)});
-  arr.sort((a, b) => a.seq - b.seq);
-  _e2DropPendByMid(mid);
-  renderAll();
-  return true;
-}
-/* 七-3：定格最终——清掉该 mid 全部思维卡；有正文先暂存占位，账本行到达即让位。 */
-function 定格最终(mid, 文本){
-  mid = String(mid || '');
-  if (!mid) return false;
-  const st = _e2S();
-  const had = !!st.v3think[mid];
-  delete st.v3think[mid];
-  const txt = String(文本 == null ? '' : 文本);
-  if (txt) st.v3final[mid] = {text: txt, ts: Date.now()};
-  else delete st.v3final[mid];
-  _e2DropPendByMid(mid);
-  renderAll();
-  return had || !!txt;
-}
-/* 五-2：全量同步场景（刷新/切会话/登录）先清空本地，完全采用服务端推送 */
-function 清空排队条(){
-  const st = _e2S();
-  st.v3qbar = {sid: _e2Sid(), items: [], ts: Date.now()};
-  renderAll();
-  return true;
-}
-/* 五-2/五-3：灌服务端全量排队条（覆盖式，不合并、不自行增删） */
-function 灌排队条(全量数组, sid){
-  const st = _e2S();
-  const items = Array.isArray(全量数组) ? 全量数组.slice() : [];
-  st.v3qbar = {sid: String(sid || _e2Sid()), items: items, ts: Date.now()};
-  renderAll();
-  return items.length;
-}
-
-/* ---------- 帧入口 ---------- */
-function _e2OnFrame(d){
-  const t = String((d && d.t) || '');
-  if (!t) return false;
-  /* 五：排队条全量（事件触发 / 60 秒保底 / 对账回复，三种都是全量覆盖） */
-  if (t === '排队条' || t === 'pend_all' || t === '排队条全量'
-      || t === '排队条对账_结果'){
-    const items = d.items || d.list || d.pend || [];
-    const st = _e2S();
-    st.v3qbar = {sid: String(d.sid || ''), items: Array.isArray(items) ? items.slice() : [],
-                 ts: Date.now()};
-    renderAll();
-    return true;
-  }
-  /* 七-2：思维流逐卡（不回执、允许丢包，符合规范）。
-     2026-11-02：只显示**本会话**的卡——服务端现在推的是「桌面当前选中会话」的卡，
-     手机若在看别的会话，必须丢弃，绝不串台（空 sid 视为当前，兼容旧服务端）。 */
-  /* 2026-11-02 老板令（体验差、可读性低）：WorkBuddy 式思维小卡片**默认关闭**，
-     回到原风格——思维流随 AI 正文折叠头整段显示。置 window.__THINK_CARDS=true 可恢复。 */
-  if ((t === '思维流' || t === 'think' || t === 'think_card') && !window.__THINK_CARDS){
-    return true;              /* 已消费：不渲染卡片 */
-  }
-  if (t === '思维流' || t === 'think' || t === 'think_card'){
-    if (!_e2OwnOk(d.sid)) return false;
-    return 接一张思维卡(d.mid, (d.序号 != null ? d.序号 : d.seq),
-                       (d.文本 != null ? d.文本 : d.text));
-  }
-  /* 七-3：最终回复 */
-  /* 2026-11-02 修正：最终回复帧**必须保留**——它是「统一撤掉占位卡 + 定格正文」的唯一信号，
-     停掉会导致消息一直停在「等待浮现」。只停思维小卡片，正文照常由本帧整段渲染。 */
-  if (t === '最终回复' || t === 'final' || t === 'final_reply'){
-    if (!_e2OwnOk(d.sid)) return false;
-    return 定格最终(d.mid, (d.文本 != null ? d.文本 : d.text));
-  }
-  /* 四-2/四-3：服务端「已入账」——撤发送占位卡，正式行由账本帧驱动 */
-  if (t === '已入账' || t === 'sent_ok' || t === 'send_ack' || t === '入账'){
-    const mid = String(d.mid || '');
-    let changed = false;
-    const tid = (d.tempId != null ? d.tempId : d.id);
-    if (tid != null && Array.isArray(S.pending)){
-      const n = S.pending.length;
-      S.pending = S.pending.filter(p => !(p && String(p.id) === String(tid)));
-      changed = S.pending.length !== n;
-    }
-    if (!changed && d.did && typeof pendClearByDid === 'function'){
-      changed = !!pendClearByDid(String(d.did), d.conv || '');
-    }
-    /* 记下 mid：后续思维卡/最终卡到达时可据此撤掉同一条占位 */
-    if (mid && Array.isArray(S.pending)){
-      S.pending.forEach(p => { if (!p.mid && changed === false && p.did === d.did) p.mid = mid; });
-    }
-    if (changed) renderAll();
-    return changed;
-  }
-  return false;
-}
-/* 2.146（E返工）：注册到钩子表 `window.__body钩子`，**不再给全局 handleBody 赋值**。
-   手机版加载序：待办卡L291 → 缓存L292 → 消息渲染L295 → 连接L298 → 事件总线L300；
-   2.145 的 `handleBody = function(...)` 会被后加载的 连接.js／事件总线.js 覆盖，
-   真机上本段从未执行（验收实测发现）。现由 事件总线.js（唯一总入口，4号负责）
-   遍历钩子表逐个调用；本钩子只处理自己的帧，**不消费、不阻断**，
-   其余帧仍由总入口交回 连接.js 原实现。 */
-(window.__body钩子 = window.__body钩子 || []).push(function(body){
-  let d = null;
-  try { d = JSON.parse(body); } catch(e){ return; }
-  if (d && d.t){
-    /* 与 连接.js／事件总线.js 同两道闸：非当前操控服务端一律不认 */
-    if (d.srv && S.cur && d.srv !== S.cur) return;
-    try { _e2OnFrame(d); } catch(e){}
-  }
-});
