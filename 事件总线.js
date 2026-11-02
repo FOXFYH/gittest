@@ -567,55 +567,6 @@ function onEv(kind, v){
   }
 }
 
-/* ============ v3.00 P2 规范八-2：事件帧 msg_evt 上屏 + 回执 ============
-   服务端 命令路由._on_snap 为新出现的正式消息推
-   {'t':'ev','k':'msg_evt','sid','mid','role','text','did'}——**字段在帧顶层，不在 v 里**；
-   规范（广播机制整改规范_V1.1 第八章）要求：前端收到即回执 msg_ack，服务端据此停止重推。
-   ⚠ 连接.js 的 handleBody 对 t:'ev' 只转发 `onEv(d.k, d.v)`，顶层 sid/mid 会在转发时丢掉，
-   故此处给 handleBody 包一层：先认领 msg_evt（读顶层字段），其余帧原样交回原实现
-   （事件总线.js 在 连接.js 之后加载，运行时调用的就是本包装函数；分支语义＝原 if/switch 的
-   `t==='ev' && k==='msg_evt'` 那一支）。 */
-function onMsgEvt(d){
-  const mid = String(d.mid || '');
-  /* ① 回执：无论是否上屏都回执（服务端据 _evt_pushed 不再重推） */
-  if (mid){ try { sendJson({t: 'msg_ack', mid: mid}); } catch(e){} }
-  /* ② 只认当前锚定/当前会话；不是的 → 只回执、不上屏 */
-  const sid = String(d.sid || '');
-  if (!sid || !_paneIsAnchor(sid, '')) return;
-  /* ③ 切换在途（锁死目标、目标正文未到）：此刻 S.snap 正文仍属旧会话，一行也不加 */
-  if (S.switch_pend && S.switch_pend.lockTarget && !S.switch_pend.arrived) return;
-  const role = String(d.role || '');
-  const text = String(d.text || '');
-  if (!mid || !role || !text) return;
-  const arr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
-  if (!arr) return;
-  /* ④ 去重：快照里已有同 mid 的行（事件与快照同源，常见）就不再插 */
-  if (arr.some(m => m && String(m[6] || '') === mid)) return;
-  /* ⑤ 复用现成渲染链路（同 snap_pane 分支）：按服务端行格式
-     [角色,正文,DOM时间,可回退,可删除,盖章时间,mid] 追加进 S.snap.msgs，再由
-     renderAll（→ curMsgs → orderMsgs 按 mid 全序 → renderMsgs）上屏；
-     行内时间留空，显示时间由 _midTime(mid) 解出，不在本地打戳。 */
-  arr.push([role, text, '', 0, 0, '', mid]);
-  renderAll();
-}
-(function(){
-  if (typeof handleBody !== 'function') return;
-  const _hb0 = handleBody;                 /* 原实现（连接.js） */
-  handleBody = function(body){
-    let d = null;
-    try { d = JSON.parse(body); } catch(e){ return _hb0(body); }
-    if (d && d.t === 'ev' && d.k === 'msg_evt'){
-      /* 与 连接.js handleBody 同两道闸：无源头名丢弃 / 非当前操控服务端忽略 */
-      if (!d.srv) return;
-      regSrv(d.srv, d);
-      if (d.srv !== S.cur) return;
-      onMsgEvt(d);
-      return;
-    }
-    return _hb0(body);
-  };
-})();
-
 /* ============ 2.90（老板夜间令 B10／C7）：接服务端「四步提醒」回执 t:'rcpt' ============
    协议（单通道 + stage）：{"t":"rcpt","id":<网页端动作id>,"cmd":<命令名>,
      "stage":"accepted|running|done|fail","ok":true|false,"did":<供占位卡配对>,
