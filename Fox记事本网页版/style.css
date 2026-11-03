@@ -211,7 +211,8 @@ body{
   line-height: 19px;
   tab-size: 4;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 #editor.nowrap{
   white-space: pre;
