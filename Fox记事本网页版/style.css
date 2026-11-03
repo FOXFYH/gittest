@@ -178,6 +178,51 @@ body{
 .menu-item.check::before{ content: "✓"; width: 14px; color: var(--c-primary); }
 .menu-item.no-check::before{ content: ""; width: 14px; }
 
+/* ===== 文字颜色：顶栏色块 / 弹层 / 右键菜单 ===== */
+.colorbtn{
+  width: 18px; height: 18px;
+  padding: 0;
+  border: 1px solid #cfd4da;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.colorbtn:hover{ border-color: #a9c6ef; background: var(--c-hover); }
+.colorbtn .swatch{
+  display: block;
+  width: 12px; height: 12px;
+  border-radius: 2px;
+  background: #000000;
+}
+.color-pop{
+  position: fixed;
+  z-index: 70;
+  background: #fff;
+  border: 1px solid #d5d9e0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.16);
+  padding: 7px;
+}
+.color-row{ display: flex; align-items: center; gap: 6px; }
+.color-pop .sw, .ctx-colors .sw{
+  width: 24px; height: 24px;
+  padding: 0;
+  border: 1px solid rgba(0,0,0,.16);
+  border-radius: 5px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.color-pop .sw:hover, .ctx-colors .sw:hover{ outline: 2px solid #9fc0ee; outline-offset: 1px; }
+.ctx-menu{ position: fixed; z-index: 80; min-width: 170px; }
+.ctx-menu .has-sub{ gap: 6px; }
+.ctx-menu .sub-arrow{ margin-left: auto; color: #8a929c; font-size: 12px; }
+.ctx-colors{
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 6px 10px 8px;
+}
+
 /* ===== 页面容器 ===== */
 #mainArea{
   position: fixed;
@@ -213,6 +258,14 @@ body{
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-all;
+  overflow-y: auto;
+  overflow-x: hidden;
+  caret-color: #1f2329;
+}
+#editor:empty::before{
+  content: attr(data-placeholder);
+  color: #9aa1ab;
+  pointer-events: none;
 }
 #editor.nowrap{
   white-space: pre;
