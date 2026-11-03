@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.27';
+  const APP_VERSION = 'v1.28';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -107,6 +107,456 @@
   let settings = loadSettings();
   const editor = $('editor');
 
+  // ===================== 富文本模型（contenteditable） =====================
+  // 存储格式与 Py 版一致：无颜色时存纯文本；有颜色时存单行 JSON：
+  // {"foxrich":1,"text":"<完整纯文本>","colors":[[起始,结束,"#RRGGBB"],...]}
+  // 偏移口径：Unicode 码点（与 Python len() 一致，emoji 按 1 个码点计），
+  // 从 0 开始、end 开区间、按起始升序、同一字符仅一色。
+  const RICH_PREFIX = '{"foxrich"';
+  const TEXT_COLORS = [
+    { hex: '#E53935', name: '大红' },
+    { hex: '#1E63D8', name: '大蓝' },
+    { hex: '#F2C200', name: '大黄' },
+    { hex: '#2E9E44', name: '大绿' },
+    { hex: '#7B2FD6', name: '大紫' },
+    { hex: '#F57C00', name: '橙' },
+    { hex: '#000000', name: '黑色（恢复默认）' }
+  ];
+
+  function cpLen(s) {
+    // UTF-16 代理对算 1 个 Unicode 码点（与 Python len() 口径一致）
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+        const d = s.charCodeAt(i + 1);
+        if (d >= 0xDC00 && d <= 0xDFFF) i++;
+      }
+      n++;
+    }
+    return n;
+  }
+
+  function hexFromCss(v) {
+    if (!v) return '';
+    v = String(v).trim();
+    let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+    if (m) {
+      let h = m[1];
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      return ('#' + h).toUpperCase();
+    }
+    m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(v);
+    if (m) {
+      const two = function (x) {
+        const h = clamp(parseInt(x, 10), 0, 255).toString(16);
+        return h.length < 2 ? '0' + h : h;
+      };
+      return ('#' + two(m[1]) + two(m[2]) + two(m[3])).toUpperCase();
+    }
+    return '';
+  }
+
+  function elementColor(el) {
+    if (!el || el.nodeType !== 1) return '';
+    const attr = el.getAttribute && el.getAttribute('color');
+    if (attr) {
+      const h = hexFromCss(attr);
+      if (h) return h;
+    }
+    if (el.style && el.style.color) return hexFromCss(el.style.color);
+    return '';
+  }
+
+  function isBlockEl(el) {
+    if (!el || el.nodeType !== 1) return false;
+    return /^(DIV|P|LI|BLOCKQUOTE|H1|H2|H3|H4|H5|H6|PRE)$/.test(el.tagName);
+  }
+
+  // 空块里的 <br> 只是占位符，换行由“块起始边界”代表，不能重复计数
+  function isPlaceholderBr(br) {
+    const p = br.parentNode;
+    if (!p || p.nodeType !== 1 || !isBlockEl(p) || p.textContent) return false;
+    let brCount = 0;
+    let other = false;
+    for (let i = 0; i < p.childNodes.length; i++) {
+      const n = p.childNodes[i];
+      if (n.nodeType === 1 && n.tagName === 'BR') brCount++;
+      else if (n.nodeType === 1 || (n.nodeType === 3 && n.data)) other = true;
+    }
+    return brCount === 1 && !other;
+  }
+
+  // 遍历 DOM 生成：纯文本、颜色区间（码点偏移）、UTF-16 片段表
+  function buildModel(root) {
+    root = root || editor;
+    const state = { text: '', u16: 0, cp: 0, colors: [], segs: [] };
+    function addColor(startCp, endCp, hex) {
+      if (!hex || hex === '#000000' || endCp <= startCp) return;
+      const last = state.colors[state.colors.length - 1];
+      if (last && last[2] === hex && last[1] === startCp) last[1] = endCp;
+      else state.colors.push([startCp, endCp, hex]);
+    }
+    function addText(node, color) {
+      const data = node.data;
+      if (!data) return;
+      const startCp = state.cp;
+      state.segs.push({ kind: 'text', node: node, u16Start: state.u16, u16End: state.u16 + data.length });
+      state.text += data;
+      state.u16 += data.length;
+      state.cp += cpLen(data);
+      if (color) addColor(startCp, state.cp, color);
+    }
+    function addNewline(beforeNode, beforeOffset, afterNode, afterOffset) {
+      state.segs.push({
+        kind: 'nl',
+        beforeNode: beforeNode, beforeOffset: beforeOffset,
+        afterNode: afterNode, afterOffset: afterOffset,
+        u16Start: state.u16, u16End: state.u16 + 1
+      });
+      state.text += '\n';
+      state.u16 += 1;
+      state.cp += 1;
+    }
+    function walk(parent, inherit) {
+      const kids = parent.childNodes;
+      for (let i = 0; i < kids.length; i++) {
+        const node = kids[i];
+        if (node.nodeType === 3) { addText(node, inherit); continue; }
+        if (node.nodeType !== 1) continue;
+        if (node.tagName === 'BR') {
+          if (!isPlaceholderBr(node)) addNewline(parent, i, parent, i + 1);
+          continue;
+        }
+        const color = elementColor(node) || inherit;
+        if (isBlockEl(node)) {
+          const prev = node.previousSibling;
+          const prevIsBr = prev && prev.nodeType === 1 && prev.tagName === 'BR';
+          const prevIsBlock = prev && prev.nodeType === 1 && isBlockEl(prev);
+          const endsNl = state.text.charAt(state.text.length - 1) === '\n';
+          if (state.u16 > 0 && !prevIsBr && !(endsNl && !prevIsBlock)) {
+            addNewline(parent, i, node, 0);
+          }
+          walk(node, color);
+        } else {
+          walk(node, color);
+        }
+      }
+    }
+    walk(root, '');
+    return state;
+  }
+
+  function getPlainText() { return buildModel().text; }
+
+  // 码点偏移 → UTF-16 下标表（长度 = 码点数 + 1）
+  function splitCpIndex(text) {
+    const out = [0];
+    let i = 0;
+    while (i < text.length) {
+      const c = text.charCodeAt(i);
+      if (c >= 0xD800 && c <= 0xDBFF && i + 1 < text.length) {
+        const d = text.charCodeAt(i + 1);
+        if (d >= 0xDC00 && d <= 0xDFFF) i += 2;
+        else i += 1;
+      } else {
+        i += 1;
+      }
+      out.push(i);
+    }
+    return out;
+  }
+
+  function appendPiece(frag, text, idx, fromCp, toCp, color) {
+    if (toCp <= fromCp) return;
+    const piece = text.substring(idx[fromCp], idx[toCp]);
+    if (!piece) return;
+    if (!color) {
+      frag.appendChild(document.createTextNode(piece));
+    } else {
+      const span = document.createElement('span');
+      span.style.color = color;
+      span.appendChild(document.createTextNode(piece));
+      frag.appendChild(span);
+    }
+  }
+
+  // content（纯文本或 foxrich JSON）→ 编辑器 DOM
+  function setEditorContent(content) {
+    let text = content || '';
+    let colors = [];
+    if (typeof text === 'string' && text.indexOf(RICH_PREFIX) === 0) {
+      try {
+        const obj = JSON.parse(text);
+        if (obj && typeof obj.text === 'string' && Array.isArray(obj.colors)) {
+          text = obj.text;
+          colors = obj.colors;
+        }
+      } catch (e) { /* JSON 损坏时按纯文本 */ }
+    }
+    editor.innerHTML = '';
+    if (!text) return;
+    const idx = splitCpIndex(text);
+    const cpCount = idx.length - 1;
+    const ranges = [];
+    colors.forEach(function (r) {
+      if (!Array.isArray(r) || r.length < 3) return;
+      const s = clamp(parseInt(r[0], 10), 0, cpCount);
+      const e = clamp(parseInt(r[1], 10), 0, cpCount);
+      const hex = hexFromCss(r[2]);
+      if (e <= s || !hex || hex === '#000000') return;
+      ranges.push([s, e, hex]);
+    });
+    ranges.sort(function (a, b) { return a[0] - b[0]; });
+    const frag = document.createDocumentFragment();
+    let cur = 0;
+    ranges.forEach(function (r) {
+      if (r[0] <= cur) return;
+      appendPiece(frag, text, idx, cur, r[0], '');
+      appendPiece(frag, text, idx, r[0], r[1], r[2]);
+      cur = r[1];
+    });
+    if (cur < cpCount) appendPiece(frag, text, idx, cur, cpCount, '');
+    editor.appendChild(frag);
+  }
+
+  function serializeEditor() {
+    const m = buildModel();
+    if (!m.colors.length) return m.text;
+    return JSON.stringify({ foxrich: 1, text: m.text, colors: m.colors });
+  }
+
+  // ===================== 选区与偏移 =====================
+  let lastEditorRange = null;
+
+  function rangeInEditor() {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    const r = sel.getRangeAt(0);
+    const okStart = r.startContainer === editor || editor.contains(r.startContainer);
+    const okEnd = r.endContainer === editor || editor.contains(r.endContainer);
+    return okStart && okEnd ? r : null;
+  }
+
+  document.addEventListener('selectionchange', function () {
+    const r = rangeInEditor();
+    if (r) lastEditorRange = r.cloneRange();
+  });
+
+  function restoreEditorSelection() {
+    let r = rangeInEditor();
+    if (!r && lastEditorRange && lastEditorRange.startContainer &&
+        (lastEditorRange.startContainer === editor || editor.contains(lastEditorRange.startContainer))) {
+      r = lastEditorRange.cloneRange();
+    }
+    if (!r) return null;
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    return r;
+  }
+
+  function prefixTextLength(container, offset) {
+    const r = document.createRange();
+    r.selectNodeContents(editor);
+    r.setEnd(container, offset);
+    return buildModel(r.cloneContents()).text.length;
+  }
+
+  function offsetsFromRange(r) {
+    let start = prefixTextLength(r.startContainer, r.startOffset);
+    let end = prefixTextLength(r.endContainer, r.endOffset);
+    if (start > end) { const t = start; start = end; end = t; }
+    return { start: start, end: end, collapsed: start === end };
+  }
+
+  function selectionOffsets() {
+    const r = rangeInEditor();
+    return r ? offsetsFromRange(r) : null;
+  }
+
+  function currentEditorOffsets() {
+    let r = rangeInEditor();
+    if (!r && lastEditorRange && lastEditorRange.startContainer &&
+        (lastEditorRange.startContainer === editor || editor.contains(lastEditorRange.startContainer))) {
+      r = lastEditorRange;
+    }
+    return r ? offsetsFromRange(r) : null;
+  }
+
+  function selectedPlainText() {
+    const r = restoreEditorSelection();
+    if (!r) return '';
+    const o = offsetsFromRange(r);
+    return getPlainText().substring(o.start, o.end);
+  }
+
+  function boundaryFromModel(m, pos) {
+    if (pos <= 0) return { node: editor, offset: 0 };
+    for (let i = 0; i < m.segs.length; i++) {
+      const s = m.segs[i];
+      if (pos >= s.u16Start && pos < s.u16End) {
+        if (s.kind === 'text') return { node: s.node, offset: pos - s.u16Start };
+        return pos === s.u16Start
+          ? { node: s.beforeNode, offset: s.beforeOffset }
+          : { node: s.afterNode, offset: s.afterOffset };
+      }
+      if (pos === s.u16End) {
+        if (s.kind === 'text') return { node: s.node, offset: s.node.data.length };
+        return { node: s.afterNode, offset: s.afterOffset };
+      }
+    }
+    return { node: editor, offset: editor.childNodes.length };
+  }
+
+  function rangeFromModel(m, start, end) {
+    const a = boundaryFromModel(m, start);
+    const b = boundaryFromModel(m, end);
+    const r = document.createRange();
+    r.setStart(a.node, a.offset);
+    r.setEnd(b.node, b.offset);
+    return r;
+  }
+
+  function selectTextRange(start, end) {
+    const m = buildModel();
+    start = clamp(start, 0, m.text.length);
+    end = clamp(end, 0, m.text.length);
+    const r = rangeFromModel(m, start, end);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    return r;
+  }
+
+  // ===================== 文字颜色 UI =====================
+  let colorPop = null;
+  let ctxMenu = null;
+
+  function updateColorSwatch(hex) {
+    const s = $('textColorSwatch');
+    if (s) s.style.background = hex || '#000000';
+  }
+
+  function closeColorPop() {
+    if (colorPop) { colorPop.remove(); colorPop = null; }
+  }
+
+  function makeColorSwatches(wrap, onPick) {
+    TEXT_COLORS.forEach(function (c) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sw';
+      b.style.background = c.hex;
+      b.title = c.name + ' ' + c.hex;
+      b.dataset.hex = c.hex;
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        onPick(c.hex);
+      });
+      wrap.appendChild(b);
+    });
+  }
+
+  function applyTextColor(hex) {
+    let r = rangeInEditor();
+    if (!r && lastEditorRange && lastEditorRange.startContainer &&
+        (lastEditorRange.startContainer === editor || editor.contains(lastEditorRange.startContainer))) {
+      r = lastEditorRange.cloneRange();
+    }
+    if (!r || r.collapsed) { toast('请先选中文字'); return; }
+    editor.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) { /* 忽略 */ }
+    try {
+      if (hex === '#000000') document.execCommand('removeFormat');
+      else document.execCommand('foreColor', false, hex);
+    } catch (e) { /* 忽略 */ }
+    markDirty();
+    updateColorSwatch(hex);
+  }
+
+  function toggleColorPop(anchor) {
+    if (colorPop) { closeColorPop(); return; }
+    closeCtxMenu();
+    const pop = document.createElement('div');
+    pop.className = 'color-pop';
+    pop.id = 'colorPop';
+    const row = document.createElement('div');
+    row.className = 'color-row';
+    makeColorSwatches(row, function (hex) { applyTextColor(hex); closeColorPop(); });
+    pop.appendChild(row);
+    document.body.appendChild(pop);
+    const rect = anchor.getBoundingClientRect();
+    const w = pop.offsetWidth;
+    pop.style.left = Math.max(6, Math.min(rect.left, window.innerWidth - w - 8)) + 'px';
+    let top = rect.bottom + 6;
+    if (top + pop.offsetHeight > window.innerHeight - 6) top = Math.max(6, rect.top - pop.offsetHeight - 6);
+    pop.style.top = top + 'px';
+    colorPop = pop;
+  }
+
+  function closeCtxMenu() {
+    if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; }
+  }
+
+  function makeCtxItem(label, kbd, handler) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'menu-item no-check';
+    const t = document.createElement('span');
+    t.textContent = label;
+    b.appendChild(t);
+    if (kbd) {
+      const k = document.createElement('span');
+      k.className = 'kbd';
+      k.textContent = kbd;
+      b.appendChild(k);
+    }
+    b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); handler(); });
+    return b;
+  }
+
+  function openCtxMenu(x, y) {
+    closeCtxMenu();
+    closeColorPop();
+    closeMenu();
+    const pop = document.createElement('div');
+    pop.className = 'menu-pop ctx-menu';
+    pop.addEventListener('mousedown', function (e) {
+      // 保住编辑器里的选区，否则点菜单项会丢选区
+      if (e.target !== pop) e.preventDefault();
+    });
+    pop.appendChild(makeCtxItem('剪切', 'Ctrl+X', function () { closeCtxMenu(); cutSelection(); }));
+    pop.appendChild(makeCtxItem('复制', 'Ctrl+C', function () { closeCtxMenu(); copySelection(); }));
+    pop.appendChild(makeCtxItem('粘贴', 'Ctrl+V', function () { closeCtxMenu(); pasteClipboard(); }));
+    pop.appendChild(makeCtxItem('全选', 'Ctrl+A', function () { closeCtxMenu(); selectAllText(); }));
+    const sep = document.createElement('div');
+    sep.className = 'menu-sep';
+    pop.appendChild(sep);
+    const colorsBox = document.createElement('div');
+    colorsBox.className = 'ctx-colors';
+    colorsBox.hidden = true;
+    const colorItem = makeCtxItem('文字颜色', '', function () { colorsBox.hidden = !colorsBox.hidden; });
+    const arrow = document.createElement('span');
+    arrow.className = 'sub-arrow';
+    arrow.textContent = '▸';
+    colorItem.classList.add('has-sub');
+    colorItem.appendChild(arrow);
+    pop.appendChild(colorItem);
+    makeColorSwatches(colorsBox, function (hex) { applyTextColor(hex); closeCtxMenu(); });
+    pop.appendChild(colorsBox);
+    document.body.appendChild(pop);
+    const w = pop.offsetWidth;
+    const h = pop.offsetHeight;
+    pop.style.left = Math.max(6, Math.min(x, window.innerWidth - w - 6)) + 'px';
+    pop.style.top = Math.max(6, Math.min(y, window.innerHeight - h - 6)) + 'px';
+    ctxMenu = pop;
+  }
   let doc = {
     name: '', id: '', s: null, e: null, isNew: true,
     folder: '', dirty: false, createTime: ''
@@ -213,7 +663,7 @@
 
   // ===================== 文档与缓存 =====================
   function writeDocCache() {
-    cacheSet('doc_text', editor.value);
+    cacheSet('doc_text', serializeEditor());
     cacheSet('doc_meta', JSON.stringify({
       name: doc.name, id: doc.id, s: doc.s, e: doc.e, isNew: doc.isNew,
       folder: doc.folder, dirty: doc.dirty, createTime: doc.createTime
@@ -225,7 +675,7 @@
   }
 
   function restoreDocCache() {
-    editor.value = cacheGet('doc_text', '');
+    setEditorContent(cacheGet('doc_text', ''));
     let meta = null;
     try { meta = JSON.parse(cacheGet('doc_meta', '{}')); } catch (e) { meta = {}; }
     meta = meta || {};
@@ -252,7 +702,7 @@
       dirty: !!(meta && meta.dirty),
       createTime: (meta && meta.createTime) || ''
     };
-    editor.value = content || '';
+    setEditorContent(content || '');
     applyFont();
     updateHeader();
     writeDocCache();
@@ -285,7 +735,6 @@
 
   function applyWrap() {
     editor.classList.toggle('nowrap', !settings.wordWrap);
-    editor.setAttribute('wrap', settings.wordWrap ? 'soft' : 'off');
     $('btnWrap').classList.toggle('on', !!settings.wordWrap);
     $('btnWrap').textContent = settings.wordWrap ? '换行：开' : '换行：关';
     $('btnWrap').title = '自动换行开关';
@@ -635,10 +1084,38 @@
   }
 
   function insertAtCursor(text) {
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    editor.setRangeText(text, start, end, 'end');
-    applyEditorChange(function () { /* setRangeText 已写入 */ });
+    let r = rangeInEditor();
+    if (!r && lastEditorRange && lastEditorRange.startContainer &&
+        (lastEditorRange.startContainer === editor || editor.contains(lastEditorRange.startContainer))) {
+      r = lastEditorRange.cloneRange();
+    }
+    editor.focus();
+    const sel = window.getSelection();
+    if (r) {
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } else {
+      const nr = document.createRange();
+      nr.selectNodeContents(editor);
+      nr.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(nr);
+    }
+    let ok = false;
+    try { ok = document.execCommand('insertText', false, text); } catch (e) { ok = false; }
+    if (!ok) {
+      const rg = sel.rangeCount ? sel.getRangeAt(0) : null;
+      if (rg) {
+        rg.deleteContents();
+        const tn = document.createTextNode(text);
+        rg.insertNode(tn);
+        rg.setStartAfter(tn);
+        rg.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(rg);
+      }
+    }
+    markDirty();
   }
 
   function execCommand(cmd) {
@@ -648,14 +1125,14 @@
   }
 
   async function copySelection() {
-    const text = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+    const text = selectedPlainText();
     if (!text) { toast('没有选中内容'); return; }
     try { await navigator.clipboard.writeText(text); toast('已复制'); }
     catch (e) { execCommand('copy'); }
   }
 
   async function cutSelection() {
-    const text = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+    const text = selectedPlainText();
     if (!text) { toast('没有选中内容'); return; }
     try { await navigator.clipboard.writeText(text); } catch (e) { /* 忽略，仍删除选中 */ }
     deleteSelection();
@@ -674,20 +1151,18 @@
   }
 
   function deleteSelection() {
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    if (start === end) {
-      if (start <= 0) return;
-      editor.setRangeText('', start - 1, end, 'end');
-    } else {
-      editor.setRangeText('', start, end, 'start');
-    }
-    applyEditorChange(function () { /* 已写入 */ });
+    editor.focus();
+    try { document.execCommand('delete'); } catch (e) { /* 忽略 */ }
+    markDirty();
   }
 
   function selectAllText() {
     editor.focus();
-    editor.setSelectionRange(0, editor.value.length);
+    const r = document.createRange();
+    r.selectNodeContents(editor);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
   }
 
   function insertTime() {
@@ -695,15 +1170,16 @@
   }
 
   function gotoLine() {
-    const total = editor.value.split('\n').length;
+    const text = getPlainText();
+    const total = text.split('\n').length;
     askText('转到行', '行号（1 - ' + total + '）', String(1)).then(function (v) {
       if (v === null) return;
       const n = clamp(parseInt(v, 10) || 1, 1, total);
-      const lines = editor.value.split('\n');
+      const lines = text.split('\n');
       let pos = 0;
       for (let i = 0; i < n - 1; i++) pos += lines[i].length + 1;
       editor.focus();
-      editor.setSelectionRange(pos, pos + lines[n - 1].length);
+      selectTextRange(pos, pos + lines[n - 1].length);
       const lineH = parseFloat(getComputedStyle(editor).lineHeight) || 19;
       editor.scrollTop = Math.max(0, (n - 1) * lineH - editor.clientHeight / 3);
     });
@@ -712,8 +1188,8 @@
   function openFind(showReplace) {
     const bar = $('findBar');
     bar.hidden = false;
-    // 用当前选中的单行文本预填查找框（与 Py 版一致）
-    const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+    const offs = currentEditorOffsets();
+    const sel = offs ? getPlainText().substring(offs.start, offs.end) : '';
     if (sel && sel.indexOf('\n') < 0) $('findInput').value = sel;
     $('findInput').focus();
     if (showReplace) $('replaceInput').focus();
@@ -725,17 +1201,18 @@
     const q = $('findInput').value;
     if (!q) { toast('请输入查找内容'); $('findInput').focus(); return; }
     const cs = $('findCase').checked;
-    const text = editor.value;
+    const text = getPlainText();
     const hay = cs ? text : text.toLowerCase();
     const needle = cs ? q : q.toLowerCase();
+    const offs = currentEditorOffsets();
     let start;
-    if (dir > 0) start = editor.selectionEnd || 0;
-    else start = Math.max(0, (editor.selectionStart || 0) - 1);
+    if (dir > 0) start = offs ? offs.end : 0;
+    else start = offs ? Math.max(0, offs.start - 1) : Math.max(0, text.length - 1);
     let idx = dir > 0 ? hay.indexOf(needle, start) : hay.lastIndexOf(needle, start);
     if (idx < 0) idx = dir > 0 ? hay.indexOf(needle, 0) : hay.lastIndexOf(needle);
     if (idx < 0) { toast('未找到：' + q); return; }
     editor.focus();
-    editor.setSelectionRange(idx, idx + q.length);
+    selectTextRange(idx, idx + q.length);
     const lineH = parseFloat(getComputedStyle(editor).lineHeight) || 19;
     const before = text.substring(0, idx).split('\n').length - 1;
     if (before * lineH < editor.scrollTop || before * lineH > editor.scrollTop + editor.clientHeight - lineH * 2) {
@@ -747,7 +1224,7 @@
     const q = $('findInput').value;
     if (!q) return false;
     const cs = $('findCase').checked;
-    const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+    const sel = selectedPlainText();
     return cs ? sel === q : sel.toLowerCase() === q.toLowerCase();
   }
 
@@ -756,8 +1233,12 @@
     if (!q) { toast('请输入查找内容'); return; }
     if (!currentMatch()) { findNext(1); return; }
     const rep = $('replaceInput').value;
-    editor.setRangeText(rep, editor.selectionStart, editor.selectionEnd, 'end');
-    applyEditorChange(function () { /* 已写入 */ });
+    editor.focus();
+    try {
+      if (rep) document.execCommand('insertText', false, rep);
+      else document.execCommand('delete');
+    } catch (e) { /* 忽略 */ }
+    markDirty();
     findNext(1);
   }
 
@@ -766,14 +1247,34 @@
     if (!q) { toast('请输入查找内容'); return; }
     const rep = $('replaceInput').value;
     const cs = $('findCase').checked;
-    const re = new RegExp(escapeRegExp(q), cs ? 'g' : 'gi');
-    const m = editor.value.match(re);
-    if (!m || !m.length) { toast('未找到：' + q); return; }
-    editor.value = editor.value.replace(re, rep);
-    applyEditorChange(function () { /* 已写入 */ });
-    toast('已替换 ' + m.length + ' 处');
+    const model = buildModel();
+    const text = model.text;
+    const hay = cs ? text : text.toLowerCase();
+    const needle = cs ? q : q.toLowerCase();
+    const matches = [];
+    let pos = 0;
+    while (pos <= hay.length) {
+      const idx = hay.indexOf(needle, pos);
+      if (idx < 0) break;
+      matches.push([idx, idx + q.length]);
+      pos = idx + q.length;
+    }
+    if (!matches.length) { toast('未找到：' + q); return; }
+    const ranges = matches.map(function (m) { return rangeFromModel(model, m[0], m[1]); });
+    editor.focus();
+    // 从后往前替换：靠前的 Range 不受后面 DOM 变化影响，颜色也不会被冲掉
+    for (let i = ranges.length - 1; i >= 0; i--) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(ranges[i]);
+      try {
+        if (rep) document.execCommand('insertText', false, rep);
+        else document.execCommand('delete');
+      } catch (e) { /* 忽略 */ }
+    }
+    markDirty();
+    toast('已替换 ' + matches.length + ' 处');
   }
-
   // ===================== 云端读写 =====================
   function buildFileData(id, name, content, S, E, folder, owner, createTime) {
     const now = fmtDateTime();
@@ -895,7 +1396,7 @@
       if (!name) { toast('文件名不能为空'); return; }
     }
 
-    const content = editor.value;
+    const content = serializeEditor();
     let id = doc.id;
     let S;
     let E;
@@ -1443,6 +1944,32 @@
       }
     }, { passive: false });
 
+    // 文字颜色：顶栏按钮 / 右键菜单 / 弹层
+    $('btnTextColor').addEventListener('mousedown', function (e) { e.preventDefault(); });
+    $('btnTextColor').addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleColorPop(this);
+    });
+    editor.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      openCtxMenu(e.clientX, e.clientY);
+    });
+    editor.addEventListener('paste', function (e) {
+      // 只接收纯文本，避免把外部 HTML/样式带进来破坏颜色模型
+      e.preventDefault();
+      const cd = e.clipboardData || window.clipboardData;
+      let text = '';
+      try { text = cd ? (cd.getData('text/plain') || '') : ''; } catch (err) { text = ''; }
+      insertAtCursor(text);
+    });
+    document.addEventListener('click', function (e) {
+      const inBtn = e.target && e.target.closest && e.target.closest('#btnTextColor');
+      if (colorPop && !inBtn && !colorPop.contains(e.target)) closeColorPop();
+      if (ctxMenu && !ctxMenu.contains(e.target)) closeCtxMenu();
+    });
+    window.addEventListener('resize', function () { closeColorPop(); closeCtxMenu(); });
+
     // 查找条
     $('btnFindPrev').addEventListener('click', function () { findNext(-1); });
     $('btnFindNext').addEventListener('click', function () { findNext(1); });
@@ -1502,6 +2029,8 @@
         e.preventDefault(); if (page === 'edit') insertTime();
       } else if (key === 'Escape') {
         if (!$('menuLayer').hidden) closeMenu();
+        if (colorPop) closeColorPop();
+        if (ctxMenu) closeCtxMenu();
         if (!$('findBar').hidden) closeFind();
       }
     });
@@ -1543,7 +2072,7 @@
       }
     })();
 
-    if (editor.value) {
+    if (getPlainText()) {
       toast('已恢复上次编辑的文档：' + (doc.name || '未命名'), 3200);
     }
     setTimeout(function () { editor.focus(); }, 100);
