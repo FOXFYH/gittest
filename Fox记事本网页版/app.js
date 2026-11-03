@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.24';
+  const APP_VERSION = 'v1.25';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -1016,16 +1016,11 @@
     let id = doc.id;
     let name = doc.name;
     if (!id) {
-      name = await askText('从 6.0 云端拉取', '请输入云端文件名', doc.name || '无标题.txt');
-      if (name === null) return;
-      name = name.trim();
-      if (!name) return;
-      try {
-        const r = await cloudCall('查找', { '列名': '文件名', '关键字': name });
-        const row = (r['数据'] || []).find(function (x) { return String(x['ID'] || '').indexOf('FOLDER_') !== 0; });
-        if (!row) { toast('云端没有该文件：' + name); return; }
-        id = row['ID'];
-      } catch (err) { toast('查找失败：' + err.message); return; }
+      // 未绑定云端文件：直接打开云端文件列表让用户点选，不再要求手输文件名
+      showPage('files');
+      refreshIndex(false);
+      toast('请从列表中选择要打开的云端文件', 3200);
+      return;
     }
     if (doc.dirty && !(await modalConfirm('覆盖本地修改？', '当前文档有未同步的修改，拉取云端版本会覆盖它。', '覆盖并拉取'))) return;
 
@@ -1529,9 +1524,21 @@
     applyWrap();
     applyAutoScrollBtn();
     updateHeader();
-    setPhase('idle', '尚未连接云端');
+    setPhase('idle', '正在连接云端…');
     bindEvents();
     renderFiles();
+
+    // 开机自动连云端：直接读表格索引，成功即显示“已连接”，无需任何手动点击
+    (async function 自动连接云端() {
+      try {
+        const r = await cloudCall('读取索引', {}, true);
+        cloudIndex = Array.isArray(r['数据']) ? r['数据'].slice() : [];
+        renderFiles();
+        setPhase('ok', '已连接云端（' + cloudIndex.length + ' 项）');
+      } catch (err) {
+        setPhase('fail', '云端连接失败：' + (err && err.message ? err.message : err));
+      }
+    })();
 
     if (editor.value) {
       toast('已恢复上次编辑的文档：' + (doc.name || '未命名'), 3200);
