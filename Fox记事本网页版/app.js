@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.28';
+  const APP_VERSION = 'v1.29';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -1645,9 +1645,11 @@
       tdOp.appendChild(opWrap);
       tr.appendChild(tdOp);
 
-      if (isFolder) {
-        tdName.addEventListener('click', function () { enterFolder(id); });
-      }
+      // 整行可点：手机上不必横向滑动找按钮——文件夹=进入，文章=直接打开
+      tr.addEventListener('click', function (e) {
+        if (e.target.closest('button')) return;
+        if (isFolder) enterFolder(id); else openCloudFile(id);
+      });
       tbody.appendChild(tr);
     });
 
