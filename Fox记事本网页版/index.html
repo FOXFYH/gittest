@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- 机读版本标记：与页面标题、顶栏版本胶囊、设置页版本显示保持一致（规范 3.2.1） -->
+<meta name="app-version" content="v1.24">
+<meta name="app-sheet" content="Fox记事本">
+<title>Fox记事本 v1.24</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css?v=1.24">
+</head>
+<body>
+
+<!-- ===== 顶栏：固定两行（第一行标题/状态，第二行工具/字号/开关）===== -->
+<header id="topbar">
+  <div class="bar-row row1">
+    <span class="brand">Fox记事本</span>
+    <span class="pill ver" id="verPill">v1.24</span>
+    <span class="docname" id="docName">未命名</span>
+    <span class="docse" id="docSE">起点 - / 终点 -</span>
+    <span class="grow"></span>
+    <button class="btn primary" id="btnSync" title="把当前文档同步到 6.0 云端（Ctrl+S）">同步到云端</button>
+    <button class="btn" id="btnPull" title="从 6.0 云端拉取当前文档">拉取</button>
+    <span class="pill status" id="statusPill" title="同步状态">未连</span>
+  </div>
+  <div class="bar-row row2" id="barRow2">
+    <button class="mbtn only-narrow" id="btnAllMenu" title="全部菜单">☰</button>
+    <button class="mbtn" data-menu="file">文件</button>
+    <button class="mbtn" data-menu="edit">编辑</button>
+    <button class="mbtn" data-menu="format">格式</button>
+    <button class="mbtn" data-menu="view">视图</button>
+    <button class="mbtn" data-menu="sync">同步</button>
+    <button class="mbtn" data-menu="help">帮助</button>
+    <span class="vsep"></span>
+    <div class="fontbox">
+      <button class="mini" id="btnZoomOut" title="缩小字号">A−</button>
+      <input id="fontSizeBox" class="fsize" type="number" min="6" max="128" step="1" value="11" aria-label="字号 6-128">
+      <button class="mini" id="btnZoomIn" title="放大字号">A+</button>
+    </div>
+    <button class="toggle" id="btnWrap">自动换行</button>
+    <button class="toggle" id="btnAutoScroll">自动上滑</button>
+    <span class="grow"></span>
+    <button class="btn" id="btnFiles">文件管理</button>
+    <button class="btn" id="btnSettings">设置</button>
+  </div>
+</header>
+
+<!-- 菜单弹层（由 app.js 动态生成菜单项） -->
+<div id="menuLayer" class="menu-layer" hidden></div>
+
+<main id="mainArea">
+  <!-- ===== 编辑页 ===== -->
+  <section class="page active" id="pageEdit">
+    <div class="editor-wrap">
+      <textarea id="editor" wrap="soft" spellcheck="false" placeholder="在这里输入内容……"></textarea>
+    </div>
+    <div class="findbar" id="findBar" hidden>
+      <input id="findInput" type="text" placeholder="查找内容" autocomplete="off">
+      <label class="chk"><input type="checkbox" id="findCase"> 区分大小写</label>
+      <button class="btn tiny" id="btnFindPrev">上一个</button>
+      <button class="btn tiny" id="btnFindNext">下一个</button>
+      <span class="vsep"></span>
+      <input id="replaceInput" type="text" placeholder="替换为" autocomplete="off">
+      <button class="btn tiny" id="btnReplace">替换</button>
+      <button class="btn tiny" id="btnReplaceAll">全部替换</button>
+      <button class="btn tiny close" id="btnFindClose" title="关闭查找条">×</button>
+    </div>
+  </section>
+
+  <!-- ===== 云端文件列表页（内置「文件管理」）===== -->
+  <section class="page" id="pageFiles">
+    <div class="page-head">
+      <div class="bar-row ph1">
+        <span class="ph-title">云端文件列表</span>
+        <span class="crumb" id="crumb">根目录</span>
+        <span class="grow"></span>
+        <span class="pill status" id="fileStatusPill">未连</span>
+      </div>
+      <div class="bar-row ph2">
+        <button class="btn" id="btnBackEdit">← 返回编辑</button>
+        <button class="btn" id="btnRefresh">刷新</button>
+        <button class="btn" id="btnNewFile">新建文件</button>
+        <button class="btn" id="btnNewFolder">新建文件夹</button>
+        <input id="fileSearch" class="search" type="search" placeholder="搜索文件名" autocomplete="off">
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="fileTable">
+        <thead>
+          <tr>
+            <th class="col-name">文件名</th>
+            <th class="col-num">字符数</th>
+            <th class="col-num">起点号</th>
+            <th class="col-num">终点号</th>
+            <th class="col-time">最后编辑</th>
+            <th class="col-state">状态</th>
+            <th class="col-op">操作</th>
+          </tr>
+        </thead>
+        <tbody id="fileTbody"></tbody>
+      </table>
+      <div class="empty" id="fileEmpty" hidden>暂无云端文件，点「刷新」或「新建文件」开始。</div>
+    </div>
+  </section>
+
+  <!-- ===== 设置页（独立整页）===== -->
+  <section class="page" id="pageSettings">
+    <div class="page-head">
+      <div class="bar-row ph1">
+        <span class="ph-title">设置</span>
+        <span class="grow"></span>
+        <span class="pill ver" id="settingsVer">v1.24</span>
+      </div>
+    </div>
+    <div class="settings-body">
+      <div class="card">
+        <div class="card-title">显示</div>
+        <div class="field">
+          <label for="setFamily">字体族</label>
+          <input id="setFamily" list="familyList" type="text" autocomplete="off">
+          <datalist id="familyList">
+            <option value="Microsoft YaHei UI"></option>
+            <option value="Microsoft YaHei"></option>
+            <option value="SimSun"></option>
+            <option value="SimHei"></option>
+            <option value="KaiTi"></option>
+            <option value="FangSong"></option>
+            <option value="Consolas"></option>
+            <option value="Courier New"></option>
+          </datalist>
+        </div>
+        <div class="field">
+          <label for="setSize">字号（6-128）</label>
+          <input id="setSize" type="number" min="6" max="128" step="1">
+        </div>
+        <div class="field">
+          <label for="setSpacing">行距（0-12 像素）</label>
+          <input id="setSpacing" type="number" min="0" max="12" step="1">
+        </div>
+        <div class="field">
+          <label for="setWrap">自动换行</label>
+          <input id="setWrap" type="checkbox">
+        </div>
+        <div class="field">
+          <label for="setAutoScroll">自动上滑</label>
+          <input id="setAutoScroll" type="checkbox">
+        </div>
+        <div class="field">
+          <label for="setSpeed">上滑速度（1-600 像素/分钟）</label>
+          <input id="setSpeed" type="number" min="1" max="600" step="1">
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">云端连接（6.0 文件管理器）</div>
+        <div class="field">
+          <label for="setSheet">表格名</label>
+          <input id="setSheet" type="text" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="setUser">云端账号</label>
+          <input id="setUser" type="text" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="setPass">云端密码</label>
+          <input id="setPass" type="password" autocomplete="off">
+        </div>
+        <div class="hint">账号/密码用于访问金山文档表格「Fox记事本」内的文件；默认 test / 1234。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">本地缓存</div>
+        <div class="field">
+          <label>当前版本</label>
+          <span class="static" id="verStatic">v1.24</span>
+        </div>
+        <div class="field">
+          <label>缓存内容</label>
+          <span class="static">当前文档正文、文件名、云端编号与显示偏好</span>
+        </div>
+        <button class="btn danger" id="btnClearCache">清空本地缓存</button>
+        <div class="hint">清空后保留云端账号密码与显示偏好（规范白名单）。</div>
+      </div>
+    </div>
+    <div class="settings-foot">
+      <button class="btn primary" id="btnSettingsSave">保存</button>
+      <button class="btn" id="btnSettingsExit">退出</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<div id="modalLayer" class="modal-layer" hidden></div>
+<noscript><div style="padding:20px">本页面需要启用 JavaScript 才能使用。</div></noscript>
+<script src="app.js?v=1.24"></script>
+</body>
+</html>
