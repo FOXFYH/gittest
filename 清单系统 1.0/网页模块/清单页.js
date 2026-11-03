@@ -1,7 +1,10 @@
 /* ============================================================
  * 【清单系统】网页模块 · 清单页.js
- * 版本：0.82
+ * 版本：0.83
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
+ *   · 0.83（2026-11-03）新建弹窗类型钮排成两行（上行普通 3 种、下行系统 4 种）；
+ *     `开新建清单`/`新建类型` 改为在 `#新建_类型` 内按 `.大类钮` 取按钮（不再直接取 children）。
+ *     配合 清单系统.html 1.31。
  *   · 0.82（2026-11-03）属性页新增「云盘位置」一行：显示该卡片 JSON 的真实路径（从「工作台」起，
  *     不显示盘符/网盘挂载名/实例号前缀）。数据由后端 `云盘位置` 字段随列表摘要/详情下发。
  *     配合 清单系统.html 1.30、清单存储 0.49。
@@ -3165,13 +3168,14 @@
       var 预 = (主页分页 === '系统') ? '系统清单'
         : (主页分页 === '普通流水' ? '普通流水'
           : (主页分页 === '系统流水' ? '系统流水' : '普通树状'));
+      var 钮们 = 组.querySelectorAll('.大类钮');   // 0.83：类型钮分两行（普通/系统），按按钮取
       var 命中 = false;
-      Array.prototype.forEach.call(组.children, function (b) {
+      Array.prototype.forEach.call(钮们, function (b) {
         var 中 = (b.getAttribute('data-类') === 预);
         if (中) 命中 = true;
         if (b.classList) b.classList.toggle('选中', 中);
       });
-      if (!命中) Array.prototype.forEach.call(组.children, function (b, i) {
+      if (!命中) Array.prototype.forEach.call(钮们, function (b, i) {
         if (b.classList) b.classList.toggle('选中', i === 0);
       });
     }
@@ -3216,7 +3220,7 @@
     var 组 = $('新建_类型');
     if (!组) return '普通树状';
     var 选 = null;
-    Array.prototype.forEach.call(组.children, function (b) {
+    Array.prototype.forEach.call(组.querySelectorAll('.大类钮'), function (b) {
       if (b.classList && b.classList.contains('选中')) 选 = b;
     });
     return (选 && 选.getAttribute('data-类')) || '普通树状';
@@ -3353,9 +3357,10 @@
     if ($('新建_取消')) $('新建_取消').addEventListener('click', function () { $('新建清单弹窗').classList.add('隐藏'); });
     if ($('新建_确定')) $('新建_确定').addEventListener('click', 定新建清单);
     if ($('新建_类型')) {
-      Array.prototype.forEach.call($('新建_类型').children, function (b) {
+      var 类钮们 = $('新建_类型').querySelectorAll('.大类钮');   // 0.83：钮在 .类型行 内，不能取 children
+      Array.prototype.forEach.call(类钮们, function (b) {
         b.addEventListener('click', function () {
-          Array.prototype.forEach.call($('新建_类型').children, function (x) {
+          Array.prototype.forEach.call(类钮们, function (x) {
             if (x.classList) x.classList.remove('选中');
           });
           b.classList.add('选中');
