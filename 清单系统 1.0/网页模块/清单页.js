@@ -1,7 +1,12 @@
 /* ============================================================
  * 【清单系统】网页模块 · 清单页.js
- * 版本：0.83
+ * 版本：0.84
  * 职责：用户 2026-10-20 口径【一种卡片 + 跳页式细分】的页面逻辑层——
+ *   · 0.84（2026-11-03）新增「逻辑文件夹」：只影响网页展示，不建本地目录、不动卡片文件。
+ *     主页把文件夹画成黄色小卡（可展开，里面装顶层清单）；右键/长按清单卡弹出「新建文件夹并收进 /
+ *     收进文件夹 / 移出文件夹」；右键/长按文件夹卡可「新建子夹 / 重命名 / 移动到文件夹 / 移出到根 /
+ *     删除（清单退回根）」。成员关系存后端文件夹登记（普通 F / 系统 SF）。配合 html 1.32、
+ *     接口.js 0.40、网页服务 1.09、清单存储 0.50。
  *   · 0.83（2026-11-03）新建弹窗类型钮排成两行（上行普通 3 种、下行系统 4 种）；
  *     `开新建清单`/`新建类型` 改为在 `#新建_类型` 内按 `.大类钮` 取按钮（不再直接取 children）。
  *     配合 清单系统.html 1.31。
@@ -336,6 +341,8 @@
   var 版本 = '0.72';
   // ---------------- 状态 ----------------
   var 清单缓存 = [];         // 清单摘要列表（[{编号,名称,类型,详情,任务数,未完成数}]）
+  var 文件夹缓存 = [];       // 0.84：逻辑文件夹（[{编号,名称,父,成员,系统}]），只影响展示
+  var 文件夹展开 = {};       // 0.84：本次会话里展开了哪些夹（夹号 -> true）
   var 清单指纹 = '';         // 清单列表「版本指纹」（差额：无变化不重绘）
   var 分享中 = false;        // 1.11：处于只读分享/查卡视图 → 禁止主页取数覆盖分享内容
   var 子缓存 = {};           // 节点编号 -> 其子节点数组（清单→任务，任务/子点→子点）
@@ -640,6 +647,7 @@
       if (r && r.版本) 清单指纹 = r.版本;
       if (r && r.未变 && !强制) return;      // 差额：无变化不重绘
       清单缓存 = (r && r.清单列表) || [];
+      文件夹缓存 = (r && r.文件夹列表) || [];
       画顶层(清单缓存);
     }).catch(function (e) {
       失败($('顶层容器'), e);
@@ -662,6 +670,223 @@
     });
   }
 
+  // ============================================================ 0.84 逻辑文件夹（只影响展示）
+  var 键遮 = null, 键菜 = null;
+  function 关键菜单() {
+    if (键遮) { 键遮.remove(); 键遮 = null; }
+    if (键菜) { 键菜.remove(); 键菜 = null; }
+  }
+  function 开键菜单(x, y, 项们) {
+    关键菜单();
+    键遮 = el('div', '键遮');
+    键菜 = el('div', '键菜单');
+    (项们 || []).forEach(function (项) {
+      var b = 钮(项.文, '键菜单项', function () { 关键菜单(); if (项.做) 项.做(); });
+      键菜.appendChild(b);
+    });
+    var 宽 = 190, 高 = Math.max(44, (项们 || []).length * 44 + 8);
+    键菜.style.left = Math.max(6, Math.min(x || 10, (global.innerWidth || 390) - 宽 - 6)) + 'px';
+    键菜.style.top = Math.max(6, Math.min(y || 10, (global.innerHeight || 800) - 高 - 6)) + 'px';
+    document.body.appendChild(键遮);
+    document.body.appendChild(键菜);
+    键遮.addEventListener('click', 关键菜单);
+    键遮.addEventListener('contextmenu', function (e) { e.preventDefault(); 关键菜单(); });
+  }
+  function 绑键菜单(目标, 项函数) {
+    if (!目标) return;
+    var 计 = null, 已触 = false;
+    目标.addEventListener('contextmenu', function (ev) {
+      ev.preventDefault(); ev.stopPropagation();
+      已触 = true;
+      开键菜单(ev.clientX, ev.clientY, 项函数());
+      setTimeout(function () { 已触 = false; }, 400);
+    });
+    目标.addEventListener('touchstart', function (ev) {
+      if (ev.touches && ev.touches.length !== 1) return;
+      var t = ev.touches[0], x = t.clientX, y = t.clientY;
+      计 = setTimeout(function () { 已触 = true; 开键菜单(x, y, 项函数()); }, 550);
+    }, { passive: true });
+    function 清() { if (计) { clearTimeout(计); 计 = null; } }
+    目标.addEventListener('touchmove', 清, { passive: true });
+    目标.addEventListener('touchend', 清, { passive: true });
+    目标.addEventListener('touchcancel', 清, { passive: true });
+    目标.addEventListener('click', function (ev) {
+      if (已触) { ev.preventDefault(); ev.stopPropagation(); 已触 = false; }
+    }, true);
+  }
+  function 夹按号(号) {
+    var 号s = 文字(号);
+    for (var i = 0; i < 文件夹缓存.length; i++) if (文字(文件夹缓存[i].编号) === 号s) return 文件夹缓存[i];
+    return null;
+  }
+  function 卡所在夹(清单号) {
+    var 号 = 文字(清单号);
+    for (var i = 0; i < 文件夹缓存.length; i++) {
+      if ((文件夹缓存[i].成员 || []).some(function (m) { return 文字(m) === 号; })) return 文件夹缓存[i];
+    }
+    return null;
+  }
+  function 后代夹号(号) {
+    var 出 = [];
+    (文件夹缓存 || []).forEach(function (f) { if (文字(f.父) === 文字(号)) 出.push(f.编号); });
+    return 出;
+  }
+  function 夹组可见(夹) {
+    var 系 = !!夹.系统;
+    if (主页分页 === '全部') return true;
+    if (主页分页 === '系统' || 主页分页 === '系统流水') return 系;
+    if (主页分页 === '普通' || 主页分页 === '普通流水') return !系;
+    return true;
+  }
+  function 问名字(标题, 默认, 回调) {
+    var 盒 = el('div');
+    var 入 = el('input');
+    入.type = 'text'; 入.value = 默认 || '';
+    入.style.cssText = 'width:100%;font-size:16px;border:1px solid #c4ccd8;border-radius:8px;padding:10px;';
+    盒.appendChild(el('div', '字段', '文件夹名称'));
+    盒.appendChild(入);
+    var 排 = el('div', '弹窗底');
+    var 遮 = 弹层(标题, 盒);
+    排.appendChild(钮('取消', '次钮', function () { 遮.remove(); }));
+    排.appendChild(钮('确定', '主钮', function () {
+      var v = String(入.value || '').trim();
+      if (!v) { 提示('请填写名称'); return; }
+      遮.remove(); 回调(v);
+    }));
+    盒.appendChild(排);
+    setTimeout(function () { try { 入.focus(); } catch (e) { } }, 50);
+  }
+  function 选夹(组, 排除号, 回调) {
+    var 系 = /系统/.test(文字(组));
+    var 排除 = 排除号 ? 后代夹号(排除号).concat([排除号]) : [];
+    var 盒 = el('div');
+    var 列 = el('div', '选择框');
+    var 夹们 = (文件夹缓存 || []).filter(function (f) {
+      return !!f.系统 === 系 && 排除.indexOf(f.编号) < 0;
+    });
+    if (!夹们.length) 列.appendChild(空样('这个组还没有文件夹，点下面新建'));
+    夹们.forEach(function (f) {
+      var 名 = 文字(f.名称) + (f.父 ? '（子夹）' : '') + ' · ' + (f.成员 || []).length + ' 张';
+      列.appendChild(钮(名, '选行', function () { 遮.remove(); 回调(f.编号); }));
+    });
+    盒.appendChild(列);
+    var 排 = el('div', '弹窗底');
+    排.appendChild(钮('＋ 新建文件夹…', '次钮', function () { 遮.remove(); 新建夹(组, 回调); }));
+    排.appendChild(钮('取消', '次钮', function () { 遮.remove(); }));
+    盒.appendChild(排);
+    var 遮 = 弹层('选择文件夹', 盒);
+  }
+  function 刷新夹() { 清单指纹 = ''; return 载入主页(true); }
+  function 新建夹(组, 回调) {
+    问名字('新建文件夹', '', function (名) {
+      if (!有接口()) { 提示('接口未就绪'); return; }
+      global.接口.新建文件夹(名, 组).then(function (r) {
+        if (!r || r.ok === false) { 提示('新建失败：' + ((r && r.err) || '')); return; }
+        var 新号 = (r.文件夹 && r.文件夹.编号) || '';
+        刷新夹().then(function () { if (回调 && 新号) 回调(新号); });
+      })['catch'](function (e) { 提示('新建失败：' + ((e && e.message) || e)); });
+    });
+  }
+  function 收进夹(节点) {
+    var 组 = 是系统类(节点.类型) ? '系统' : '普通';
+    选夹(组, '', function (夹号) {
+      global.接口.收进文件夹(节点.编号, 夹号).then(function (r) {
+        if (!r || r.ok === false) { 提示('收进失败：' + ((r && r.err) || '')); return; }
+        提示('已收进文件夹'); 刷新夹();
+      })['catch'](function (e) { 提示('收进失败：' + ((e && e.message) || e)); });
+    });
+  }
+  function 移出夹(节点) {
+    global.接口.收进文件夹(节点.编号, '').then(function (r) {
+      if (!r || r.ok === false) { 提示('移出失败：' + ((r && r.err) || '')); return; }
+      提示('已移出文件夹'); 刷新夹();
+    })['catch'](function (e) { 提示('移出失败：' + ((e && e.message) || e)); });
+  }
+  function 清单键菜单项(节点) {
+    var 所在 = 卡所在夹(节点.编号);
+    var 项 = [];
+    项.push({ 文: '新建文件夹并收进…', 做: function () { 新建夹(是系统类(节点.类型) ? '系统' : '普通', function (号) { 收进指定(节点, 号); }); } });
+    项.push({ 文: 所在 ? '移到其他文件夹…' : '收进文件夹…', 做: function () { 收进夹(节点); } });
+    if (所在) 项.push({ 文: '移出文件夹', 做: function () { 移出夹(节点); } });
+    return 项;
+  }
+  function 收进指定(节点, 夹号) {
+    global.接口.收进文件夹(节点.编号, 夹号).then(function () { 提示('已收进文件夹'); 刷新夹(); });
+  }
+  function 夹键菜单项(夹) {
+    var 组 = 夹.系统 ? '系统' : '普通';
+    return [
+      { 文: '新建子文件夹…', 做: function () { 新建夹(组, function (新号) { global.接口.改文件夹(新号, null, 夹.编号).then(刷新夹); }); } },
+      { 文: '重命名…', 做: function () { 问名字('重命名文件夹', 夹.名称, function (名) { global.接口.改文件夹(夹.编号, 名, null).then(刷新夹); }); } },
+      { 文: '移动到文件夹…', 做: function () { 选夹(组, 夹.编号, function (目标) { global.接口.改文件夹(夹.编号, null, 目标).then(刷新夹); }); } },
+      { 文: '移出到根目录', 做: function () { global.接口.改文件夹(夹.编号, null, '').then(刷新夹); } },
+      { 文: '删除文件夹', 做: function () { 删夹(夹); } }
+    ];
+  }
+  function 删夹(夹) {
+    var 盒 = el('div');
+    盒.appendChild(el('p', '确认文', '删除文件夹「' + 文字(夹.名称) + '」？里面的清单会退回根目录，卡片本身不会被删。'));
+    var 排 = el('div', '弹窗底');
+    var 遮 = 弹层('删除文件夹', 盒);
+    排.appendChild(钮('取消', '次钮', function () { 遮.remove(); }));
+    排.appendChild(钮('删除', '主钮', function () {
+      遮.remove();
+      global.接口.删文件夹(夹.编号).then(function (r) {
+        if (!r || r.ok === false) { 提示('删除失败：' + ((r && r.err) || '')); return; }
+        提示('已删除文件夹'); 刷新夹();
+      })['catch'](function (e) { 提示('删除失败：' + ((e && e.message) || e)); });
+    }));
+    盒.appendChild(排);
+  }
+  function 画夹卡(夹, 层, 可见列, 已见) {
+    var 卡 = el('div', '卡 文件夹卡 层' + Math.min(层, 6));
+    卡.dataset.夹号 = 文字(夹.编号);
+    var 头 = el('div', '夹头');
+    头.appendChild(el('span', '端标', '文件夹'));
+    头.appendChild(el('span', '夹名', 文字(夹.名称)));
+    头.appendChild(el('span', '夹数', (夹.成员 || []).length + ' 张'));
+    var 开 = !!文件夹展开[夹.编号];
+    var 展 = 钮(开 ? '收起' : '展开', '小钮', function (ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      文件夹展开[夹.编号] = !文件夹展开[夹.编号];
+      刷新夹视图();
+    });
+    头.appendChild(展);
+    卡.appendChild(头);
+    var 内容 = el('div', '文件夹内容' + (开 ? '' : ' 隐藏'));
+    if (开) {
+      var 子夹们 = (文件夹缓存 || []).filter(function (f) { return 文字(f.父) === 文字(夹.编号); });
+      var 成员 = 可见列.filter(function (c) { return (夹.成员 || []).some(function (m) { return 文字(m) === 文字(c.编号); }); });
+      成员.sort(function (a, b) {
+        var ta = 最近时(a.编号), tb = 最近时(b.编号);
+        return tb - ta;
+      });
+      if (!子夹们.length && !成员.length) 内容.appendChild(空样('空文件夹（右键卡片可把清单收进来）'));
+      子夹们.forEach(function (f) {
+        if (已见[f.编号]) return;
+        已见[f.编号] = true;
+        内容.appendChild(画夹卡(f, 层 + 1, 可见列, 已见));
+      });
+      成员.forEach(function (c) {
+        var 节 = 清单节点(c);
+        节点表[节.编号] = 节;
+        内容.appendChild(建卡(节, 1));
+      });
+    }
+    卡.appendChild(内容);
+    (function () {
+      var 点 = 0;
+      头.style.cursor = 'pointer';
+      头.addEventListener('click', function () {
+        文件夹展开[夹.编号] = !文件夹展开[夹.编号];
+        刷新夹视图();
+      });
+    })();
+    绑键菜单(卡, function () { return 夹键菜单项(夹); });
+    return 卡;
+  }
+  function 刷新夹视图() { 画顶层(清单缓存); }
+
   function 画顶层(列表) {
     var 框 = $('顶层容器');
     if (!框) return;
@@ -676,13 +901,30 @@
       if (ta !== tb) return tb - ta;
       return (原序[文字(a && a.编号)] || 0) - (原序[文字(b && b.编号)] || 0);
     });
-    if (!显.length) {
+    var 可见夹 = (文件夹缓存 || []).filter(夹组可见);
+    var 夹号集 = {};
+    可见夹.forEach(function (f) { 夹号集[文字(f.编号)] = true; });
+    var 成员夹 = {};
+    可见夹.forEach(function (f) {
+      (f.成员 || []).forEach(function (m) { 成员夹[文字(m)] = 文字(f.编号); });
+    });
+    if (!显.length && !可见夹.length) {
       框.appendChild(空样(主页分页 === '全部' ? '还没有清单，点左上角【新建】建一张'
         : ('「' + 主页分页 + '」分页下还没有清单，点左上角【新建】建一张')));
       if ($('清单计数')) $('清单计数').textContent = '';
       return;
     }
-    显.forEach(function (c) {
+    var 已见 = {};
+    var 根夹 = 可见夹.filter(function (f) {
+      return !文字(f.父) || !夹号集[文字(f.父)];
+    });
+    根夹.forEach(function (f) {
+      if (已见[f.编号]) return;
+      已见[f.编号] = true;
+      框.appendChild(画夹卡(f, 1, 显, 已见));
+    });
+    var 根列 = 显.filter(function (c) { return !成员夹[文字(c.编号)]; });
+    根列.forEach(function (c) {
       var 节 = 清单节点(c);
       节点表[节.编号] = 节;
       框.appendChild(建卡(节, 1));
@@ -2117,6 +2359,8 @@
       卡.appendChild(联提示);
       画联动提示(卡, 节点);
     }
+    // 0.84：顶层清单右键/长按 → 文件夹收纳菜单（新建夹、收进、移出）
+    if (节点.种 === '清单' && 层级 === 1) 绑键菜单(卡, function () { return 清单键菜单项(节点); });
 
     return 卡;
   }
