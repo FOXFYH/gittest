@@ -733,6 +733,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div id="ck_foot">
     <button id="ck_start">开始批量签到</button>
     <button id="ck_refreshpts">批量刷新积分</button>
+    <button id="ck_renew" title="重新收编各来源凭证并刷新「凭证到期/剩余」两列（不做自动拉沙盒）">一键续期</button>
     <button id="ck_reload">刷新列表</button>
   </div>
 </div>
@@ -1312,7 +1313,7 @@ const el = {
   /* 2.00：批量签到遥控面板 */
   checkinpage: $('page_checkin'), ck_back: $('btn_ckback'),
   ck_stat: $('ck_stat'), ck_body: $('ck_body'),
-  ck_start: $('ck_start'), ck_refreshpts: $('ck_refreshpts'),
+  ck_start: $('ck_start'), ck_refreshpts: $('ck_refreshpts'), ck_renew: $('ck_renew'),
   ck_reload: $('ck_reload'),
   md: $('model_dlg'), md_title: $('md_title'), md_body: $('md_body'),
   md_ok: $('md_ok'),
@@ -1355,6 +1356,7 @@ const SRV_CMD_LABELS = {
   attach_rm: '移除附件', model_list: '刷新模型', points: '刷新积分',
   acct_switch: '切换账号', acct_scan: '重扫账号', acct_list: '读取账号列表',
   checkin: '今日签到', checkin_all: '批量签到', credits_refresh_all: '批量刷新积分',
+  checkin_renew: '一键续期',
   checkin_state: '读取签到状态', queue_sendnow: '立即插队发送',
   queue_restore: '放回队列', queue_del: '删除队列条目', queue_recall: '取回队列条目'
 };
@@ -1709,6 +1711,22 @@ function stripHintMarks(txt){
     .replace(FSC_REG, '').replace(FUC_REG, '').replace(FCC_REG, '').replace(FAI_REG, '')
     .replace(/\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+}
+/* 2026-11-01（老板令「复制只要最原始的无前后缀正文」）：复制统一入口——
+   ① 服务端追加的定向指令尾「【定向回复】…」整行剥掉；
+   ② 四段专属词（sys/usr/co/ai）整段丢弃（stripHintMarks）；
+   ③ play/ask 等 FOX 标记剥净（卡里的字保留，容错半截残标）；
+   ④ 人类消息首行 14 位 DID（含 A/B/C 来源后缀）剥掉。 */
+function copyPlainWb(txt){
+  let s = String(txt == null ? '' : txt);
+  s = s.replace(/\n*【定向回复】[^\n]*$/g, '');
+  s = stripHintMarks(s);
+  s = s.replace(/\(@fox-(?:play|ask)[12]\s*\)?/gi, '')
+       .replace(/\(@fox-[a-z]+\d?\s*\)?/gi, '')
+       .replace(/\(@f[a-z\-]*\d?\s*\)?/gi, '')
+       .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n');
+  s = s.replace(/^\s*\d{14}[A-Z]?(?!\d)\s*(?:\n|$)/, '');
+  return s.trim();
 }
 /* 音色/语速：默认**女声晓晓**（用户 2026-09-30 明确不喜欢原先写死的男声云希）。
    由「设置→语音播报」改，随每次播报一起发给服务端。 */
@@ -3778,7 +3796,7 @@ function renderPending(){
       const cpi = parseInt(b.dataset.cp || '0');   // 1.39：复制占位文字
       if (cpi){
         const p = S.pending.find(x => x.id === cpi);
-        if (p && p.text) copyText(p.text);
+        if (p && p.text) copyText(copyPlainWb(p.text));
         return;
       }
       if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
@@ -4274,13 +4292,13 @@ function renderMsgs(msgs, finish, opts, ask){
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
         if (k === 'copy'){
-          copyText(msgs[parseInt(b.dataset.i)][1]);
+          copyText(copyPlainWb(msgs[parseInt(b.dataset.i)][1]));
           return;
         }
         if (k === 'edit'){
           const it = msgs[parseInt(b.dataset.i)];
           /* 2.01：重编＝把我发的原话取回输入框——剥掉服务端追加的专属词三段标记，还原纯正文 */
-          el.ent.value = it ? stripHintMarks(it[1] || '') : '';
+          el.ent.value = it ? copyPlainWb(it[1] || '') : '';
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
           flash('已回填输入框，可修改后重新发送', 'var(--blue)');
@@ -4291,7 +4309,7 @@ function renderMsgs(msgs, finish, opts, ask){
              （用户 2026-10-06 定：「回退应该把文本取回，输入框重新编辑」）。
              2.01：取回时剥掉专属词三段标记，还原纯正文。 */
           const it = msgs[parseInt(b.dataset.i)];
-          const back = it ? stripHintMarks(it[1] || '') : '';
+          const back = it ? copyPlainWb(it[1] || '') : '';
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
             + '其后全部对话（含 AI 回复）将一并移除。\n'
             + '（这条原文会取回输入框，可改完再发）')) return;
@@ -5031,7 +5049,7 @@ const APP_NAME = 'wb远程';
       过期回包（sid 不符）静默丢弃。配套服务端 cmd_router v3.04（hist_ls /
       hist_msgs 两命令）与 __init__.py WEB_VERSION 恒等 2.21。
    以下为上一版（2.20）说明存档。 */
-const VER = '2.27';   /* 2.27（2026-10-29 老板令「Attachment 点不开/要显示/要能撤回」）：input 由 display:none 改屏幕外 1px 可点（手机必弹选择框）+ 按钮 click 失败如实提示；附件 chips 与 ✕ 撤回沿用既有 attach_rm。原 2.26（2026-10-26，老板令「批量签到显示凭证剩余到期时间」）：批量签到面板
+const VER = '2.29';   /* 2.29（2026-11-02 老板令「那还少了一个按钮叫做一键续期，就是给他们更新一下凭证到期的时间」）：批量签到面板加「一键续期」按钮（ck_renew → sendCmd('checkin_renew')，服务端 重新收编各来源凭证＋重算凭证到期 → checkin_renew 事件回：汇总 flash + 临期逐条橙提示（最多 3 条）+ 面板重拉 checkin_state 刷新两列；不做自动拉沙盒）。原 2.28（2026-11-01 老板令「复制只要最原始的无前后缀正文」）：聊天消息/占位卡复制改走 copyPlainWb（剥首行 DID、四段专属词、FOX 标记、定向指令尾【定向回复】…）；重编/回退取回同口径。原 2.27（2026-10-29 老板令「Attachment 点不开/要显示/要能撤回」）：input 由 display:none 改屏幕外 1px 可点（手机必弹选择框）+ 按钮 click 失败如实提示；附件 chips 与 ✕ 撤回沿用既有 attach_rm。原 2.26（2026-10-26，老板令「批量签到显示凭证剩余到期时间」）：批量签到面板
    加「凭证到期/剩余」列（ckCred 合并显示 '11-08 剩12天'，缺→未知；⚠即将到期/已过期 橙色），
    数据源＝服务端 批量签到.视图() 1.02 的 凭证到期/凭证剩余 两字段；与 wb_cli.WEB_VERSION 恒等 2.26。
    2.25（2026-10-26，P53）：专属提示词折叠卡点不开根治——键改安全指纹（不再把 \u0001 写进 data-fhkey）、点标签改 document 捕获委托（任何渲染路径都不会再出死按钮）。
@@ -6245,6 +6263,29 @@ function onEv(kind, v){
         try{ sendCmd('checkin_state', null); }catch(e){}
       break;
     }
+    case 'checkin_renew': {                 /* 2.29：一键续期结果（收编凭证＋重算到期） */
+      srvOpDone('checkin_renew');
+      S.ck_renew_busy = false;
+      if (v && v.ok){
+        const lin = (v && v.临期) || [];
+        flash('一键续期完成：已续期 ' + ((v && v.成功) || 0) + ' · 未变化 '
+              + ((v && v.未变化) || 0) + ' · 失败 ' + ((v && v.失败) || 0)
+              + '（' + ((v && v.秒) || '?') + ' 秒）', 'var(--green)');
+        /* 临期提示最多亮 3 条，防刷屏；面板重拉状态后表格里也有橙色提醒 */
+        (lin || []).slice(0, 3).forEach(t => {
+          flash('⚠ 「' + (t.名称 || t.key || '—') + '」剩约 ' + (t.剩天 || 0)
+                + ' 天：需打开对应沙盒客户端使用一次触发续期后再点本按钮', 'var(--orange)');
+        });
+        if (lin.length > 3)
+          flash('另有 ' + (lin.length - 3) + ' 个临期账号，见表格橙色行', 'var(--orange)');
+      } else {
+        flash('一键续期未完成：' + ((v && v.msg) || '未知原因'), 'var(--red)');
+      }
+      /* 面板开着 → 重拉状态（凭证到期/剩余 两列刷新） */
+      if (el.checkinpage && el.checkinpage.classList.contains('on'))
+        try{ sendCmd('checkin_state', null); }catch(e){}
+      break;
+    }
     case 'account':                        /* 1.33：登录账号名（读积分时带回） */
       S.acct = String(v || '');
       renderAcct();
@@ -7090,6 +7131,15 @@ el.ck_refreshpts.onclick = () => {       /* 批量刷新积分：逐个账号查
   if (srvNeedOnline('批量刷新积分')) return;
   if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
   srvOpSend('credits_refresh_all', null, '批量刷新积分');
+};
+el.ck_renew.onclick = () => {            /* 2.29：一键续期＝重新收编凭证＋重算到期显示 */
+  if (srvNeedOnline('一键续期')) return;
+  if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
+  if (S.ck_renew_busy){ flash('一键续期请求处理中，请稍候…', 'var(--orange)'); return; }
+  S.ck_renew_busy = true;
+  if (el.ck_stat) el.ck_stat.textContent = '一键续期中：正在重新收编各来源凭证…';
+  srvOpSend('checkin_renew', null, '一键续期');   // 服务端 cmd_checkin_renew → checkin_renew 事件回
+  setTimeout(() => { S.ck_renew_busy = false; }, 20000);   /* 兜底：结果未到也可再点（收编约秒级、慢扫上限 12 秒） */
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
