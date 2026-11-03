@@ -504,3 +504,14 @@ body{
   #btnFiles{ padding: 0 7px; }
   #btnSettings{ padding: 0 7px; }
 }
+
+/* 窄屏（手机）：只留「文件名 + 操作」两列，整行可点，避免横滑找不到打开按钮 */
+@media (max-width: 600px){
+  #fileTable{ min-width: 0; }
+  #fileTable th.col-num, #fileTable td.col-num,
+  #fileTable th.col-time, #fileTable td.col-time,
+  #fileTable th.col-state, #fileTable td.col-state{ display: none; }
+  #fileTable td.col-name{ max-width: none; }
+  #fileTbody tr{ cursor: pointer; }
+  #fileTable td.col-op{ text-align: right; }
+}
