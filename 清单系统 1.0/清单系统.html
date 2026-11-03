@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.30">
+<meta name="清单系统版本" content="1.31">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -75,6 +75,8 @@
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.31（2026-11-03）新建弹窗类型钮排成两行：上行普通 3 种、下行系统 4 种，等宽铺满。
+    清单页.js 0.83。
   v1.30（2026-11-03）属性页新增「云盘位置」一行：显示清单 JSON 的真实路径（从「工作台」起，
     不显示盘符/网盘挂载名/实例号前缀）。清单页.js 0.82 / 清单存储 0.49。
   v1.29（2026-11-03）七类清单改版：类型改为「系统/普通」×「手册/清单/树状/流水」共 7 种；
@@ -860,8 +862,10 @@
   .子卡组 { margin: 8px 0 0 3px; display: flex; flex-direction: column; gap: 8px;
     border-left: 2px solid #e2e8f2; padding-left: 3px; }
   .子卡组 .卡 { background: #fbfcfe; }
-  /* 弹窗内的类型按钮组（新建清单） */
-  .类型组 { display: flex; gap: 10px; }
+  /* 弹窗内的类型按钮组（新建清单）：两行——上行普通三种、下行系统四种 */
+  .类型组 { display: flex; flex-direction: column; gap: 10px; }
+  .类型行 { display: flex; gap: 10px; }
+  .类型行 .大类钮 { flex: 1; min-width: 0; padding: 8px 0; font-size: 14px; white-space: nowrap; }
   .类型组 .大类钮.选中 { background: #2b5fb0; color: #fff; border-color: #2b5fb0; }
   /* ===== 0.20 唯一卡片 + 递归容器（全层级同一张卡） ===== */
   /* 一级卡（总管清单）稍作强调；其下各层同款、底色略浅 */
@@ -1157,7 +1161,7 @@
   <!-- 1.12：第一行＝软件名+版本 … 最右【查卡】+连接状态（点状态进设置·连接诊断） -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.30</span>
+    <span class="版本">v1.31</span>
     <span id="顶栏_服务器" class="顶栏服务器" title="当前选中的服务器">未选服务器</span>
     <!-- 凭号查卡（只读插卡）：终身号 A00025 或短号 S21/L1 -->
     <button id="按钮_查卡" class="小钮">查卡</button>
@@ -1295,13 +1299,17 @@
     <h3>新建</h3>
     <label class="字段">类型</label>
     <div id="新建_类型" class="类型组">
-      <button type="button" class="大类钮 选中" data-类="普通树状">普通树状</button>
-      <button type="button" class="大类钮" data-类="普通清单">普通清单</button>
-      <button type="button" class="大类钮" data-类="普通流水">普通流水</button>
-      <button type="button" class="大类钮" data-类="系统手册">系统手册</button>
-      <button type="button" class="大类钮" data-类="系统清单">系统清单</button>
-      <button type="button" class="大类钮" data-类="系统树状">系统树状</button>
-      <button type="button" class="大类钮" data-类="系统流水">系统流水</button>
+      <div class="类型行">
+        <button type="button" class="大类钮 选中" data-类="普通树状">普通树状</button>
+        <button type="button" class="大类钮" data-类="普通清单">普通清单</button>
+        <button type="button" class="大类钮" data-类="普通流水">普通流水</button>
+      </div>
+      <div class="类型行">
+        <button type="button" class="大类钮" data-类="系统手册">系统手册</button>
+        <button type="button" class="大类钮" data-类="系统清单">系统清单</button>
+        <button type="button" class="大类钮" data-类="系统树状">系统树状</button>
+        <button type="button" class="大类钮" data-类="系统流水">系统流水</button>
+      </div>
     </div>
     <label class="字段" for="新建_标题">标题（≤60 字）</label>
     <input id="新建_标题" type="text" autocomplete="off" maxlength="60" placeholder="如：2026-10 家务流水"
@@ -1452,7 +1460,7 @@
 
 <script src="网页模块/接口.js?v=0.39"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.82"></script>
+<script src="网页模块/清单页.js?v=0.83"></script>
 <script src="网页模块/面板.js?v=0.42"></script>
 </body>
 </html>
