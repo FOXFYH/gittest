@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.26';
+  const APP_VERSION = 'v1.27';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -712,6 +712,9 @@
   function openFind(showReplace) {
     const bar = $('findBar');
     bar.hidden = false;
+    // 用当前选中的单行文本预填查找框（与 Py 版一致）
+    const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+    if (sel && sel.indexOf('\n') < 0) $('findInput').value = sel;
     $('findInput').focus();
     if (showReplace) $('replaceInput').focus();
   }
