@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.31">
+<meta name="清单系统版本" content="1.32">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -75,6 +75,10 @@
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.32（2026-11-03）新增「逻辑文件夹」：主页黄色小卡、可展开装顶层清单；右键/长按清单卡
+    可新建文件夹并收进 / 收进文件夹 / 移出文件夹；右键/长按文件夹卡可新建子夹、重命名、移动到
+    文件夹、移出到根、删除（清单退回根）。只影响网页展示，不建本地目录。
+    清单页.js 0.84 / 接口.js 0.41 / 网页服务 1.09 / 清单存储 0.50。
   v1.31（2026-11-03）新建弹窗类型钮排成两行：上行普通 3 种、下行系统 4 种，等宽铺满。
     清单页.js 0.83。
   v1.30（2026-11-03）属性页新增「云盘位置」一行：显示清单 JSON 的真实路径（从「工作台」起，
@@ -872,6 +876,25 @@
   .卡.层1 { border-color: #b9cbe6; box-shadow: 0 2px 6px rgba(43,95,176,.12); }
   .卡.层2, .卡.层3, .卡.层4, .卡.层5, .卡.层6 { background: #fbfcfe; }
   .卡.完成 .卡标题 { text-decoration: line-through; color: #889; }
+  /* ===== 0.84 逻辑文件夹（只影响网页展示，不对应本地目录） ===== */
+  .文件夹卡 { border-color: #e3cc96; background: #fffdf4; box-shadow: 0 2px 6px rgba(163,132,55,.10); }
+  .文件夹卡 .夹头 { display: flex; align-items: center; gap: 8px; padding: 2px 0 4px; }
+  .文件夹卡 .夹头 .端标 { background: #f1e2b8; color: #6b5317; }
+  .文件夹卡 .夹名 { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; color: #4a3a10;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .文件夹卡 .夹数 { font-size: 13px; color: #8a7a4a; white-space: nowrap; }
+  .文件夹卡 .夹头 .小钮 { flex: 0 0 auto; padding: 6px 10px; font-size: 13px; }
+  .文件夹内容 { display: flex; flex-direction: column; gap: 8px; margin-top: 6px;
+    border-left: 2px solid #f0e3c4; padding-left: 6px; }
+  .文件夹内容.隐藏 { display: none; }
+  /* 右键 / 长按菜单 */
+  .键遮 { position: fixed; inset: 0; z-index: 90; background: transparent; }
+  .键菜单 { position: fixed; z-index: 91; width: 190px; background: #fff; border: 1px solid #cfd8e6;
+    border-radius: 10px; box-shadow: 0 8px 24px rgba(20,40,80,.18); padding: 6px; }
+  .键菜单项 { display: block; width: 100%; text-align: left; border: 0; background: transparent;
+    font-size: 15px; padding: 10px 12px; border-radius: 8px; color: #1c2430; }
+  .键菜单项 + .键菜单项 { border-top: 1px solid #f0f3f8; }
+  .键菜单项:active { background: #eef4ff; }
   /* 标题占两行位置；手动【展开 ▾】后取消截断 */
   .卡.展开 .卡标题 { display: block; overflow: visible; -webkit-line-clamp: unset; }
   /* 正文框（0.21：默认【收起】，点【展开】才展示；展开后 .卡.展开 .正文框 解除隐藏）
@@ -1161,7 +1184,7 @@
   <!-- 1.12：第一行＝软件名+版本 … 最右【查卡】+连接状态（点状态进设置·连接诊断） -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.31</span>
+    <span class="版本">v1.32</span>
     <span id="顶栏_服务器" class="顶栏服务器" title="当前选中的服务器">未选服务器</span>
     <!-- 凭号查卡（只读插卡）：终身号 A00025 或短号 S21/L1 -->
     <button id="按钮_查卡" class="小钮">查卡</button>
@@ -1458,9 +1481,9 @@
 </div>
 <div id="提示" class="提示 隐藏"></div>
 
-<script src="网页模块/接口.js?v=0.39"></script>
+<script src="网页模块/接口.js?v=0.41"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.83"></script>
+<script src="网页模块/清单页.js?v=0.84"></script>
 <script src="网页模块/面板.js?v=0.42"></script>
 </body>
 </html>
