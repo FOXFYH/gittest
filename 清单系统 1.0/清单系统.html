@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.32">
+<meta name="清单系统版本" content="1.33">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -75,6 +75,8 @@
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.33（2026-11-04）修简约模式文件夹消失：新增文件夹一行小卡（名称+张数+箭头），点它展开；
+    展开时不再被“只留一行”规则压成空白，夹内清单在简约下也按一行显示。清单页.js 0.85。
   v1.32（2026-11-03）新增「逻辑文件夹」：主页黄色小卡、可展开装顶层清单；右键/长按清单卡
     可新建文件夹并收进 / 收进文件夹 / 移出文件夹；右键/长按文件夹卡可新建子夹、重命名、移动到
     文件夹、移出到根、删除（清单退回根）。只影响网页展示，不建本地目录。
@@ -697,10 +699,23 @@
   .清单头 .R2拉取钮 { margin-left: auto; flex: 0 0 auto; }
   /* 1.05 简约模式：顶级卡缩成一行（编号+标题+终身号+状态），点这一行展开成大卡 */
   .简行 { display: none; }
-  .任务列表.简约 > .卡:not(.展开):not(.分享卡) > *:not(.简行) { display: none; }
+  .任务列表.简约 > .卡:not(.展开):not(.分享卡) > *:not(.简行):not(.夹简行) { display: none; }
   .任务列表.简约 > .卡:not(.展开):not(.分享卡) > .简行 {
     display: flex; align-items: center; gap: 8px; padding: 8px 9px; cursor: pointer;
   }
+  /* 0.85 简约模式：文件夹也要留一行小卡（不然整张卡被规则压成空白，里面的清单像凭空消失） */
+  .文件夹卡 .夹简行 { display: none; }
+  .任务列表.简约 > .文件夹卡 > .夹头 { display: none; }
+  .任务列表.简约 > .文件夹卡 > .夹简行 {
+    display: flex; align-items: center; gap: 8px; padding: 8px 9px; cursor: pointer;
+  }
+  .夹简名 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 15px; font-weight: 700; color: #4a3a10; }
+  .夹简数 { flex: 0 0 auto; font-size: 12px; color: #8a7a4a; white-space: nowrap; }
+  .夹箭头 { flex: 0 0 auto; color: #8a7a4a; font-size: 14px; }
+  /* 简约模式下，文件夹展开后的成员卡也按一行显示 */
+  .任务列表.简约 .文件夹内容 > .卡:not(.展开) > *:not(.简行):not(.夹简行) { display: none; }
+  .任务列表.简约 .文件夹内容 > .卡:not(.展开) > .简行 { display: flex; align-items: center; gap: 8px; padding: 8px 9px; cursor: pointer; }
   .简题 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; font-size: 14px; font-weight: 600; color: #1c2430; }
   .简态 { flex: 0 0 auto; font-size: 12px; border-radius: 999px; padding: 1px 8px;
@@ -1184,7 +1199,7 @@
   <!-- 1.12：第一行＝软件名+版本 … 最右【查卡】+连接状态（点状态进设置·连接诊断） -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.32</span>
+    <span class="版本">v1.33</span>
     <span id="顶栏_服务器" class="顶栏服务器" title="当前选中的服务器">未选服务器</span>
     <!-- 凭号查卡（只读插卡）：终身号 A00025 或短号 S21/L1 -->
     <button id="按钮_查卡" class="小钮">查卡</button>
@@ -1483,7 +1498,7 @@
 
 <script src="网页模块/接口.js?v=0.41"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.84"></script>
+<script src="网页模块/清单页.js?v=0.85"></script>
 <script src="网页模块/面板.js?v=0.42"></script>
 </body>
 </html>
