@@ -311,8 +311,8 @@
     const frag = document.createDocumentFragment();
     let cur = 0;
     ranges.forEach(function (r) {
-      if (r[0] <= cur) return;
-      appendPiece(frag, text, idx, cur, r[0], '');
+      if (r[0] < cur) return;                    // 与上一段重叠：跳过
+      if (r[0] > cur) appendPiece(frag, text, idx, cur, r[0], '');
       appendPiece(frag, text, idx, r[0], r[1], r[2]);
       cur = r[1];
     });
