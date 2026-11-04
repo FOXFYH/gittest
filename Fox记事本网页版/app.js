@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.32';
+  const APP_VERSION = 'v1.33';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -875,6 +875,16 @@
           return;
         }
         editor.scrollTop = Math.min(max, editor.scrollTop + px);
+        // v1.33 空行瞬移：可视区第一行若是空行，立刻整行跳过（顶部永不为空行）
+        try {
+          const lh = parseFloat(getComputedStyle(editor).lineHeight) || 20;
+          const 行表 = (editor.innerText || '').split('\n');
+          for (let i = 0; i < 8; i++) {
+            const 顶行 = Math.floor(editor.scrollTop / lh);
+            if (行表[顶行] === undefined || 行表[顶行].trim() !== '') break;
+            editor.scrollTop = Math.min(max, editor.scrollTop + Math.round(lh));
+          }
+        } catch (e) {}
       }
     }
     autoRaf = requestAnimationFrame(autoScrollFrame);
