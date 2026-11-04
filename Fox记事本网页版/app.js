@@ -695,6 +695,8 @@
       dirty: !!meta.dirty,
       createTime: String(meta.createTime || '')
     };
+    // 刷新后也回到该文档上次位置（没有记录回顶部）
+    try { requestAnimationFrame(回原位); } catch (e) {}
   }
 
   // ===== v1.32 阅读位置：记住上次看到哪里，打开文件/改设置都回到原位 =====
