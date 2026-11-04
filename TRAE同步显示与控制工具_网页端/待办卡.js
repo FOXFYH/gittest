@@ -425,7 +425,7 @@ function pendSwitchSet(title, sid, ref, opt){
 /* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中且消息区空、
    WS 连通，弹确认框问是否查询最大化压制；用户确认才发 check_fulls
    （每切换只问一次，不自动查）。 */
-const FULLS_CHECK_DELAY = 15000;
+const FULLS_CHECK_DELAY = 30000;
 function fullsCheckRearm(title){
   clearTimeout(S._fullsCheckTimer);
   S._fullsCheckTimer = setTimeout(() => fullsCheckFire(title),
@@ -438,7 +438,7 @@ function fullsCheckFire(title){
   if (!empty) return;                    // 内容已到，不打扰
   if (!S.onLine) return;                 // 仅 WS 连通时才问（网络正常前提）
   confirmFulls(
-    '切换对话超过 15 秒仍未载入内容，是否查询是否有窗口最大化/全屏压制原版渲染？',
+    '切换较慢（已先显示本地缓存的最新一轮）…若长时间无内容，可检查窗口最大化/全屏压制',
     () => srvOpSend('check_fulls', null, '查询全屏'));   // 2.109：②＋rcpt ③④
 }
 /* 2.67：旧名保留为别名（切在途清理由 switchClear 统一收口，含定时器） */
