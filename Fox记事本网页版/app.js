@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.31';
+  const APP_VERSION = 'v1.32';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -697,6 +697,20 @@
     };
   }
 
+  // ===== v1.32 阅读位置：记住上次看到哪里，打开文件/改设置都回到原位 =====
+  let 位置计时 = null;
+  function 位置键() { return (doc.name || doc.id || '__草稿__'); }
+  function 读位置表() {
+    try { return JSON.parse(cacheGet('pos_map', '{}')) || {}; } catch (e) { return {}; }
+  }
+  function 记位置() {
+    try { const m = 读位置表(); m[位置键()] = editor.scrollTop || 0; cacheSet('pos_map', JSON.stringify(m)); } catch (e) {}
+  }
+  function 排位置保存() { clearTimeout(位置计时); 位置计时 = setTimeout(记位置, 400); }
+  function 回原位() {
+    try { const m = 读位置表(); editor.scrollTop = Number(m[位置键()] || 0); } catch (e) { editor.scrollTop = 0; }
+  }
+
   function setDoc(name, content, meta) {
     doc = {
       name: name || '',
@@ -713,6 +727,9 @@
     updateHeader();
     writeDocCache();
     updateTitle();
+    // 阅读位置：回到该文档上次位置；没有记录就顶部（绝不跳到底）
+    editor.scrollTop = 0;
+    try { requestAnimationFrame(回原位); } catch (e) {}
   }
 
   function markDirty() {
@@ -2165,6 +2182,7 @@
     $('btnNewFile').addEventListener('click', newDocument);
     $('btnNewFolder').addEventListener('click', createFolder);
     $('fileSearch').addEventListener('input', renderFiles);
+    editor.addEventListener('scroll', function () { 排位置保存(); });
     $('crumb').addEventListener('click', function () { if (currentFolder) goRoot(); });
     $('fileTbody').addEventListener('click', function (e) {
       const btn = e.target.closest('[data-act]');
