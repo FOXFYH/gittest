@@ -620,8 +620,13 @@ function snapIdbPurgeStale(){
     };
     return rq;
   }).then(() => {
-    try {                                   /* localStorage 旧键清理（保 skel/hist） */
-      const keep = {trae_webm_skel: 1, trae_webm_hist: 1};
+    try {                                   /* localStorage 旧键清理（2026-11-04 修复：白名单=现行全部合法键。
+                                               原白名单只保 skel/hist，把 channel/nick/cfg/收藏等现行键也删了，
+                                               且每次加载都跑一遍 → 频道号输一次丢一次。真源键名见各模块定义。 */
+      const keep = {trae_webm_skel:1, trae_webm_hist:1, trae_webm_cfg:1, trae_webm_net:1,
+                    trae_webm_channel:1, trae_webm_channel2:1, trae_webm_selct:1, trae_webm_nick:1,
+                    trae_webm_uid:1, trae_webm_times:1, trae_webm_srv:1, trae_webm_srvs:1,
+                    trae_webm_anchor:1, trae_webm_fav_models:1, trae_webm_ver_seen:1};
       for (let i = localStorage.length - 1; i >= 0; i--){
         const kk = localStorage.key(i) || '';
         if (kk.indexOf('trae_webm') === 0 && !keep[kk]) localStorage.removeItem(kk);
