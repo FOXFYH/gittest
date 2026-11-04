@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.30';
+  const APP_VERSION = 'v1.31';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -22,6 +22,9 @@
     wordWrap: true,
     autoScroll: false,
     autoScrollSpeed: 60,
+    scrollMode: 'px',
+    secPerChar: 2,
+    measureMode: 'mixed',
     user: 'test',
     password: '1234',
     sheet: 'Fox记事本'
@@ -84,6 +87,9 @@
     s.fontSize = clamp(s.fontSize, 6, 128);
     s.lineSpacing = clamp(s.lineSpacing, 0, 12);
     s.autoScrollSpeed = clamp(s.autoScrollSpeed, 1, 600);
+    s.scrollMode = s.scrollMode === 'char' ? 'char' : 'px';
+    s.secPerChar = clamp(s.secPerChar, 0.1, 60);
+    s.measureMode = s.measureMode === 'cjk' ? 'cjk' : 'mixed';
     s.fontFamily = String(s.fontFamily || DEFAULT_SETTINGS.fontFamily);
     s.user = String(s.user || DEFAULT_SETTINGS.user);
     s.password = String(s.password || DEFAULT_SETTINGS.password);
@@ -569,7 +575,7 @@
   let cloudIndex = [];
   let currentFolder = '';
   let syncBusy = false;
-  let autoTimer = null;
+  let autoRaf = null;
   let autoAcc = 0;
   let autoLast = 0;
   let toastTimer = null;
@@ -731,6 +737,7 @@
     editor.style.fontSize = size + 'px';
     editor.style.lineHeight = Math.round(size * 1.55 + spacing) + 'px';
     $('fontSizeBox').value = size;
+    refreshScrollReadout();
   }
 
   function applyWrap() {
@@ -740,42 +747,117 @@
     $('btnWrap').title = '自动换行开关';
   }
 
+  // 方案二「按字数计时」测算：W=可用宽，C=平均字宽，N=每行字数，H=行高，T=N×S，V=H/T
+  const measureCanvas = document.createElement('canvas');
+  const measureCtx = measureCanvas.getContext('2d');
+
+  function measureAutoScroll(opts) {
+    opts = opts || {};
+    let sec = Number(opts.secPerChar);
+    if (!isFinite(sec)) sec = Number(settings.secPerChar);
+    const S = clamp(isFinite(sec) ? sec : 2, 0.1, 60);
+    const measureMode = (opts.measureMode || settings.measureMode) === 'cjk' ? 'cjk' : 'mixed';
+    const cs = getComputedStyle(editor);
+    const padL = parseFloat(cs.paddingLeft) || 0;
+    const padR = parseFloat(cs.paddingRight) || 0;
+    const viewportW = (document.documentElement.clientWidth || window.innerWidth) - padL - padR;
+    const W = Math.max(1, editor.clientWidth > 0 ? editor.clientWidth - padL - padR : viewportW);
+    measureCtx.font = cs.fontSize + ' ' + cs.fontFamily;
+    const wCjk = measureCtx.measureText('中').width;
+    const wLatin = measureCtx.measureText('M').width;
+    const C = Math.max(0.1, measureMode === 'cjk' ? wCjk : (wCjk + wLatin) / 2);
+    const N = Math.max(1, Math.floor(W / C));
+    let H = parseFloat(cs.lineHeight);
+    if (!isFinite(H) || H <= 0) H = (parseFloat(cs.fontSize) || 11) * 1.55;
+    return { W: W, C: C, N: N, H: H, S: S, V: H / (N * S) };
+  }
+
+  function autoScrollPxPerSec() {
+    if (settings.scrollMode === 'char') {
+      return measureAutoScroll({ secPerChar: settings.secPerChar, measureMode: settings.measureMode }).V;
+    }
+    return clamp(settings.autoScrollSpeed, 1, 600) / 60;
+  }
+
+  function formRadioValue(name) {
+    const el = document.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : '';
+  }
+
+  function setFormRadio(name, value) {
+    document.querySelectorAll('input[name="' + name + '"]').forEach(function (el) {
+      el.checked = el.value === value;
+    });
+  }
+
+  // 设置页与上滑设置面板共用的实时读数（两处同源）
+  // 触发源：applyFont（字号/字体/行距）、ResizeObserver（编辑器宽度）、window.resize、表单输入
+  function refreshScrollReadout() {
+    const boxes = [$('scrollReadout'), $('scrollReadoutPanel')].filter(Boolean);
+    if (!boxes.length) return;
+    const onSettings = page === 'settings';
+    let formSec = onSettings ? parseFloat($('setSecPerChar').value) : settings.secPerChar;
+    if (!isFinite(formSec)) formSec = settings.secPerChar;
+    const m = measureAutoScroll({
+      secPerChar: formSec,
+      measureMode: (onSettings ? formRadioValue('measureMode') : '') || settings.measureMode
+    });
+    const text = '宽 ' + Math.round(m.W) + 'px ｜ 平均字宽 ' + m.C.toFixed(2) +
+      'px ｜ 每行 ' + m.N + ' 字 ｜ 行高 ' + (Math.round(m.H * 10) / 10) + 'px ｜ 速度 ' +
+      m.V.toFixed(3) + ' px/s（≈' + (m.V * 60).toFixed(1) + ' px/分钟）';
+    boxes.forEach(function (el) { el.textContent = text; });
+  }
+
+  function applyScrollModeUI() {
+    const mode = formRadioValue('scrollMode') || settings.scrollMode;
+    document.querySelectorAll('[data-scroll-mode]').forEach(function (el) {
+      el.hidden = el.dataset.scrollMode !== mode;
+    });
+    refreshScrollReadout();
+  }
+
   function applyAutoScrollBtn() {
     const btn = $('btnAutoScroll');
     btn.classList.toggle('on', !!settings.autoScroll);
     btn.textContent = settings.autoScroll ? '上滑：停' : '上滑：开';
-    btn.title = '自动上滑开关（速度在设置页调整）';
+    btn.title = '单击开关自动上滑；长按（或点旁边 ⚙）打开上滑设置';
   }
 
   function startAutoScroll() {
     stopAutoScroll();
-    autoLast = Date.now();
+    autoLast = 0;
     autoAcc = 0;
-    autoTimer = setInterval(autoScrollTick, 200);
+    autoRaf = requestAnimationFrame(autoScrollFrame);
   }
   function stopAutoScroll() {
-    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    if (autoRaf) { cancelAnimationFrame(autoRaf); autoRaf = null; }
   }
-  function autoScrollTick() {
+  function autoScrollFrame(ts) {
+    autoRaf = null;
     if (!settings.autoScroll || page !== 'edit') return;
-    const now = Date.now();
-    const dt = now - autoLast;
-    autoLast = now;
+    if (!autoLast) autoLast = ts;
+    let dt = (ts - autoLast) / 1000;
+    autoLast = ts;
+    if (dt <= 0) dt = 0;
+    if (dt > 0.25) dt = 0.25;          // 标签页切回/卡顿后不跳
     const max = editor.scrollHeight - editor.clientHeight;
-    if (max <= 0) return;
-    autoAcc += clamp(settings.autoScrollSpeed, 1, 600) * dt / 60000;
-    if (autoAcc < 1) return;
-    const px = Math.floor(autoAcc);
-    autoAcc -= px;
-    if (editor.scrollTop >= max - 1) {
-      settings.autoScroll = false;
-      saveSettings();
-      stopAutoScroll();
-      applyAutoScrollBtn();
-      toast('已到文末，自动上滑停止');
-      return;
+    if (max > 0) {
+      autoAcc += autoScrollPxPerSec() * dt;   // 每帧按当下字号/宽度实时测算，不用旧缓存
+      if (autoAcc >= 1) {
+        const px = Math.floor(autoAcc);
+        autoAcc -= px;
+        if (editor.scrollTop >= max - 1) {
+          settings.autoScroll = false;
+          saveSettings();
+          stopAutoScroll();
+          applyAutoScrollBtn();
+          toast('已到文末，自动上滑停止');
+          return;
+        }
+        editor.scrollTop = Math.min(max, editor.scrollTop + px);
+      }
     }
-    editor.scrollTop = Math.min(max, editor.scrollTop + px);
+    autoRaf = requestAnimationFrame(autoScrollFrame);
   }
   function toggleAutoScroll() {
     settings.autoScroll = !settings.autoScroll;
@@ -813,7 +895,7 @@
     const el = $('page' + (name === 'edit' ? 'Edit' : name === 'files' ? 'Files' : 'Settings'));
     if (el) el.classList.add('active');
     if (name === 'edit') {
-      autoLast = Date.now();      // 回到编辑页时重置上滑计时，避免一次跳很远
+      autoLast = 0;               // 回到编辑页时重置上滑计时，避免一次跳很远
       setTimeout(function () { editor.focus(); }, 60);
     }
   }
@@ -1772,6 +1854,48 @@
     showPage('settings');
   }
 
+  // 打开设置页并定位到「自动上滑」分区
+  function openAutoScrollSettings() {
+    showSettings();
+    const card = $('cardAutoScroll');
+    if (card) setTimeout(function () { card.scrollIntoView({ block: 'start' }); }, 50);
+  }
+
+  // 上滑设置面板（顶栏长按 / ⚙ 打开）：与设置页共用同一套实时读数
+  function openAutoScrollPanel() {
+    const m = modalBase('自动上滑 · 实时测算');
+    const box = document.createElement('div');
+    box.className = 'scroll-readout';
+    box.id = 'scrollReadoutPanel';
+    m.body.appendChild(box);
+    const info = document.createElement('div');
+    info.className = 'hint';
+    const modeText = settings.scrollMode === 'char'
+      ? '按字数：每 ' + settings.secPerChar + ' 秒 1 字'
+      : '像素：' + settings.autoScrollSpeed + ' px/分钟';
+    info.textContent = '当前模式：' + modeText + '；上滑开关：' + (settings.autoScroll ? '开' : '关');
+    m.body.appendChild(info);
+    refreshScrollReadout();
+
+    const open = document.createElement('button');
+    open.className = 'btn';
+    open.textContent = '打开完整设置';
+    open.addEventListener('click', function () {
+      m.layer.hidden = true;
+      m.layer.innerHTML = '';
+      openAutoScrollSettings();
+    });
+    const close = document.createElement('button');
+    close.className = 'btn primary';
+    close.textContent = '关闭';
+    close.addEventListener('click', function () {
+      m.layer.hidden = true;
+      m.layer.innerHTML = '';
+    });
+    m.foot.appendChild(open);
+    m.foot.appendChild(close);
+  }
+
   function fillSettingsForm() {
     $('setFamily').value = settings.fontFamily;
     $('setSize').value = settings.fontSize;
@@ -1779,6 +1903,10 @@
     $('setWrap').checked = !!settings.wordWrap;
     $('setAutoScroll').checked = !!settings.autoScroll;
     $('setSpeed').value = settings.autoScrollSpeed;
+    $('setSecPerChar').value = settings.secPerChar;
+    setFormRadio('scrollMode', settings.scrollMode === 'char' ? 'char' : 'px');
+    setFormRadio('measureMode', settings.measureMode === 'cjk' ? 'cjk' : 'mixed');
+    applyScrollModeUI();
     $('setSheet').value = settings.sheet;
     $('setUser').value = settings.user;
     $('setPass').value = settings.password;
@@ -1790,6 +1918,11 @@
     const size = clamp(parseInt($('setSize').value, 10) || 11, 6, 128);
     const spacing = clamp(parseInt($('setSpacing').value, 10) || 0, 0, 12);
     const speed = clamp(parseInt($('setSpeed').value, 10) || 60, 1, 600);
+    let sec = parseFloat($('setSecPerChar').value);
+    if (!isFinite(sec)) sec = settings.secPerChar;
+    const secPerChar = clamp(sec, 0.1, 60);
+    const scrollMode = formRadioValue('scrollMode') === 'char' ? 'char' : 'px';
+    const measureMode = formRadioValue('measureMode') === 'cjk' ? 'cjk' : 'mixed';
     const family = ($('setFamily').value || '').trim() || DEFAULT_SETTINGS.fontFamily;
     const sheet = ($('setSheet').value || '').trim() || DEFAULT_SETTINGS.sheet;
     const user = ($('setUser').value || '').trim() || DEFAULT_SETTINGS.user;
@@ -1801,6 +1934,9 @@
     settings.wordWrap = !!$('setWrap').checked;
     settings.autoScroll = !!$('setAutoScroll').checked;
     settings.autoScrollSpeed = speed;
+    settings.scrollMode = scrollMode;
+    settings.secPerChar = secPerChar;
+    settings.measureMode = measureMode;
     settings.sheet = sheet;
     settings.user = user;
     settings.password = pass;
@@ -1921,15 +2057,35 @@
       applyWrap();
       saveSettings();
     });
-    $('btnAutoScroll').addEventListener('click', toggleAutoScroll);
+    // 上滑按钮：单击开关；长按或旁边 ⚙ 打开上滑设置面板
+    let autoHoldTimer = null;
+    let autoHoldFired = false;
+    const clearAutoHold = function () {
+      if (autoHoldTimer) { clearTimeout(autoHoldTimer); autoHoldTimer = null; }
+    };
+    $('btnAutoScroll').addEventListener('pointerdown', function () {
+      autoHoldFired = false;
+      clearAutoHold();
+      autoHoldTimer = setTimeout(function () {
+        autoHoldFired = true;
+        openAutoScrollPanel();
+      }, 550);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) {
+      $('btnAutoScroll').addEventListener(ev, clearAutoHold);
+    });
+    $('btnAutoScroll').addEventListener('click', function (e) {
+      clearAutoHold();
+      if (autoHoldFired) { autoHoldFired = false; e.preventDefault(); return; }
+      toggleAutoScroll();
+    });
+    $('btnScrollCfg').addEventListener('click', openAutoScrollPanel);
     $('btnFiles').addEventListener('click', showFiles);
     $('btnSettings').addEventListener('click', showSettings);
 
     // 编辑
     editor.addEventListener('input', markDirty);
-    editor.addEventListener('scroll', function () {
-      if (settings.autoScroll) autoLast = Date.now();
-    });
+    // rAF 按时间差累加位移，手动滚动不影响计时
     editor.addEventListener('keydown', function (e) {
       if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
         e.preventDefault(); setFontSize(settings.fontSize + 1);
@@ -1970,7 +2126,25 @@
       if (colorPop && !inBtn && !colorPop.contains(e.target)) closeColorPop();
       if (ctxMenu && !ctxMenu.contains(e.target)) closeCtxMenu();
     });
-    window.addEventListener('resize', function () { closeColorPop(); closeCtxMenu(); });
+    window.addEventListener('resize', function () {
+      closeColorPop();
+      closeCtxMenu();
+      refreshScrollReadout();
+    });
+
+    // 编辑器自身尺寸（含滚动条出现/消失、窗口变窄）变化立即重算
+    if (window.ResizeObserver) {
+      new ResizeObserver(function () { refreshScrollReadout(); }).observe(editor);
+    }
+
+    // 上滑设置：切换模式 / 改每字秒数时刷新读数
+    document.querySelectorAll('input[name="scrollMode"]').forEach(function (el) {
+      el.addEventListener('change', applyScrollModeUI);
+    });
+    document.querySelectorAll('input[name="measureMode"]').forEach(function (el) {
+      el.addEventListener('change', refreshScrollReadout);
+    });
+    $('setSecPerChar').addEventListener('input', refreshScrollReadout);
 
     // 查找条
     $('btnFindPrev').addEventListener('click', function () { findNext(-1); });
