@@ -732,6 +732,7 @@
     // 阅读位置：回到该文档上次位置；没有记录就顶部（绝不跳到底）
     editor.scrollTop = 0;
     try { requestAnimationFrame(回原位); } catch (e) {}
+    try { setTimeout(回原位, 300); } catch (e) {}
   }
 
   function markDirty() {
@@ -2272,6 +2273,8 @@
       toast('已恢复上次编辑的文档：' + (doc.name || '未命名'), 3200);
     }
     setTimeout(function () { editor.focus(); }, 100);
+    // 排版/字号应用后再校正一次阅读位置（避免重排把 scrollTop 打回 0）
+    try { setTimeout(回原位, 300); } catch (e) {}
   }
 
   boot();
