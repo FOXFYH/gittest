@@ -1,5 +1,5 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 1.00  日期 2026-11-04
+/* 手机缓存查看器.js（网页端）  版本 1.01  日期 2026-11-05
    老板要求：左侧菜单「设置页」下面加一个按钮，进入后全量展示手机上存的东西：
      ① LocalStorage 全部键值（按 登录与连接 / 会话与消息缓存 / 界面与偏好 / 其他 归类）
      ② IndexedDB 全部数据库 → 全部表 → 全部记录（点开才读，避免卡顿）
@@ -116,11 +116,24 @@
     return d;
   }
   function rowKV(k, v, meta){
-    var d = document.createElement('div');
+    /* 2026-11-05 修正（老板：一点就死机）：值体量可能几十 MB（历史缓存），
+       一次性全部塞进 DOM 会把手机卡死。改为**折叠**：默认只显示键名+大小，
+       点开才把完整值放进来——仍然是全量，只是按需渲染。 */
+    var d = document.createElement('details');
     d.className = 'cv_row';
-    d.innerHTML = '<div class="cv_k">' + esc(k) + '</div>' +
-      '<div class="cv_meta">' + esc(meta || '') + '</div>' +
-      '<div class="cv_v">' + esc(v) + '</div>';
+    var sum = document.createElement('summary');
+    sum.className = 'cv_k';
+    sum.textContent = k + '  ' + (meta || '');
+    d.appendChild(sum);
+    var loaded = false;
+    d.addEventListener('toggle', function(){
+      if (!d.open || loaded) return;
+      loaded = true;
+      var box = document.createElement('div');
+      box.className = 'cv_v';
+      box.textContent = v;
+      d.appendChild(box);
+    });
     return d;
   }
 
