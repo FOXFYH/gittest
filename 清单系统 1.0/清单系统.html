@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="清单系统版本" content="1.33">
+<meta name="清单系统版本" content="1.34">
 <script>
 /* v0.16 版本对齐：网页端版本号一升 → 自动清缓存（只留口令等登录信息）＋自动取新版（免手动 Ctrl+F5）。
    v0.22：白名单加入「清单系统_服务器」（服务器选择属重要登录信息，版本升级不得清掉，
@@ -75,6 +75,9 @@
   ★★ 升版本【必须同步改】本页 <head> 里的机器可读标记【<meta name="清单系统版本" content="…">】——
      版本对齐清缓存（v0.16 新增）与「自动取新版」全靠它比对；若只改 title/注释/顶栏三处显示、
      忘了改 meta 标记 → 版本对齐失效（等于没升）。切记！
+  v1.34（2026-11-04）分页签改版：取消「普通流水/系统流水」，改为「全部 / 折叠 / 系统 / 普通」——
+    全部＝忽略文件夹全量平铺；折叠＝按文件夹结构显示；系统＝系统组平铺；普通＝普通组平铺。
+    清单页.js 0.86。
   v1.33（2026-11-04）修简约模式文件夹消失：新增文件夹一行小卡（名称+张数+箭头），点它展开；
     展开时不再被“只留一行”规则压成空白，夹内清单在简约下也按一行显示。清单页.js 0.85。
   v1.32（2026-11-03）新增「逻辑文件夹」：主页黄色小卡、可展开装顶层清单；右键/长按清单卡
@@ -1199,7 +1202,7 @@
   <!-- 1.12：第一行＝软件名+版本 … 最右【查卡】+连接状态（点状态进设置·连接诊断） -->
   <div class="题">
     <span class="题名">清单系统 1.0</span>
-    <span class="版本">v1.33</span>
+    <span class="版本">v1.34</span>
     <span id="顶栏_服务器" class="顶栏服务器" title="当前选中的服务器">未选服务器</span>
     <!-- 凭号查卡（只读插卡）：终身号 A00025 或短号 S21/L1 -->
     <button id="按钮_查卡" class="小钮">查卡</button>
@@ -1306,11 +1309,10 @@
       </div>
       <div class="头行">
         <span id="清单分页" class="分页签组">
-          <button type="button" class="分页签" data-页="普通">普通</button>
-          <button type="button" class="分页签" data-页="系统">系统</button>
           <button type="button" class="分页签 选中" data-页="全部">全部</button>
-          <button type="button" class="分页签" data-页="普通流水">普通流水</button>
-          <button type="button" class="分页签" data-页="系统流水">系统流水</button>
+          <button type="button" class="分页签" data-页="折叠">折叠</button>
+          <button type="button" class="分页签" data-页="系统">系统</button>
+          <button type="button" class="分页签" data-页="普通">普通</button>
         </span>
         <!-- 0.41：系统清单 R2 云同步——上传全自动，下载纯手动（点了才从 R2 拉回覆盖本地） -->
         <button id="按钮_R2拉取" type="button" class="分页签 R2拉取钮"
@@ -1498,7 +1500,7 @@
 
 <script src="网页模块/接口.js?v=0.41"></script>
 <script src="网页模块/卡片.js?v=0.12"></script>
-<script src="网页模块/清单页.js?v=0.85"></script>
+<script src="网页模块/清单页.js?v=0.86"></script>
 <script src="网页模块/面板.js?v=0.42"></script>
 </body>
 </html>
