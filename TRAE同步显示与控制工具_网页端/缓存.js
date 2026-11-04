@@ -24,6 +24,11 @@ function checkVerBump(){
     } catch(e){}
   }
   cacheKey = k;
+  /* 2026-11-04（老板令：「手机上可能有多套旧缓存，随机乱读」）：
+     缓存键一定就做一次【唯一真源】清理——IDB 里 key≠当前键的存帧全删（旧版本/旧方案
+     的残骸），localStorage 里 trae_webm 前缀的旧键除 skel/hist 外全删。只认
+     `VER|srvVer|sid` 这一套，其余一律不读。 */
+  try { snapIdbPurgeStale(); } catch(e){}
   /* 2.130：缓存键定了（首次 hello 带 srvVer）→ 全部会话存帧预读进内存 */
   try {
     if (bumped) snapIdbClearAll().then(() => snapIdbPrewarm(k));
@@ -584,6 +589,33 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
 /* 2.130（老板 2026-10-24）：打开页面即把该缓存键下【全部会话】的最新完整存帧预读进
    内存——切会话只从 _frameMem 同步取，不读盘、不请求。同一缓存键只预热一次；
    磁盘里同一会话有多条时按「只进不退」取最新那条（同 ts 取条数多的）。 */
+let _purgedKey = '';
+function snapIdbPurgeStale(){
+  const k = cacheKeyNow();
+  if (_purgedKey === k) return Promise.resolve(0);
+  _purgedKey = k;
+  return _idbReq('snap_conv', 'readwrite', st => {
+    let n = 0;
+    const rq = st.openCursor();
+    rq.onsuccess = () => {
+      const cu = rq.result;
+      if (!cu) return;
+      const v = cu.value || {};
+      if (String(v.key || '') !== k){ cu.delete(); n++; }   /* 旧缓存键：删 */
+      cu.continue();
+    };
+    return rq;
+  }).then(() => {
+    try {                                   /* localStorage 旧键清理（保 skel/hist） */
+      const keep = {trae_webm_skel: 1, trae_webm_hist: 1};
+      for (let i = localStorage.length - 1; i >= 0; i--){
+        const kk = localStorage.key(i) || '';
+        if (kk.indexOf('trae_webm') === 0 && !keep[kk]) localStorage.removeItem(kk);
+      }
+    } catch(e){}
+    return 1;
+  }).catch(() => 0);
+}
 let _prewarmKey = '';
 function snapIdbPrewarm(key){
   const k = key || cacheKeyNow();
