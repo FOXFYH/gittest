@@ -77,6 +77,11 @@ function histCacheRead(conv){
     if (!o || o.key !== cacheKeyNow()) return null;
     const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
     if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
+    /* 2026-11-04（老板：「切会话老先闪几小时前的旧历史」）：历史缓存加**限龄**——
+       落盘超 30 分钟或老条目无 ts 时间戳的，一律不拿来铺屏（宁可空白等服务端），
+       绝不让过期历史当"第一眼"。 */
+    const _ts = Number(e.ts || 0);
+    if (!_ts || Date.now() - _ts > 30 * 60 * 1000) return null;
     return e;
   } catch(e){ return null; }
 }
@@ -91,7 +96,7 @@ function histCacheWrite(conv, ver, have_seq, msgs){
     if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow(), convs: {}};
     if (!o.convs) o.convs = {};
     o.convs['p' + S.port + '|' + (conv || '')] =
-      {ver: ver | 0, have_seq: have_seq | 0,
+      {ver: ver | 0, have_seq: have_seq | 0, ts: Date.now(),
        msgs: Array.isArray(msgs) ? msgs : []};
     localStorage.setItem(LS_HIST, JSON.stringify(o));
   } catch(e){}
@@ -952,9 +957,28 @@ function 缓存体检面板(){
       + out.length + ' 个会话，均只存最新 2 轮）</div>';
     h += '<div style="color:#666;margin-bottom:8px">缓存键 ' + key + '；点右上角关闭</div>';
     h += '<button onclick="this.parentNode.remove()" style="position:fixed;right:12px;top:10px;padding:6px 12px;">关闭</button>';
+    /* 2026-11-04（老板要「切之前就知道会先看到啥」）：把两类本缓存都列出来——
+       ①门面帧（IDB，切会话第一眼）；②历史缓存（localStorage，仅当门面缺失/过期
+       才可能被拿来铺屏，现已有 30 分钟限龄）。点会话名可展开末两条原文预览。 */
+    const histRows = [];
+    try {
+      const o = JSON.parse(localStorage.getItem('trae_webm_hist') || 'null');
+      if (o && o.key === key && o.convs){
+        Object.keys(o.convs).forEach(kk => {
+          const e = o.convs[kk] || {};
+          if (!Array.isArray(e.msgs) || !e.msgs.length) return;
+          const _t = String(kk).split('|').slice(2).join('|');
+          const last = e.msgs[e.msgs.length - 1] || {};
+          const age = e.ts ? Math.round((Date.now() - Number(e.ts)) / 60000) : -1;
+          histRows.push({title: _t, n: e.msgs.length, tm: String(last.tm || ''),
+                         mid: String(last.mid || '').slice(0, 12), age: age});
+        });
+      }
+    } catch(e){}
+    h += '<div style="font-weight:700;margin:10px 0 4px">① 门面帧（IndexedDB，切过去第一眼就显示这个）</div>';
     h += '<table style="border-collapse:collapse;width:100%"><tr style="background:#f2f2f2">'
       + '<th style="text-align:left;padding:4px;border-bottom:1px solid #ddd">会话</th>'
-      + '<th style="padding:4px;border-bottom:1px solid #ddd">缓存行数</th>'
+      + '<th style="padding:4px;border-bottom:1px solid #ddd">行数</th>'
       + '<th style="padding:4px;border-bottom:1px solid #ddd">末条时间</th>'
       + '<th style="padding:4px;border-bottom:1px solid #ddd">末条ID前12位</th></tr>';
     out.sort((x, y) => String(y.tm).localeCompare(String(x.tm))).forEach(r => {
@@ -963,6 +987,24 @@ function 缓存体检面板(){
         + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.tm
         + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.mid
         + '</td></tr>';
+    });
+    h += '</table>';
+    h += '<div style="font-weight:700;margin:14px 0 4px">② 历史缓存（localStorage，超过 30 分钟自动作废）</div>';
+    h += '<table style="border-collapse:collapse;width:100%"><tr style="background:#f2f2f2">'
+      + '<th style="text-align:left;padding:4px;border-bottom:1px solid #ddd">会话</th>'
+      + '<th style="padding:4px;border-bottom:1px solid #ddd">行数</th>'
+      + '<th style="padding:4px;border-bottom:1px solid #ddd">末条时间</th>'
+      + '<th style="padding:4px;border-bottom:1px solid #ddd">落盘距今(分)</th>'
+      + '<th style="padding:4px;border-bottom:1px solid #ddd">状态</th></tr>';
+    histRows.sort((x, y) => y.age - x.age).forEach(r => {
+      const ok = r.age >= 0 && r.age <= 30;
+      h += '<tr><td style="padding:4px;border-bottom:1px solid #eee">' + r.title
+        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.n
+        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.tm
+        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">'
+        + (r.age < 0 ? '未知' : r.age)
+        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee;color:'
+        + (ok ? '#137333' : '#c00') + '">' + (ok ? '可用' : '已作废(不铺屏)') + '</td></tr>';
     });
     h += '</table>';
     box.innerHTML = h;
