@@ -610,6 +610,15 @@ function _msgsMonotonic(v, old){
     const nv = Array.isArray(v.msgs) ? v.msgs : null;
     const ov = (old && Array.isArray(old.msgs)) ? old.msgs : null;
     if (!nv || !ov || !ov.length) return;
+    /* 2026-11-04（老板令·第三道锁）：按 mid 里嵌的 Unix 秒比尾部时刻——来帧比已上屏
+       的尾部更旧 ⇒ 条数再多也不许顶掉（旧内容永远不能覆盖新内容）。 */
+    const _ep = m => { const t = String((m && m[6]) || '');
+      if (!/^[0-9a-fA-F]{8}/.test(t)) return 0;
+      const v2 = parseInt(t.slice(0, 8), 16);
+      return (v2 >= 1000000000 && v2 <= 2100000000) ? v2 : 0; };
+    const _aE = _ep(nv.length ? nv[nv.length - 1] : null);
+    const _bE = _ep(ov.length ? ov[ov.length - 1] : null);
+    if (_aE && _bE && _aE < _bE){ v.msgs = ov; return; }
     const empty = !nv.length;
     /* 2.100（老板 2026-10-20 12:14 硬原则「永远不许新的被老的覆盖」）：变短判据由
        「少 ≥2」收紧为「少 ≥1」——服务端虚拟列表只采可见窗口、`抓取轮询._单调保护`
