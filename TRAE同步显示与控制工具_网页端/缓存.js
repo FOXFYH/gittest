@@ -24,11 +24,6 @@ function checkVerBump(){
     } catch(e){}
   }
   cacheKey = k;
-  /* 2026-11-04（老板令：「手机上可能有多套旧缓存，随机乱读」）：
-     缓存键一定就做一次【唯一真源】清理——IDB 里 key≠当前键的存帧全删（旧版本/旧方案
-     的残骸），localStorage 里 trae_webm 前缀的旧键除 skel/hist 外全删。只认
-     `VER|srvVer|sid` 这一套，其余一律不读。 */
-  try { snapIdbPurgeStale(); } catch(e){}
   /* 2.130：缓存键定了（首次 hello 带 srvVer）→ 全部会话存帧预读进内存 */
   try {
     if (bumped) snapIdbClearAll().then(() => snapIdbPrewarm(k));
@@ -77,26 +72,17 @@ function histCacheRead(conv){
     if (!o || o.key !== cacheKeyNow()) return null;
     const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
     if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
-    /* 2026-11-04（老板：「切会话老先闪几小时前的旧历史」）：历史缓存加**限龄**——
-       落盘超 30 分钟或老条目无 ts 时间戳的，一律不拿来铺屏（宁可空白等服务端），
-       绝不让过期历史当"第一眼"。 */
-    const _ts = Number(e.ts || 0);
-    if (!_ts || Date.now() - _ts > 30 * 60 * 1000) return null;
     return e;
   } catch(e){ return null; }
 }
 function histCacheWrite(conv, ver, have_seq, msgs){
-  /* 2026-11-04（老板令）：localStorage 只放「重要、少量」——历史只留最近 40 行，
-     整段账本不落 LS（要翻旧记录走服务端请求式历史）。 */
-  const _keep = Array.isArray(msgs) ? (msgs.length > 40 ? msgs.slice(-40) : msgs) : [];
-  msgs = _keep;
   try {
     let o = null;
     try { o = JSON.parse(localStorage.getItem(LS_HIST) || 'null'); } catch(e){}
     if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow(), convs: {}};
     if (!o.convs) o.convs = {};
     o.convs['p' + S.port + '|' + (conv || '')] =
-      {ver: ver | 0, have_seq: have_seq | 0, ts: Date.now(),
+      {ver: ver | 0, have_seq: have_seq | 0,
        msgs: Array.isArray(msgs) ? msgs : []};
     localStorage.setItem(LS_HIST, JSON.stringify(o));
   } catch(e){}
@@ -497,13 +483,8 @@ function _idbReq(store, mode, fn){
 }
 function _idbFrame(){
   const s = S.snap || {};
-  /* 2026-11-04（老板令）：本地只缓存「重要的东西」——每个会话只留**最新 2 轮**
-     （=最后 2 条提问+2 条回复，最多 4 行）当门面；整段历史不进 IDB。
-     手机切会话先看这 4 行，真帧到达后由广播补齐（且只认更新的，旧的回不来）。 */
-  const _all = Array.isArray(s.msgs) ? s.msgs : [];
-  const msgs = _all.length > 4 ? _all.slice(-4) : _all.slice();
   return {online: !!s.online, login: s.login,
-          msgs: msgs,   /* 只留最新 2 轮（门面） */
+          msgs: (Array.isArray(s.msgs) ? s.msgs.slice() : []),   /* 2.126：整帧原样 */
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
           ask: s.ask || null, pend: [], attach: s.attach || [],
@@ -528,31 +509,16 @@ function _frameTailOrder(msgs){
   }
   return {n: n, tm: tm, mid: mid};
 }
-function _midEpoch(m){          /* mid 前 8 位 hex＝Unix 秒（2.112 口径）；判不出返回 0 */
-  const s = String(m || '');
-  if (!/^[0-9a-fA-F]{8}/.test(s)) return 0;
-  const v = parseInt(s.slice(0, 8), 16);
-  return (v >= 1000000000 && v <= 2100000000) ? v : 0;
-}
 function _frameNewerOrEqual(a, b){
-  /* true＝a（新帧）可以覆盖 b（已存帧）
-     2026-11-04 修正（老板：切会话总看到几小时前的旧轮次）：
-     旧实现只拿 `tm`（HH:MM，无日期）比字符串——跨天必错（今天 09:10 会被判成比
-     昨晚 23:50 旧），新帧被拒 ⇒ 旧帧永远霸着缓存、切来切去都是旧玩意。
-     现改为：两边 mid 都能解出 Unix 秒就按真实时刻比；否则退回 tm 比，最后比条数。 */
+  /* true＝a（新帧）可以覆盖 b（已存帧） */
   if (!b || !Array.isArray(b.msgs) || !b.msgs.length) return true;
   if (!a || !Array.isArray(a.msgs) || !a.msgs.length) return false;   /* 空帧绝不上位 */
   const A = _frameTailOrder(a.msgs), B = _frameTailOrder(b.msgs);
-  const ae = _midEpoch(A.mid), be = _midEpoch(B.mid);
-  if (ae && be){                            /* 真实时刻优先（跨天无歧义） */
-    if (ae !== be) return ae > be;
-    return A.n >= B.n;                      /* 同一秒：条数不得更少 */
+  if (A.tm && B.tm){
+    if (A.tm !== B.tm) return A.tm > B.tm;   /* 时间更新才进 */
+    return A.n >= B.n;                       /* 同一时刻：条数不得更少（不看 mid 字典序） */
   }
   if (A.mid && B.mid && A.mid !== B.mid) return A.mid > B.mid;
-  if (A.tm && B.tm){
-    if (A.tm !== B.tm) return A.tm > B.tm;
-    return A.n >= B.n;
-  }
   return A.n >= B.n;
 }
 function _frameCommit(sk, frame, meta, onOk, memNow){
@@ -603,38 +569,6 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
 /* 2.130（老板 2026-10-24）：打开页面即把该缓存键下【全部会话】的最新完整存帧预读进
    内存——切会话只从 _frameMem 同步取，不读盘、不请求。同一缓存键只预热一次；
    磁盘里同一会话有多条时按「只进不退」取最新那条（同 ts 取条数多的）。 */
-let _purgedKey = '';
-function snapIdbPurgeStale(){
-  const k = cacheKeyNow();
-  if (_purgedKey === k) return Promise.resolve(0);
-  _purgedKey = k;
-  return _idbReq('snap_conv', 'readwrite', st => {
-    let n = 0;
-    const rq = st.openCursor();
-    rq.onsuccess = () => {
-      const cu = rq.result;
-      if (!cu) return;
-      const v = cu.value || {};
-      if (String(v.key || '') !== k){ cu.delete(); n++; }   /* 旧缓存键：删 */
-      cu.continue();
-    };
-    return rq;
-  }).then(() => {
-    try {                                   /* localStorage 旧键清理（2026-11-04 修复：白名单=现行全部合法键。
-                                               原白名单只保 skel/hist，把 channel/nick/cfg/收藏等现行键也删了，
-                                               且每次加载都跑一遍 → 频道号输一次丢一次。真源键名见各模块定义。 */
-      const keep = {trae_webm_skel:1, trae_webm_hist:1, trae_webm_cfg:1, trae_webm_net:1,
-                    trae_webm_channel:1, trae_webm_channel2:1, trae_webm_selct:1, trae_webm_nick:1,
-                    trae_webm_uid:1, trae_webm_times:1, trae_webm_srv:1, trae_webm_srvs:1,
-                    trae_webm_anchor:1, trae_webm_fav_models:1, trae_webm_ver_seen:1};
-      for (let i = localStorage.length - 1; i >= 0; i--){
-        const kk = localStorage.key(i) || '';
-        if (kk.indexOf('trae_webm') === 0 && !keep[kk]) localStorage.removeItem(kk);
-      }
-    } catch(e){}
-    return 1;
-  }).catch(() => 0);
-}
 let _prewarmKey = '';
 function snapIdbPrewarm(key){
   const k = key || cacheKeyNow();
@@ -696,15 +630,10 @@ function snapIdbTick(force){
   const _sk = _frameMemKey(sid);
   const _full = !!(s.msgs && s.msgs.length);
   const _first = !!S.idbFirstFull && _full;
+  if (force !== true && !_first && now - (_idbLastAtBy[_sk] || 0) < 10000) return;
   const frame = _idbFrame();
   const _fp = msgsFp(frame.msgs);
-  /* 2026-11-04（老板：最新轮次广播过来为什么没被记录）：旧逻辑先卡 10 秒节流、
-     再比指纹——刚切过去那十几秒内的最新轮次直接被"节流"挡掉，下次切回来还是旧的。
-     改为：**内容一变就落**，只保留 3 秒防抖；内容没变才跳过。 */
-  if (force !== true && !_first){
-    if (_fp === _idbLastFpBy[_sk]) return;
-    if (now - (_idbLastAtBy[_sk] || 0) < 3000) return;
-  }
+  if (force !== true && !_first && _fp === _idbLastFpBy[_sk]) return;   /* 有更新才落盘 */
   const key = cacheKeyNow();
   /* 2.126（老板 2026-10-23「只保留一份最新、完整、只进不退」）：走统一闸——
      旧帧／空帧／碎片帧直接拒收（不写内存、不写 IDB）；节流记账与"首份"标记
@@ -934,89 +863,5 @@ function snapIdbBoot(sk){
     snapIdbShow(key, sel[1]);
   }catch(e){}
 }
-/* 2026-11-04（老板要「看得见缓存到底新不新」）：访问 `?dbg=cache` 即在页面上
-   列一张表——每个会话缓存了多少行、末条时间、末条 ID（mid），一眼判断新旧。 */
-function 缓存体检面板(){
-  const key = cacheKeyNow();
-  _idbReq('snap_conv', 'readonly', st => {
-    const out = [];
-    const rq = st.openCursor();
-    rq.onsuccess = () => {
-      const cu = rq.result;
-      if (!cu) return;
-      const v = cu.value || {};
-      if (String(v.key || '') === key && v.frame && Array.isArray(v.frame.msgs) && v.frame.msgs.length){
-        const m = v.frame.msgs;
-        const last = m[m.length - 1] || [];
-        out.push({title: String(v.title || v.sid || ''), n: m.length,
-                  tm: String((last && last[2]) || ''), mid: String((last && last[6]) || '').slice(0, 12)});
-      }
-      cu.continue();
-    };
-    return rq;
-  }).then(() => {
-    const box = document.createElement('div');
-    box.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:99999;background:#fff;'
-      + 'overflow:auto;padding:12px;font:13px/1.6 monospace;color:#222;';
-    let h = '<div style="font-size:16px;font-weight:700;margin-bottom:8px">本机会话缓存体检（'
-      + out.length + ' 个会话，均只存最新 2 轮）</div>';
-    h += '<div style="color:#666;margin-bottom:8px">缓存键 ' + key + '；点右上角关闭</div>';
-    h += '<button onclick="this.parentNode.remove()" style="position:fixed;right:12px;top:10px;padding:6px 12px;">关闭</button>';
-    /* 2026-11-04（老板要「切之前就知道会先看到啥」）：把两类本缓存都列出来——
-       ①门面帧（IDB，切会话第一眼）；②历史缓存（localStorage，仅当门面缺失/过期
-       才可能被拿来铺屏，现已有 30 分钟限龄）。点会话名可展开末两条原文预览。 */
-    const histRows = [];
-    try {
-      const o = JSON.parse(localStorage.getItem('trae_webm_hist') || 'null');
-      if (o && o.key === key && o.convs){
-        Object.keys(o.convs).forEach(kk => {
-          const e = o.convs[kk] || {};
-          if (!Array.isArray(e.msgs) || !e.msgs.length) return;
-          const _t = String(kk).split('|').slice(2).join('|');
-          const last = e.msgs[e.msgs.length - 1] || {};
-          const age = e.ts ? Math.round((Date.now() - Number(e.ts)) / 60000) : -1;
-          histRows.push({title: _t, n: e.msgs.length, tm: String(last.tm || ''),
-                         mid: String(last.mid || '').slice(0, 12), age: age});
-        });
-      }
-    } catch(e){}
-    h += '<div style="font-weight:700;margin:10px 0 4px">① 门面帧（IndexedDB，切过去第一眼就显示这个）</div>';
-    h += '<table style="border-collapse:collapse;width:100%"><tr style="background:#f2f2f2">'
-      + '<th style="text-align:left;padding:4px;border-bottom:1px solid #ddd">会话</th>'
-      + '<th style="padding:4px;border-bottom:1px solid #ddd">行数</th>'
-      + '<th style="padding:4px;border-bottom:1px solid #ddd">末条时间</th>'
-      + '<th style="padding:4px;border-bottom:1px solid #ddd">末条ID前12位</th></tr>';
-    out.sort((x, y) => String(y.tm).localeCompare(String(x.tm))).forEach(r => {
-      h += '<tr><td style="padding:4px;border-bottom:1px solid #eee">' + r.title
-        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.n
-        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.tm
-        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.mid
-        + '</td></tr>';
-    });
-    h += '</table>';
-    h += '<div style="font-weight:700;margin:14px 0 4px">② 历史缓存（localStorage，超过 30 分钟自动作废）</div>';
-    h += '<table style="border-collapse:collapse;width:100%"><tr style="background:#f2f2f2">'
-      + '<th style="text-align:left;padding:4px;border-bottom:1px solid #ddd">会话</th>'
-      + '<th style="padding:4px;border-bottom:1px solid #ddd">行数</th>'
-      + '<th style="padding:4px;border-bottom:1px solid #ddd">末条时间</th>'
-      + '<th style="padding:4px;border-bottom:1px solid #ddd">落盘距今(分)</th>'
-      + '<th style="padding:4px;border-bottom:1px solid #ddd">状态</th></tr>';
-    histRows.sort((x, y) => y.age - x.age).forEach(r => {
-      const ok = r.age >= 0 && r.age <= 30;
-      h += '<tr><td style="padding:4px;border-bottom:1px solid #eee">' + r.title
-        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.n
-        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.tm
-        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">'
-        + (r.age < 0 ? '未知' : r.age)
-        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee;color:'
-        + (ok ? '#137333' : '#c00') + '">' + (ok ? '可用' : '已作废(不铺屏)') + '</td></tr>';
-    });
-    h += '</table>';
-    box.innerHTML = h;
-    document.body.appendChild(box);
-  }).catch(() => {});
-}
-try { if (String(location.search || '').indexOf('dbg=cache') >= 0) setTimeout(缓存体检面板, 800); } catch(e){}
-
 setInterval(() => snapIdbTick(), 10000);                       /* 2.98：10 秒节流（原 5 秒） */
 setInterval(() => { snapIdbPrune(); snapIdbPruneMissing(); }, 10 * 60 * 1000);
