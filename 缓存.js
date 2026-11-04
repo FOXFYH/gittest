@@ -509,31 +509,16 @@ function _frameTailOrder(msgs){
   }
   return {n: n, tm: tm, mid: mid};
 }
-function _midEpoch(m){          /* mid 前 8 位 hex＝Unix 秒（2.112 口径）；判不出返回 0 */
-  const s = String(m || '');
-  if (!/^[0-9a-fA-F]{8}/.test(s)) return 0;
-  const v = parseInt(s.slice(0, 8), 16);
-  return (v >= 1000000000 && v <= 2100000000) ? v : 0;
-}
 function _frameNewerOrEqual(a, b){
-  /* true＝a（新帧）可以覆盖 b（已存帧）
-     2026-11-04 修正（老板：切会话总看到几小时前的旧轮次）：
-     旧实现只拿 `tm`（HH:MM，无日期）比字符串——跨天必错（今天 09:10 会被判成比
-     昨晚 23:50 旧），新帧被拒 ⇒ 旧帧永远霸着缓存、切来切去都是旧玩意。
-     现改为：两边 mid 都能解出 Unix 秒就按真实时刻比；否则退回 tm 比，最后比条数。 */
+  /* true＝a（新帧）可以覆盖 b（已存帧） */
   if (!b || !Array.isArray(b.msgs) || !b.msgs.length) return true;
   if (!a || !Array.isArray(a.msgs) || !a.msgs.length) return false;   /* 空帧绝不上位 */
   const A = _frameTailOrder(a.msgs), B = _frameTailOrder(b.msgs);
-  const ae = _midEpoch(A.mid), be = _midEpoch(B.mid);
-  if (ae && be){                            /* 真实时刻优先（跨天无歧义） */
-    if (ae !== be) return ae > be;
-    return A.n >= B.n;                      /* 同一秒：条数不得更少 */
+  if (A.tm && B.tm){
+    if (A.tm !== B.tm) return A.tm > B.tm;   /* 时间更新才进 */
+    return A.n >= B.n;                       /* 同一时刻：条数不得更少（不看 mid 字典序） */
   }
   if (A.mid && B.mid && A.mid !== B.mid) return A.mid > B.mid;
-  if (A.tm && B.tm){
-    if (A.tm !== B.tm) return A.tm > B.tm;
-    return A.n >= B.n;
-  }
   return A.n >= B.n;
 }
 function _frameCommit(sk, frame, meta, onOk, memNow){
@@ -645,15 +630,10 @@ function snapIdbTick(force){
   const _sk = _frameMemKey(sid);
   const _full = !!(s.msgs && s.msgs.length);
   const _first = !!S.idbFirstFull && _full;
+  if (force !== true && !_first && now - (_idbLastAtBy[_sk] || 0) < 10000) return;
   const frame = _idbFrame();
   const _fp = msgsFp(frame.msgs);
-  /* 2026-11-04（老板：最新轮次广播过来为什么没被记录）：旧逻辑先卡 10 秒节流、
-     再比指纹——刚切过去那十几秒内的最新轮次直接被"节流"挡掉，下次切回来还是旧的。
-     改为：**内容一变就落**，只保留 3 秒防抖；内容没变才跳过。 */
-  if (force !== true && !_first){
-    if (_fp === _idbLastFpBy[_sk]) return;
-    if (now - (_idbLastAtBy[_sk] || 0) < 3000) return;
-  }
+  if (force !== true && !_first && _fp === _idbLastFpBy[_sk]) return;   /* 有更新才落盘 */
   const key = cacheKeyNow();
   /* 2.126（老板 2026-10-23「只保留一份最新、完整、只进不退」）：走统一闸——
      旧帧／空帧／碎片帧直接拒收（不写内存、不写 IDB）；节流记账与"首份"标记
