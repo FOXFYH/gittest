@@ -81,6 +81,10 @@ function histCacheRead(conv){
   } catch(e){ return null; }
 }
 function histCacheWrite(conv, ver, have_seq, msgs){
+  /* 2026-11-04（老板令）：localStorage 只放「重要、少量」——历史只留最近 40 行，
+     整段账本不落 LS（要翻旧记录走服务端请求式历史）。 */
+  const _keep = Array.isArray(msgs) ? (msgs.length > 40 ? msgs.slice(-40) : msgs) : [];
+  msgs = _keep;
   try {
     let o = null;
     try { o = JSON.parse(localStorage.getItem(LS_HIST) || 'null'); } catch(e){}
@@ -488,8 +492,13 @@ function _idbReq(store, mode, fn){
 }
 function _idbFrame(){
   const s = S.snap || {};
+  /* 2026-11-04（老板令）：本地只缓存「重要的东西」——每个会话只留**最新 2 轮**
+     （=最后 2 条提问+2 条回复，最多 4 行）当门面；整段历史不进 IDB。
+     手机切会话先看这 4 行，真帧到达后由广播补齐（且只认更新的，旧的回不来）。 */
+  const _all = Array.isArray(s.msgs) ? s.msgs : [];
+  const msgs = _all.length > 4 ? _all.slice(-4) : _all.slice();
   return {online: !!s.online, login: s.login,
-          msgs: (Array.isArray(s.msgs) ? s.msgs.slice() : []),   /* 2.126：整帧原样 */
+          msgs: msgs,   /* 只留最新 2 轮（门面） */
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
           ask: s.ask || null, pend: [], attach: s.attach || [],
@@ -915,5 +924,52 @@ function snapIdbBoot(sk){
     snapIdbShow(key, sel[1]);
   }catch(e){}
 }
+/* 2026-11-04（老板要「看得见缓存到底新不新」）：访问 `?dbg=cache` 即在页面上
+   列一张表——每个会话缓存了多少行、末条时间、末条 ID（mid），一眼判断新旧。 */
+function 缓存体检面板(){
+  const key = cacheKeyNow();
+  _idbReq('snap_conv', 'readonly', st => {
+    const out = [];
+    const rq = st.openCursor();
+    rq.onsuccess = () => {
+      const cu = rq.result;
+      if (!cu) return;
+      const v = cu.value || {};
+      if (String(v.key || '') === key && v.frame && Array.isArray(v.frame.msgs) && v.frame.msgs.length){
+        const m = v.frame.msgs;
+        const last = m[m.length - 1] || [];
+        out.push({title: String(v.title || v.sid || ''), n: m.length,
+                  tm: String((last && last[2]) || ''), mid: String((last && last[6]) || '').slice(0, 12)});
+      }
+      cu.continue();
+    };
+    return rq;
+  }).then(() => {
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:99999;background:#fff;'
+      + 'overflow:auto;padding:12px;font:13px/1.6 monospace;color:#222;';
+    let h = '<div style="font-size:16px;font-weight:700;margin-bottom:8px">本机会话缓存体检（'
+      + out.length + ' 个会话，均只存最新 2 轮）</div>';
+    h += '<div style="color:#666;margin-bottom:8px">缓存键 ' + key + '；点右上角关闭</div>';
+    h += '<button onclick="this.parentNode.remove()" style="position:fixed;right:12px;top:10px;padding:6px 12px;">关闭</button>';
+    h += '<table style="border-collapse:collapse;width:100%"><tr style="background:#f2f2f2">'
+      + '<th style="text-align:left;padding:4px;border-bottom:1px solid #ddd">会话</th>'
+      + '<th style="padding:4px;border-bottom:1px solid #ddd">缓存行数</th>'
+      + '<th style="padding:4px;border-bottom:1px solid #ddd">末条时间</th>'
+      + '<th style="padding:4px;border-bottom:1px solid #ddd">末条ID前12位</th></tr>';
+    out.sort((x, y) => String(y.tm).localeCompare(String(x.tm))).forEach(r => {
+      h += '<tr><td style="padding:4px;border-bottom:1px solid #eee">' + r.title
+        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.n
+        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.tm
+        + '</td><td style="text-align:center;padding:4px;border-bottom:1px solid #eee">' + r.mid
+        + '</td></tr>';
+    });
+    h += '</table>';
+    box.innerHTML = h;
+    document.body.appendChild(box);
+  }).catch(() => {});
+}
+try { if (String(location.search || '').indexOf('dbg=cache') >= 0) setTimeout(缓存体检面板, 800); } catch(e){}
+
 setInterval(() => snapIdbTick(), 10000);                       /* 2.98：10 秒节流（原 5 秒） */
 setInterval(() => { snapIdbPrune(); snapIdbPruneMissing(); }, 10 * 60 * 1000);
