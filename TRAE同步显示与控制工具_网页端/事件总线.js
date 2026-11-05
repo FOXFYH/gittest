@@ -211,14 +211,25 @@ function onEv(kind, v){
       }
       /* 2.100（老板 2026-10-20 12:16）：刷新/重连后「继续锚定当前会话，继续向服务器
          提要求」——首拍若发现服务端选中行≠本地持久化锚定，补发一次 switch（只发一次）。 */
-      if (S.anchor_reask){
-        S.anchor_reask = 0;
+      if (S.anchor_reask || S.bootSwitch){
+        const _boot = !!S.bootSwitch;
+        S.anchor_reask = 0; S.bootSwitch = 0;
         const _aSel = 稳定键(selSidOf(v), selTitleOf(v));
-        if (S.anchorFull && S.anchorSid && _aSel && _aSel !== S.anchorSid){
+        /* 3.02（老板 2026-11-05 23:30）：刷新/重新打开＝自己切自己。
+           目标＝本地持久化锚定（点选会话那一刻就落盘，绝不等成功信号）。
+           走与「点击会话」完全同一条流程：锁目标 + 顶出预备画面 + 发 switch
+           （悬浮提示/超时补发/切换成功提示全部同源）。 */
+        if (_boot && S.anchorSid && S.anchorFull && _aSel !== S.anchorSid){
+          try {
+            pendSwitchSet(S.anchorTitle || '', S.anchorFull, S.anchorFull,
+                          {lockTarget: true, deferRender: true});
+            snapIdbShow(S.anchorSid, S.anchorTitle || '');
+            sendCmd('switch', S.anchorFull);
+          } catch(e){}
+        } else if (S.anchorFull && S.anchorSid && _aSel && _aSel !== S.anchorSid){
           try { sendCmd('switch', S.anchorFull); } catch(e){}
         }
-        /* 3.01（老板 2026-11-05 23:25）：刷新/刚登录＝切换——无论桌面选中行是否
-           已经是本地锚定，都向服务端要一次该会话的【全额直播帧】（pane_req）。 */
+        /* 无论是否真发了 switch，都再要一次该会话的全额直播帧（保证正文到） */
         try { if (typeof paneRefreshNow === 'function') paneRefreshNow(); } catch(e){}
       }
       renderAll();
