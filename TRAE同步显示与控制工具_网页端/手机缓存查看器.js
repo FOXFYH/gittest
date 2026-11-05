@@ -1,5 +1,5 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.13  日期 2026-11-05
+/* 手机缓存查看器.js（网页端）  版本 2.14  日期 2026-11-05
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
    两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
@@ -11,7 +11,7 @@
        服务端追加的专属词前后缀（(@fox-sys1)… 等）自动折叠成「系统/自定/人定/岗位」小按钮，
        与主界面显示一字一致。 */
 (function(){
-  var CV_VER = '2.13';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
+  var CV_VER = '2.14';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -147,6 +147,23 @@
   function renderPreview(host){
     host.innerHTML = '';
     if (view === 'detail' && detailItem){ renderDetail(host, detailItem); return; }
+    var cfg = document.createElement('div');
+    cfg.className = 'cv_sec';
+    cfg.innerHTML = '<h3>预备账册参数 <span class="n">改动后新的缓存按新条数保存</span></h3>' +
+      '<div style="padding:10px 14px;font-size:13px;display:flex;align-items:center;gap:8px">' +
+      '保存最近 <input id="cv_n" type="number" min="2" max="50" step="1" style="width:64px;' +
+      'border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px" value="4"> 条' +
+      '<span class="cv_meta" style="margin:0">（只留人类发言＋终极回复，思维流不存）</span></div>';
+    host.appendChild(cfg);
+    var nEl = cfg.querySelector('#cv_n');
+    try { nEl.value = localStorage.getItem('trae_webm_frame_n') || '4'; } catch(e){}
+    nEl.onchange = function(){
+      var v = parseInt(nEl.value, 10);
+      if (!(v >= 2 && v <= 50)){ v = 4; }
+      nEl.value = v;
+      try { localStorage.setItem('trae_webm_frame_n', String(v)); } catch(e){}
+      nEl.parentElement.lastElementChild.textContent = '已保存：之后每次落盘只留最近 ' + v + ' 条';
+    };
     var s = document.createElement('div');
     s.className = 'cv_sec';
     s.innerHTML = '<h3>会话预备画面 <span class="n">读取中…</span></h3>';
