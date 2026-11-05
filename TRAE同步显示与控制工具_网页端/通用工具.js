@@ -766,8 +766,11 @@ function renderAll(){
      用于防中间态闪回（保 2.89 防交叉闪现）。见下方分支。 */
   const _locked = _liveLockOn();
   const _lf = S.liveFrame;
-  const _storeMsgs = (_locked && _lf && Array.isArray(_lf.msgs) && _lf.msgs.length)
-      ? _lf.msgs : null;
+  /* 2.15（老板 2026-11-05 20:41）：真快照正文为空（框架帧/切会话空档）时，
+     即便不在切换锁态也用本地存帧兜底——有缓存就绝不白屏。 */
+  const _snapEmpty = !(Array.isArray((S.snap || {}).msgs) && S.snap.msgs.length);
+  const _storeMsgs = (_lf && Array.isArray(_lf.msgs) && _lf.msgs.length
+      && (_locked || _snapEmpty)) ? _lf.msgs : null;
   /* 2.100（老板 2026-10-20 12:14 硬原则）：持屏闸只在「尚无新内容」时生效——一旦
      锚定会话【自己的快照正文】已比存帧更新（非切换前旧正文、尾部更靠后），立即让位，
      绝不拿旧存帧顶掉已到的新内容。 */
@@ -817,6 +820,8 @@ function renderAll(){
     if (_cur.length){                      /* (b) 目标当前全量最新帧上屏 → 松开持屏 */
       renderMsgs(_cur, snap.finish, opts0, snap.ask || null, snap.pend || []);
       S.swHold = false;
+    } else if (_storeMsgs){                /* 2.15：真正文为空 → 用本地存帧兜底 */
+      renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
     } else if (S.swHold && S.swPPainted
                && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
       /* 2.106：仅「已上屏目标快照之后」才原样重放（防闪回）；此前一律不重放旧会话 */
