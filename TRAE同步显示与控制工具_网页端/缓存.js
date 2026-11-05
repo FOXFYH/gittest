@@ -169,8 +169,8 @@ function applyHist(conv, v){
   }
   S.histHave = S.histRaw.length
     ? S.histRaw[S.histRaw.length - 1].seq : 0;
-  /* 2.126：整段原样保留，不再裁 3 轮。 */
-  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
+  /* 2.126：整段原样保留，不再裁 3 轮。
+     3.00：不再写本地账本副本（LS_HIST 已废）。 */
   renderAll();
 }
 function prependHist(conv, older, end){
@@ -194,7 +194,7 @@ function prependHist(conv, older, end){
   const _addP = older.filter(r => !_haveP.has(r.seq));
   S.histPrevRaw = _addP.concat(S.histPrevRaw);
   S.histMsgs = S.histRaw.map(ledToArr);
-  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
+  /* 3.00：不再写本地账本副本（LS_HIST 已废） */
   renderAll();
   /* 2.85：按「增量」还原阅读位置。旧写法 `scrollTop = 新height - 旧height`：
      ①用户在中间读（t0>0）时被硬拽回相对顶部（新-旧往往很小甚至为 0）；
@@ -213,14 +213,11 @@ function ensureHist(){
   S.histMsgs = null; S.histRaw = []; S.histPrevRaw = []; S.histVer = 0; S.histHave = 0;
   S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;   /* 2.49：换会话重置到底标记/游标 */
-  const c = histCacheRead(title);
-  if (c){                                       /* 本地秒显历史 */
-    S.histRaw = c.msgs.slice();
-    S.histMsgs = c.msgs.map(ledToArr);
-    S.histVer = c.ver | 0; S.histHave = c.have_seq | 0;
-  }
-  renderAll();                                  /* 秒显（快照未到达前） */
-  reqHist(title, S.histHave, S.histVer);        /* 游标增量补新/重建 */
+  /* 3.00（老板 2026-11-05 23:10）：正文只认「快照 + 预备画面」——
+     不再读本地账本副本（LS_HIST 已废），也不再拿账本秒显。
+     这里只发一次 hist 请求取「账本游标(seq)」，供用户上顶时翻更早页。
+     （不发渲染、不落盘；快照到位前由预备画面顶住。） */
+  reqHist(title, 0, 0);
 }
 /* 2.112（X2-2/X2-4）：正式 mid＝十六进制串（前 8 位＝Unix 秒）；`temp-agent-…`
    这类非 hex 一律视为「生成期临时号」，不得当正式身份参与去重/对齐/排序。 */
@@ -321,100 +318,34 @@ function _swSnapIsTargetNow(sp){
       && !sameConvBody(sm, sp.prevMsgs));
 }
 function curMsgs(){
-  /* 2.106（A4·老板 17:29「切走即弃旧」）：切换在途、目标正文尚未到达 ⇒ 一律不再以
-     旧会话 S.snap.msgs／本地账本为骨架拼正文（切断对「要离开的会话 A」的回落）；
-     正文改由 renderAll 的「目标落地快照」分支顶出（无则留白）。livePend/切换在途皆属此列。 */
+  /* 3.00（老板 2026-11-05 23:10）：正文唯一来源＝
+     ① 服务端真快照（S.snap.msgs，内存，不落盘）；
+     ② 用户上顶翻出来的更早一页（S.histPrevRaw，账本给的历史）。
+     本地账本副本（S.histMsgs / LS_HIST）彻底退出屏幕，不再抢位置、不再补尾。 */
   const _sp = S.switch_pend;
   if ((S.livePend || (_sp && _sp.lockTarget && !_sp.arrived))
       && !_swSnapIsTargetNow(_sp)) return [];
-  /* 2.54：快照为权威尾部，账本只补更早。原实现（2.49）在账本比快照长时以账本为骨架，
-     账本里的重复/乱序行会让「连续多条 AI 回答而无对应问句」上屏（无头回复）。
-     改为：在账本里从后往前找与快照首行同键的位置 cut，账本 [0,cut) 视为更早历史拼在
-     快照之前；找不到或就在开头则只用快照（宁缺不乱）。 */
-  const snapMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
-  const led = (S.histMsgs && S.histMsgs.length) ? S.histMsgs : null;
-  /* 2.112（X2-1/X2-3）：任何返回路径都必须走同一条「严格全序」排序，
-     绝不让「没有账本」或「只有账本」的会话按出现顺序乱插。 */
-  if (!led) return orderMsgs(snapMsgs || []);
-  if (!snapMsgs || !snapMsgs.length) return orderMsgs(led);
-  /* 2.89（老板 2026-10-20 紧急）：账本「补尾」收紧为**只补不删**——旧 2.88 在
-     账本尾部时间更晚时直接 `return led.slice()`，会把快照里存在、账本里缺失的行
-     （尤其 AI 行——账本只记终答、常缺 AI 行）整段抹掉 ⇒ 页面「AI 行突然消失」。
-     现一律以快照为骨架：账本只 **补更早**（与快照首行对齐点之前的行）＋ **补缺失的
-     新行**（快照尾部之后、账本里有而快照没有的），绝不删除快照已有的行。两边时间
-     取各自末行：快照行第 6 位（index 5）、账本行第 3 位（index 2）。 */
-  const k0 = _msgKey(snapMsgs[0]);
-  let cut = -1;
-  for (let i = led.length - 1; i >= 0; i--){
-    if (_msgKey(led[i]) === k0){ cut = i; break; }
-  }
-  /* 账本与快照首行对齐点之前的行＝更早历史，拼在快照之前；对齐不上（或就在
-     开头）则只用快照（宁缺不乱）。 */
-  /* 2.104（老板 2026-10-20 13:37「**最新的人问与 AI 答确实传到网页版了，但没传到正确位置**；
-     你赋予了手机网页版自由，它自己拼贴老消息去抢位置」）：**取消"账本更早段前置拼贴"**——
-     正文**一律以快照（＝本地/权威帧，也就是原版人眼可见的那几条）为准**，账本**只在
-     "快照尾部之后有新行"时追加**（不前置、不抢位置）；位置最终由 2.103 的「按 mid 时间升序」兜底。 */
-  /* 2.112（X2-2）：两源先去重前统一「临时号 → 正式 mid」——否则同一行（快照里还是
-     `temp-agent-…`、账本里已是正式 mid）会因身份不同而被当成两条重复追加。 */
-  _midCollect(snapMsgs); _midCollect(led);
-  const snapP = _midPromote(snapMsgs.slice());
-  const ledP  = _midPromote(led.slice());
-  let out = snapP.slice();
-  /* 2.129（老板 2026-10-24「上顶加载历史现在不通」）：把用户显式翻出来的更早页
-     前置到正文顶部。2.104 取消的是「普通 hist 增量把账本更早段抢着拼进来」，
-     不包括用户主动上顶取回的分页——那一页必须上屏，否则请求成功也看不到。
-     只按 mid／身份指纹与已有正文去重，绝不重复、不覆盖快照。 */
+  const snapMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs.slice() : [];
   const prevRaw = (S.histPrevRaw && S.histPrevRaw.length) ? S.histPrevRaw : [];
-  if (prevRaw.length){
-    const prevArr = prevRaw.map(ledToArr);
-    _midCollect(prevArr);
-    const prevP = _midPromote(prevArr);
-    const haveMid = new Set(), haveKey = new Set();
-    for (const m of out){
-      const id = String((m && m[6]) || '');
-      if (id) haveMid.add(id);
-      haveKey.add(_msgKey(m));
-    }
-    const pre = [];
-    for (const m of prevP){
-      const id = String((m && m[6]) || '');
-      if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
-      if (id) haveMid.add(id);
-      haveKey.add(_msgKey(m));
-      pre.push(m);
-    }
-    if (pre.length) out = pre.concat(out);
+  if (!prevRaw.length) return orderMsgs(snapMsgs);
+  const prevArr = prevRaw.map(ledToArr);
+  _midCollect(snapMsgs); _midCollect(prevArr);
+  const outP = _midPromote(snapMsgs), prevP = _midPromote(prevArr);
+  const haveMid = new Set(), haveKey = new Set();
+  for (const m of outP){
+    const id = String((m && m[6]) || '');
+    if (id) haveMid.add(id);
+    haveKey.add(_msgKey(m));
   }
-  /* 补缺失的新行：账本尾部时间晚于快照尾部时，只【追加】快照里没有的账本行
-     （2.105 起按 mid 优先去重），不覆盖、不删除快照已有的行。 */
-  const snapTail = String((snapP[snapP.length - 1] || [])[5] || '');
-  const ledTail  = String((ledP[ledP.length - 1] || [])[2] || '');
-  if (snapTail && ledTail && ledTail > snapTail){
-    /* 2.105（②·老板 2026-10-20：A 组 0001 网页端比原版多 1 行）：「角色+正文指纹(前24字)」
-       在正文被截断/微改时对不上 ⇒ 同一 AI 终答被重复追加。改为【按 mid（index6）优先去重、
-       _msgKey 兜底】——mid 是消息唯一身份，命中即视为已有（绝不产生重复行）；仍只【追加】、
-       绝不删除/覆盖快照已有行；追加过程中同批账本行也据同一集合互相去重。 */
-    const haveMid = new Set(), haveKey = new Set();
-    for (const m of out){
-      const id = String((m && m[6]) || '');
-      if (id) haveMid.add(id);
-      haveKey.add(_msgKey(m));
-    }
-    const add = [];
-    for (const m of ledP){
-      if (!(String(m[2] || '') > snapTail)) continue;
-      const id = String((m && m[6]) || '');
-      if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
-      if (id) haveMid.add(id);
-      haveKey.add(_msgKey(m));
-      add.push(m);
-    }
-    if (add.length) out = out.concat(add);
+  const pre = [];
+  for (const m of prevP){
+    const id = String((m && m[6]) || '');
+    if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
+    if (id) haveMid.add(id);
+    haveKey.add(_msgKey(m));
+    pre.push(m);
   }
-  /* 2.103（老板 2026-10-20 13:36）：网页端不得自行决定顺序——一律按系统 ID（mid）
-     的时间升序排。2.112（X2-1/X2-3）：改为**严格全序**——无 mid 的行统一置顶并标
-     「时间未知」（见 orderMsgs），绝不让它抢「最新」的位置。仍只【追加】、不删行。 */
-  return orderMsgs(out);
+  return orderMsgs(pre.length ? pre.concat(outP) : outP);
 }
 
 /* ========== 1.90：文本转语音小卡片 ========== */
