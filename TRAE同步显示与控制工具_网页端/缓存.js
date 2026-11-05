@@ -481,19 +481,41 @@ function _idbReq(store, mode, fn){
     tx.onabort = () => rej(tx.error);
   })).catch(e => { throw e; });
 }
-/* 2.14（老板 2026-11-05 20:38）：本地缓存只记「人类发言 ＋ AI 终极回复」——
-   AI 行的第 8 位（index 7）＝完成卡摘要（终极回复，服务端 TRAE界面JS 已带回）；
-   有就只存它，思维流不进缓存；没有（生成中/无终答）才保留原文兜底，绝不让缓存变空。 */
+/* 2.16（老板 2026-11-05 20:53）：预备账册＝「最近 N 条」（默认 4）——
+   ① 只收【人类发言】与【有终极回复的 AI 行】（第 8 位；思维流一律不落盘）；
+   ② 按时间（tm，缺则 mid 前 8 位）排序，只留最新 N 条；
+   ③ N 存 localStorage（手机缓存查看器里可直接改，默认 4）。
+   不再写「碎片」：最新一轮.js 已停用。 */
+const FRAME_KEEP_KEY = 'trae_webm_frame_n';
+function _frameKeepN(){
+  try{
+    const v = parseInt(localStorage.getItem(FRAME_KEEP_KEY) || '4', 10);
+    return (v >= 2 && v <= 50) ? v : 4;
+  }catch(e){ return 4; }
+}
+function _msgOrd(m, i){
+  const t = (typeof _timeSec === 'function') ? _timeSec(String((m && m[2]) || '')) : NaN;
+  if (isFinite(t)) return t * 1000 + (i % 1000);
+  const s = String((m && m[6]) || '');
+  if (/^[0-9a-fA-F]{8}/.test(s)) return parseInt(s.slice(0, 8), 16) * 1000 + (i % 1000);
+  return i;
+}
 function _frameMsgs(msgs){
   if (!Array.isArray(msgs)) return [];
-  return msgs.map(function(m){
-    if (Array.isArray(m) && m[0] === 'a' && m.length > 7 && m[7]){
+  const rows = [];
+  msgs.forEach(function(m, i){
+    if (!Array.isArray(m)) return;
+    if (m[0] === 'u'){ rows.push({m: m, o: _msgOrd(m, i)}); return; }
+    if (m[0] === 'a'){
       const r = m.slice();
-      r[1] = String(m[7]);
-      return r;
+      /* 有终极回复（第 8 位）→ 正文只留终极回复；没有（账本兜底来源/生成中）→ 原文兜底，
+         绝不把整行丢掉（否则预备画面只剩人类发言）。 */
+      if (m.length > 7 && String(m[7] || '').trim()) r[1] = String(m[7]);
+      rows.push({m: r, o: _msgOrd(m, i)});
     }
-    return m;
   });
+  rows.sort(function(a, b){ return a.o - b.o; });
+  return rows.slice(-_frameKeepN()).map(function(x){ return x.m; });
 }
 function _idbFrame(){
   const s = S.snap || {};
