@@ -1,5 +1,5 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.14  日期 2026-11-05
+/* 手机缓存查看器.js（网页端）  版本 2.15  日期 2026-11-05
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
    两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
@@ -11,7 +11,7 @@
        服务端追加的专属词前后缀（(@fox-sys1)… 等）自动折叠成「系统/自定/人定/岗位」小按钮，
        与主界面显示一字一致。 */
 (function(){
-  var CV_VER = '2.14';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
+  var CV_VER = '2.15';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -169,11 +169,7 @@
     s.innerHTML = '<h3>会话预备画面 <span class="n">读取中…</span></h3>';
     host.appendChild(s);
     readSnapConvs().then(function(list){
-      var ck = curKey();
-      var live = list.filter(function(x){ return !ck || x.key === ck; });
-      var dead = list.length - live.length;
-      s.querySelector('.n').textContent = '生效 ' + live.length + ' 个 · 共 ' + list.length + ' 个'
-        + (dead ? '（' + dead + ' 个旧版本，切换时读不到）' : '');
+      s.querySelector('.n').textContent = list.length + ' 个会话有本地预备画面';
       if (!list.length){
         s.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'（本地还没有任何会话存帧）'}));
         return;
@@ -185,12 +181,12 @@
       list.forEach(function(it){
         var dup = it.sid && seen[it.sid];
         if (it.sid) seen[it.sid] = true;
-        var ok = (!ck || it.key === ck);
+        /* 2.15（老板 2026-11-05 21:51）：取消「生效/旧版本」标签——预备画面钥匙已与
+           版本号脱钩，全部记录一视同仁，删除只由「最近 N 条」管理。 */
         var card = document.createElement('div');
         card.className = 'cv_card';
         card.innerHTML = '<div class="cv_l1">' + esc(it.title || it.sid || it.sk) + '</div>' +
           '<div class="cv_l2">' +
-            '<span class="tg ' + (ok ? 'ok' : 'old') + '">' + (ok ? '生效' : '旧版本') + '</span>' +
             '<span>' + esc(it.ts ? new Date(it.ts).toLocaleString() : '—') + '</span>' +
             '<span>' + esc(it.n + ' 条') + (dup ? ' · 重复' : '') + '</span>' +
           '</div>';
