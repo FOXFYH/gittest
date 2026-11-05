@@ -3,7 +3,10 @@
   /* 2.100（老板 2026-10-20 12:16）：刷新/退出再进入后【继续锚定当前会话】——
      先把持久化的锚定恢复到 S（锚点优先级＝当前锚定，绝不套用更旧的、绝不回退
      上一个会话）。恢复后再 boot，snapIdbBoot 见已有锚定便不再自动吸附服务端选中行。 */
-  if (anchorRestore()) S.anchor_reask = 1;   /* 登录后补发一次 switch（继续向服务器提要求） */
+  /* 3.02（老板 2026-11-05 23:30）：刷新/重新打开＝【自己切自己】——
+     目标是本地持久化的「我想操作的会话」（LS_ANCHOR，唯一一套）。
+     首拍快照到达时走与点击会话完全相同的切换流程（见 事件总线.js）。 */
+  if (anchorRestore()){ S.anchor_reask = 1; S.bootSwitch = 1; }
   const sk = skelCacheLoad();
   if (sk && sk.convs && sk.convs.length)
     renderConvs(sk.convs, sk.conv_unread, sk.conv_unread_ids);
