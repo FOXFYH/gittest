@@ -219,7 +219,10 @@ function onEv(kind, v){
            目标＝本地持久化锚定（点选会话那一刻就落盘，绝不等成功信号）。
            走与「点击会话」完全同一条流程：锁目标 + 顶出预备画面 + 发 switch
            （悬浮提示/超时补发/切换成功提示全部同源）。 */
-        if (_boot && S.anchorSid && S.anchorFull && _aSel !== S.anchorSid){
+        /* 3.04（老板 2026-11-06 01:55）：**无条件**执行完整切换——即便服务端选中行
+           已经是该会话，也照样走 pendSwitchSet＋switch，与手指点击会话一字不差
+           （老板实测：以前只在"选中行不同"时才切，导致刷新后拿不到最新终答）。 */
+        if (_boot && S.anchorSid && S.anchorFull){
           try {
             pendSwitchSet(S.anchorTitle || '', S.anchorFull, S.anchorFull,
                           {lockTarget: true, deferRender: true});
