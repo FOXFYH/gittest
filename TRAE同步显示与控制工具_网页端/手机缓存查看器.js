@@ -1,10 +1,20 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.00  日期 2026-11-05
+/* 手机缓存查看器.js（网页端）  版本 2.13  日期 2026-11-05
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
-   两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。 */
+   两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
+
+   2.10（老板 2026-11-05 20:17）：
+     · 预备画面列表改「两行一张卡片」的网格——第 1 行会话名，第 2 行时间/条数/是否当前生效；
+       点卡片进入该会话的详情，顶部返回列表（不再一条占四行、也不再全堆在左侧）。
+     · 详情里的人类发言**复用主代码同一条渲染管线**（stripHeadDid + _mdBody + foxHintBind）：
+       服务端追加的专属词前后缀（(@fox-sys1)… 等）自动折叠成「系统/自定/人定/岗位」小按钮，
+       与主界面显示一字一致。 */
 (function(){
+  var CV_VER = '2.13';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
   var built = false, tab = 'preview';
+  var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
+  var detailItem = null;
 
   function injectStyle(){
     if (document.getElementById('cv_style')) return;
@@ -33,12 +43,26 @@
       '.cv_store .sn{font-size:13px;color:#444}.cv_rec{margin:6px 0 0}' +
       '.cv_rec summary{cursor:pointer;font-size:12px;color:#337ab7;word-break:break-all}' +
       '.cv_empty{padding:14px;font-size:13px;color:#8a98a6}.cv_bad{padding:10px 14px;font-size:12px;color:#c62828}' +
-      '.cv_conv{padding:10px 14px;border-bottom:1px solid #f1f4f7}' +
-      '.cv_conv .nm{font-size:14px;font-weight:600;word-break:break-all}' +
-      '.cv_conv button{margin-top:8px;border:1px solid #2f6fed;background:#2f6fed;color:#fff;border-radius:8px;padding:7px 12px;font-size:13px}' +
-      '.cv_msg{padding:8px 10px;margin:6px 0 0;border-radius:8px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-all}' +
+      /* 2.10：两行一张卡片的网格（左列/右侧都用上，不再一条占四行） */
+      '.cv_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}' +
+      '.cv_card{background:#fff;border:1px solid #e6ebf0;border-radius:12px;padding:10px 12px;min-height:56px;' +
+        'display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}' +
+      '.cv_card:active{background:#f2f6ff}' +
+      '.cv_l1{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.cv_l2{margin-top:5px;font-size:11px;color:#8a98a6;display:flex;align-items:center;gap:8px;' +
+        'white-space:nowrap;overflow:hidden}' +
+      '.cv_l2 .tg{flex:none;border-radius:6px;padding:1px 5px}' +
+      '.cv_l2 .tg.ok{background:#e8f7ee;color:#1a7f37}' +
+      '.cv_l2 .tg.old{background:#fdecea;color:#c62828}' +
+      /* 2.10：详情页（单会话） */
+      '.cv_dhd{display:flex;align-items:center;gap:8px;margin:0 0 10px}' +
+      '.cv_dhd button{flex:none;border:1px solid #2f6fed;background:#fff;color:#2f6fed;border-radius:8px;padding:6px 10px;font-size:13px}' +
+      '.cv_dhd .dt{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.cv_msg{padding:8px 10px;margin:6px 0 0;border-radius:8px;font-size:13px;line-height:1.55;word-break:break-word}' +
       '.cv_msg.u{background:#eef4fb}.cv_msg.a{background:#fff;border:1px solid #eef1f4}' +
-      '.cv_msg .who{font-size:11px;color:#8a98a6;margin-bottom:3px}';
+      '.cv_msg .who{font-size:11px;color:#8a98a6;margin-bottom:3px}' +
+      '.cv_msg .body{font-size:13px;line-height:1.55}' +
+      '.cv_msg .body p{margin:0 0 6px}.cv_msg .body p:last-child{margin-bottom:0}';
     document.head.appendChild(st);
   }
   function fmtSize(n){
@@ -68,6 +92,9 @@
     out.sort(function(a,b){ return b.n - a.n; });
     return out;
   }
+  function curKey(){
+    try { return (typeof cacheKeyNow === 'function') ? cacheKeyNow() : ''; } catch(e){ return ''; }
+  }
 
   /* ---------- IndexedDB：会话预备画面（snap_conv） ---------- */
   function openSnapDB(){
@@ -87,7 +114,7 @@
           var c = rq.result;
           if (c){
             var v = c.value || {};
-            out.push({sk: v.sk || c.key, title: v.title || '', sid: v.sid || '',
+            out.push({sk: v.sk || c.key, key: v.key || '', title: v.title || '', sid: v.sid || '',
                       port: v.port, ts: v.ts || 0,
                       n: (v.frame && v.frame.msgs || []).length,
                       msgs: (v.frame && v.frame.msgs) || []});
@@ -103,56 +130,109 @@
     if (Array.isArray(m)) return {role: m[0], text: m[1] || '', tm: m[2] || '', mid: m[6] || ''};
     return {role: (m && (m.role || m.r)) || '', text: (m && (m.text || m.t)) || '', tm: '', mid: ''};
   }
-  function renderMsgs(msgs, host){
-    host.innerHTML = '';
-    msgs.forEach(function(m){
-      var x = rowText(m);
-      var d = document.createElement('div');
-      d.className = 'cv_msg ' + (x.role === 'u' ? 'u' : 'a');
-      d.innerHTML = '<div class="who">' + esc((x.role === 'u' ? '你' : 'AI') +
-        (x.tm ? ' · ' + x.tm : '') + (x.mid ? ' · ' + String(x.mid).slice(0, 12) : '')) + '</div>' +
-        esc(x.text);
-      host.appendChild(d);
-    });
+  /* 2.10：单条消息走主代码同一条渲染管线（专属词前后缀折叠成按钮，不再整段铺开）。 */
+  function bodyHtml(text, isUser){
+    var src = String(text == null ? '' : text);
+    if (isUser && typeof stripHeadDid === 'function'){ try { src = stripHeadDid(src); } catch(e){} }
+    if (typeof _mdBody === 'function'){
+      try { return '<div class="body">' + _mdBody(src) + '</div>'; } catch(e){}
+    }
+    return '<div class="body">' + esc(src) + '</div>';
   }
+  function bindFx(host){
+    if (typeof foxHintBind === 'function'){ try { foxHintBind(host); } catch(e){} }
+  }
+
+  /* ---------- ① 会话预备画面：两行一张卡片 ---------- */
   function renderPreview(host){
     host.innerHTML = '';
+    if (view === 'detail' && detailItem){ renderDetail(host, detailItem); return; }
     var s = document.createElement('div');
     s.className = 'cv_sec';
     s.innerHTML = '<h3>会话预备画面 <span class="n">读取中…</span></h3>';
     host.appendChild(s);
     readSnapConvs().then(function(list){
-      s.querySelector('.n').textContent = list.length + ' 个会话有本地预备画面';
+      var ck = curKey();
+      var live = list.filter(function(x){ return !ck || x.key === ck; });
+      var dead = list.length - live.length;
+      s.querySelector('.n').textContent = '生效 ' + live.length + ' 个 · 共 ' + list.length + ' 个'
+        + (dead ? '（' + dead + ' 个旧版本，切换时读不到）' : '');
       if (!list.length){
         s.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'（本地还没有任何会话存帧）'}));
         return;
       }
+      var grid = document.createElement('div');
+      grid.className = 'cv_grid';
+      grid.style.marginTop = '10px';
+      var seen = {};
       list.forEach(function(it){
-        var row = document.createElement('div');
-        row.className = 'cv_conv';
-        row.innerHTML = '<div class="nm">' + esc(it.title || it.sid || it.sk) + '</div>' +
-          '<div class="cv_meta">' + esc('sid=' + it.sid) + '\n' +
-          esc('缓存时间 ' + (it.ts ? new Date(it.ts).toLocaleString() : '—') + ' · ' + it.n + ' 条') + '</div>' +
-          '<button>查看这份预备画面</button>';
-        var box = document.createElement('div');
-        box.style.display = 'none';
-        row.appendChild(box);
-        row.querySelector('button').onclick = function(){
-          if (box.style.display === 'none'){
-            box.style.display = 'block';
-            renderMsgs(it.msgs, box);
-            this.textContent = '收起';
-          } else {
-            box.style.display = 'none';
-            this.textContent = '查看这份预备画面';
-          }
+        var dup = it.sid && seen[it.sid];
+        if (it.sid) seen[it.sid] = true;
+        var ok = (!ck || it.key === ck);
+        var card = document.createElement('div');
+        card.className = 'cv_card';
+        card.innerHTML = '<div class="cv_l1">' + esc(it.title || it.sid || it.sk) + '</div>' +
+          '<div class="cv_l2">' +
+            '<span class="tg ' + (ok ? 'ok' : 'old') + '">' + (ok ? '生效' : '旧版本') + '</span>' +
+            '<span>' + esc(it.ts ? new Date(it.ts).toLocaleString() : '—') + '</span>' +
+            '<span>' + esc(it.n + ' 条') + (dup ? ' · 重复' : '') + '</span>' +
+          '</div>';
+        card.onclick = function(){
+          detailItem = it; view = 'detail';
+          renderPreview(host);
+          host.scrollTop = 0;
         };
-        s.appendChild(row);
+        grid.appendChild(card);
       });
+      s.appendChild(grid);
     });
   }
+  /* 2.10：单会话详情（人类发言按主代码格式折叠） */
+  function renderDetail(host, it){
+    var bar = document.createElement('div');
+    bar.className = 'cv_dhd';
+    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(it.title || it.sid || it.sk) + '</div>';
+    bar.querySelector('button').onclick = function(){ view = 'list'; detailItem = null; renderPreview(host); host.scrollTop = 0; };
+    host.appendChild(bar);
+    var s = document.createElement('div');
+    s.className = 'cv_sec';
+    s.innerHTML = '<h3>预备画面 · ' + esc(it.n + ' 条') + ' <span class="n">'
+      + esc(it.ts ? new Date(it.ts).toLocaleString() : '—') + '</span></h3>';
+    var box = document.createElement('div');
+    box.style.padding = '4px 10px 12px';
+    if (!it.msgs.length){
+      box.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'（这份预备画面是空的）'}));
+    } else {
+      var lastTm = '';
+      it.msgs.forEach(function(m){
+        var x = rowText(m);
+        var user = x.role === 'u';
+        /* 2.11（老板 2026-11-05 20:21）：ID 显示**完整** mid（原 slice(0,12) 是显示截断）；
+           时间优先用记录里的完整值（≥10 位＝带日期），残缺（只有 HH:MM）时复用主代码
+           _midTime —— mid 前 8 位十六进制＝Unix 秒，可精确到秒。 */
+        var tm = String(x.tm || '');
+        if (tm.length < 10 && typeof _midTime === 'function'){
+          try { tm = _midTime(m) || tm; } catch(e){}
+        }
+        /* 2.12：AI 行自身时间取不到（无 tm、mid 也非 hex 临时号）时，沿用上一条的时间——
+           与主界面 resolveTimes 同一口径；人类行算出的时间成为后续 AI 行的兜底。 */
+        if (!tm && !user) tm = lastTm;
+        if (tm) lastTm = tm;
+        var mid = String(x.mid || '');
+        var d = document.createElement('div');
+        d.className = 'cv_msg ' + (user ? 'u' : 'a');
+        d.innerHTML = '<div class="who">' + esc((user ? '你' : 'AI') +
+          (tm ? ' · ' + tm : '') + (mid ? ' · ' + mid : '')) + '</div>' +
+          bodyHtml(x.text, user);
+        box.appendChild(d);
+      });
+      bindFx(box);
+    }
+    s.appendChild(box);
+    host.appendChild(s);
+  }
 
-  /* ---------- 全部缓存（原功能） ---------- */
+  /* ---------- ② 全部缓存 ---------- */
   function sec(title, count){
     var d = document.createElement('div'); d.className = 'cv_sec';
     d.innerHTML = '<h3>' + esc(title) + ' <span class="n">' + esc(count || '') + '</span></h3>';
@@ -171,7 +251,7 @@
     });
     return d;
   }
-  function renderAll(host){
+  function renderAllCache(host){
     host.innerHTML = '';
     var ov = sec('概览', '');
     var lsAll = readLS();
@@ -259,17 +339,25 @@
     if (built) return; built = true;
     injectStyle();
     var pg = document.createElement('div'); pg.id = 'cv_page';
-    pg.innerHTML = '<div id="cv_hd"><button id="cv_back">‹ 返回</button><div class="t">手机缓存查看器</div>' +
+    pg.innerHTML = '<div id="cv_hd"><button id="cv_back">‹ 返回</button><div class="t">手机缓存查看器 v' + CV_VER + '</div>' +
       '<button id="cv_reload">刷新</button></div>' +
       '<div id="cv_tabs"><button id="cv_t1" class="on">① 会话预备画面</button><button id="cv_t2">② 全部缓存</button></div>' +
       '<div id="cv_bd"></div>';
     document.body.appendChild(pg);
     var bd = pg.querySelector('#cv_bd');
     pg.querySelector('#cv_back').onclick = function(){ pg.classList.remove('on'); };
-    function draw(){ tab === 'preview' ? renderPreview(bd) : renderAll(bd); }
-    pg.querySelector('#cv_reload').onclick = draw;
-    pg.querySelector('#cv_t1').onclick = function(){ tab='preview'; this.classList.add('on'); pg.querySelector('#cv_t2').classList.remove('on'); draw(); };
-    pg.querySelector('#cv_t2').onclick = function(){ tab='all'; this.classList.add('on'); pg.querySelector('#cv_t1').classList.remove('on'); draw(); };
+    function draw(){
+      if (tab === 'preview') renderPreview(bd); else renderAllCache(bd);
+    }
+    pg.querySelector('#cv_reload').onclick = function(){ view = 'list'; detailItem = null; draw(); };
+    pg.querySelector('#cv_t1').onclick = function(){
+      tab = 'preview'; view = 'list'; detailItem = null;
+      this.classList.add('on'); pg.querySelector('#cv_t2').classList.remove('on'); draw();
+    };
+    pg.querySelector('#cv_t2').onclick = function(){
+      tab = 'all';
+      this.classList.add('on'); pg.querySelector('#cv_t1').classList.remove('on'); draw();
+    };
     window.cvOpen = function(){ pg.classList.add('on'); draw(); };
   }
   function bind(){
