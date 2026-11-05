@@ -443,10 +443,13 @@ function _frameMsgs(msgs){
     if (!Array.isArray(m)) return;
     if (m[0] === 'u'){ rows.push({m: m, o: _msgOrd(m, i)}); return; }
     if (m[0] === 'a'){
+      /* 3.04（老板 2026-11-06 01:55）：预备画面【只存 AI 终极回复】——
+         第 8 位没有终答＝还在思维流阶段 ⇒ 整行不收，绝不把思维流存成"完整对话"。
+         （思维流与终答是同一个 mid；把思维流存下来会让下一次刷新误以为已完整，
+           看不到终答。只有终答到位才落盘，这一轮才算完整。） */
+      if (!(m.length > 7 && String(m[7] || '').trim())) return;
       const r = m.slice();
-      /* 有终极回复（第 8 位）→ 正文只留终极回复；没有（账本兜底来源/生成中）→ 原文兜底，
-         绝不把整行丢掉（否则预备画面只剩人类发言）。 */
-      if (m.length > 7 && String(m[7] || '').trim()) r[1] = String(m[7]);
+      r[1] = String(m[7]);
       rows.push({m: r, o: _msgOrd(m, i)});
     }
   });
