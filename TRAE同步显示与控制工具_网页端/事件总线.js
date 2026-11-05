@@ -217,6 +217,9 @@ function onEv(kind, v){
         if (S.anchorFull && S.anchorSid && _aSel && _aSel !== S.anchorSid){
           try { sendCmd('switch', S.anchorFull); } catch(e){}
         }
+        /* 3.01（老板 2026-11-05 23:25）：刷新/刚登录＝切换——无论桌面选中行是否
+           已经是本地锚定，都向服务端要一次该会话的【全额直播帧】（pane_req）。 */
+        try { if (typeof paneRefreshNow === 'function') paneRefreshNow(); } catch(e){}
       }
       renderAll();
       /* 2.98（标准§二之一「不是等刻度」）：新快照到达即触发一次落盘检查——
