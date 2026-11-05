@@ -481,10 +481,24 @@ function _idbReq(store, mode, fn){
     tx.onabort = () => rej(tx.error);
   })).catch(e => { throw e; });
 }
+/* 2.14（老板 2026-11-05 20:38）：本地缓存只记「人类发言 ＋ AI 终极回复」——
+   AI 行的第 8 位（index 7）＝完成卡摘要（终极回复，服务端 TRAE界面JS 已带回）；
+   有就只存它，思维流不进缓存；没有（生成中/无终答）才保留原文兜底，绝不让缓存变空。 */
+function _frameMsgs(msgs){
+  if (!Array.isArray(msgs)) return [];
+  return msgs.map(function(m){
+    if (Array.isArray(m) && m[0] === 'a' && m.length > 7 && m[7]){
+      const r = m.slice();
+      r[1] = String(m[7]);
+      return r;
+    }
+    return m;
+  });
+}
 function _idbFrame(){
   const s = S.snap || {};
   return {online: !!s.online, login: s.login,
-          msgs: (Array.isArray(s.msgs) ? s.msgs.slice() : []),   /* 2.126：整帧原样 */
+          msgs: _frameMsgs(Array.isArray(s.msgs) ? s.msgs.slice() : []),   /* 2.14：只记终极回复 */
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
           ask: s.ask || null, pend: [], attach: s.attach || [],
@@ -822,7 +836,7 @@ function paneFrameStore(sid, title, v){
     const _sk = _frameMemKey(_sid), key = cacheKeyNow(), now = Date.now();
     const frame = {online: !!(S.snap && S.snap.online),
                    login: (S.snap && S.snap.login),
-                   msgs: v.msgs.slice(),   /* 2.126：整帧原样 */
+                   msgs: _frameMsgs(v.msgs.slice()),   /* 2.14：只记终极回复 */
                    finish: v.finish || null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
                    attach: [], model: ''};
