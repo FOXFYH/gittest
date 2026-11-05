@@ -71,6 +71,7 @@ function onEv(kind, v){
       /* 切换在途：目标正文真到 ⇒ 立即收口（解锁持屏，交给 renderAll 正常让位） */
       const _spv = S.switch_pend;
       if (_spv && _spv.lockTarget && !_spv.arrived
+          && Array.isArray(_inc.msgs) && _inc.msgs.length
           && (_spv.sid ? String(_spv.sid) === psid
                        : (S.anchorSid && 稳定键(psid, pv.title || '') === S.anchorSid)))
         _spv.arrived = true;
@@ -138,7 +139,8 @@ function onEv(kind, v){
       if (_stillOld){
         /* 过渡期：锁死目标（正文取 B 的帧），快照里 A 的正文不上屏 */
       } else if (S.livePend && liveKey && liveKey === S.anchorSid){
-        if (_sp0 && _sp0.lockTarget) _sp0.arrived = true;   /* 目标正文已到 → 收口 */
+        if (_sp0 && _sp0.lockTarget && Array.isArray(v.msgs)
+            && v.msgs.length) _sp0.arrived = true;   /* 2.15：空帧不算到达 */
         liveClear();
       }
       /* 2.40：网页端专享字段落全局——备注字典 + 定时自我激活任务列表，
