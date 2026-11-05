@@ -13,7 +13,7 @@ function checkVerBump(){
   if (bumped){
     try { localStorage.removeItem(LS_SKEL);
           localStorage.removeItem(LS_HIST); } catch(e){}
-    try { snapIdbClearAll(); } catch(e){}
+    try { snapIdbClearList(); } catch(e){}   /* 2.17：只清列表骨架，预备画面保留 */
     _lsPurgeSnapKeys();
     S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histPrevRaw = [];
     /* 2.130：换代 → 内存存帧一并作废，再按新键重新全量预读 */
@@ -26,7 +26,7 @@ function checkVerBump(){
   cacheKey = k;
   /* 2.130：缓存键定了（首次 hello 带 srvVer）→ 全部会话存帧预读进内存 */
   try {
-    if (bumped) snapIdbClearAll().then(() => snapIdbPrewarm(k));
+    if (bumped) snapIdbClearList().then(() => snapIdbPrewarm(k));
     else snapIdbPrewarm(k);
   } catch(e){}
 }
@@ -445,10 +445,10 @@ const _idbLastAtBy = {}, _idbLastFpBy = {};
    2.130：新增标题索引 _frameMemByTitle（键＝cacheKey|标题）——存帧里 sid 与点击时的
    稳定键对不上（改名/非数字 SID）时仍能同步命中；并在打开页面时全量预读进内存。 */
 const _frameMem = {}, _frameMemByTitle = {};
-function _frameMemKey(sid){ return cacheKeyNow() + '|' + sid; }
+function _frameMemKey(sid){ return frameKey() + '|' + sid; }
 function _frameTitleKey(title){
   const t = String(title || '').trim();
-  return t ? cacheKeyNow() + '|' + t : '';
+  return t ? frameKey() + '|' + t : '';
 }
 function idbOpen(){
   if (_idbP) return _idbP;
@@ -487,6 +487,11 @@ function _idbReq(store, mode, fn){
    ③ N 存 localStorage（手机缓存查看器里可直接改，默认 4）。
    不再写「碎片」：最新一轮.js 已停用。 */
 const FRAME_KEEP_KEY = 'trae_webm_frame_n';
+/* 2.17（老板 2026-11-05 21:51）：预备画面【不再跟版本号走】——钥匙固定为 'frame'。
+   老板原意：版本升级清缓存可以，但预备画面现在有「最近 N 条」自动管理，不必再靠
+   版本号一刀清；升级也不该把已有预备画面变成「旧版本」或删掉。 */
+const FRAME_KEY = 'frame';
+function frameKey(){ return FRAME_KEY; }
 function _frameKeepN(){
   try{
     const v = parseInt(localStorage.getItem(FRAME_KEEP_KEY) || '4', 10);
@@ -607,7 +612,7 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
    磁盘里同一会话有多条时按「只进不退」取最新那条（同 ts 取条数多的）。 */
 let _prewarmKey = '';
 function snapIdbPrewarm(key){
-  const k = key || cacheKeyNow();
+  const k = key || frameKey();
   if (_prewarmKey === k) return Promise.resolve(0);
   _prewarmKey = k;
   return _idbReq('snap_conv', 'readonly', st => {
@@ -617,7 +622,8 @@ function snapIdbPrewarm(key){
       const c = rq.result;
       if (!c){ return; }
       const v = c.value || {};
-      if (v.key === k && v.sid && v.frame
+      if ((!v.key || v.key === k || v.key === FRAME_KEY || v.key.indexOf('|') > 0)
+          && v.sid && v.frame
           && Array.isArray(v.frame.msgs) && v.frame.msgs.length) out.push(v);
       c.continue();
     };
@@ -670,7 +676,7 @@ function snapIdbTick(force){
   const frame = _idbFrame();
   const _fp = msgsFp(frame.msgs);
   if (force !== true && !_first && _fp === _idbLastFpBy[_sk]) return;   /* 有更新才落盘 */
-  const key = cacheKeyNow();
+  const key = frameKey();      /* 2.17：预备画面钥匙固定，升级不再失效 */
   /* 2.126（老板 2026-10-23「只保留一份最新、完整、只进不退」）：走统一闸——
      旧帧／空帧／碎片帧直接拒收（不写内存、不写 IDB）；节流记账与"首份"标记
      只在真正放行后更新，避免"被拒也算已落"导致后续不再落盘。
@@ -682,7 +688,7 @@ function snapIdbTick(force){
       if (_first) S.idbFirstFull = 0;
     }, force === true || _first);
   _idbReq('snap_list', 'readwrite', st => st.put(
-    {sk: key, key: key, ts: now, convs: s.convs,
+    {sk: cacheKeyNow(), key: cacheKeyNow(), ts: now, convs: s.convs,
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
   )).catch(() => {});
 }
@@ -710,7 +716,7 @@ function snapIdbGet(sid, title){
      最新存帧（同会话覆盖，天然只留一份）；取不到再按 title 反查兜底。
      只有确属目标会话才返回；否则 ⇒ null（调用方留白等待，绝不回填旧会话）。 */
   if (!sid) return Promise.reject(new Error('无 sid'));
-  const key = cacheKeyNow();
+  const key = frameKey();
   const t = String(title || '').trim();
   return _idbReq('snap_conv', 'readonly', st => st.get(key + '|' + sid))
     .then(rec => {
@@ -721,6 +727,10 @@ function snapIdbGet(sid, title){
 }
 function snapIdbListGet(){
   return _idbReq('snap_list', 'readonly', st => st.get(cacheKeyNow()));
+}
+/* 2.17：版本换代只清「会话列表骨架」，预备画面（snap_conv）不再清 */
+function snapIdbClearList(){
+  return _idbReq('snap_list', 'readwrite', st => st.clear()).catch(() => {});
 }
 /* 剪枝①：超 10 天的记录按主键逐个删（绝不整库清空），单轮上限 IDB_PRUNE_MAX */
 function snapIdbPrune(){
@@ -856,7 +866,7 @@ function paneFrameStore(sid, title, v){
   try{
     if (!sid || !v || !Array.isArray(v.msgs)) return false;
     const _sid = 稳定键(sid, title || '') || String(sid);
-    const _sk = _frameMemKey(_sid), key = cacheKeyNow(), now = Date.now();
+    const _sk = _frameMemKey(_sid), key = frameKey(), now = Date.now();
     const frame = {online: !!(S.snap && S.snap.online),
                    login: (S.snap && S.snap.login),
                    msgs: _frameMsgs(v.msgs.slice()),   /* 2.14：只记终极回复 */
@@ -908,4 +918,6 @@ function snapIdbBoot(sk){
   }catch(e){}
 }
 setInterval(() => snapIdbTick(), 10000);                       /* 2.98：10 秒节流（原 5 秒） */
-setInterval(() => { snapIdbPrune(); snapIdbPruneMissing(); }, 10 * 60 * 1000);
+/* 2.17（老板 2026-11-05 21:53）：两处自动剪枝停用——预备画面改由「最近 N 条」
+   自行管理删除，绝不再因「不在当前列表/超天数」误删。 */
+/* setInterval(() => { snapIdbPrune(); snapIdbPruneMissing(); }, 10 * 60 * 1000); */
