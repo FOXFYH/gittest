@@ -452,8 +452,17 @@ function _frameMsgs(msgs, idle){
              已是最终版，绝不再把 AI 行丢掉）。 */
       const r = m.slice();
       const fin = (m.length > 7) ? String(m[7] || '').trim() : '';
-      if (fin) r[1] = fin;
-      else if (idle === false) return;
+      if (fin){
+        r[1] = fin;
+      } else {
+        /* 3.06（老板 2026-11-06 03:05「有时又变回全是人类」）：不再用 sendIdle 判丢
+           （快照没带空闲标记时会把 AI 行全部丢掉）。改为【只按思维流关键词】判：
+           正文开头/前段命中「思考过程 / 已深度思考 / 正在思考」才视为思维流、不落盘；
+           其余 AI 行一律保留原文（宁可留着真实回答，也绝不只剩人类发言）。 */
+        const _t = String(r[1] || '');
+        if (/^(思考过程|思考中|正在思考|已深度思考)/.test(_t.trim().slice(0, 40))
+            || /思考过程|已深度思考|正在思考/.test(_t.slice(0, 200))) return;
+      }
       rows.push({m: r, o: _msgOrd(m, i)});
     }
   });
