@@ -838,7 +838,13 @@ function snapIdbBoot(sk){
       if (!sel) sel = r;
       if (r[2]){ sel = r; break; }
     }
-    if (!sel || !sel[4]) return;
+    if (!sel || !sel[4]){
+      /* 3.01（老板 2026-11-05 23:25「刷新/刚打开一直白屏」）：没有会话列表
+         （刚升级清空骨架、或首拍还没到）时，直接用【本地持久化锚定】顶出
+         预备画面——刷新/登录＝切换，绝不留白。 */
+      if (S.anchorSid) snapIdbShow(S.anchorSid, S.anchorTitle || '');
+      return;
+    }
     const key = 稳定键(sel[4], sel[1]);
     if (!key) return;
     /* 首屏无锚定：先锚定到上次看的会话（跨刷新续锚，与「网页版锚定自己选的会话」同源） */
