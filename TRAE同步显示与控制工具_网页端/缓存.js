@@ -436,20 +436,24 @@ function _msgOrd(m, i){
   if (/^[0-9a-fA-F]{8}/.test(s)) return parseInt(s.slice(0, 8), 16) * 1000 + (i % 1000);
   return i;
 }
-function _frameMsgs(msgs){
+function _frameMsgs(msgs, idle){
   if (!Array.isArray(msgs)) return [];
   const rows = [];
   msgs.forEach(function(m, i){
     if (!Array.isArray(m)) return;
     if (m[0] === 'u'){ rows.push({m: m, o: _msgOrd(m, i)}); return; }
     if (m[0] === 'a'){
-      /* 3.04（老板 2026-11-06 01:55）：预备画面【只存 AI 终极回复】——
-         第 8 位没有终答＝还在思维流阶段 ⇒ 整行不收，绝不把思维流存成"完整对话"。
-         （思维流与终答是同一个 mid；把思维流存下来会让下一次刷新误以为已完整，
-           看不到终答。只有终答到位才落盘，这一轮才算完整。） */
-      if (!(m.length > 7 && String(m[7] || '').trim())) return;
+      /* 3.05（老板 2026-11-06 03:02「连续 4 条全是人类」）：3.04 把「无第 8 位的
+         AI 行」整行丢弃，导致 DOM 未给完成卡摘要的 AI 行全没了、只剩人类。
+         现改为三分支：
+           ① 有终答（第 8 位非空）→ 正文＝终答；
+           ② 生成中（idle===false）且无终答 → 思维流，整行不存；
+           ③ 已结束/未知（idle true 或未传）但无终答字段 → **原文兜底**（此时原文
+             已是最终版，绝不再把 AI 行丢掉）。 */
       const r = m.slice();
-      r[1] = String(m[7]);
+      const fin = (m.length > 7) ? String(m[7] || '').trim() : '';
+      if (fin) r[1] = fin;
+      else if (idle === false) return;
       rows.push({m: r, o: _msgOrd(m, i)});
     }
   });
@@ -459,7 +463,7 @@ function _frameMsgs(msgs){
 function _idbFrame(){
   const s = S.snap || {};
   return {online: !!s.online, login: s.login,
-          msgs: _frameMsgs(Array.isArray(s.msgs) ? s.msgs.slice() : []),   /* 2.14：只记终极回复 */
+          msgs: _frameMsgs(Array.isArray(s.msgs) ? s.msgs.slice() : [], !!s.sendIdle),  /* 3.05 */
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
           ask: s.ask || null, pend: [], attach: s.attach || [],
@@ -803,7 +807,7 @@ function paneFrameStore(sid, title, v){
     const _sk = _frameMemKey(_sid), key = frameKey(), now = Date.now();
     const frame = {online: !!(S.snap && S.snap.online),
                    login: (S.snap && S.snap.login),
-                   msgs: _frameMsgs(v.msgs.slice()),   /* 2.14：只记终极回复 */
+                   msgs: _frameMsgs(v.msgs.slice(), true),   /* 3.05：pane 帧按已结束处理 */
                    finish: v.finish || null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
                    attach: [], model: ''};
