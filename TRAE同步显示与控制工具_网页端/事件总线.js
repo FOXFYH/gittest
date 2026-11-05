@@ -229,8 +229,10 @@ function onEv(kind, v){
         } else if (S.anchorFull && S.anchorSid && _aSel && _aSel !== S.anchorSid){
           try { sendCmd('switch', S.anchorFull); } catch(e){}
         }
-        /* 无论是否真发了 switch，都再要一次该会话的全额直播帧（保证正文到） */
-        try { if (typeof paneRefreshNow === 'function') paneRefreshNow(); } catch(e){}
+        /* 3.03（老板 2026-11-05 23:49「一直显示已提交排队中」）：这里只【静默】
+           向服务端要一次全额帧——绝不再走 paneRefreshNow（它挂 srvOp 用户提示，
+           刷新/重连场景属误报，会一直挂在「已提交 / 待确认」）。 */
+        try { if (S.anchorFull) sendJson({t: 'pane_req', sid: S.anchorFull}); } catch(e){}
       }
       renderAll();
       /* 2.98（标准§二之一「不是等刻度」）：新快照到达即触发一次落盘检查——
