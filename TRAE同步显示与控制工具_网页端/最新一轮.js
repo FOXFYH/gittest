@@ -1,5 +1,5 @@
 'use strict';
-/* 最新一轮.js（网页端）  版本 1.00  日期 2026-11-05
+/* 最新一轮.js（网页端）  版本 2.00  日期 2026-11-05
    老板要求：每个会话本地永远保留「最新一轮完整问答」（人问 + AI 终答），
    来消息就更新、不节流、只进不退；切会话时先显示它，绝不先给旧画面。
 
@@ -36,7 +36,10 @@
       var fp = fpOf(q, ai);
       if (lastFp[sid] === fp) return;          /* 没变化，不重写 */
       lastFp[sid] = fp;
-      var frame = {msgs: ms.slice(ui), finish: null};
+      var _sl = ms.slice(ui);
+      /* 2.00（老板 2026-11-05 20:38）：只记人类发言＋AI 终极回复（第 8 位），思维流不落盘 */
+      if (typeof _frameMsgs === 'function'){ try { _sl = _frameMsgs(_sl); } catch(e){} }
+      var frame = {msgs: _sl, finish: null};
       var sk = (typeof _frameMemKey === 'function') ? _frameMemKey(sid) : sid;
       try { _frameMem[sk] = frame; } catch(e){}
       if (typeof _idbReq === 'function'){
