@@ -813,7 +813,8 @@ function snapIdbShow(sid, title){
     /* 2.126：IDB 回读校正内存帧同样守「只进不退」——旧帧不得回盖内存里的新帧 */
     if (rec && rec.frame && (!_mem || _frameNewerOrEqual(rec.frame, _mem)))
       _frameMem[_mk] = rec.frame;
-    if (S.liveGot) return;                      /* 直播帧已到，别用旧帧盖真画面 */
+    if (S.liveGot && Array.isArray((S.snap || {}).msgs)
+        && S.snap.msgs.length) return;           /* 2.15：真画面确有正文才不复盖；空则继续用缓存 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
     if (S.livePrefetch) return;                 /* 2.67：服务端已预取该会话正文帧，别用本地存帧覆盖 */
     if (_mem) return;                           /* 2.112：内存帧已上屏（且更新），不拿 IDB 旧帧回盖 */
@@ -849,6 +850,13 @@ function paneFrameStore(sid, title, v){
 }
 /* 直播帧到达（专属于当前锚定会话）→ 停用本地帧，回落真快照 */
 function liveClear(){
+  /* 2.15（老板 2026-11-05 20:41「33 个都有缓存，签哪个都不该白屏」）：
+     只有【真快照确有正文】才撤本地存帧覆盖；框架帧/空帧/正文未到的这一拍
+     一律保留 S.liveFrame 继续顶住，绝不给白屏。 */
+  if (!(S.snap && Array.isArray(S.snap.msgs) && S.snap.msgs.length)
+      && S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length){
+    return;
+  }
   S.livePend = ''; S.liveGot = true; S.liveFrame = null;   /* 2.57B：真帧到手撤存帧 */
   S.livePrefetch = false;                                  /* 2.67：预取标记一并清 */
   snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
