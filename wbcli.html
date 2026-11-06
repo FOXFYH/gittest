@@ -449,35 +449,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   border-bottom:1px solid var(--bd);}
 #ck_wrap{flex:1; overflow:auto; -webkit-overflow-scrolling:touch; background:#fff;
   overscroll-behavior:contain; padding:6px 8px;}
-/* ── 2.21：对话记录页（全屏覆盖）——列历史会话 + 看历史轮（只读，C2）── */
-#page_hist{position:fixed; inset:0; z-index:40; background:#f2f4f7;
-  display:none; flex-direction:column;}
-#page_hist.on{display:flex;}
-#page_hist .nhdr b{flex:1; min-width:0; overflow:hidden; white-space:nowrap;
-  text-overflow:ellipsis;}
-#hist_hint{padding:8px 12px; color:var(--gray); font-size:11px; line-height:1.6;
-  background:#fff; border-bottom:1px solid var(--bd);}
-#hist_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  background:#fff; overscroll-behavior:contain;}
-.hrow{display:flex; align-items:center; gap:8px; padding:10px 14px;
-  cursor:pointer; border-bottom:1px solid #eef1f4; font-size:13.5px;}
-.hrow:active{background:#eef4fb;}
-.hrow .hname{flex:1; min-width:0; overflow:hidden; white-space:nowrap;
-  text-overflow:ellipsis;}
-.hrow .hmeta{flex:none; color:var(--gray); font-size:11px;
-  font-family:Consolas,monospace;}
-.hrow.hcur .hname{color:var(--blue); font-weight:bold;}
-#hist_body{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  background:#fff; overscroll-behavior:contain; padding:8px 10px;
-  display:none;}
-.hmsg{margin:6px 0; padding:7px 10px; border-radius:9px; font-size:13px;
-  line-height:1.55; white-space:pre-wrap; word-break:break-word;}
-.hmsg.u{background:#e3f0fc;}
-.hmsg.a{background:#f4f5f7;}
-.hmsg .hrole{font-size:11px; color:var(--gray); margin-bottom:2px;}
-#hist_more{display:block; margin:8px auto 4px; font-size:12px; padding:5px 14px;}
-.hback{display:block; margin:4px 0 6px; font-size:12px; padding:4px 10px;
-  color:var(--blue);}
 #ck_tbl{border-collapse:collapse; width:100%; font-size:12px; margin-top:0;}
 #ck_tbl th,#ck_tbl td{border:1px solid var(--bd); padding:4px 6px;
   text-align:left; white-space:nowrap;}
@@ -629,7 +600,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <button id="btn_urgent" title="加急插入对话流（勾上后本次发送若进托管队列则立即插队发送、不干等队尾；默认不记忆）" data-page-node-id="WBurgentT63Btn20261019">急</button>
   <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
-  <input type="file" id="file_pick" multiple style="position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
+  <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
 
 <button id="fexit" title="退出历史全屏">↓ 回到最新</button>
@@ -657,7 +628,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔 10 秒）">✍ 批量签到</div>
     <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
-    <div class="dmi" id="btn_hist" title="对话记录（只读查历史）">📜 对话记录</div>
+    <div class="dmi" id="btn_turnview" title="本地轮播账（切会话先顶用的那份）">🗂 轮播账查看器</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
@@ -723,7 +694,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <table id="ck_tbl">
       <thead><tr>
         <th>账号名称</th><th>签到时间</th><th class="num">积分增加</th>
-        <th class="num">签到后总积分</th><th>凭证到期/剩余</th><th>状态</th>
+        <th class="num">签到后总积分</th><th>状态</th>
       </tr></thead>
       <tbody id="ck_body">
         <tr><td colspan="5" style="color:#999;">打开面板即拉取账号列表…</td></tr>
@@ -733,23 +704,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div id="ck_foot">
     <button id="ck_start">开始批量签到</button>
     <button id="ck_refreshpts">批量刷新积分</button>
-    <button id="ck_renew" title="重新收编各来源凭证并刷新「凭证到期/剩余」两列（不做自动拉沙盒）">一键续期</button>
     <button id="ck_reload">刷新列表</button>
   </div>
-</div>
-
-<!-- 2.21：对话记录页（C2·老板亲令「网页可查历史」）——列历史会话（电脑端官方
-     jsonl 台账），点会话看历史轮（每批最近 50 条，「↑ 加载更早」向前翻）。只读。 -->
-<div id="page_hist">
-  <div class="nhdr">
-    <button id="btn_histback">‹ 返回</button>
-    <b id="hist_title">📜 对话记录</b>
-    <button id="btn_histrefresh" title="重新拉取历史会话列表">↻ 刷新</button>
-  </div>
-  <div id="hist_hint">只读查历史：数据来自电脑端官方会话台账（jsonl）；
-    点会话看历史轮，看完点「‹ 会话列表」回来。</div>
-  <div id="hist_list"><div style="padding:14px; color:#999;">打开面板即拉取历史会话…</div></div>
-  <div id="hist_body"></div>
 </div>
 
 <div id="page_net" data-page-node-id="oddG8dIObpfpeiicXo0wyz">
@@ -913,7 +869,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
  * 离线自动切到下一个在线者；事件流按 'srv' 源头过滤，只渲染当前
  * 操控服务端的内容。
  * v1.13（对齐服务端 v1.24）：操控互斥——本端 ID 改为持久唯一
- * （'4'+9位，localStorage），每 55s（2.23 起；原 20s）发 ctl_hb 续占、切走发 ctl_free
+ * （'4'+9位，localStorage），每 55s（2.21 起；原 20s）发 ctl_hb 续占、切走发 ctl_free
  * 还锁；被占用时 hello 提示、指令被拒显示 deny 提示。
  * v1.14（对齐服务端 v1.25）：① 切换后看门狗——切服务端 3s 没等到
  * 快照就重发 hello（最多 5 次），防中继丢包「正在连接」卡死（点
@@ -1284,10 +1240,6 @@ const el = {
   file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
   launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
-  /* 2.21：对话记录页（C2·只读查历史） */
-  hist: $('btn_hist'), histpage: $('page_hist'), histback: $('btn_histback'),
-  histrefresh: $('btn_histrefresh'), histtitle: $('hist_title'),
-  histlist: $('hist_list'), histbody: $('hist_body'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
   wsurl: $('in_wsurl'), keep: $('in_keep'), nsave: $('btn_netsave'),
   nflash: $('lbl_netflash'), sel_chan: $('sel_chan'),
@@ -1313,7 +1265,7 @@ const el = {
   /* 2.00：批量签到遥控面板 */
   checkinpage: $('page_checkin'), ck_back: $('btn_ckback'),
   ck_stat: $('ck_stat'), ck_body: $('ck_body'),
-  ck_start: $('ck_start'), ck_refreshpts: $('ck_refreshpts'), ck_renew: $('ck_renew'),
+  ck_start: $('ck_start'), ck_refreshpts: $('ck_refreshpts'),
   ck_reload: $('ck_reload'),
   md: $('model_dlg'), md_title: $('md_title'), md_body: $('md_body'),
   md_ok: $('md_ok'),
@@ -1356,7 +1308,6 @@ const SRV_CMD_LABELS = {
   attach_rm: '移除附件', model_list: '刷新模型', points: '刷新积分',
   acct_switch: '切换账号', acct_scan: '重扫账号', acct_list: '读取账号列表',
   checkin: '今日签到', checkin_all: '批量签到', credits_refresh_all: '批量刷新积分',
-  checkin_renew: '一键续期',
   checkin_state: '读取签到状态', queue_sendnow: '立即插队发送',
   queue_restore: '放回队列', queue_del: '删除队列条目', queue_recall: '取回队列条目'
 };
@@ -1609,20 +1560,7 @@ const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1', '(@fox-ai1'];
 const _fh_state = {};      /* 卡片开合状态：键＝三段内容指纹（快照每秒重画，开合要撑过重画） */
 const _fh_data = {};       /* 卡片内容登记 */
 function foxHintKey(hz){
-  /* P53（2026-10-26 老板报「小尾巴浓缩成一个小按钮、点了没效果」）：
-     原键＝四段用 \u0001 拼起来的字符串，再写进 data-fhkey 属性。手机 WebKit 会把
-     属性值里的控制字符规整/丢掉，读回来与内存里的键对不上 → _fh_data[key] 取不到 →
-     点标签既不展开也不报错（PC Chromium 不丢，所以电脑上看着是好的）。
-     改为「不含控制字符的安全指纹键」，原文仍参与哈希，属性里只有 [0-9a-f_]。 */
-  const t = (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001'
-          + (hz.co || '') + '\u0001' + (hz.ai || '');
-  let h1 = 0x811c9dc5 >>> 0, h2 = 0x01000193 >>> 0;
-  for (let i = 0; i < t.length; i++){
-    const ch = t.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 16777619) >>> 0;
-    h2 = (Math.imul(h2 + ch, 31) ^ (i + 1)) >>> 0;
-  }
-  return 'h' + h1.toString(16) + '_' + h2.toString(16) + '_' + t.length.toString(16);
+  return (hz.sys || '') + '\u0001' + (hz.usr || '') + '\u0001' + (hz.co || '') + '\u0001' + (hz.ai || '');
 }
 function _fhGrab(txt, re){
   let v = '';
@@ -1670,63 +1608,33 @@ function foxHintHtml(hz){
   return '<div class="foxhint" data-fhkey="' + esc(key) + '">'
        + '<div class="fhrow">' + tabs + '</div>' + pane + '</div>';
 }
-/* P53：点标签改走「document 捕获阶段 · 一次装好」——快照每秒重画、以及任何忘记
-   调 foxHintBind 的渲染路径（本地轮播账 / 排队条重绘）都不会再出现死按钮。
-   原来给每个按钮挂 onclick，一旦某条渲染路径漏调绑定，按钮就永远点不动且不报错。
-   旧的 foxHintBind 保留同名空壳（调用点不用改），只负责确保委托已装好。 */
-function _fhToggleBtn(b){
-  const card = b.closest('.foxhint');
-  if (!card) return;
-  const key = card.getAttribute('data-fhkey') || '';
-  const k = b.getAttribute('data-fh') || '';
-  const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
-  if (st.open && st.which === k){ st.open = false; st.which = ''; }
-  else { st.open = true; st.which = k; }
-  const hz = _fh_data[key];
-  if (!hz) return;
-  const tmp = document.createElement('div');
-  tmp.innerHTML = foxHintHtml(hz);
-  const nc = tmp.firstElementChild;
-  if (nc) card.replaceWith(nc);
+function foxHintBind(root){
+  (root || document).querySelectorAll('.foxhint .fhbtn').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const card = b.closest('.foxhint');
+      if (!card) return;
+      const key = card.getAttribute('data-fhkey') || '';
+      const k = b.getAttribute('data-fh') || '';
+      const st = _fh_state[key] || (_fh_state[key] = {open: false, which: ''});
+      if (st.open && st.which === k){ st.open = false; st.which = ''; }
+      else { st.open = true; st.which = k; }
+      const hz = _fh_data[key];
+      if (hz){
+        const tmp = document.createElement('div');
+        tmp.innerHTML = foxHintHtml(hz);
+        const nc = tmp.firstElementChild;
+        if (nc){ card.replaceWith(nc); foxHintBind(nc.parentNode || document); }
+      }
+    };
+  });
 }
-let _fh_delegated = false;
-function _fhEnsureDelegation(){
-  if (_fh_delegated) return;
-  _fh_delegated = true;
-  document.addEventListener('click', function(e){
-    const t = e.target;
-    if (!t || !t.closest) return;
-    const b = t.closest('.foxhint .fhbtn');
-    if (!b) return;
-    e.preventDefault();
-    e.stopPropagation();
-    _fhToggleBtn(b);
-  }, true);
-}
-function foxHintBind(root){ _fhEnsureDelegation(); }
-try { _fhEnsureDelegation(); } catch(e){}
 /* 剥掉四段标记（「重编/回退」我发出的消息时用：把服务端追加的专属词段忽略，还原纯正文） */
 function stripHintMarks(txt){
   return String(txt || '')
     .replace(FSC_REG, '').replace(FUC_REG, '').replace(FCC_REG, '').replace(FAI_REG, '')
     .replace(/\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
-}
-/* 2026-11-01（老板令「复制只要最原始的无前后缀正文」）：复制统一入口——
-   ① 服务端追加的定向指令尾「【定向回复】…」整行剥掉；
-   ② 四段专属词（sys/usr/co/ai）整段丢弃（stripHintMarks）；
-   ③ play/ask 等 FOX 标记剥净（卡里的字保留，容错半截残标）；
-   ④ 人类消息首行 14 位 DID（含 A/B/C 来源后缀）剥掉。 */
-function copyPlainWb(txt){
-  let s = String(txt == null ? '' : txt);
-  s = s.replace(/\n*【定向回复】[^\n]*$/g, '');
-  s = stripHintMarks(s);
-  s = s.replace(/\(@fox-(?:play|ask)[12]\s*\)?/gi, '')
-       .replace(/\(@fox-[a-z]+\d?\s*\)?/gi, '')
-       .replace(/\(@f[a-z\-]*\d?\s*\)?/gi, '')
-       .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n');
-  s = s.replace(/^\s*\d{14}[A-Z]?(?!\d)\s*(?:\n|$)/, '');
-  return s.trim();
 }
 /* 音色/语速：默认**女声晓晓**（用户 2026-09-30 明确不喜欢原先写死的男声云希）。
    由「设置→语音播报」改，随每次播报一起发给服务端。 */
@@ -2376,8 +2284,8 @@ function bindHistThink(root){
 function localTurnHtml(t, isCur){
   const who = '<div class="who">' + (isCur ? '我' : '我')
             + '<span class="tm">（本地记录）</span></div>';
-  let h = t.utext ? ('<div class="msg user">' + who
-        + '<div class="body">' + mdHtml(t.utext || '') + '</div></div>') : '';
+  let h = '<div class="msg user">' + who
+        + '<div class="body">' + mdHtml(t.utext || '') + '</div></div>';
   const nn = (t.thinks || []).length;
   let ai = '<div class="msg agent"><div class="who">WorkBuddy'
          + '<span class="tm">' + (isCur && !t.done ? '思考中…' : '（本地记录）')
@@ -2407,10 +2315,10 @@ function localTurnHtml(t, isCur){
   if (t.done && (t.atext || t.aid)){
     ai += '<div class="body">' + mdHtml(t.atext || '（结论原文未取到）') + '</div>';
   } else if (!isCur){
-    ai += '<div class="body"><span class="empty">（未取到，点开向服务端要）'
+    ai += '<div class="body"><span class="empty">（该轮被终止，没有终极结论）'
         + '</span></div>';
   } else {
-    ai += '<div class="body"><span class="empty">AI 正在生成…</span></div>';
+    ai += '<div class="body"></div>';
   }
   return h + ai + '</div>';
 }
@@ -2433,26 +2341,6 @@ function renderTurnsLocal(){
     };
   });
   return true;
-}
-/* P43 D1（0002 校正）：病象主路径——msgs 非空但 0 条 AI（37 秒两连问）
-   强制取回：先 reqTurncast，再按缺额 turn_full；8 秒未回自动重发，最多 2 次。 */
-S.turnRetry = S.turnRetry || {};
-function p43NeedTurn(){
-  const now = Date.now();
-  if (now - (S.turncastReqTs || 0) > 8000){
-    S.turncastReqTs = now;
-    try{ reqTurncast(); }catch(e){}
-  }
-  const t = S.curTurn || (S.turns.length ? S.turns[S.turns.length - 1] : null);
-  if (!t || !t.uid) return;
-  const k = 'turn_full:' + t.uid;
-  if (!t.aid && !t.atext){
-    const r = S.turnRetry[k] || {n: 0, ts: 0};
-    if ((!S.turnWait[k] || now - r.ts > 8000) && r.n < 2){
-      S.turnRetry[k] = {n: r.n + 1, ts: now};
-      try{ reqTurn('turn_full', t.uid); }catch(e){}
-    }
-  }
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -2629,11 +2517,7 @@ function onRes(id, k, v){
   if (rq) delete S_reqs[id];
   /* 2.10：轮播补发——无论成败先摘防重牌（失败也允许之后自查再补一次） */
   if (rq && rq.sk && rq.sk.indexOf('turn_') === 0) delete S.turnWait[rq.sk];
-  if (!v || !v.ok){                            /* P43 F4：失败必回音，不再静默 */
-    if (rq && rq.sk && rq.sk.indexOf('turn_') === 0)
-      flash('取回失败：' + ((v && v.err) || '未知原因'), 'var(--red)');
-    return;
-  }
+  if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
   if (k === 'hist_prev') applyPrev(rq ? rq.conv : '', v.msgs || [], !!v.more);
   else if (k === 'hist_probe') applyProbeEnd(rq ? rq.conv : '', !!v.has);   /* 1.96 */
   else if (k === 'bubbles'){
@@ -2693,6 +2577,13 @@ function onRes(id, k, v){
    张数+全部卡号）、本轮人类发言、最新一张思维卡。手机靠它「捡垃圾」：
    捡到多少存多少（IndexedDB，每会话留 5 轮）；缺思维卡点开才补（差额）；
    缺结论卡主动补；被终止的轮 done=false，显示「无终极结论」绝不反复追。 */
+/* 老板 2026-11-06 18:43：轮播账改「最近 N 轮」，默认 5（查看器里可改） */
+function _turnsN(){
+  try{
+    var v = parseInt(localStorage.getItem('wb_turns_n') || '5', 10);
+    return (v >= 2 && v <= 60) ? v : 5;
+  }catch(e){ return 5; }
+}
 function idbOpen(){
   return new Promise(res => {
     try{
@@ -2742,36 +2633,19 @@ function reqTurn(kind, uid, extra){
   sendJson(Object.assign({t: 'req', id: id, c: kind, conv: conv, uid: uid},
                          extra || {}));
 }
-/* P43 F2（0002）：体检 60→30 秒，且把 curTurn 纳入；缺 AI 先 reqTurncast。 */
+/* 平时自查（60 秒节流）：任何历史轮「应有结论但没有」就主动补；
+   done=false（被终止）的轮不追——那是它的定论。 */
 function turnAudit(){
   const now = Date.now();
-  if (now - (S.turnAuditTs || 0) < 30000) return;
+  if (now - (S.turnAuditTs || 0) < 60000) return;
   S.turnAuditTs = now;
-  const list = S.turns.concat(S.curTurn ? [S.curTurn] : []);
-  let miss = 0;
-  list.forEach(t => {
-    if (t.aid) return;
-    miss++;
-    const k = (t.done ? 'turn_concl:' : 'turn_full:') + t.uid;
-    if (!S.turnWait[k]) reqTurn(t.done ? 'turn_concl' : 'turn_full', t.uid);
+  S.turns.forEach(t => {
+    if (t.done && !t.aid && !S.turnWait['turn_concl:' + t.uid])
+      reqTurn('turn_concl', t.uid);
   });
-  if (miss) reqTurncast();
 }
 async function onTurncast(tc){
   if (!tc) return;
-  /* P43 D1b（0002 指正）：服务端 last_ai 必须真消费——本地账缺该轮 AI 时补帧。 */
-  try{
-    const la = tc.last_ai;
-    if (la && la.uid && (la.atext || la.aid)){
-      let t = findTurn(la.uid);
-      if (t){
-        if (!t.aid && !t.atext){ t.aid = la.aid || t.aid; t.atext = la.atext || ''; t.done = true; }
-      } else {
-        S.turns.push({uid: la.uid, utext: '', aid: la.aid || '',
-                      atext: la.atext || '', done: true, thinks: [], partial: true});
-      }
-    }
-  }catch(e){}
   /* ① prev（最新历史轮）并入本地账 */
   if (tc.prev && tc.prev.uid){
     let t = findTurn(tc.prev.uid);
@@ -2820,7 +2694,7 @@ async function onTurncast(tc){
     S.curTurn.thinks.push({id: lt.id, t: lt.t || 0, x: lt.x || ''});
   }
   /* ④ 收口：留 5 轮、落 IDB、重画、平时自查 */
-  if (S.turns.length > 5) S.turns = S.turns.slice(-5);
+  if (S.turns.length > _turnsN()) S.turns = S.turns.slice(-_turnsN());
   idbSaveTurns(S.histConv, S.turns.concat(S.curTurn ? [S.curTurn] : []));
   renderAll();
   turnAudit();
@@ -2894,7 +2768,7 @@ function ensureHist(){
       if (arr.length && arr[arr.length - 1] && !arr[arr.length - 1].done){
         S.curTurn = arr.pop();
       }
-      S.turns = arr.slice(-5);
+      S.turns = arr.slice(-_turnsN());
       turnAudit();
       renderAll();
     });
@@ -2991,8 +2865,7 @@ function renderAcctSel(){
 }
 
 /* 2.00：批量签到遥控面板——渲染服务端 checkin_state 下发的合并行。
-   行字段＝{账号,名称,时间,本次增加,签到后总积分,凭证到期,凭证剩余,状态}
-   （服务端 批量签到.视图()，1.02 起带凭证两字段）。
+   行字段＝{账号,名称,时间,本次增加,签到后总积分,状态}（服务端 批量签到.视图()）。
    本端只用 DOM，无任何本地签到动作。 */
 function fmtNum(v){                       /* 积分友好显示：空→''；整数去零 */
   if (v === null || v === undefined || v === '') return '';
@@ -3000,12 +2873,6 @@ function fmtNum(v){                       /* 积分友好显示：空→''；整
   if (!isFinite(f)) return String(v);
   return (Math.abs(f - Math.round(f)) < 1e-9)
     ? String(Math.round(f)) : f.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-}
-function ckCred(r){                       /* 2.23：凭证到期/剩余 合并显示，缺→未知 */
-  const 到 = String((r && r.凭证到期) || '').trim();
-  const 剩 = String((r && r.凭证剩余) || '').trim();
-  if ((!到 && !剩) || 到 === '未知' || 剩 === '未知') return '未知';
-  return ((到 + ' ' + 剩).trim()) || '未知';
 }
 function ckStatusCls(s){                  /* 状态着色：成功绿 / 已签到等橙 / 失败红 */
   s = String(s || '');
@@ -3018,21 +2885,16 @@ function renderCheckin(){
   if (!el.ck_body) return;
   const rows = S.checkin_rows || [];
   if (!rows.length){
-    el.ck_body.innerHTML = '<tr><td colspan="6" style="color:#999;">（无账号）</td></tr>';
+    el.ck_body.innerHTML = '<tr><td colspan="5" style="color:#999;">（无账号）</td></tr>';
   } else {
     el.ck_body.innerHTML = rows.map(r => {
       const nm  = esc((r && (r.名称 || r.账号)) || '—');
       const ts  = esc((r && r.时间) || '');
       const add = esc(fmtNum(r && r.本次增加));
       const bal = esc((r && r.签到后总积分) || '');
-      const cr  = esc(ckCred(r));
       const st  = String((r && r.状态) || '');
-      /* 2.23：凭证快到期/已过期 → 橙色（列级着色，不动整行） */
-      const 剩 = String((r && r.凭证剩余) || '');
-      const cls = (剩 === '⚠即将到期' || 剩 === '已过期') ? ' class="warn"' : '';
       return '<tr><td>' + nm + '</td><td>' + ts + '</td>'
         + '<td class="num">' + add + '</td><td class="num">' + bal + '</td>'
-        + '<td' + cls + '>' + cr + '</td>'
         + '<td class="' + ckStatusCls(st) + '">' + esc(st) + '</td></tr>';
     }).join('');
   }
@@ -3121,13 +2983,12 @@ function renderQueue(){
   qp.className = 'qpanel';
   let qh = '<div class="qhead">⏳ 托管排队条</div>';
   qopenPrune(q);                     /* 清掉已不在队列里的「展开」标记 */
-  /* P29：点了 ⚡ 之后到服务端回 done/fail 之间的 33 秒内，该条显示「核对中…」，
-     按钮全禁用（服务端最长核 30 秒——老板 2026-10-25 令「5秒太短了，30秒还差不多」，
-     留余量；超时自动恢复可再点，不会卡死） */
+  /* P29：点了 ⚡ 之后到服务端回 done/fail 之间的 9 秒内，该条显示「核对中…」，
+     按钮全禁用（服务端最长核 5 秒，留余量；超时自动恢复可再点，不会卡死） */
   S.qchk = S.qchk || {};
   const _nowT = Date.now();
   Object.keys(S.qchk).forEach(k2 => {
-    if (_nowT - Number(S.qchk[k2] || 0) > 33000) delete S.qchk[k2];
+    if (_nowT - Number(S.qchk[k2] || 0) > 9000) delete S.qchk[k2];
   });
   q.forEach((it, i) => {
     const o = (it && typeof it === 'object') ? it : {text: it, id: ''};
@@ -3796,7 +3657,7 @@ function renderPending(){
       const cpi = parseInt(b.dataset.cp || '0');   // 1.39：复制占位文字
       if (cpi){
         const p = S.pending.find(x => x.id === cpi);
-        if (p && p.text) copyText(copyPlainWb(p.text));
+        if (p && p.text) copyText(p.text);
         return;
       }
       if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
@@ -4167,15 +4028,6 @@ function renderMsgs(msgs, finish, opts, ask){
       - el.msgs.clientHeight < 200;
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
-  /* P43 D1（0002 校正）：病象主路径——msgs 非空但 0 条 AI。
-     先强制取回；本地账能画就先画本地轮播（一问 + 一AI 骨架）。 */
-  try{
-    const _noAI = msgs.length && !msgs.some(m => m[0] !== 'u' && m[0] !== 'user');
-    if (_noAI){
-      p43NeedTurn();
-      if (renderTurnsLocal()) return;
-    }
-  }catch(e){}
   if (empty && !S.pending.length && !S.switch_pend && !S.loadingConv){
     if (renderTurnsLocal()) return;    /* 2.10：snap 正文未到，本地轮播账秒显 */
     el.msgs.innerHTML =
@@ -4292,13 +4144,13 @@ function renderMsgs(msgs, finish, opts, ask){
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
         if (k === 'copy'){
-          copyText(copyPlainWb(msgs[parseInt(b.dataset.i)][1]));
+          copyText(msgs[parseInt(b.dataset.i)][1]);
           return;
         }
         if (k === 'edit'){
           const it = msgs[parseInt(b.dataset.i)];
           /* 2.01：重编＝把我发的原话取回输入框——剥掉服务端追加的专属词三段标记，还原纯正文 */
-          el.ent.value = it ? copyPlainWb(it[1] || '') : '';
+          el.ent.value = it ? stripHintMarks(it[1] || '') : '';
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
           flash('已回填输入框，可修改后重新发送', 'var(--blue)');
@@ -4309,7 +4161,7 @@ function renderMsgs(msgs, finish, opts, ask){
              （用户 2026-10-06 定：「回退应该把文本取回，输入框重新编辑」）。
              2.01：取回时剥掉专属词三段标记，还原纯正文。 */
           const it = msgs[parseInt(b.dataset.i)];
-          const back = it ? copyPlainWb(it[1] || '') : '';
+          const back = it ? stripHintMarks(it[1] || '') : '';
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
             + '其后全部对话（含 AI 回复）将一并移除。\n'
             + '（这条原文会取回输入框，可改完再发）')) return;
@@ -5038,35 +4890,13 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'wb远程';
-/* 2.21（2026-10-25，C2·老板亲令「WorkBuddy 现在还缺了一个管对话记录的，
-   我都查不了历史」）：新增「📜 对话记录」网页分页（只读查历史）——
-   ① 抽屉加菜单项；新全屏页 #page_hist：列历史会话（cmd hist_ls，数据源＝
-      电脑端官方 jsonl 台账，显示名 sessions_meta display_name 兜底 sid，
-      按 mtime 倒序、当前会话金标）；
-   ② 点会话 → hist_msgs 拉历史轮（每批最近 50 条，「↑ 加载更早」带 before
-      游标向前翻；只读展示：谁说的 + 正文 + 时间，人类蓝底 / AI 灰底）；
-   ③ 触发必回音：拉取中均有「正在…」提示，失败走 cmderr 红字给原因；
-      过期回包（sid 不符）静默丢弃。配套服务端 cmd_router v3.04（hist_ls /
-      hist_msgs 两命令）与 __init__.py WEB_VERSION 恒等 2.21。
-   以下为上一版（2.20）说明存档。 */
-const VER = '2.29';   /* 2.29（2026-11-02 老板令「那还少了一个按钮叫做一键续期，就是给他们更新一下凭证到期的时间」）：批量签到面板加「一键续期」按钮（ck_renew → sendCmd('checkin_renew')，服务端 重新收编各来源凭证＋重算凭证到期 → checkin_renew 事件回：汇总 flash + 临期逐条橙提示（最多 3 条）+ 面板重拉 checkin_state 刷新两列；不做自动拉沙盒）。原 2.28（2026-11-01 老板令「复制只要最原始的无前后缀正文」）：聊天消息/占位卡复制改走 copyPlainWb（剥首行 DID、四段专属词、FOX 标记、定向指令尾【定向回复】…）；重编/回退取回同口径。原 2.27（2026-10-29 老板令「Attachment 点不开/要显示/要能撤回」）：input 由 display:none 改屏幕外 1px 可点（手机必弹选择框）+ 按钮 click 失败如实提示；附件 chips 与 ✕ 撤回沿用既有 attach_rm。原 2.26（2026-10-26，老板令「批量签到显示凭证剩余到期时间」）：批量签到面板
-   加「凭证到期/剩余」列（ckCred 合并显示 '11-08 剩12天'，缺→未知；⚠即将到期/已过期 橙色），
-   数据源＝服务端 批量签到.视图() 1.02 的 凭证到期/凭证剩余 两字段；与 wb_cli.WEB_VERSION 恒等 2.26。
-   2.25（2026-10-26，P53）：专属提示词折叠卡点不开根治——键改安全指纹（不再把 \u0001 写进 data-fhkey）、点标签改 document 捕获委托（任何渲染路径都不会再出死按钮）。
-   2.24（2026-10-26 老板令）：FOX 单段上限 10KB→64KB（-57 头），
-                         与 TRAE 对齐，同样 13KB 快照由 2 段降为 1 段。 */
-const _VER_OLD = '2.23';   /* 2.23（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
+/* 2.20（2026-10-25，H22）：修「聊着聊着只剩最近两条人类发言，刷新才恢复」——
+   ① case 'dead' 断线不再 resetPaging，保留 S.older/S.pageGroups/S.histConv；
+   ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
+   以下为上一版（2.19）说明存档。 */
+const VER = '2.211';   /* 2.21（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
                          ctl_hb 周期 20000→55000（55 秒；服务端锁 60 秒，取 55000 留边界余量，
                          不用 60000 免得卡边界抖动）；本 WS 免 ping、不做任何保活。
-                         const VER 与 wb_cli.WEB_VERSION 恒等 2.23。
-   2.22（2026-10-25，P43）：D1 空窗/无AI主路径强制取回（8s 重试≤2）、
-                         D1b last_ai 真消费、D2 保留 AI 骨架、F2 体检30s、F4 失败回音。
-                         const VER 与 wb_cli.WEB_VERSION 恒等 2.22。
-   2.20（2026-10-25，H22）：修「聊着聊着只剩最近两条人类发言，刷新才恢复」——
-                         ① case 'dead' 断线不再 resetPaging（保留 S.older/S.pageGroups/
-                            S.histConv）；② 重连首拍带 msgs 后若 pageGroups>0，按原页数
-                            自动补一次 hist_prev 重锚；③ 排队条 ⚡「核对中」窗口 9s→33s
-                            （配套服务端校验窗口 5→30 秒）。
    2.19（2026-10-25，P29-B。老板原话「这个排队条本身就是一种虚卡了，
                          不用额外再设置虚卡」）：
                          ① 排队条「看得见就撤」——该 id 命中快照 acks，或（点过 ⚡ 的条目）
@@ -5742,7 +5572,7 @@ function pruneSrv(){
 setInterval(pruneSrv, 5000);
 /* 1.13：操控续占心跳——停留在当前操控对象就续一次锁
    （服务端默认 60 秒无操作释放；不发心跳即视为离开）
-   2.23（老板 2026-10-25 23:46 令）：心跳只允许每分钟一条；服务端锁 60 秒，
+   2.21（老板 2026-10-25 23:46 令）：心跳只允许每分钟一条；服务端锁 60 秒，
    60000 正好卡边界（抖动一下就被判超时），实际取 55000（55 秒）更稳。 */
 setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
             55000);
@@ -5964,38 +5794,18 @@ function onEv(kind, v){
             pendMarkDel(LS_PEND_Q, tsid, qrid);
             pendMarkDel(LS_PEND_GONE, tsid, qrid);
           }
-          /* P43/2.22（老板 18:18 令）：撤卡口径——
-             ① 该 id 仍在排队条（官方队列）或已进对话流 → 绝不重建虚线占位卡；
-             ② 只有「已发出、既不在对话流也不在排队条」的空档才出虚线卡；
-             ③ 状态只由小卡片有无表达，不许叠加第三种卡。 */
-          const _qstill = ((S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue : [])
-              .some(it => String(((it && typeof it === 'object') ? it.id : '') || '')
-                          === String(qrid));
-          const _qland = qLanded(qrid, qt);
-          if (_qstill || _qland){
-            /* 已有虚线卡一律撤掉（事件驱动，不等定时轮询） */
-            S.pending = S.pending.filter(x => !(String(x.rid || '') === String(qrid)
-                                                 && pendSidOk(x, tsid)));
-            if (_qland){
-              S.qdone = S.qdone || {};
-              S.qdone[qLandKey(qrid)] = 1;
-            }
-            punchPend();
+          /* 队列里存的是注入专属提示词后的全文；重建卡只显示原正文 */
+          const qraw = stripHintMarks(qt);
+          let rp = S.pending.find(x => String(x.rid || '') === String(qrid)
+                                       && pendSidOk(x, tsid));
+          if (!rp && qraw && !S.pending.some(x => x.text === qraw
+                                                  && pendSidOk(x, tsid)))
+            rp = pendAdd('send', qraw, qrid, tsid);
+          if (rp && rp.state !== 'fail'){
+            rp.state = 'launching';
+            rp.ts = Date.now();
             S.msgs_key = null;
-          } else {
-            /* 队列里存的是注入专属提示词后的全文；重建卡只显示原正文 */
-            const qraw = stripHintMarks(qt);
-            let rp = S.pending.find(x => String(x.rid || '') === String(qrid)
-                                         && pendSidOk(x, tsid));
-            if (!rp && qraw && !S.pending.some(x => x.text === qraw
-                                                    && pendSidOk(x, tsid)))
-              rp = pendAdd('send', qraw, qrid, tsid);
-            if (rp && rp.state !== 'fail'){
-              rp.state = 'launching';
-              rp.ts = Date.now();
-              S.msgs_key = null;
-              punchPend();
-            }
+            punchPend();
           }
         }
       } else {
@@ -6187,34 +5997,6 @@ function onEv(kind, v){
       }
       break;
     }
-    case 'hist_ls': {                      /* 2.21：对话记录——历史会话清单 */
-      const rows = Array.isArray(v) ? v : [];
-      if (!rows.length){
-        el.histlist.innerHTML = '<div style="padding:14px; color:#999;">'
-          + '电脑端没有历史会话。</div>';
-        break;
-      }
-      el.histlist.innerHTML = rows.map(r =>
-        '<div class="hrow' + (r.cur ? ' hcur' : '') + '" data-sid="'
-        + esc(r.sid) + '" data-name="' + esc(r.name) + '">'
-        + '<div class="hname">' + esc(r.name) + (r.cur ? '（当前）' : '') + '</div>'
-        + '<div class="hmeta">' + (r.mtime ? histFmtTs(r.mtime * 1000) : '—')
-        + ' · ' + ((r.size || 0) > 1048576
-          ? (Math.round(r.size / 1048576 * 10) / 10 + 'MB')
-          : (Math.round((r.size || 0) / 1024) + 'KB')) + '</div></div>').join('');
-      el.histlist.querySelectorAll('.hrow').forEach(d => {
-        d.onclick = () => histOpen(d.getAttribute('data-sid'),
-                                   d.getAttribute('data-name'));
-      });
-      break;
-    }
-    case 'hist_msgs': {                    /* 2.21：对话记录——某会话历史轮 */
-      if (!v || v.sid !== HIST.cur) break; /* 不是当前打开的会话（过期回包）→ 忽略 */
-      const wasMore = (HIST.pend === 'more');
-      HIST.pend = '';
-      histRender(v, wasMore);
-      break;
-    }
     case 'checkin_state': {                 /* 2.00：批量签到面板——账号枚举＋上次结果 */
       srvOpDone('checkin_state');
       S.checkin_rows = (v && v.items) || [];
@@ -6259,29 +6041,6 @@ function onEv(kind, v){
               'var(--green)');
       }
       /* 2.00：面板开着 → 重拉状态，收尾后列表显示最终结果 */
-      if (el.checkinpage && el.checkinpage.classList.contains('on'))
-        try{ sendCmd('checkin_state', null); }catch(e){}
-      break;
-    }
-    case 'checkin_renew': {                 /* 2.29：一键续期结果（收编凭证＋重算到期） */
-      srvOpDone('checkin_renew');
-      S.ck_renew_busy = false;
-      if (v && v.ok){
-        const lin = (v && v.临期) || [];
-        flash('一键续期完成：已续期 ' + ((v && v.成功) || 0) + ' · 未变化 '
-              + ((v && v.未变化) || 0) + ' · 失败 ' + ((v && v.失败) || 0)
-              + '（' + ((v && v.秒) || '?') + ' 秒）', 'var(--green)');
-        /* 临期提示最多亮 3 条，防刷屏；面板重拉状态后表格里也有橙色提醒 */
-        (lin || []).slice(0, 3).forEach(t => {
-          flash('⚠ 「' + (t.名称 || t.key || '—') + '」剩约 ' + (t.剩天 || 0)
-                + ' 天：需打开对应沙盒客户端使用一次触发续期后再点本按钮', 'var(--orange)');
-        });
-        if (lin.length > 3)
-          flash('另有 ' + (lin.length - 3) + ' 个临期账号，见表格橙色行', 'var(--orange)');
-      } else {
-        flash('一键续期未完成：' + ((v && v.msg) || '未知原因'), 'var(--red)');
-      }
-      /* 面板开着 → 重拉状态（凭证到期/剩余 两列刷新） */
       if (el.checkinpage && el.checkinpage.classList.contains('on'))
         try{ sendCmd('checkin_state', null); }catch(e){}
       break;
@@ -7132,24 +6891,10 @@ el.ck_refreshpts.onclick = () => {       /* 批量刷新积分：逐个账号查
   if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
   srvOpSend('credits_refresh_all', null, '批量刷新积分');
 };
-el.ck_renew.onclick = () => {            /* 2.29：一键续期＝重新收编凭证＋重算到期显示 */
-  if (srvNeedOnline('一键续期')) return;
-  if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
-  if (S.ck_renew_busy){ flash('一键续期请求处理中，请稍候…', 'var(--orange)'); return; }
-  S.ck_renew_busy = true;
-  if (el.ck_stat) el.ck_stat.textContent = '一键续期中：正在重新收编各来源凭证…';
-  srvOpSend('checkin_renew', null, '一键续期');   // 服务端 cmd_checkin_renew → checkin_renew 事件回
-  setTimeout(() => { S.ck_renew_busy = false; }, 20000);   /* 兜底：结果未到也可再点（收编约秒级、慢扫上限 12 秒） */
-};
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
 
-/* 2.27（2026-10-29 老板令「附件点不开」）：按钮 -> 原生弹选择器；
-   失败要如实提示，绝不静默（手机内置浏览器对隐藏 input 的 click 可能被拦）。 */
-el.attach.onclick = () => {
-  try { el.file.click(); }
-  catch(e){ flash('附件选择器打不开：' + ((e && e.message) || e), 'var(--red)'); }
-};
+el.attach.onclick = () => el.file.click();
 el.file.onchange = async () => {
   const files = [...el.file.files];
   el.file.value = '';
@@ -7193,74 +6938,6 @@ el.net.onclick = openDiagPage;
 /* 1.25：点顶栏状态文字 → 直接进诊断页（看不懂那几个字时就点它） */
 el.rlink.onclick = openDiagPage;
 el.netback.onclick = () => el.netpage.classList.remove('on');
-
-/* ── 2.21：对话记录页（C2·老板亲令「网页可查历史」）——只读查历史 ──
-   打开即 hist_ls 列历史会话（电脑端官方 jsonl 台账）；点会话 hist_msgs
-   看历史轮（每批最近 50 条），「↑ 加载更早」带 before 游标向前翻。
-   触发必回音：加载中/失败（cmderr）都有提示。 */
-const HIST = {cur: '', pend: ''};       /* cur=当前查看的 sid；pend=''|'first'|'more' */
-
-function histFmtTs(ts){
-  const n = parseInt(ts, 10);
-  if (!n) return String(ts || '');
-  const d = new Date(n);
-  const p = x => String(x).padStart(2, '0');
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
-    + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-}
-
-function histOpen(sid, name){
-  HIST.cur = sid; HIST.pend = 'first';
-  el.histtitle.textContent = '📜 ' + (name || sid);
-  el.histlist.style.display = 'none';
-  el.histbody.style.display = 'block';
-  el.histbody.innerHTML = '<div style="padding:12px; color:#999;">'
-    + '正在加载历史轮…（大会话首次解析可能要几秒）</div>';
-  sendCmd('hist_msgs', {sid: sid, before: 0});
-}
-
-function histBack(){
-  HIST.cur = ''; HIST.pend = '';
-  el.histtitle.textContent = '📜 对话记录';
-  el.histbody.style.display = 'none';
-  el.histbody.innerHTML = '';
-  el.histlist.style.display = '';
-  sendCmd('hist_ls');
-}
-
-function histRender(d, prepend){
-  const body = el.histbody;
-  let html = '';
-  if (d.more) html += '<button id="hist_more" data-next="' + (d.next || 0) + '">'
-    + '↑ 加载更早（还有 ' + (d.next || 0) + ' 条）</button>';
-  html += (d.rows || []).map(r =>
-    '<div class="hmsg ' + (r.role === 'u' ? 'u' : 'a') + '">'
-    + '<div class="hrole">' + (r.role === 'u' ? '👤 人' : '🤖 AI')
-    + ' · ' + esc(histFmtTs(r.ts)) + '</div>' + esc(r.text) + '</div>').join('');
-  if (!html) html = '<div style="padding:12px; color:#999;">（没有更多了）</div>';
-  if (prepend) body.insertAdjacentHTML('afterbegin', html);
-  else body.innerHTML = html;
-  const more = document.getElementById('hist_more');
-  if (more) more.onclick = () => {
-    more.disabled = true; more.textContent = '加载中…';
-    HIST.pend = 'more';
-    sendCmd('hist_msgs', {sid: HIST.cur,
-                          before: parseInt(more.getAttribute('data-next'), 10) || 0});
-  };
-  if (!prepend) body.scrollTop = body.scrollHeight;
-}
-
-el.hist.onclick = () => {
-  drawerClose();
-  el.histpage.classList.add('on');
-  el.histtitle.textContent = '📜 对话记录';
-  el.histlist.style.display = '';
-  el.histbody.style.display = 'none';
-  el.histlist.innerHTML = '<div style="padding:14px; color:#999;">正在拉取历史会话…</div>';
-  sendCmd('hist_ls');
-};
-el.histback.onclick = () => el.histpage.classList.remove('on');
-el.histrefresh.onclick = histBack;
 
 /* 1.xx：连接诊断按钮 */
 el.netreconn.onclick = () => {
@@ -7455,6 +7132,133 @@ renderAcct();                                    /* 1.33：账号行首显 — *
 loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
 pickCur(); renderSrvList(); renderTop();         /* 1.48：打开即渲染名册 + 直接选中上次那台 */
 if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
+
+/* ======== 轮播账查看器（老板 2026-11-06 18:43：可视化 + 最近 N 轮） ======== */
+(function(){
+  var built = false, CV_VER = '1.00', view = 'list', cur = null;
+  var NKEY = 'wb_turns_n';
+  function nGet(){ try{ var v = parseInt(localStorage.getItem(NKEY) || '5', 10); return (v >= 2 && v <= 60) ? v : 5; }catch(e){ return 5; } }
+  function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function inject(){
+    if (document.getElementById('tv_style')) return;
+    var st = document.createElement('style'); st.id = 'tv_style';
+    st.textContent =
+      '#tv_page{position:fixed;inset:0;z-index:99999;background:#f6f8fa;display:none;flex-direction:column;color:#222}' +
+      '#tv_page.on{display:flex}' +
+      '#tv_hd{flex:none;display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fff;border-bottom:1px solid #e3e8ee}' +
+      '#tv_hd .t{flex:1;font-size:16px;font-weight:600}' +
+      '#tv_hd button{border:1px solid #d5dbe1;background:#fff;border-radius:8px;padding:7px 10px;font-size:13px}' +
+      '#tv_bd{flex:1;overflow:auto;padding:10px 10px 40px}' +
+      '.tv_sec{background:#fff;border:1px solid #e6ebf0;border-radius:12px;margin:0 0 12px;overflow:hidden}' +
+      '.tv_sec>h3{margin:0;padding:12px 14px;font-size:15px;font-weight:600;background:#eef4fb;border-bottom:1px solid #e6ebf0}' +
+      '.tv_sec>h3 .n{font-size:12px;color:#6b7b8c;font-weight:400}' +
+      '.tv_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;padding:10px}' +
+      '.tv_card{background:#fff;border:1px solid #e6ebf0;border-radius:12px;padding:10px 12px;min-height:56px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}' +
+      '.tv_card:active{background:#f2f6ff}' +
+      '.tv_l1{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.tv_l2{margin-top:5px;font-size:11px;color:#8a98a6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.tv_dhd{display:flex;align-items:center;gap:8px;margin:0 0 10px}' +
+      '.tv_dhd button{flex:none;border:1px solid #2f6fed;background:#fff;color:#2f6fed;border-radius:8px;padding:6px 10px;font-size:13px}' +
+      '.tv_dhd .dt{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.tv_turn{padding:9px 11px;margin:6px 0;border:1px solid #eef1f4;border-radius:8px;background:#fff}' +
+      '.tv_turn .u{font-size:13px;color:#1a3d6d;white-space:pre-wrap;word-break:break-word}' +
+      '.tv_turn .a{font-size:13px;color:#222;margin-top:6px;white-space:pre-wrap;word-break:break-word}' +
+      '.tv_turn .m{font-size:11px;color:#8a98a6;margin-top:6px}';
+    document.head.appendChild(st);
+  }
+  function openAll(){
+    return new Promise(function(res){
+      var rq = indexedDB.open('wbcli_turns', 1);
+      rq.onsuccess = function(){
+        var db = rq.result, out = [];
+        try{
+          var tx = db.transaction('conv', 'readonly');
+          var cur2 = tx.objectStore('conv').openCursor();
+          cur2.onsuccess = function(){
+            var c = cur2.result;
+            if (c){ out.push({sid: String(c.key), turns: (c.value && c.value.turns) || []}); c.continue(); }
+          };
+          tx.oncomplete = function(){ res(out); };
+          tx.onerror = function(){ res(out); };
+        }catch(e){ res(out); }
+      };
+      rq.onerror = function(){ res([]); };
+    });
+  }
+  function render(host){
+    host.innerHTML = '';
+    var cfg = document.createElement('div'); cfg.className = 'tv_sec';
+    cfg.innerHTML = '<h3>轮播账参数 <span class="n">改后新轮按新值保留</span></h3>' +
+      '<div style="padding:10px 14px;font-size:13px;display:flex;align-items:center;gap:8px">' +
+      '保存最近 <input id="tv_n" type="number" min="2" max="60" step="1" style="width:64px;border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px" value="5"> 轮' +
+      '<span style="color:#8a98a6;font-size:11px">（人类问＋AI 终答算一轮）</span></div>';
+    host.appendChild(cfg);
+    var ne = cfg.querySelector('#tv_n');
+    ne.value = nGet();
+    ne.onchange = function(){
+      var v = parseInt(ne.value, 10); if (!(v >= 2 && v <= 60)) v = 5;
+      ne.value = v; try { localStorage.setItem(NKEY, String(v)); } catch(e){}
+    };
+    if (view === 'detail' && cur){ renderDetail(host); return; }
+    var sec = document.createElement('div'); sec.className = 'tv_sec';
+    sec.innerHTML = '<h3>本地轮播账 <span class="n">读取中…</span></h3>';
+    host.appendChild(sec);
+    openAll().then(function(list){
+      sec.querySelector('.n').textContent = list.length + ' 个会话有本地轮播账';
+      if (!list.length){ sec.appendChild(Object.assign(document.createElement('div'), {style:'padding:14px;color:#8a98a6;font-size:13px', textContent:'（本地还没有轮播账）'})); return; }
+      var g = document.createElement('div'); g.className = 'tv_grid';
+      list.forEach(function(it){
+        var first = (it.turns[0] && it.turns[0].utext) || '';
+        var card = document.createElement('div'); card.className = 'tv_card';
+        card.innerHTML = '<div class="tv_l1">' + esc(it.sid) + '</div>' +
+          '<div class="tv_l2">' + esc(it.turns.length + ' 轮' + (first ? ' · ' + first.slice(0, 24) : '')) + '</div>';
+        card.onclick = function(){ cur = it; view = 'detail'; render(host); host.scrollTop = 0; };
+        g.appendChild(card);
+      });
+      sec.appendChild(g);
+    });
+  }
+  function renderDetail(host){
+    var bar = document.createElement('div'); bar.className = 'tv_dhd';
+    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(cur.sid) + '</div>';
+    bar.querySelector('button').onclick = function(){ view = 'list'; cur = null; render(host); host.scrollTop = 0; };
+    host.appendChild(bar);
+    var sec = document.createElement('div'); sec.className = 'tv_sec';
+    sec.innerHTML = '<h3>轮播账 · ' + esc(cur.turns.length + ' 轮') + '</h3>';
+    var box = document.createElement('div'); box.style.padding = '6px 10px 12px';
+    cur.turns.forEach(function(t, i){
+      var d = document.createElement('div'); d.className = 'tv_turn';
+      var n = (t.thinks && t.thinks.length) || 0;
+      d.innerHTML = '<div class="u">' + esc('你：' + (t.utext || '（无）')) + '</div>' +
+        '<div class="a">' + esc('AI：' + (t.atext || (t.done ? '（无终极结论）' : '（生成中）'))) + '</div>' +
+        '<div class="m">' + esc('第 ' + (i + 1) + ' 轮 · 思维卡 ' + n + ' 张 · ' + (t.done ? '已结束' : '进行中')) + '</div>';
+      box.appendChild(d);
+    });
+    sec.appendChild(box); host.appendChild(sec);
+  }
+  function build(){
+    if (built) return; built = true; inject();
+    var pg = document.createElement('div'); pg.id = 'tv_page';
+    pg.innerHTML = '<div id="tv_hd"><button id="tv_back">‹ 返回</button><div class="t">轮播账查看器 v' + CV_VER + '</div><button id="tv_reload">刷新</button></div><div id="tv_bd"></div>';
+    document.body.appendChild(pg);
+    var bd = pg.querySelector('#tv_bd');
+    pg.querySelector('#tv_back').onclick = function(){ pg.classList.remove('on'); };
+    pg.querySelector('#tv_reload').onclick = function(){ view = 'list'; cur = null; render(bd); };
+    window._tvOpen = function(){ pg.classList.add('on'); render(bd); };
+  }
+  function bind(){
+    var b = document.getElementById('btn_turnview');
+    if (!b) return;
+    b.onclick = function(){
+      build();
+      try { if (typeof drawerClose === 'function') drawerClose(); } catch(e){}
+      window._tvOpen();
+    };
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
+  else bind();
+})();
+
 </script>
 </body>
 </html>
