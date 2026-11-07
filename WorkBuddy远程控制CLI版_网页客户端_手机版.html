@@ -4893,7 +4893,7 @@ const APP_NAME = 'wb远程';
    ① case 'dead' 断线不再 resetPaging，保留 S.older/S.pageGroups/S.histConv；
    ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
    以下为上一版（2.19）说明存档。 */
-const VER = '2.212';   /* 2.21（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
+const VER = '2.213';   /* 2.21（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
                          ctl_hb 周期 20000→55000（55 秒；服务端锁 60 秒，取 55000 留边界余量，
                          不用 60000 免得卡边界抖动）；本 WS 免 ping、不做任何保活。
    2.19（2026-10-25，P29-B。老板原话「这个排队条本身就是一种虚卡了，
@@ -7132,6 +7132,26 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   var NKEY = 'wb_turns_n';
   function nGet(){ try{ var v = parseInt(localStorage.getItem(NKEY) || '5', 10); return (v >= 2 && v <= 60) ? v : 5; }catch(e){ return 5; } }
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  /* 老板 2026-11-07 19:42：轮播账按 sid 锚定（不变），但**显示以会话名为准**
+     ——只给一长串 sid 认不出是哪个会话。名字来源：当前快照 convs 行 ['c',sid,cur,显示名]，
+     断网/未连时退回骨架缓存 LS_SKEL 里的同名行。 */
+  function nameMap(){
+    var m = {};
+    function eat(rows){
+      (rows || []).forEach(function(r){
+        if (!r || r[0] !== 'c') return;
+        var sid = String(r[1] || ''), nm = String(r[3] || '').trim();
+        if (sid && nm) m[sid] = nm;
+      });
+    }
+    try { eat(S && S.snap && S.snap.convs); } catch(e){}
+    try {
+      var o = JSON.parse(localStorage.getItem('wb_cli_skel') || 'null');
+      if (o && Array.isArray(o.convs)) eat(o.convs);
+    } catch(e){}
+    return m;
+  }
+  function nmOf(sid, m){ return (m && m[sid]) || sid; }
   function inject(){
     if (document.getElementById('tv_style')) return;
     var st = document.createElement('style'); st.id = 'tv_style';
@@ -7200,11 +7220,15 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       sec.querySelector('.n').textContent = list.length + ' 个会话有本地轮播账';
       if (!list.length){ sec.appendChild(Object.assign(document.createElement('div'), {style:'padding:14px;color:#8a98a6;font-size:13px', textContent:'（本地还没有轮播账）'})); return; }
       var g = document.createElement('div'); g.className = 'tv_grid';
+      var mp = nameMap();
       list.forEach(function(it){
         var first = (it.turns[0] && it.turns[0].utext) || '';
+        var nm = nmOf(it.sid, mp);
         var card = document.createElement('div'); card.className = 'tv_card';
-        card.innerHTML = '<div class="tv_l1">' + esc(it.sid) + '</div>' +
-          '<div class="tv_l2">' + esc(it.turns.length + ' 轮' + (first ? ' · ' + first.slice(0, 24) : '')) + '</div>';
+        card.innerHTML = '<div class="tv_l1">' + esc(nm) + '</div>' +
+          '<div class="tv_l2">' + esc(it.turns.length + ' 轮' + (first ? ' · ' + first.slice(0, 24) : '')
+            + (nm !== it.sid ? ' · ' + String(it.sid).slice(0, 8) : '')) + '</div>';
+        card.setAttribute('data-sid', it.sid);
         card.onclick = function(){ cur = it; view = 'detail'; render(host); host.scrollTop = 0; };
         g.appendChild(card);
       });
@@ -7213,7 +7237,7 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   }
   function renderDetail(host){
     var bar = document.createElement('div'); bar.className = 'tv_dhd';
-    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(cur.sid) + '</div>';
+    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(nmOf(cur.sid, nameMap())) + '</div>';
     bar.querySelector('button').onclick = function(){ view = 'list'; cur = null; render(host); host.scrollTop = 0; };
     host.appendChild(bar);
     var sec = document.createElement('div'); sec.className = 'tv_sec';
