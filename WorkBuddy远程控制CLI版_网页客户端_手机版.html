@@ -626,7 +626,6 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_launch" title="拉起（重启当前目标）" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
     <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔 10 秒）">✍ 批量签到</div>
-    <div class="dmi" id="btn_checkin" title="今日签到（领积分）" data-page-node-id="Chk1nBtn2Fjy9kZXPfjy07">✍ 今日签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
     <div class="dmi" id="btn_turnview" title="本地轮播账（切会话先顶用的那份）">🗂 轮播账查看器</div>
   </div>
@@ -1257,7 +1256,7 @@ const el = {
   td_sel: $('td_sel'), td_name: $('td_name'), td_full: $('td_full'),
   td_re: $('btn_tdre'), td_ok: $('btn_tdok'), td_cancel: $('btn_tdcancel'),
   td_stat: $('td_stat'), refresh_pts: $('btn_refresh_pts'), refresh_srv: $('btn_refresh_srv'),
-  checkin: $('btn_checkin'), checkin_all: $('btn_checkin_all'),
+  checkin_all: $('btn_checkin_all'),
   fexit: $('fexit'),
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
@@ -1307,7 +1306,7 @@ const SRV_CMD_LABELS = {
   ask_cancel: '取消提问', pick_opt: '选择选项',
   attach_rm: '移除附件', model_list: '刷新模型', points: '刷新积分',
   acct_switch: '切换账号', acct_scan: '重扫账号', acct_list: '读取账号列表',
-  checkin: '今日签到', checkin_all: '批量签到', credits_refresh_all: '批量刷新积分',
+  checkin_all: '批量签到', credits_refresh_all: '批量刷新积分',
   checkin_state: '读取签到状态', queue_sendnow: '立即插队发送',
   queue_restore: '放回队列', queue_del: '删除队列条目', queue_recall: '取回队列条目'
 };
@@ -4894,7 +4893,7 @@ const APP_NAME = 'wb远程';
    ① case 'dead' 断线不再 resetPaging，保留 S.older/S.pageGroups/S.histConv；
    ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
    以下为上一版（2.19）说明存档。 */
-const VER = '2.211';   /* 2.21（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
+const VER = '2.212';   /* 2.21（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
                          ctl_hb 周期 20000→55000（55 秒；服务端锁 60 秒，取 55000 留边界余量，
                          不用 60000 免得卡边界抖动）；本 WS 免 ping、不做任何保活。
    2.19（2026-10-25，P29-B。老板原话「这个排队条本身就是一种虚卡了，
@@ -6856,12 +6855,6 @@ el.refresh_srv.onclick = () => {         /* 1.85：刷新服务端名册——�
   if (srvNeedOnline('刷新服务端')) return;
   /* 不带 to：广播 who，频道内全部服务端各自应答一帧 srv（服务端 2.01 起） */
   srvOpSendJson({t: 'who', nick: MY_NICK}, '刷新服务端');
-};
-el.checkin.onclick = () => {             /* 1.59：今日签到（领积分） */
-  if (srvNeedOnline('今日签到')) return;
-  if (S.checkin_busy){ flash('签到处理中，请稍候…', 'var(--orange)'); return; }
-  S.checkin_busy = true;
-  srvOpSend('checkin', null, '今日签到');   // 服务端 cmd_checkin → checkin 事件回
 };
 el.checkin_all.onclick = () => {         /* 2.00：改为弹出「批量签到」遥控面板 */
   if (srvNeedOnline('批量签到')) return;
