@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.24 —— 样式表
+/* Fox记事本 网页版 v1.34 —— 样式表
    约定：顶栏固定两行（约 70px）；正文独占剩余高度；滚动条 5px 窄边；
    手机竖屏（375px）不产生整页横向溢出，只有第二行工具条可横向滑动。 */
 
@@ -305,12 +305,23 @@ body{
 }
 .page-head .ph1{ height: 34px; }
 .page-head .ph2{
-  height: 36px;
+  height: auto;
+  min-height: 36px;
+  padding: 4px 10px;
+  flex-wrap: wrap;
+  row-gap: 4px;
   border-top: 1px solid var(--c-line);
-  overflow-x: auto;
-  scrollbar-width: none;
 }
-.page-head .ph2::-webkit-scrollbar{ height: 0; }
+.page-head .ph3{
+  height: auto;
+  min-height: 34px;
+  padding: 4px 10px;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  border-top: 1px solid var(--c-line);
+  background: #fbfcfe;
+}
+.sel-count{ font-size: 12px; color: #3a4049; white-space: nowrap; }
 .ph-title{ font-size: 14px; font-weight: 700; color: var(--c-brand); white-space: nowrap; }
 .crumb{ font-size: 12px; color: var(--c-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb.clickable{ color: var(--c-primary); cursor: pointer; }
@@ -338,6 +349,11 @@ body{
   text-align: left;
   white-space: nowrap;
 }
+#fileTable .col-check{ width: 30px; text-align: center; padding-left: 4px; padding-right: 4px; }
+#fileTable .col-check input{ width: 16px; height: 16px; margin: 0; accent-color: var(--c-primary); }
+#fileTable th.sortable{ cursor: pointer; user-select: none; }
+#fileTable th.sortable:hover{ color: var(--c-primary); }
+#fileTable th.sortable .sortmark{ font-size: 10px; color: var(--c-primary); }
 #fileTable thead th{
   position: sticky; top: 0; z-index: 2;
   background: #f3f5f8;
@@ -524,4 +540,8 @@ body{
   #fileTable td.col-name{ max-width: none; }
   #fileTbody tr{ cursor: pointer; }
   #fileTable td.col-op{ text-align: right; }
+  .page-head .ph2, .page-head .ph3{ padding: 4px 8px; }
+  .op-cell{ gap: 4px; }
+  .op-cell .btn{ padding: 0 5px; }
+  .search{ width: 120px; }
 }
