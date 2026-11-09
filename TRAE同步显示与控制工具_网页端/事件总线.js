@@ -1,6 +1,14 @@
 'use strict';
-/* 事件总线.js（网页端）  版本 2.131  日期 2026-10-24
+/* 事件总线.js（网页端）  版本 2.132  日期 2026-11-05
    【维护记录】
+   2.132  2026-11-05  附件 R2 直传事件接入（老板 2026-11-05 令「附件上传改走 R2，
+                     与对话流彻底无关」）：`onEv` 新增 `case 'attach_r2_open'`
+                     （服务端回预签名 PUT 清单 v={task,uploads:[{n,key,url}],id?}
+                     → 调 任务与输入.js attachR2FromReceipt 开传）与
+                     `case 'attach_r2_done'`（服务端取件回音 v={task,ok,saved_dir,
+                     msg} → attachR2DoneEcho 绿/红 flash）；`onRcpt` 兜底兼容
+                     open 回执 done 直接携带 {task,uploads} 载荷的形态
+                     （rcpt/ev 二选一都能接住）。2.131→2.132。
    2.131  2026-10-24  官方排队条「串台」（老板原话：「排队条一定要核实清楚属于
                      哪个会话，不能乱显示，是谁的就显示在谁那边」）：`case 'snap'`
                      收到快照后先按 `pend_sid`（旧服务端回退 `v.selSid`）比当前
@@ -523,6 +531,14 @@ function onEv(kind, v){
       renderAttach(S.snap.attach || []);
       flash('已移除附件', '#888');
       break;
+    case 'attach_r2_open':          /* 2.151 附件 R2 直传：服务端回预签名 PUT 清单
+                                       v={task, uploads:[{n,key,url}], id?} → 开传 */
+      if (typeof attachR2FromReceipt === 'function') attachR2FromReceipt(v || {});
+      break;
+    case 'attach_r2_done':          /* 2.151 附件 R2 直传：服务端取件回音
+                                       v={task, ok, saved_dir, msg} → 绿/红 flash */
+      if (typeof attachR2DoneEcho === 'function') attachR2DoneEcho(v || {});
+      break;
     case 'ports':
       S.alive = new Set(v || []);
       break;
@@ -618,6 +634,16 @@ function onRcpt(d){
   }
   /* ① 通用操作——按动作 id 匹配在途登记表（③④ 收口） */
   if (id) srvOpAck(id, stage, msg);
+  /* 2.151 附件 R2 直传：attach_r2_open 的终态回执若直接携带
+     {task, uploads:[…]} 载荷（服务端可走 rcpt done 或 ev 二选一），在此兜底接住。 */
+  try {
+    if (stage === 'done' && typeof attachR2FromReceipt === 'function'){
+      const rv = (d.v && d.v.task && d.v.uploads) ? d.v
+               : (d.data && d.data.task && d.data.uploads) ? d.data
+               : (d.task && d.uploads) ? d : null;
+      if (rv) attachR2FromReceipt(rv);
+    }
+  } catch(e){}
 }
 
 /* ============ 2.113：按需单会话（snap_pane）与「刷新当前会话」 ============
