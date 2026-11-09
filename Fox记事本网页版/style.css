@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.36 —— 样式表
+/* Fox记事本 网页版 v1.37 —— 样式表
    约定：顶栏固定两行（约 70px）；正文独占剩余高度；滚动条 5px 窄边；
    手机竖屏（375px）不产生整页横向溢出，只有第二行工具条可横向滑动。 */
 
@@ -367,6 +367,26 @@ body{
 .fname{ display: inline-flex; align-items: center; gap: 5px; max-width: 100%; }
 .fname .ico{ flex: 0 0 auto; }
 .fname .txt{ overflow: hidden; text-overflow: ellipsis; }
+.open-count{
+  flex: 0 0 auto;
+  width: 26px; height: 26px;
+  padding: 0;
+  border: 1px solid #d5dae1;
+  border-radius: 5px;
+  background: #f4f6f9;
+  color: #5b636e;
+  font-family: inherit; font-size: 11px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.open-count:hover{ background: #e9f1fd; border-color: #a9c6ef; }
+.meta-json{
+  margin: 6px 0 0; padding: 8px 10px;
+  background: #f4f5f7; border: 1px solid #e2e4e8; border-radius: 6px;
+  font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-all;
+  max-height: 200px; overflow: auto;
+}
 .state-tag{
   display: inline-block; padding: 1px 6px;
   border-radius: 8px; font-size: 11px;
