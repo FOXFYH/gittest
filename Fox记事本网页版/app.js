@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.24 —— 主逻辑
+/* Fox记事本 网页版 v1.34 —— 主逻辑
    与 Python 版共用金山文档表格「Fox记事本」的 6.0 云端库。
    云同步协议：读取索引 / 查找 / 同步提交 / 转正确认 / 批量写入 / 删除行 / 解锁，
    全部照《文件管理6.0专用同步脚本.js》实现，不自行发明参数。 */
@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.33';
+  const APP_VERSION = 'v1.34';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -27,7 +27,9 @@
     measureMode: 'mixed',
     user: 'test',
     password: '1234',
-    sheet: 'Fox记事本'
+    sheet: 'Fox记事本',
+    fileSortKey: 'edit',
+    fileSortDir: 'desc'
   };
 
   // 同步状态四步曲：所有文案与颜色只从这里出（规范 5.2）
@@ -94,6 +96,8 @@
     s.user = String(s.user || DEFAULT_SETTINGS.user);
     s.password = String(s.password || DEFAULT_SETTINGS.password);
     s.sheet = String(s.sheet || DEFAULT_SETTINGS.sheet);
+    s.fileSortKey = ['name', 'chars', 'start', 'end', 'edit'].indexOf(s.fileSortKey) === -1 ? 'edit' : s.fileSortKey;
+    s.fileSortDir = s.fileSortDir === 'asc' ? 'asc' : 'desc';
     return s;
   }
   function saveSettings() {
@@ -574,6 +578,7 @@
 
   let cloudIndex = [];
   let currentFolder = '';
+  let selectedIds = new Set();
   let syncBusy = false;
   let autoRaf = null;
   let autoAcc = 0;
@@ -1661,6 +1666,78 @@
     const f = cloudIndex.find(function (x) { return x['ID'] === fid; });
     return f ? f['文件名'] : fid;
   }
+  function isFolderId(id) { return String(id || '').indexOf('FOLDER_') === 0; }
+
+  // 递归取某文件夹下全部子孙（文件夹+文件；父→子顺序）
+  function collectDescendants(fid) {
+    const out = [];
+    const seen = Object.create(null);
+    (function walk(pid, depth) {
+      if (depth > 60) return;
+      cloudIndex.forEach(function (f) {
+        if (String(f['文件夹路径'] || '') !== pid) return;
+        const id = String(f['ID'] || '');
+        if (!id || id === pid || seen[id]) return;
+        seen[id] = 1;
+        out.push(f);
+        if (isFolderId(id)) walk(id, depth + 1);
+      });
+    })(String(fid), 0);
+    return out;
+  }
+
+  // 表头排序：文件夹恒在前，组内按所选列升降序（规范 4.3：排序痕迹存设置）
+  function sortRows(rows) {
+    const key = settings.fileSortKey || 'edit';
+    const dir = settings.fileSortDir === 'asc' ? 1 : -1;
+    return rows.sort(function (a, b) {
+      const af = isFolderId(a['ID']);
+      const bf = isFolderId(b['ID']);
+      if (af !== bf) return af ? -1 : 1;
+      let av;
+      let bv;
+      if (key === 'name') { av = String(a['文件名'] || ''); bv = String(b['文件名'] || ''); }
+      else if (key === 'chars') {
+        av = Number(String(a['内容字符数'] || '0').split('-')[0]) || 0;
+        bv = Number(String(b['内容字符数'] || '0').split('-')[0]) || 0;
+      } else if (key === 'start') { av = Number(a['起点号']) || 0; bv = Number(b['起点号']) || 0; }
+      else if (key === 'end') { av = Number(a['终点号']) || 0; bv = Number(b['终点号']) || 0; }
+      else { av = String(a['最后编辑时间'] || ''); bv = String(b['最后编辑时间'] || ''); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return String(a['文件名'] || '').localeCompare(String(b['文件名'] || ''));
+    });
+  }
+
+  function renderSortMarks() {
+    document.querySelectorAll('#fileTable th.sortable').forEach(function (th) {
+      const mark = th.querySelector('.sortmark');
+      if (!mark) return;
+      mark.textContent = th.dataset.sort === settings.fileSortKey
+        ? (settings.fileSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    });
+  }
+
+  function selectedRows() {
+    return cloudIndex.filter(function (f) { return selectedIds.has(String(f['ID'] || '')); });
+  }
+
+  function updateSelectionUI() {
+    const n = selectedIds.size;
+    const bar = $('selBar');
+    if (bar) bar.hidden = n === 0;
+    const cnt = $('selCount');
+    if (cnt) cnt.textContent = '已选 ' + n + ' 项';
+    const all = $('checkAll');
+    const boxes = $('fileTbody') ? Array.prototype.slice.call($('fileTbody').querySelectorAll('input.row-check')) : [];
+    if (all) {
+      const checked = boxes.filter(function (c) { return c.checked; }).length;
+      all.checked = boxes.length > 0 && checked === boxes.length;
+      all.indeterminate = checked > 0 && checked < boxes.length;
+    }
+    const renameBtn = $('btnRename');
+    if (renameBtn) renameBtn.disabled = n !== 1;
+  }
 
   async function refreshIndex(silent) {
     try {
@@ -1682,20 +1759,29 @@
       if (!q) return true;
       return String(f['文件名'] || '').toLowerCase().indexOf(q) !== -1;
     });
+    sortRows(rows);
 
-    rows.sort(function (a, b) {
-      const af = String(a['ID'] || '').indexOf('FOLDER_') === 0;
-      const bf = String(b['ID'] || '').indexOf('FOLDER_') === 0;
-      if (af !== bf) return af ? -1 : 1;
-      return String(b['最后编辑时间'] || '').localeCompare(String(a['最后编辑时间'] || ''));
-    });
+    // 选中项只保留当前可见行，避免对隐藏条目误操作
+    const visibleIds = Object.create(null);
+    rows.forEach(function (f) { visibleIds[String(f['ID'] || '')] = 1; });
+    selectedIds.forEach(function (id) { if (!visibleIds[id]) selectedIds.delete(id); });
 
     tbody.innerHTML = '';
     rows.forEach(function (f) {
       const id = String(f['ID'] || '');
-      const isFolder = id.indexOf('FOLDER_') === 0;
+      const isFolder = isFolderId(id);
       const tr = document.createElement('tr');
       if (isFolder) tr.className = 'row-folder';
+
+      const tdCheck = document.createElement('td');
+      tdCheck.className = 'col-check';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'row-check';
+      cb.dataset.id = id;
+      cb.checked = selectedIds.has(id);
+      tdCheck.appendChild(cb);
+      tr.appendChild(tdCheck);
 
       const tdName = document.createElement('td');
       tdName.className = 'col-name';
@@ -1745,21 +1831,26 @@
       bOpen.dataset.act = isFolder ? 'enter-folder' : 'open-file';
       bOpen.dataset.id = id;
       opWrap.appendChild(bOpen);
-      if (!isFolder) {
-        const bDel = document.createElement('button');
-        bDel.className = 'btn danger';
-        bDel.textContent = '删除';
-        bDel.dataset.act = 'delete-file';
-        bDel.dataset.id = id;
-        bDel.dataset.name = String(f['文件名'] || '');
-        opWrap.appendChild(bDel);
-      }
+      const bDown = document.createElement('button');
+      bDown.className = 'btn';
+      bDown.textContent = isFolder ? '打包下载' : '下载';
+      bDown.title = isFolder ? '把文件夹内全部文章拼成文本包下载' : '导出正文为 .txt';
+      bDown.dataset.act = 'download';
+      bDown.dataset.id = id;
+      opWrap.appendChild(bDown);
+      const bDel = document.createElement('button');
+      bDel.className = 'btn danger';
+      bDel.textContent = '删除';
+      bDel.dataset.act = 'delete-item';
+      bDel.dataset.id = id;
+      bDel.dataset.name = String(f['文件名'] || '');
+      opWrap.appendChild(bDel);
       tdOp.appendChild(opWrap);
       tr.appendChild(tdOp);
 
       // 整行可点：手机上不必横向滑动找按钮——文件夹=进入，文章=直接打开
       tr.addEventListener('click', function (e) {
-        if (e.target.closest('button')) return;
+        if (e.target.closest('button,input,label')) return;
         if (isFolder) enterFolder(id); else openCloudFile(id);
       });
       tbody.appendChild(tr);
@@ -1768,14 +1859,18 @@
     $('fileEmpty').hidden = rows.length > 0;
     $('crumb').textContent = currentFolder ? ('根目录 / ' + findFolderName(currentFolder)) : '根目录';
     $('crumb').classList.toggle('clickable', !!currentFolder);
+    renderSortMarks();
+    updateSelectionUI();
   }
 
   function enterFolder(id) {
     currentFolder = id;
+    selectedIds.clear();
     renderFiles();
   }
   function goRoot() {
     currentFolder = '';
+    selectedIds.clear();
     renderFiles();
   }
 
@@ -1793,20 +1888,425 @@
     }
   }
 
-  async function deleteCloudFile(id, name) {
-    if (!(await modalConfirm('删除云端文件', '确定删除「' + name + '」？此操作不可恢复。', '删除', true))) return;
-    if (!(await modalConfirm('再次确认', '真的要删除「' + name + '」吗？删除后无法从回收站恢复。', '仍然删除', true))) return;
-    try {
-      await cloudCall('删除行', { 'ID': id, '锁登记处': deviceId() });
-      if (doc.id === id) {
+  async function deleteItemRows(item, skipConfirm) {
+    const id = String(item['ID'] || '');
+    const name = String(item['文件名'] || '');
+    const folder = isFolderId(id);
+    const descendants = folder ? collectDescendants(id) : [];
+    const fileCount = descendants.filter(function (x) { return !isFolderId(x['ID']); }).length;
+    const subFolderCount = descendants.filter(function (x) { return isFolderId(x['ID']); }).length;
+
+    if (!skipConfirm) {
+      if (folder) {
+        let msg = '确定删除文件夹「' + name + '」？将连同 ' + fileCount + ' 个文件';
+        if (subFolderCount) msg += '、' + subFolderCount + ' 个子文件夹';
+        msg += '一起删除。';
+        if (!(await modalConfirm('删除文件夹（含内容）', msg, '删除', true))) return false;
+        if (!(await modalConfirm('再次确认', '真的要删除「' + name + '」及其全部内容吗？此操作不可恢复。', '仍然删除', true))) return false;
+      } else {
+        if (!(await modalConfirm('删除云端文件', '确定删除「' + name + '」？此操作不可恢复。', '删除', true))) return false;
+        if (!(await modalConfirm('再次确认', '真的要删除「' + name + '」吗？删除后无法从回收站恢复。', '仍然删除', true))) return false;
+      }
+    }
+
+    // 先删最深子孙，最后删文件夹自身
+    const ids = [];
+    for (let i = descendants.length - 1; i >= 0; i--) ids.push(String(descendants[i]['ID']));
+    ids.push(id);
+    for (let k = 0; k < ids.length; k++) {
+      await cloudCall('删除行', { 'ID': ids[k], '锁登记处': deviceId() }, true);
+      if (doc.id === ids[k]) {
         setDoc('', '', null);
         doc.dirty = false;
         writeDocCache();
       }
+    }
+    return true;
+  }
+
+  async function deleteCloudItem(id) {
+    const item = cloudIndex.find(function (x) { return String(x['ID']) === String(id); });
+    if (!item) { toast('该条目已不存在，请刷新'); return; }
+    try {
+      const ok = await deleteItemRows(item);
+      if (!ok) return;
       await refreshIndex(true);
-      toast('已删除：' + name);
+      toast('已删除：' + String(item['文件名'] || ''));
     } catch (err) {
       toast('删除失败：' + err.message);
+    } finally {
+      await unlockCloud();
+    }
+  }
+
+  async function batchDeleteSelected() {
+    const items = selectedRows();
+    if (!items.length) { toast('请先勾选要删除的条目'); return; }
+    let files = 0;
+    let folders = 0;
+    items.forEach(function (it) {
+      if (isFolderId(it['ID'])) {
+        folders++;
+        files += collectDescendants(it['ID']).filter(function (x) { return !isFolderId(x['ID']); }).length;
+      } else {
+        files++;
+      }
+    });
+    let msg = '确定删除所选 ' + items.length + ' 项？';
+    if (folders) msg += '其中 ' + folders + ' 个文件夹将连同其下 ' + files + ' 个文件一起删除。';
+    else msg += '共 ' + files + ' 个文件。';
+    if (!(await modalConfirm('批量删除', msg, '删除', true))) return;
+    if (!(await modalConfirm('再次确认', '真的要删除这 ' + items.length + ' 项吗？此操作不可恢复。', '仍然删除', true))) return;
+
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (let i = 0; i < items.length; i++) {
+        try {
+          const done = await deleteItemRows(items[i], true);
+          if (done) ok++; else return;
+        } catch (err) {
+          fail++;
+        }
+      }
+      selectedIds.clear();
+      await refreshIndex(true);
+      toast('批量删除完成：成功 ' + ok + ' 项' + (fail ? '，失败 ' + fail + ' 项' : ''));
+    } finally {
+      await unlockCloud();
+    }
+  }
+
+  function nameExists(name, folderId, excludeId, folderOnly) {
+    return cloudIndex.some(function (f) {
+      return String(f['ID'] || '') !== String(excludeId) &&
+        isFolderId(f['ID']) === !!folderOnly &&
+        String(f['文件夹路径'] || '') === String(folderId || '') &&
+        String(f['文件名'] || '') === name;
+    });
+  }
+
+  async function writeRowFields(id, fields) {
+    const data = { 'ID': id };
+    Object.keys(fields).forEach(function (k) { data[k] = fields[k]; });
+    await cloudCall('批量写入', { 'ID': id, '锁登记处': deviceId(), '数据': data }, true);
+  }
+
+  async function renameFileItem(item, newName) {
+    const id = String(item['ID']);
+    const folder = String(item['文件夹路径'] || '');
+    await writeRowFields(id, { '文件名': newName, '文件夹路径': folder, '最后上传发起时间': fmtDateTime() });
+    // 大文件拆分片段同步改名
+    const m = /^(\d+)-(\d+)\/(\d+)$/.exec(String(item['内容字符数'] || ''));
+    if (m && Number(m[3]) > 1) {
+      const total = Math.min(Number(m[3]), 20);
+      for (let i = 2; i <= total; i++) {
+        await writeRowFields(id + '-' + i, { '文件名': newName, '文件夹路径': folder });
+      }
+    }
+  }
+
+  async function renameFolderItem(item, newName) {
+    const id = String(item['ID']);
+    const oldName = String(item['文件名'] || '');
+    await writeRowFields(id, { '文件名': newName, '文件夹路径': String(item['文件夹路径'] || ''), '起点号': '0', '终点号': '0', '最后上传发起时间': fmtDateTime() });
+    // 兼容“按名称存路径”的历史数据：只处理非 ID 路径，逐条同步提交
+    for (let i = 0; i < cloudIndex.length; i++) {
+      const d = cloudIndex[i];
+      if (String(d['ID'] || '') === id) continue;
+      const p = String(d['文件夹路径'] || '');
+      if (!p || p.indexOf('FOLDER_') === 0) continue;   // 现协议按文件夹 ID 存路径，无需改
+      let np = null;
+      if (p === oldName) np = newName;
+      else if (p.indexOf(oldName + '/') === 0) np = newName + p.slice(oldName.length);
+      if (np !== null) await writeRowFields(String(d['ID']), { '文件夹路径': np });
+    }
+  }
+
+  async function renameSelected() {
+    const items = selectedRows();
+    if (items.length !== 1) { toast('请只勾选 1 个条目再重命名'); return; }
+    const item = items[0];
+    const isFolder = isFolderId(item['ID']);
+    const oldName = String(item['文件名'] || '');
+    const newName = await askText('重命名' + (isFolder ? '文件夹' : '文件'), '新名称（原名：' + oldName + '）', oldName);
+    if (newName === null) return;
+    const name = newName.trim();
+    if (!name) { toast('名称不能为空'); return; }
+    if (name === oldName) { toast('名称未变化'); return; }
+    const folder = String(item['文件夹路径'] || '');
+    if (nameExists(name, folder, item['ID'], isFolder)) {
+      toast('同一位置已存在同名' + (isFolder ? '文件夹' : '文件'));
+      return;
+    }
+    try {
+      if (isFolder) await renameFolderItem(item, name);
+      else await renameFileItem(item, name);
+      if (doc.id === String(item['ID'])) {
+        doc.name = name;
+        updateHeader();
+        writeDocCache();
+      }
+      await refreshIndex(true);
+      toast('已重命名为：' + name);
+    } catch (err) {
+      toast('重命名失败：' + err.message);
+    } finally {
+      await unlockCloud();
+    }
+  }
+
+  // 新建云端文件（导入、复制共用）：走 6.0 两阶段提交的全新文件语义
+  async function createCloudFile(name, content, folderId) {
+    const id = genId();
+    const owner = settings.user;
+    const created = fmtDateTime();
+    const whole = JSON.stringify({
+      'id': id, 'name': name, '内容': content, '起点号': 0, '终点号': 1,
+      '拥有者': owner, '文件夹路径': folderId || '', '创建日期': created,
+      '最后编辑时间': fmtDateTime(), '内容字符数': content.length
+    });
+    const data = buildFileData(id, name, content, 0, 1, folderId || '', owner, created);
+    const parts = splitCloudJson(whole, id);
+    if (parts) {
+      data['文件JSON'] = parts[0].json;
+      data['内容字符数'] = parts[0].charCountStr;
+    }
+    const sub = await cloudCall('同步提交', {
+      'ID': id,
+      '起点号': '0',
+      '终点号': '1',
+      '本地新文件标识': 'true',
+      '数据': data,
+      '锁登记处': deviceId()
+    }, true);
+    const judge = sub['判定结果'];
+    if (judge === '全新接收' || judge === '收为临时') {
+      const ver = Number(sub['云端版本号'] || 1) || 1;
+      if (parts) await writeFragments(parts, ver, name, folderId || '', owner, created);
+      if (judge === '收为临时') {
+        await cloudCall('转正确认', { 'ID': id, '起点号': String(ver), '锁登记处': deviceId() }, true);
+      }
+      return id;
+    }
+    throw new Error(sub['tongzhi'] || '云端未接收新文件');
+  }
+
+  function copyNameFor(name, folderId, folderOnly) {
+    const m = /(\.\w+)$/.exec(name);
+    const base = m ? name.slice(0, -m[1].length) : name;
+    const ext = m ? m[1] : '';
+    let copyName = base + '_副本' + ext;
+    let n = 1;
+    while (nameExists(copyName, folderId, '', !!folderOnly)) {
+      n++;
+      copyName = base + '_副本' + n + ext;
+    }
+    return copyName;
+  }
+
+  async function copyFolderChildren(srcFolderId, dstFolderId) {
+    const children = cloudIndex.filter(function (f) { return String(f['文件夹路径'] || '') === String(srcFolderId); });
+    for (let i = 0; i < children.length; i++) {
+      const ch = children[i];
+      if (isFolderId(ch['ID'])) {
+        const nid = 'FOLDER_' + genId();
+        await cloudCall('批量写入', {
+          'ID': nid,
+          '本地新文件标识': 'true',
+          '锁登记处': deviceId(),
+          '数据': {
+            'ID': nid,
+            '文件名': String(ch['文件名'] || ''),
+            '内容': '',
+            '起点号': '0',
+            '终点号': '0',
+            '文件夹路径': dstFolderId,
+            '最后上传发起时间': fmtDateTime()
+          }
+        }, true);
+        await copyFolderChildren(ch['ID'], nid);
+      } else {
+        const info = await fetchContentById(ch['ID']);
+        await createCloudFile(String(ch['文件名'] || '未命名.txt'), info.content, dstFolderId);
+      }
+    }
+  }
+
+  async function copyItemTo(item, targetFolderId) {
+    if (!isFolderId(item['ID'])) {
+      const info = await fetchContentById(String(item['ID']));
+      const name = copyNameFor(String(item['文件名'] || info.name || '未命名.txt'), targetFolderId);
+      await createCloudFile(name, info.content, targetFolderId);
+      return;
+    }
+    const nid = 'FOLDER_' + genId();
+    await cloudCall('批量写入', {
+      'ID': nid,
+      '本地新文件标识': 'true',
+      '锁登记处': deviceId(),
+      '数据': {
+        'ID': nid,
+        '文件名': copyNameFor(String(item['文件名'] || '新建文件夹'), targetFolderId, true),
+        '内容': '',
+        '起点号': '0',
+        '终点号': '0',
+        '文件夹路径': targetFolderId || '',
+        '最后上传发起时间': fmtDateTime()
+      }
+    }, true);
+    await copyFolderChildren(item['ID'], nid);
+  }
+
+  function folderPathLabel(fid) {
+    const names = [];
+    let cur = String(fid || '');
+    let guard = 0;
+    while (cur && guard < 50) {
+      const f = cloudIndex.find(function (x) { return String(x['ID']) === cur; });
+      if (!f) break;
+      names.unshift(String(f['文件名'] || ''));
+      cur = String(f['文件夹路径'] || '');
+      guard++;
+    }
+    return names.join(' / ');
+  }
+
+  async function chooseTargetFolder(title) {
+    const opts = [{ label: '（根目录）', value: '' }];
+    cloudIndex.filter(function (f) { return isFolderId(f['ID']); })
+      .sort(function (a, b) { return folderPathLabel(a['ID']).localeCompare(folderPathLabel(b['ID']), 'zh'); })
+      .forEach(function (f) {
+        opts.push({ label: '📁 ' + folderPathLabel(f['ID']), value: String(f['ID']) });
+      });
+    return chooseOne(title, '请选择目标文件夹：', opts);
+  }
+
+  function isSelfOrDescendantFolder(folderId, targetId) {
+    if (!targetId) return false;
+    let cur = String(targetId);
+    let guard = 0;
+    while (cur && guard < 50) {
+      if (cur === String(folderId)) return true;
+      const f = cloudIndex.find(function (x) { return String(x['ID']) === cur; });
+      if (!f) return false;
+      cur = String(f['文件夹路径'] || '');
+      guard++;
+    }
+    return false;
+  }
+
+  async function moveItemTo(item, targetFolderId) {
+    if (isFolderId(item['ID']) && isSelfOrDescendantFolder(item['ID'], targetFolderId)) {
+      throw new Error('不能把文件夹移动到自身或其子文件夹');
+    }
+    await writeRowFields(String(item['ID']), { '文件夹路径': targetFolderId || '', '最后上传发起时间': fmtDateTime() });
+    const m = /^(\d+)-(\d+)\/(\d+)$/.exec(String(item['内容字符数'] || ''));
+    if (!isFolderId(item['ID']) && m && Number(m[3]) > 1) {
+      const total = Math.min(Number(m[3]), 20);
+      for (let i = 2; i <= total; i++) {
+        await writeRowFields(item['ID'] + '-' + i, { '文件夹路径': targetFolderId || '' });
+      }
+    }
+  }
+
+  async function copySelected() {
+    const items = selectedRows();
+    if (!items.length) { toast('请先勾选要复制的条目'); return; }
+    const target = await chooseTargetFolder('复制到');
+    if (target === null) return;
+    for (let i = 0; i < items.length; i++) {
+      if (isFolderId(items[i]['ID']) && isSelfOrDescendantFolder(items[i]['ID'], target)) {
+        toast('不能把文件夹复制到自身或其子文件夹');
+        return;
+      }
+    }
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (let i = 0; i < items.length; i++) {
+        try { await copyItemTo(items[i], target); ok++; } catch (err) { fail++; }
+      }
+      await refreshIndex(true);
+      toast('复制完成：成功 ' + ok + ' 项' + (fail ? '，失败 ' + fail + ' 项' : ''));
+    } finally {
+      await unlockCloud();
+    }
+  }
+
+  async function moveSelected() {
+    const items = selectedRows();
+    if (!items.length) { toast('请先勾选要移动的条目'); return; }
+    const target = await chooseTargetFolder('移动到');
+    if (target === null) return;
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (let i = 0; i < items.length; i++) {
+        try { await moveItemTo(items[i], target); ok++; } catch (err) { fail++; }
+      }
+      selectedIds.clear();
+      await refreshIndex(true);
+      toast('移动完成：成功 ' + ok + ' 项' + (fail ? '，失败 ' + fail + ' 项' : ''));
+    } finally {
+      await unlockCloud();
+    }
+  }
+
+  function triggerDownload(filename, text) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
+  async function downloadFileById(id) {
+    try {
+      const info = await fetchContentById(id);
+      let name = info.name || '未命名.txt';
+      if (!/\.\w+$/.test(name)) name += '.txt';
+      triggerDownload(name, info.content);
+      toast('已下载：' + name);
+    } catch (err) {
+      toast('下载失败：' + err.message);
+    }
+  }
+
+  async function downloadFolderById(id) {
+    const item = cloudIndex.find(function (x) { return String(x['ID']) === String(id); });
+    if (!item) { toast('该文件夹已不存在，请刷新'); return; }
+    const files = collectDescendants(id).filter(function (x) { return !isFolderId(x['ID']); });
+    if (!files.length) { toast('文件夹内没有可下载的文件'); return; }
+    try {
+      let out = '';
+      for (let i = 0; i < files.length; i++) {
+        const info = await fetchContentById(String(files[i]['ID']));
+        out += '===== ' + String(files[i]['文件名'] || '') + ' =====\r\n' + info.content + '\r\n\r\n';
+      }
+      const name = String(item['文件名'] || '文件夹') + '_打包.txt';
+      triggerDownload(name, out);
+      toast('已打包下载 ' + files.length + ' 个文件');
+    } catch (err) {
+      toast('打包下载失败：' + err.message);
+    }
+  }
+
+  async function importLocalFile(file) {
+    if (!file) return;
+    if (!/\.txt$/i.test(file.name)) { toast('请选择 .txt 文本文件'); return; }
+    const targetFolder = currentFolder;
+    try {
+      const content = await file.text();
+      await createCloudFile(file.name, content, targetFolder);
+      await refreshIndex(true);
+      toast('已导入：' + file.name);
+    } catch (err) {
+      toast('导入失败：' + err.message);
     } finally {
       await unlockCloud();
     }
@@ -1818,12 +2318,7 @@
     const folderName = name.trim();
     if (!folderName) { toast('文件夹名称不能为空'); return; }
     const parent = currentFolder;
-    const exists = cloudIndex.some(function (f) {
-      return String(f['ID'] || '').indexOf('FOLDER_') === 0 &&
-        String(f['文件夹路径'] || '') === parent &&
-        String(f['文件名'] || '') === folderName;
-    });
-    if (exists) { toast('同名文件夹已存在'); return; }
+    if (nameExists(folderName, parent, '', true)) { toast('同名文件夹已存在'); return; }
     try {
       const folderId = 'FOLDER_' + genId();
       await cloudCall('批量写入', {
@@ -2194,16 +2689,67 @@
     $('btnRefresh').addEventListener('click', function () { refreshIndex(false); });
     $('btnNewFile').addEventListener('click', newDocument);
     $('btnNewFolder').addEventListener('click', createFolder);
+    $('btnImport').addEventListener('click', function () { $('importFile').click(); });
+    $('importFile').addEventListener('change', function () {
+      const f = this.files && this.files[0];
+      this.value = '';
+      importLocalFile(f);
+    });
     $('fileSearch').addEventListener('input', renderFiles);
     editor.addEventListener('scroll', function () { 排位置保存(); });
     $('crumb').addEventListener('click', function () { if (currentFolder) goRoot(); });
+
+    // 多选：行复选框 / 全选 / 批量工具条
+    $('fileTbody').addEventListener('change', function (e) {
+      const cb = e.target.closest('input.row-check');
+      if (!cb) return;
+      if (cb.checked) selectedIds.add(cb.dataset.id);
+      else selectedIds.delete(cb.dataset.id);
+      updateSelectionUI();
+    });
+    $('checkAll').addEventListener('change', function () {
+      const on = this.checked;
+      $('fileTbody').querySelectorAll('input.row-check').forEach(function (cb) {
+        cb.checked = on;
+        if (on) selectedIds.add(cb.dataset.id);
+        else selectedIds.delete(cb.dataset.id);
+      });
+      updateSelectionUI();
+    });
+    $('btnBatchDelete').addEventListener('click', batchDeleteSelected);
+    $('btnRename').addEventListener('click', renameSelected);
+    $('btnCopy').addEventListener('click', copySelected);
+    $('btnMove').addEventListener('click', moveSelected);
+    $('btnClearSel').addEventListener('click', function () {
+      selectedIds.clear();
+      renderFiles();
+    });
+
+    // 表头点击排序（同列再点切换升降序）
+    document.querySelectorAll('#fileTable th.sortable').forEach(function (th) {
+      th.addEventListener('click', function () {
+        const key = th.dataset.sort;
+        if (settings.fileSortKey === key) {
+          settings.fileSortDir = settings.fileSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          settings.fileSortKey = key;
+          settings.fileSortDir = key === 'edit' ? 'desc' : 'asc';
+        }
+        saveSettings();
+        renderFiles();
+      });
+    });
+
     $('fileTbody').addEventListener('click', function (e) {
       const btn = e.target.closest('[data-act]');
       if (!btn) return;
       const id = btn.dataset.id;
       if (btn.dataset.act === 'open-file') openCloudFile(id);
-      else if (btn.dataset.act === 'delete-file') deleteCloudFile(id, btn.dataset.name);
       else if (btn.dataset.act === 'enter-folder') enterFolder(id);
+      else if (btn.dataset.act === 'delete-item') deleteCloudItem(id);
+      else if (btn.dataset.act === 'download') {
+        if (isFolderId(id)) downloadFolderById(id); else downloadFileById(id);
+      }
     });
 
     // 设置页
