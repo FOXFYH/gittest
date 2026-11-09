@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.35 —— 主逻辑
+/* Fox记事本 网页版 v1.36 —— 主逻辑
    与 Python 版共用金山文档表格「Fox记事本」的 6.0 云端库。
    云同步协议：读取索引 / 查找 / 同步提交 / 转正确认 / 批量写入 / 删除行 / 解锁，
    全部照《文件管理6.0专用同步脚本.js》实现，不自行发明参数。 */
@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.35';
+  const APP_VERSION = 'v1.36';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -2726,6 +2726,7 @@
     });
 
     // 文件列表
+    $('btnBackEdit').addEventListener('click', function () { showPage('edit'); });
     $('btnUpFolder').addEventListener('click', goUpFolder);
     $('btnRefresh').addEventListener('click', function () { refreshIndex(false); });
     $('btnNewFile').addEventListener('click', newDocument);
