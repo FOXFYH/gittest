@@ -1878,6 +1878,7 @@
     const fid = String(settings.lastFolder || '');
     if (!fid) { currentFolder = ''; return; }
     if (该文件夹还在(fid)) { currentFolder = fid; return; }
+    if (!cloudIndex.length) { currentFolder = fid; return; }   // 索引未加载完，先不判定
     currentFolder = '';            // 上次的文件夹已被删除 → 回根目录
     settings.lastFolder = '';
     saveSettings();
