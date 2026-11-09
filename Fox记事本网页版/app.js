@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.36 —— 主逻辑
+/* Fox记事本 网页版 v1.37 —— 主逻辑
    与 Python 版共用金山文档表格「Fox记事本」的 6.0 云端库。
    云同步协议：读取索引 / 查找 / 同步提交 / 转正确认 / 批量写入 / 删除行 / 解锁，
    全部照《文件管理6.0专用同步脚本.js》实现，不自行发明参数。 */
@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.36';
+  const APP_VERSION = 'v1.37';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -58,6 +58,66 @@
   }
   function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+  // ===== v1.37 文件末尾隐藏元信息：只维护「最后一次查看时间 / 最后一次编辑时间」=====
+  // 固定块（隐藏、不累加、原地更新）：@@FOX-META@@{...}@@/FOX-META@@
+  const META_BEGIN = '@@FOX-META@@';
+  const META_END = '@@/FOX-META@@';
+  const META_RE = /@@FOX-META@@([\s\S]*?)@@\/FOX-META@@/g;
+
+  function 拆分元信息(content) {
+    let s = String(content || '');
+    let meta = null;
+    let found = false;
+    s = s.replace(META_RE, function (_all, raw) {
+      found = true;
+      try {
+        const o = JSON.parse(raw);
+        if (o && typeof o === 'object') meta = o;   // 多段时以最后一段为准
+      } catch (e) { /* 损坏块直接丢弃 */ }
+      return '';
+    });
+    if (found) s = s.replace(/\n$/, '');
+    return { payload: s, meta: meta };
+  }
+
+  // 当前运行时上滑参数（写入小尾巴的 5 个字段）
+  function 当前上滑参数() {
+    return {
+      '开关': !!settings.autoScroll,
+      '像素速度': clamp(settings.autoScrollSpeed, 1, 600),
+      '速度模式': settings.scrollMode === 'char' ? 'char' : 'px',
+      '每字秒': clamp(settings.secPerChar, 0.1, 60),
+      '测算口径': settings.measureMode === 'cjk' ? 'cjk' : 'mixed'
+    };
+  }
+
+  function 元信息块(查看时间, 编辑时间, 上滑参数) {
+    const o = {
+      '版本': 1,
+      '最后一次查看时间': 查看时间 || '',
+      '最后一次编辑时间': 编辑时间 || ''
+    };
+    if (上滑参数 && typeof 上滑参数 === 'object') o['自动上滑参数'] = 上滑参数;
+    return META_BEGIN + JSON.stringify(o) + META_END;
+  }
+
+  function 拼正文元信息(payload, 查看时间, 编辑时间, 上滑参数) {
+    const body = String(payload || '');
+    const block = 元信息块(查看时间, 编辑时间, 上滑参数 === undefined ? 当前上滑参数() : 上滑参数);
+    return body ? (body + '\n' + block) : block;
+  }
+
+  // 正文指纹（FNV-1a）：只用来判断「有没有实际改动」，不进文件
+  function sigOf(text) {
+    const s = String(text || '');
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return s.length + ':' + h.toString(16);
+  }
+
   // ===================== 本地缓存（版本校验 + 白名单） =====================
   function clearCacheExceptWhitelist() {
     const keys = [];
@@ -82,6 +142,21 @@
     try { localStorage.setItem(PRE + key, String(val)); } catch (e) { /* 超限时静默 */ }
   }
 
+  // 本机打开次数（localStorage: foxpad_open_count）
+  function 读打开次数表() {
+    try { return JSON.parse(cacheGet('open_count', '{}')) || {}; } catch (e) { return {}; }
+  }
+  function 打开次数(id) {
+    const m = 读打开次数表();
+    return Number(m[String(id || '')]) || 0;
+  }
+  function 累加打开次数(id) {
+    if (!id) return;
+    const m = 读打开次数表();
+    m[String(id)] = 打开次数(id) + 1;
+    cacheSet('open_count', JSON.stringify(m));
+  }
+
   function loadSettings() {
     let raw = null;
     try { raw = JSON.parse(cacheGet('settings', '{}')); } catch (e) { raw = {}; }
@@ -101,7 +176,18 @@
     return s;
   }
   function saveSettings() {
-    try { localStorage.setItem(PRE + 'settings', JSON.stringify(settings)); } catch (e) { /* 忽略 */ }
+    let 落盘 = settings;
+    // 文件自带的上滑参数只作用于当前文件，不写进本地默认（用户手动改过才落盘）
+    if (上滑参数来自文件 && !上滑参数用户改过) {
+      落盘 = Object.assign({}, settings, {
+        autoScroll: DEFAULT_SETTINGS.autoScroll,
+        autoScrollSpeed: DEFAULT_SETTINGS.autoScrollSpeed,
+        scrollMode: DEFAULT_SETTINGS.scrollMode,
+        secPerChar: DEFAULT_SETTINGS.secPerChar,
+        measureMode: DEFAULT_SETTINGS.measureMode
+      });
+    }
+    try { localStorage.setItem(PRE + 'settings', JSON.stringify(落盘)); } catch (e) { /* 忽略 */ }
   }
 
   function deviceId() {
@@ -115,6 +201,8 @@
 
   // ===================== 运行状态 =====================
   let settings = loadSettings();
+  let 上滑参数来自文件 = false;   // 当前文件的小尾巴自带上滑参数
+  let 上滑参数用户改过 = false;   // 用户在本文件内手动改过
   const editor = $('editor');
 
   // ===================== 富文本模型（contenteditable） =====================
@@ -569,7 +657,7 @@
   }
   let doc = {
     name: '', id: '', s: null, e: null, isNew: true,
-    folder: '', dirty: false, createTime: ''
+    folder: '', dirty: false, createTime: '', rawContent: ''
   };
 
   let phase = { key: 'idle', detail: '' };
@@ -677,7 +765,9 @@
     cacheSet('doc_text', serializeEditor());
     cacheSet('doc_meta', JSON.stringify({
       name: doc.name, id: doc.id, s: doc.s, e: doc.e, isNew: doc.isNew,
-      folder: doc.folder, dirty: doc.dirty, createTime: doc.createTime
+      folder: doc.folder, dirty: doc.dirty, createTime: doc.createTime,
+      viewTime: doc.viewTime, editTime: doc.editTime, baseSig: doc.baseSig,
+      rawContent: doc.rawContent
     }));
   }
   function scheduleDocCache() {
@@ -698,7 +788,11 @@
       isNew: meta.isNew !== false,
       folder: String(meta.folder || ''),
       dirty: !!meta.dirty,
-      createTime: String(meta.createTime || '')
+      createTime: String(meta.createTime || ''),
+      viewTime: String(meta.viewTime || ''),
+      editTime: String(meta.editTime || ''),
+      baseSig: String(meta.baseSig || sigOf(cacheGet('doc_text', ''))),
+      rawContent: String(meta.rawContent || '')
     };
     // 刷新后也回到该文档上次位置（没有记录回顶部）
     try { requestAnimationFrame(回原位); } catch (e) {}
@@ -719,6 +813,8 @@
   }
 
   function setDoc(name, content, meta) {
+    const 拆 = 拆分元信息(content || '');
+    const 旧编辑 = (拆.meta && 拆.meta['最后一次编辑时间']) || ((meta && meta.editTime) || '');
     doc = {
       name: name || '',
       id: (meta && meta.id) || '',
@@ -727,10 +823,15 @@
       isNew: !(meta && meta.id),
       folder: (meta && meta.folder) || '',
       dirty: !!(meta && meta.dirty),
-      createTime: (meta && meta.createTime) || ''
+      createTime: (meta && meta.createTime) || '',
+      viewTime: (meta && meta.viewTime) || fmtDateTime(),
+      editTime: String(旧编辑 || ''),
+      baseSig: sigOf(拆.payload),
+      rawContent: String(content || '')
     };
-    setEditorContent(content || '');
+    setEditorContent(拆.payload);
     applyFont();
+    套用文件上滑参数(拆.meta && 拆.meta['自动上滑参数']);
     updateHeader();
     writeDocCache();
     updateTitle();
@@ -848,6 +949,44 @@
     btn.title = '单击开关自动上滑；长按（或点旁边 ⚙）打开上滑设置';
   }
 
+  // ===== v1.37 上滑参数：文件自带优先，用户改动防抖同步回小尾巴 =====
+  let 上滑参数计时 = null;
+
+  function 刷新上滑UI() {
+    $('setAutoScroll').checked = !!settings.autoScroll;
+    $('setSpeed').value = settings.autoScrollSpeed;
+    $('setSecPerChar').value = settings.secPerChar;
+    setFormRadio('scrollMode', settings.scrollMode === 'char' ? 'char' : 'px');
+    setFormRadio('measureMode', settings.measureMode === 'cjk' ? 'cjk' : 'mixed');
+    applyScrollModeUI();
+    applyAutoScrollBtn();
+  }
+
+  function 套用文件上滑参数(p) {
+    if (p && typeof p === 'object') {
+      if (p['开关'] !== undefined) settings.autoScroll = !!p['开关'];
+      if (p['像素速度'] !== undefined) settings.autoScrollSpeed = clamp(Number(p['像素速度']) || settings.autoScrollSpeed, 1, 600);
+      if (p['速度模式'] !== undefined) settings.scrollMode = p['速度模式'] === 'char' ? 'char' : 'px';
+      if (p['每字秒'] !== undefined) settings.secPerChar = clamp(Number(p['每字秒']) || settings.secPerChar, 0.1, 60);
+      if (p['测算口径'] !== undefined) settings.measureMode = p['测算口径'] === 'cjk' ? 'cjk' : 'mixed';
+      上滑参数来自文件 = true;
+    } else {
+      上滑参数来自文件 = false;
+    }
+    上滑参数用户改过 = false;
+    刷新上滑UI();
+  }
+
+  function 标记上滑用户修改() {
+    上滑参数来自文件 = false;
+    上滑参数用户改过 = true;
+    clearTimeout(上滑参数计时);
+    上滑参数计时 = setTimeout(function () {
+      if (!doc || !doc.id || doc.isNew) return;
+      同步查看时间();
+    }, 800);
+  }
+
   function startAutoScroll() {
     stopAutoScroll();
     autoLast = 0;
@@ -896,6 +1035,7 @@
   }
   function toggleAutoScroll() {
     settings.autoScroll = !settings.autoScroll;
+    标记上滑用户修改();
     saveSettings();
     applyAutoScrollBtn();
     if (settings.autoScroll) { startAutoScroll(); toast('自动上滑已开启'); }
@@ -1393,9 +1533,10 @@
     toast('已替换 ' + matches.length + ' 处');
   }
   // ===================== 云端读写 =====================
-  function buildFileData(id, name, content, S, E, folder, owner, createTime) {
+  function buildFileData(id, name, content, S, E, folder, owner, createTime, 编辑时间) {
     const now = fmtDateTime();
     const created = createTime || now;
+    const lastEdit = 编辑时间 || now;
     return {
       '拥有者': owner || '',
       'ID': id,
@@ -1405,7 +1546,7 @@
       '终点号': String(E),
       '文件夹路径': folder || '',
       '最后上传发起时间': now,
-      '最后编辑时间': now,
+      '最后编辑时间': lastEdit,
       '同步时间': now,
       'MD5': '',
       '内容字符数': String(content.length),
@@ -1413,7 +1554,7 @@
       '文件JSON': JSON.stringify({
         'id': id, 'name': name, '内容': content, '起点号': S, '终点号': E,
         '拥有者': owner || '', '文件夹路径': folder || '', '创建日期': created,
-        '最后编辑时间': now, '内容字符数': content.length
+        '最后编辑时间': lastEdit, '内容字符数': content.length
       })
     };
   }
@@ -1484,7 +1625,8 @@
       e: Number(row['终点号']) || 0,
       name: row['文件名'] || '',
       folder: row['文件夹路径'] || '',
-      createTime: row['创建日期'] || ''
+      createTime: row['创建日期'] || '',
+      editTime: row['最后编辑时间'] || ''
     };
   }
 
@@ -1496,6 +1638,67 @@
     updateHeader();
     writeDocCache();
     updateTitle();
+  }
+
+  // 只记查看：打开文件即把「最后一次查看时间」写回云端；编辑时间保持原值
+  async function 同步查看时间() {
+    if (!doc || !doc.id || doc.isNew || doc.dirty || syncBusy) return;
+    const id = doc.id;
+    const name = doc.name || '';
+    if (!name) return;
+    const payload = serializeEditor();
+    const 查看时间 = doc.viewTime || fmtDateTime();
+    const 编辑时间 = doc.editTime || '';
+    const content = 拼正文元信息(payload, 查看时间, 编辑时间, 当前上滑参数());
+    doc.rawContent = content;
+    const S = Number(doc.s || 0);
+    const E = S + 1;
+    const folder = doc.folder || '';
+    const owner = settings.user;
+    const createTime = doc.createTime || fmtDateTime();
+    const whole = JSON.stringify({
+      'id': id, 'name': name, '内容': content, '起点号': S, '终点号': E,
+      '拥有者': owner, '文件夹路径': folder, '创建日期': createTime,
+      '最后编辑时间': 编辑时间 || fmtDateTime(), '内容字符数': content.length
+    });
+    const data = buildFileData(id, name, content, S, E, folder, owner, createTime, 编辑时间);
+    const parts = splitCloudJson(whole, id);
+    if (parts) {
+      data['文件JSON'] = parts[0].json;
+      data['内容字符数'] = parts[0].charCountStr;
+    }
+    syncBusy = true;
+    $('btnSync').disabled = true;
+    try {
+      const sub = await cloudCall('同步提交', {
+        'ID': id,
+        '起点号': String(S),
+        '终点号': String(E),
+        '本地新文件标识': 'false',
+        '数据': data,
+        '锁登记处': deviceId()
+      });
+      const judge = sub['判定结果'];
+      if (sub.status === 'conflict' || judge === '同步冲突') return;   // 别人改过：静默放弃，绝不覆盖
+      let ver = E;
+      if (judge === '全新接收' || judge === '收为临时') {
+        ver = Number(sub['云端版本号'] || sub['终点号'] || E) || E;
+        if (parts) await writeFragments(parts, ver, name, folder, owner, createTime);
+        if (judge === '收为临时') {
+          await cloudCall('转正确认', { 'ID': id, '起点号': String(ver), '锁登记处': deviceId() });
+        }
+      } else if (judge === '无需上传') {
+        ver = Number(sub['云端版本号']) || E;
+      } else {
+        return;
+      }
+      if (doc.id === id && !doc.dirty) applyCloudVersion(ver);
+    } catch (e) {
+      // 只记查看失败不打扰用户：下次保存会一并带上
+    } finally {
+      syncBusy = false;
+      $('btnSync').disabled = false;
+    }
   }
 
   async function saveToCloud(asNew) {
@@ -1513,7 +1716,18 @@
       if (!name) { toast('文件名不能为空'); return; }
     }
 
-    const content = serializeEditor();
+    const payload = serializeEditor();
+    const 现在 = fmtDateTime();
+    const 新稿 = asNew || !doc.id || doc.isNew;
+    const 正文字号 = sigOf(payload);
+    const 有实际修改 = 新稿 ? !!payload : (正文字号 !== (doc.baseSig || ''));
+    const 查看时间 = 现在;
+    const 编辑时间 = 有实际修改 ? 现在 : (doc.editTime || '');
+    const content = 拼正文元信息(payload, 查看时间, 编辑时间, 当前上滑参数());
+    doc.rawContent = content;
+    doc.viewTime = 查看时间;
+    doc.editTime = 编辑时间;
+    doc.baseSig = 正文字号;
     let id = doc.id;
     let S;
     let E;
@@ -1541,9 +1755,9 @@
     const whole = JSON.stringify({
       'id': id, 'name': name, '内容': content, '起点号': S, '终点号': E,
       '拥有者': owner, '文件夹路径': folder, '创建日期': createTime,
-      '最后编辑时间': fmtDateTime(), '内容字符数': content.length
+      '最后编辑时间': 编辑时间 || 现在, '内容字符数': content.length
     });
-    let data = buildFileData(id, name, content, S, E, folder, owner, createTime);
+    let data = buildFileData(id, name, content, S, E, folder, owner, createTime, 编辑时间);
     const parts = splitCloudJson(whole, id);
     if (parts) {
       data['文件JSON'] = parts[0].json;
@@ -1796,6 +2010,17 @@
       txt.textContent = String(f['文件名'] || '（无名称）');
       txt.title = txt.textContent;
       wrap.appendChild(ico);
+      if (!isFolder) {
+        const oc = document.createElement('button');
+        oc.className = 'open-count';
+        oc.textContent = String(打开次数(id));
+        oc.title = '本机打开次数（点开查看是否给学生展示过）';
+        oc.addEventListener('click', function (e) {
+          e.stopPropagation();
+          toast('本机打开次数：' + 打开次数(id));
+        });
+        wrap.appendChild(oc);
+      }
       wrap.appendChild(txt);
       tdName.appendChild(wrap);
       tr.appendChild(tdName);
@@ -1920,10 +2145,14 @@
     try {
       const info = await fetchContentById(id);
       setDoc(info.name, info.content, {
-        id: id, s: info.s, e: info.e, folder: info.folder, createTime: info.createTime
+        id: id, s: info.s, e: info.e, folder: info.folder,
+        createTime: info.createTime, editTime: info.editTime
       });
       showPage('edit');
+      if (settings.autoScroll) startAutoScroll(); else stopAutoScroll();
+      累加打开次数(id);
       toast('已打开：' + info.name);
+      同步查看时间();
     } catch (err) {
       toast('打开失败：' + err.message);
     }
@@ -2102,6 +2331,8 @@
     const id = genId();
     const owner = settings.user;
     const created = fmtDateTime();
+    const 拆 = 拆分元信息(content || '');
+    content = 拼正文元信息(拆.payload, created, created, 当前上滑参数());
     const whole = JSON.stringify({
       'id': id, 'name': name, '内容': content, '起点号': 0, '终点号': 1,
       '拥有者': owner, '文件夹路径': folderId || '', '创建日期': created,
@@ -2481,6 +2712,7 @@
   }
 
   function saveSettingsForm() {
+    const 旧上滑 = JSON.stringify([settings.autoScroll, settings.autoScrollSpeed, settings.scrollMode, settings.secPerChar, settings.measureMode]);
     const size = clamp(parseInt($('setSize').value, 10) || 11, 6, 128);
     const spacing = clamp(parseInt($('setSpacing').value, 10) || 0, 0, 12);
     const speed = clamp(parseInt($('setSpeed').value, 10) || 60, 1, 600);
@@ -2506,6 +2738,8 @@
     settings.sheet = sheet;
     settings.user = user;
     settings.password = pass;
+    const 新上滑 = JSON.stringify([settings.autoScroll, settings.autoScrollSpeed, settings.scrollMode, settings.secPerChar, settings.measureMode]);
+    if (新上滑 !== 旧上滑) 标记上滑用户修改();
     saveSettings();
     applyFont();
     applyWrap();
@@ -2541,6 +2775,75 @@
       div.textContent = t;
       m.body.appendChild(div);
     });
+    const close = document.createElement('button');
+    close.className = 'btn primary';
+    close.textContent = '关闭';
+    close.addEventListener('click', function () {
+      m.layer.hidden = true;
+      m.layer.innerHTML = '';
+    });
+    m.foot.appendChild(close);
+  }
+
+  // ===== v1.37 文件属性（含末尾小尾巴 JSON） =====
+  function 取原始小尾巴(content) {
+    const re = /@@FOX-META@@([\s\S]*?)@@\/FOX-META@@/g;
+    let last = '';
+    let mm;
+    while ((mm = re.exec(String(content || '')))) last = mm[1];
+    return last;
+  }
+
+  function showProps() {
+    if (!doc || (!doc.id && !doc.name && !getPlainText())) { toast('请先打开一个文件'); return; }
+    const m = modalBase('文件属性');
+    const payload = serializeEditor();
+    const raw = (doc.rawContent !== undefined && doc.rawContent !== null && doc.rawContent !== '')
+      ? doc.rawContent
+      : 拼正文元信息(payload, doc.viewTime, doc.editTime, 当前上滑参数());
+    const 拆 = 拆分元信息(raw);
+    const meta = 拆.meta || null;
+    const row = cloudIndex.find(function (x) { return String(x['ID']) === String(doc.id || ''); });
+    const 参数 = (meta && meta['自动上滑参数'] && typeof meta['自动上滑参数'] === 'object')
+      ? meta['自动上滑参数'] : 当前上滑参数();
+    const 查看时间 = (meta && meta['最后一次查看时间']) || doc.viewTime || '-';
+    const 编辑时间 = (meta && meta['最后一次编辑时间']) || doc.editTime || '-';
+    const 文件夹 = doc.folder ? folderPathText(doc.folder) : '根目录';
+    const 行 = [
+      ['文件名', doc.name || '未命名'],
+      ['ID', doc.id || '（未保存到云端）'],
+      ['所属文件夹路径', 文件夹],
+      ['起点号 / 终点号', (doc.s === null || doc.s === undefined ? '-' : doc.s) + ' / ' + (doc.e === null || doc.e === undefined ? '-' : doc.e)],
+      ['内容字符数', String(cpLen(payload))],
+      ['创建日期', doc.createTime || (row && row['创建日期']) || '-'],
+      ['云端最后编辑时间', (row && row['最后编辑时间']) || doc.editTime || '-'],
+      ['本机打开次数', String(打开次数(doc.id))],
+      ['最后一次查看时间', 查看时间],
+      ['最后一次编辑时间', 编辑时间],
+      ['自动上滑参数 · 开关', 参数['开关'] ? '开' : '关'],
+      ['自动上滑参数 · 像素速度', String(参数['像素速度']) + ' px/分钟'],
+      ['自动上滑参数 · 速度模式', 参数['速度模式'] === 'char' ? '每 N 秒 1 字（char）' : '像素（px）'],
+      ['自动上滑参数 · 每字秒', String(参数['每字秒']) + ' 秒/字'],
+      ['自动上滑参数 · 测算口径', 参数['测算口径'] === 'cjk' ? '中文（cjk）' : '中英平均（mixed）']
+    ];
+    行.forEach(function (kv) {
+      const d = document.createElement('div');
+      d.textContent = kv[0] + '：' + kv[1];
+      m.body.appendChild(d);
+    });
+    const h = document.createElement('div');
+    h.style.marginTop = '10px';
+    h.textContent = '小尾巴原始 JSON：';
+    m.body.appendChild(h);
+    const pre = document.createElement('pre');
+    pre.className = 'meta-json';
+    pre.textContent = 取原始小尾巴(raw) || JSON.stringify({
+      '版本': 1,
+      '最后一次查看时间': 查看时间,
+      '最后一次编辑时间': 编辑时间,
+      '自动上滑参数': 参数
+    });
+    m.body.appendChild(pre);
     const close = document.createElement('button');
     close.className = 'btn primary';
     close.textContent = '关闭';
@@ -2609,6 +2912,7 @@
     });
 
     // 第一行
+    $('btnProps').addEventListener('click', showProps);
     $('btnSync').addEventListener('click', function () { saveToCloud(false); });
     $('btnPull').addEventListener('click', pullCurrent);
 
