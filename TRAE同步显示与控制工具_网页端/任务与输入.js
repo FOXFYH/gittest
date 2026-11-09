@@ -317,20 +317,6 @@ el.file.onchange = async () => {
   if (!files.length) return;
   if (S.attach_pending){ flash('📎 正在附加上一批，请稍候…', 'var(--orange)'); return; }
   if (srvNeedOnline('附加附件')) return;
-  const arr = [];
-  for (const f of files){
-    if (f.size > 6 * 1024 * 1024){
-      flash('「' + f.name + '」超过 6MB，远程通道暂不支持'); return;
-    }
-    const b64 = await new Promise((ok, no) => {
-      const r = new FileReader();
-      r.onload = () => ok(String(r.result).split(',')[1] || '');
-      r.onerror = no;
-      r.readAsDataURL(f);
-    }).catch(() => null);
-    if (b64 === null){ flash('读取 ' + f.name + ' 失败'); return; }
-    arr.push({n: f.name, d: b64});
-  }
   /* 2.142（2026-10-29 老板令「插入指定的那个对话」）：附件跟消息同口径，带锚定会话
      完整 sid＋归还锚——服务端先切到该会话注入，注入完按 anchor 归还，绝不落错会话。 */
   /* 目标 sid 必须取【当前快照里的真 sid】：锚定键是终身号（跨天/改名不变），
@@ -358,11 +344,151 @@ el.file.onchange = async () => {
           'var(--orange)');
     return;
   }
-  S.attach_pending = arr.map(f => f.n);     // 反馈①：灰 chips 占位
-  renderAttach([]);
-  srvOpSendJson({t: 'attach_files', files: arr, sid: _tgt, anchor: _tgt},
-                '附加附件', arr.length + ' 个文件');
+  /* 2.151（老板 2026-11-05 令「附件上传改走 R2，与对话流彻底无关」）：
+     首选 R2 直传路线；回退过一次的批次（S.attach_r2_skip）直接走老 base64 通道。 */
+  if (S.attach_r2_skip){ _attachOldSend(files, _tgt); return; }
+  attachR2Start(files, _tgt);
 };
+
+/* —— 2.151 附件上传 R2 直传（与对话流彻底无关）——
+   老板 2026-11-05 口径：多选文件 → 发 attach_r2_open（names/sizes）→ 服务端回
+   {"task":"附件YYYYMMDD-HHMMSS","uploads":[{"n","key","url"}]}（url=预签名 PUT，
+   1 小时有效）→ 网页逐个 fetch PUT 直传 R2 → 发 attach_r2_commit 通知取件；
+   只有当前正聊的服务器响应下载（其余服务器不动），取走即从 R2 卸载。
+   任何一步失败 → 红字提示并【回退老 attach_files base64 通道】（单个 ≤6MB 限制
+   保留），保证服务端未升级时附件功能不断。直传全程不设自定义 Content-Type，
+   避免与预签名不匹配。 */
+function attachR2Start(files, tgt){
+  S.attach_pending = files.map(f => f.name);    // 反馈①：灰 chips 占位（File.name）
+  renderAttach([]);
+  const id = srvOpNewId();
+  S.attach_r2 = {stage: 'open', files: files, tgt: tgt, id: id, timer: null};
+  const sent = srvOpSendJson({t: 'attach_r2_open', names: files.map(f => f.name),
+                              sizes: files.map(f => f.size),
+                              sid: tgt, anchor: tgt},
+                             '附件直传', files.length + ' 个文件（'
+                             + _attach人类大小(files) + '）', null, id);
+  if (!sent){
+    S.attach_pending = null; S.attach_r2 = null; renderAttach([]);
+    return;
+  }
+  S.attach_r2.timer = setTimeout(() => {
+    if (S.attach_r2 && S.attach_r2.stage === 'open')
+      attachR2Fallback('直传通道 30 秒无回执（服务端可能未升级）');
+  }, 30000);
+}
+
+/* 服务端回预签名 PUT 清单（ev k='attach_r2_open' 或 open 回执 done 载荷）→ 开传 */
+function attachR2FromReceipt(v){
+  const r2 = S.attach_r2;
+  if (!r2 || r2.stage !== 'open') return;       // 没有在途 open（或已开传）→ 忽略
+  if (v && v.id && r2.id && String(v.id) !== String(r2.id)) return;   // 不是本批
+  const ups = ((v && v.uploads) || []).filter(u => u && u.n && u.url);
+  const task = String((v && v.task) || '');
+  if (!task || !ups.length){
+    attachR2Fallback('直传回执缺 task/uploads');
+    return;
+  }
+  clearTimeout(r2.timer);
+  r2.stage = 'put';
+  r2.task = task;
+  r2.ups = ups;
+  _attachR2PutSeq(0);
+}
+
+async function _attachR2PutSeq(i){
+  const r2 = S.attach_r2;
+  if (!r2 || r2.stage !== 'put') return;
+  if (i >= r2.ups.length){ _attachR2Commit(); return; }
+  const up = r2.ups[i] || {};
+  const f = r2.files.find(x => x.name === up.n) || r2.files[i] || null;
+  if (!f || !up.url){ attachR2Fallback('第 ' + (i + 1) + ' 个文件缺预签名地址'); return; }
+  flash('⬆ 直传 R2 ' + (i + 1) + '/' + r2.ups.length + '：' + up.n, 'var(--blue)');
+  try {
+    const resp = await fetch(up.url, {method: 'PUT', body: f});
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    _attachR2PutSeq(i + 1);
+  } catch(e){
+    attachR2Fallback('「' + up.n + '」直传失败（' + ((e && e.message) || e) + '）');
+  }
+}
+
+function _attachR2Commit(){
+  const r2 = S.attach_r2;
+  if (!r2 || r2.stage !== 'put') return;
+  r2.stage = 'commit';
+  const files = r2.ups.map((u, i) => {
+    const f = r2.files.find(x => x.name === u.n) || r2.files[i] || {};
+    return {n: u.n, key: u.key, size: f.size || 0};
+  });
+  srvOpSendJson({t: 'attach_r2_commit', task: r2.task, files: files,
+                 sid: r2.tgt, anchor: r2.tgt}, '通知取件', r2.task);
+  flash('📤 已通知 ' + (S.box || '服务器') + ' 取件（' + r2.task
+        + '），等它从 R2 落盘后回音…', 'var(--blue)', 6000);
+  S.attach_pending = null;                      // 直传不进对话输入栏，撤灰 chips
+  S.attach_r2 = null;                           // 取件结果走 attach_r2_done 事件
+  renderAttach([]);
+}
+
+/* 服务端取件回音：v={task, ok, saved_dir, msg} */
+function attachR2DoneEcho(v){
+  if (v && v.ok){
+    flash('✅ 附件已送达：' + (v.saved_dir || ('附件下载\\' + (v.task || '')))
+          + (((v.msg || '') + '').trim() ? ' · ' + v.msg : ''), 'var(--green)', 6000);
+  } else {
+    flash('❌ 服务器取件失败：' + (((v || {}).msg) || ((v || {}).task) || '未知原因'),
+          'var(--red)', 6000);
+  }
+}
+
+/* 回退：老 attach_files base64 通道（2.142 逻辑原样，单个 ≤6MB 限制保留） */
+function attachR2Fallback(reason){
+  const r2 = S.attach_r2;
+  S.attach_r2 = null;
+  if (r2 && r2.timer) clearTimeout(r2.timer);
+  const files = (r2 && r2.files) || [];
+  S.attach_pending = null;
+  renderAttach([]);
+  flash('⚠ R2 直传未走通（' + reason + '），改走旧通道重传…', 'var(--orange)', 6000);
+  if (!files.length){ flash('❌ 没有可回退的附件', 'var(--red)'); return; }
+  const over = files.find(f => f.size > 6 * 1024 * 1024);
+  if (over){
+    flash('「' + over.name + '」超过 6MB，旧通道不支持（R2 直传未走通，请等服务端升级）',
+          'var(--red)', 6000);
+    return;
+  }
+  S.attach_r2_skip = true;                      // 本批直接走老通道，不再进 R2
+  try { _attachOldSend(files, (r2 && r2.tgt) || ''); }
+  finally { setTimeout(() => { S.attach_r2_skip = false; }, 500); }
+}
+
+function _attach人类大小(files){
+  let n = 0;
+  (files || []).forEach(f => { n += (f && f.size) || 0; });
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB';
+}
+
+/* 老 base64 通道（2.142 原逻辑抽成函数，供 R2 失败回退复用；单个 ≤6MB） */
+async function _attachOldSend(files, tgt){
+  const arr = [];
+  for (const f of files){
+    if (f.size > 6 * 1024 * 1024){
+      flash('「' + f.name + '」超过 6MB，远程通道暂不支持'); return;
+    }
+    const b64 = await new Promise((ok, no) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result).split(',')[1] || '');
+      r.onerror = no;
+      r.readAsDataURL(f);
+    }).catch(() => null);
+    if (b64 === null){ flash('读取 ' + f.name + ' 失败'); return; }
+    arr.push({n: f.name, d: b64});
+  }
+  S.attach_pending = arr.map(f => f.n);         // 反馈①：灰 chips 占位
+  renderAttach([]);
+  srvOpSendJson({t: 'attach_files', files: arr, sid: tgt, anchor: tgt},
+                '附加附件', arr.length + ' 个文件');
+}
 
 /* —— 1.07：导出功能整体移除（用户要求网页版不要导出）：
    抽屉导出区 / export_full 命令 / collected 落盘链路均已删，
