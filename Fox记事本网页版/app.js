@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.34 —— 主逻辑
+/* Fox记事本 网页版 v1.35 —— 主逻辑
    与 Python 版共用金山文档表格「Fox记事本」的 6.0 云端库。
    云同步协议：读取索引 / 查找 / 同步提交 / 转正确认 / 批量写入 / 删除行 / 解锁，
    全部照《文件管理6.0专用同步脚本.js》实现，不自行发明参数。 */
@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.34';
+  const APP_VERSION = 'v1.35';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -1751,6 +1751,7 @@
   }
 
   function renderFiles() {
+    恢复上次文件夹();
     const tbody = $('fileTbody');
     const q = ($('fileSearch').value || '').trim().toLowerCase();
     let rows = cloudIndex.filter(function (f) {
@@ -1857,20 +1858,59 @@
     });
 
     $('fileEmpty').hidden = rows.length > 0;
-    $('crumb').textContent = currentFolder ? ('根目录 / ' + findFolderName(currentFolder)) : '根目录';
+    $('crumb').textContent = currentFolder ? ('根目录 / ' + folderPathText(currentFolder)) : '根目录';
     $('crumb').classList.toggle('clickable', !!currentFolder);
+    const upBtn = $('btnUpFolder');
+    if (upBtn) upBtn.disabled = !currentFolder;
     renderSortMarks();
     updateSelectionUI();
   }
 
+  function 记住当前文件夹() {
+    settings.lastFolder = currentFolder || '';
+    saveSettings();
+  }
+  function 该文件夹还在(fid) {
+    if (!fid || !isFolderId(fid)) return false;
+    return cloudIndex.some(function (x) { return String(x['ID']) === String(fid); });
+  }
+  function 恢复上次文件夹() {
+    const fid = String(settings.lastFolder || '');
+    if (!fid) { currentFolder = ''; return; }
+    if (该文件夹还在(fid)) { currentFolder = fid; return; }
+    currentFolder = '';            // 上次的文件夹已被删除 → 回根目录
+    settings.lastFolder = '';
+    saveSettings();
+  }
+  function folderPathText(fid) {
+    const parts = [];
+    let cur = String(fid || '');
+    for (let i = 0; i < 60 && cur; i++) {
+      const f = cloudIndex.find(function (x) { return String(x['ID']) === cur; });
+      if (!f) { parts.unshift(cur); break; }
+      parts.unshift(String(f['文件名'] || cur));
+      cur = String(f['文件夹路径'] || '');
+    }
+    return parts.join(' / ');
+  }
   function enterFolder(id) {
     currentFolder = id;
     selectedIds.clear();
+    记住当前文件夹();
     renderFiles();
   }
   function goRoot() {
     currentFolder = '';
     selectedIds.clear();
+    记住当前文件夹();
+    renderFiles();
+  }
+  function goUpFolder() {
+    if (!currentFolder) return;
+    const f = cloudIndex.find(function (x) { return String(x['ID']) === String(currentFolder); });
+    currentFolder = f ? String(f['文件夹路径'] || '') : '';
+    selectedIds.clear();
+    记住当前文件夹();
     renderFiles();
   }
 
@@ -2685,7 +2725,7 @@
     });
 
     // 文件列表
-    $('btnBackEdit').addEventListener('click', function () { showPage('edit'); });
+    $('btnUpFolder').addEventListener('click', goUpFolder);
     $('btnRefresh').addEventListener('click', function () { refreshIndex(false); });
     $('btnNewFile').addEventListener('click', newDocument);
     $('btnNewFolder').addEventListener('click', createFolder);
