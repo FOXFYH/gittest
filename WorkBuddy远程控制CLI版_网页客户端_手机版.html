@@ -453,6 +453,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 #ck_tbl th,#ck_tbl td{border:1px solid var(--bd); padding:4px 6px;
   text-align:left; white-space:nowrap;}
 #ck_tbl th{background:#eef2f6; position:sticky; top:0;}
+#ck_tbl th.ckcol,#ck_tbl td.ckcol{width:28px; min-width:28px; text-align:center;
+  padding:4px 2px;}
 #ck_tbl td.num,#ck_tbl th.num{text-align:right; font-family:Consolas,monospace;}
 #ck_tbl td.ok{color:#2e7d32;}
 #ck_tbl td.warn{color:#c77700;}
@@ -692,11 +694,12 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   <div id="ck_wrap">
     <table id="ck_tbl">
       <thead><tr>
-        <th>账号名称</th><th>签到时间</th><th class="num">积分增加</th>
+        <th class="ckcol"><input type="checkbox" id="ck_selall" title="全选/取消全选"></th>
+        <th>账号名称</th><th>凭证到期</th><th>剩余</th><th>签到时间</th><th class="num">积分增加</th>
         <th class="num">签到后总积分</th><th>状态</th>
       </tr></thead>
       <tbody id="ck_body">
-        <tr><td colspan="5" style="color:#999;">打开面板即拉取账号列表…</td></tr>
+        <tr><td colspan="8" style="color:#999;">打开面板即拉取账号列表…</td></tr>
       </tbody>
     </table>
   </div>
@@ -1116,6 +1119,9 @@ const S = {
   /* 2.00：批量签到遥控面板——checkin_rows=面板里显示的表格行
      （服务端 checkin_state 下发的「账号枚举＋上次结果」合并行）。 */
   checkin_rows: [],
+  /* 2.31：批量签到的勾选——null=默认全选；否则 {账号键:1}（手动动过勾选框才变对象）。
+     空对象＝全不选，但提交时按「空＝全部」处理（见 ckPickKeys）。 */
+  ck_pick: null,
   attach_pending: null,
   /* 2.03：加急插入勾选（输入框放大态「急」）——true=本次发送若进托管队列
      则立即插队发送（发 queue_sendnow 立刻放行、不干等队尾）。**只活在本会话
@@ -1263,7 +1269,7 @@ const el = {
   favlist: $('fav_list'),
   /* 2.00：批量签到遥控面板 */
   checkinpage: $('page_checkin'), ck_back: $('btn_ckback'),
-  ck_stat: $('ck_stat'), ck_body: $('ck_body'),
+  ck_stat: $('ck_stat'), ck_body: $('ck_body'), ck_selall: $('ck_selall'),
   ck_start: $('ck_start'), ck_refreshpts: $('ck_refreshpts'),
   ck_reload: $('ck_reload'),
   md: $('model_dlg'), md_title: $('md_title'), md_body: $('md_body'),
@@ -2883,25 +2889,47 @@ function ckStatusCls(s){                  /* 状态着色：成功绿 / 已签�
 function renderCheckin(){
   if (!el.ck_body) return;
   const rows = S.checkin_rows || [];
+  /* 2.31：勾选口径——S.ck_pick=null/undefined 表示默认全选；否则按 {账号键:1} 判。 */
+  const pick = S.ck_pick;
+  const ckOn = k => (pick == null) ? true : !!pick[k];
+  const picked = rows.filter(r => r && ckOn(String(r.账号 || '')));
   if (!rows.length){
-    el.ck_body.innerHTML = '<tr><td colspan="5" style="color:#999;">（无账号）</td></tr>';
+    el.ck_body.innerHTML = '<tr><td colspan="8" style="color:#999;">（无账号）</td></tr>';
   } else {
     el.ck_body.innerHTML = rows.map(r => {
+      const k   = String((r && r.账号) || '');
       const nm  = esc((r && (r.名称 || r.账号)) || '—');
+      const exp = esc((r && r.凭证到期) || '');
+      const rem = esc((r && r.凭证剩余) || '');
       const ts  = esc((r && r.时间) || '');
       const add = esc(fmtNum(r && r.本次增加));
       const bal = esc((r && r.签到后总积分) || '');
       const st  = String((r && r.状态) || '');
-      return '<tr><td>' + nm + '</td><td>' + ts + '</td>'
+      return '<tr><td class="ckcol"><input type="checkbox" class="ck_sel" data-k="'
+        + esc(k).replace(/"/g, '&quot;') + '"' + (ckOn(k) ? ' checked' : '') + '></td>'
+        + '<td>' + nm + '</td><td>' + exp + '</td><td>' + rem + '</td>'
+        + '<td>' + ts + '</td>'
         + '<td class="num">' + add + '</td><td class="num">' + bal + '</td>'
         + '<td class="' + ckStatusCls(st) + '">' + esc(st) + '</td></tr>';
     }).join('');
   }
+  if (el.ck_selall)
+    el.ck_selall.checked = rows.length > 0 && picked.length === rows.length;
   const pr = S.checkin_prog || {};
   if (el.ck_stat)
     el.ck_stat.textContent = S.checkin_running
       ? ('进行中 ' + (pr.已 || 0) + '/' + (pr.总 || 0) + ' · ' + (pr.模式 || ''))
-      : ('空闲 · 共 ' + rows.length + ' 个账号');
+      : ('空闲 · 共 ' + rows.length + ' 个账号'
+         + (pick && picked.length && picked.length < rows.length
+            ? ' · 已选 ' + picked.length + ' 个' : ''));
+}
+/* 2.31：提交用账号键——null=全部；数组=只跑勾选的账号键（空选也按全部）。 */
+function ckPickKeys(){
+  const p = S.ck_pick;
+  if (!p) return null;
+  const ks = (S.checkin_rows || []).map(r => String((r && r.账号) || ''))
+    .filter(k => k && p[k]);
+  return ks.length ? ks : null;
 }
 
 /* 1.67：托管排队条——AI 忙时发出的消息挂在这里（不打断它），本轮跑完由服务端
@@ -4893,7 +4921,8 @@ const APP_NAME = 'wb远程';
    ① case 'dead' 断线不再 resetPaging，保留 S.older/S.pageGroups/S.histConv；
    ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
    以下为上一版（2.19）说明存档。 */
-const VER = '2.213';   /* 2.21（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
+/* 2.31（2026-11-11）：批量签到面板加「勾选 / 凭证到期 / 剩余」三列，勾选后只对指定账号签到与刷新积分 */
+const VER = '2.31';   /* 2.21（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：操控续占
                          ctl_hb 周期 20000→55000（55 秒；服务端锁 60 秒，取 55000 留边界余量，
                          不用 60000 免得卡边界抖动）；本 WS 免 ping、不做任何保活。
    2.19（2026-10-25，P29-B。老板原话「这个排队条本身就是一种虚卡了，
@@ -6861,7 +6890,7 @@ el.checkin_all.onclick = () => {         /* 2.00：改为弹出「批量签到�
   drawerClose();                             /* 关抽屉，露出面板 */
   if (el.ck_stat) el.ck_stat.textContent = '正在拉取账号列表…';
   if (el.ck_body) el.ck_body.innerHTML =
-    '<tr><td colspan="5" style="color:#999;">正在拉取账号列表…</td></tr>';
+    '<tr><td colspan="8" style="color:#999;">正在拉取账号列表…</td></tr>';
   el.checkinpage.classList.add('on');
   srvOpSend('checkin_state', null, '读取签到状态');   // 打开先拉一次（账号枚举＋上次结果）
 };
@@ -6871,18 +6900,42 @@ el.ck_reload.onclick = () => {            /* 刷新列表：重拉账号枚举�
   if (el.ck_stat) el.ck_stat.textContent = '正在刷新账号列表…';
   srvOpSend('checkin_state', null, '读取签到状态');
 };
+/* 2.31：勾选——表头全选/全不选；行内勾选只改 S.ck_pick（不重排、不重新拉取）。 */
+el.ck_selall.onclick = () => {
+  const rows = S.checkin_rows || [];
+  const o = {};
+  if (el.ck_selall.checked)
+    rows.forEach(r => { const k = String((r && r.账号) || ''); if (k) o[k] = 1; });
+  S.ck_pick = o;                       /* 全不选＝空对象；提交时「空＝全部」 */
+  renderCheckin();
+};
+if (el.ck_body) el.ck_body.addEventListener('change', ev => {
+  const t = ev.target;
+  if (!t || !t.classList || !t.classList.contains('ck_sel')) return;
+  const k = String(t.getAttribute('data-k') || '');
+  if (!k) return;
+  const rows = S.checkin_rows || [];
+  const o = {};
+  if (S.ck_pick) for (const x in S.ck_pick) if (S.ck_pick[x]) o[x] = 1;
+  else rows.forEach(r => { const q = String((r && r.账号) || ''); if (q) o[q] = 1; });
+  if (t.checked) o[k] = 1; else delete o[k];
+  S.ck_pick = o;                       /* 手动动过即从 null 变显式对象 */
+  if (el.ck_selall)
+    el.ck_selall.checked = rows.length > 0 &&
+      rows.every(r => o[String((r && r.账号) || '')]);
+});
 el.ck_start.onclick = () => {            /* 开始批量签到：本地后台执行（间隔 10 秒） */
   if (srvNeedOnline('批量签到')) return;
   if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
   if (S.checkin_all_busy){ flash('批量签到请求处理中，请稍候…', 'var(--orange)'); return; }
   S.checkin_all_busy = true;
-  srvOpSend('checkin_all', null, '批量签到');   // 服务端 cmd_checkin_all → checkin_all 事件回
+  srvOpSend('checkin_all', ckPickKeys(), '批量签到');   // 传账号键数组＝只跑勾选的；null＝全部
   setTimeout(() => { S.checkin_all_busy = false; }, 4000);   /* 兜底：ack 未到也不永久卡住 */
 };
 el.ck_refreshpts.onclick = () => {       /* 批量刷新积分：逐个账号查余额（间隔 10 秒） */
   if (srvNeedOnline('批量刷新积分')) return;
   if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
-  srvOpSend('credits_refresh_all', null, '批量刷新积分');
+  srvOpSend('credits_refresh_all', ckPickKeys(), '批量刷新积分');
 };
 
 /* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
