@@ -3077,6 +3077,10 @@ function qLanded(id, text){
 function qReconcile(rawq){
   S.qdone = S.qdone || {};
   S.qfail = S.qfail || {};
+  /* 2.36：S.qchk 是懒初始化（见 renderQueue），这里先 delete 会在它还没建起来时
+     抛 TypeError: Cannot convert undefined or null to object —— CDP 实测抓到
+     （切会话时 qReconcile 先跑）。初始化补齐，删除才安全。 */
+  S.qchk = S.qchk || {};
   const live = new Set();
   (rawq || []).forEach(it => {
     const o = (it && typeof it === 'object') ? it : {};
