@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.47';
+  const APP_VERSION = 'v1.48';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -20,6 +20,7 @@
     fontSize: 11,
     lineSpacing: 2,
     wordWrap: true,
+    plainView: false,          // v1.48 纯文本视图（默认关=灰色按钮）
     autoScroll: false,
     autoScrollSpeed: 60,
     scrollMode: 'px',
@@ -1123,6 +1124,15 @@
     $('btnWrap').classList.toggle('on', !!settings.wordWrap);
     $('btnWrap').textContent = settings.wordWrap ? '换行：开' : '换行：关';
     $('btnWrap').title = '自动换行开关';
+  }
+
+  // v1.48 纯文本视图：只切 editor 上一个类，CSS 负责把颜色/横线/加点/遮蔽全盖掉。
+  // 不动 DOM 内容、不动缓存，保存出去仍是原来的 foxrich。
+  function applyPlainView() {
+    const on = !!settings.plainView;
+    editor.classList.toggle('fox-plain-only', on);
+    const b = $('btnPlain');
+    if (b) b.classList.toggle('on', on);
   }
 
   // 方案二「按字数计时」测算：W=可用宽，C=平均字宽，N=每行字数，H=行高，T=N×S，V=H/T
@@ -2995,6 +3005,7 @@
     saveSettings();
     applyFont();
     applyWrap();
+    applyPlainView();
     applyAutoScrollBtn();
     if (settings.autoScroll) startAutoScroll(); else stopAutoScroll();
     showPage(settingsReturnPage === 'settings' ? 'edit' : settingsReturnPage);
@@ -3179,6 +3190,15 @@
       applyWrap();
       saveSettings();
     });
+    // v1.48 纯文本视图：点亮后整篇按系统 txt 那样显示（纯显示，不动数据）
+    const btnPlain = $('btnPlain');
+    if (btnPlain) {
+      btnPlain.addEventListener('click', function () {
+        settings.plainView = !settings.plainView;
+        applyPlainView();
+        saveSettings();
+      });
+    }
     // 上滑按钮：单击开关；长按或旁边 ⚙ 打开上滑设置面板
     let autoHoldTimer = null;
     let autoHoldFired = false;
@@ -3405,6 +3425,7 @@
     restoreDocCache();
     applyFont();
     applyWrap();
+    applyPlainView();
     applyAutoScrollBtn();
     updateHeader();
     setPhase('idle', '正在连接云端…');
