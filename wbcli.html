@@ -1174,6 +1174,9 @@ const S = {
      turnWait=补发在途防重。缺思维卡点开才补、缺结论卡主动补（done=false
      的被终止轮显示「无终极结论」，绝不反复追要）。 */
   turns: [], curTurn: null, turnWait: {}, turnAuditTs: 0,
+  /* 2026-11-13 老板「切到哪个会话就立刻展示它的轮播账」：turnsCache 按会话 sid
+     缓存内存里已有的账——切回来时不必等 IndexedDB 读盘，先铺满再校正。 */
+  turnsCache: {},
   qopen: {},                         /* 1.67：托管排队条「展开全文」态（键=条目 id） */
   pend_head: 100,                    /* 1.23 遗留：确认匹配字数（1.63 起已不再用于比对，
                                        仅保留字段兼容 hello/pendcfg 握手） */
@@ -2354,12 +2357,19 @@ function localTurnHtml(t, isCur){
 }
 function renderTurnsLocal(){
   if (!S.turns.length && !S.curTurn) return false;
-  const cur = S.curTurn;
-  const hist = S.turns.length ? S.turns[S.turns.length - 1] : null;
-  if (!hist && !cur) return false;
+  /* 2026-11-13 老板：「检查一下轮播账的使用方法，它是用来填补空白时间的」——
+     原来只画最后 1 轮，切换瞬间屏幕大半是空的；现在按查看器里设的 N 轮
+     （默认 5、最多 60）全铺上，顶上插一条说明条：直播画面一到就整块被取代。 */
+  const hist = S.turns.slice(-_turnsN());
   el.msgs.innerHTML = '';
-  if (hist) el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(hist, false));
-  if (cur) el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(cur, true));
+  const tip = document.createElement('div');
+  tip.className = 'turns_tip';
+  tip.style.cssText = 'font-size:12px;color:#8a98a6;background:#f4f6f8;'
+    + 'border-radius:6px;padding:5px 8px;margin:0 0 6px';
+  tip.textContent = '本地轮播账 · 直播画面到达后自动让位';
+  el.msgs.appendChild(tip);
+  hist.forEach(t => el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(t, false)));
+  if (S.curTurn) el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(S.curTurn, true));
   /* 本地秒显层的「点开要全轮」按钮 */
   el.msgs.querySelectorAll('.lclbtn').forEach(b => {
     b.onclick = e => {
@@ -2426,6 +2436,10 @@ function curConvId(){
    （{t:'req',c:'hist_prev'} → {t:'res',k:'hist_prev',v:{msgs,more}}）。
    骨架缓存：localStorage 秒出会话列表，免等连上。 */
 const LS_SKEL = 'wb_cli_skel';           /* 骨架缓存（会话列表） */
+/* 2026-11-13 老板「我需要优先显示会话名」：sid→会话名 的长期小字典。
+   骨架缓存只留最后一台服务器，换服务器/断网就查不到名字了；这份字典只增不删，
+   跨服务器共用（sid 本身带服务器含义，撞了也不会串）。 */
+const LS_NAMES = 'wb_cli_convnames';
 let cacheKey = null, reqSeq = 0, skelLastSave = 0;
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
@@ -2597,7 +2611,7 @@ function onRes(id, k, v){
       });
       t.thinks.sort((a, b) => (a.t || 0) - (b.t || 0));
     }
-    idbSaveTurns(S.histConv, S.turns.concat(S.curTurn ? [S.curTurn] : []));
+    saveTurnsNow();                              /* 2026-11-13：IDB + 内存缓存双写 */
     renderAll();
   }
 }
@@ -2614,6 +2628,18 @@ function _turnsN(){
     return (v >= 2 && v <= 60) ? v : 5;
   }catch(e){ return 5; }
 }
+/* 2026-11-13 老板：轮播账按服务器隔离——家里 / 宿舍是两台服务端，各自都可能有
+   同名会话（sid 相同或不同都可能），键直接存 sid 会互相覆盖。统一键＝「服务器标识|会话sid」，
+   服务器标识取当前操控服务端的 10 位 sid（没有就用服务器名，再没有就 'local'）。 */
+function srvKey(){
+  var k = '';
+  try{
+    if (S.cur && S.servers && S.servers[S.cur])
+      k = String(S.servers[S.cur].sid || S.cur);
+  }catch(e){}
+  return k || 'local';
+}
+function idbKey(sid){ return srvKey() + '|' + sid; }
 function idbOpen(){
   return new Promise(res => {
     try{
@@ -2629,7 +2655,7 @@ async function idbLoadTurns(sid){
   if (!db) return [];
   return new Promise(res => {
     try{
-      const rq = db.transaction('conv').objectStore('conv').get(sid);
+      const rq = db.transaction('conv').objectStore('conv').get(idbKey(sid));
       rq.onsuccess = () => res((rq.result && rq.result.turns) || []);
       rq.onerror = () => res([]);
     }catch(e){ res([]); }
@@ -2640,8 +2666,16 @@ async function idbSaveTurns(sid, turns){
   if (!db) return;
   try{
     const tx = db.transaction('conv', 'readwrite');
-    tx.objectStore('conv').put({turns: turns}, sid);
+    tx.objectStore('conv').put({turns: turns, srv: srvKey(), sid: String(sid)}, idbKey(sid));
   }catch(e){}
+}
+/* 2026-11-13 老板「账先上」：落账＝IndexedDB + 内存缓存双写。
+   缓存（S.turnsCache）给「切回这个会话时同步铺满」用——读盘总要几十毫秒，
+   这几十毫秒里屏幕不该是空的。 */
+function saveTurnsNow(){
+  const arr = S.turns.concat(S.curTurn ? [S.curTurn] : []);
+  if (S.turnsCache && S.histConv) S.turnsCache[S.histConv] = arr.slice();
+  idbSaveTurns(S.histConv, arr);
 }
 /* 登录/换会话后主动现取一次当前轮播（2.94b）：服务端指纹只在有人听时
    前进，join 时错过的首帧不会因为「下次变化」重发——必须自己开口要。 */
@@ -2726,6 +2760,8 @@ async function onTurncast(tc){
   /* ④ 收口：留 5 轮、落 IDB、重画、平时自查 */
   if (S.turns.length > _turnsN()) S.turns = S.turns.slice(-_turnsN());
   idbSaveTurns(S.histConv, S.turns.concat(S.curTurn ? [S.curTurn] : []));
+  if (S.turnsCache && S.histConv)
+    S.turnsCache[S.histConv] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
   renderAll();
   turnAudit();
 }
@@ -2790,8 +2826,15 @@ function ensureHist(){
   if (conv !== S.histConv){
     S.histConv = conv;
     resetPaging();
-    /* 2.10：换会话先摆上本地轮播账（IndexedDB 秒显），snap 正文到了无缝接管 */
-    S.turns = []; S.curTurn = null; S.turnWait = {};
+    /* 2.10：换会话先摆上本地轮播账（IndexedDB 秒显），snap 正文到了无缝接管
+       2026-11-13 老板：「切到一个会话立即展示它的轮播账，不要给我展示空白的」——
+       先取内存缓存 turnsCache（同步、零等待）铺一次，再让 IDB 回包来校正。 */
+    var c0 = (S.turnsCache && S.turnsCache[conv]) ? S.turnsCache[conv].slice() : [];
+    S.curTurn = null; S.turnWait = {};
+    /* 缓存与 IDB 同一形状（末尾可能是「进行时」那一轮）——是就还原成 curTurn */
+    if (c0.length && c0[c0.length - 1] && !c0[c0.length - 1].done) S.curTurn = c0.pop();
+    S.turns = c0;
+    renderAll();                             /* 账先上：不等读盘 */
     idbLoadTurns(conv).then(arr => {
       if (conv !== S.histConv) return;         /* 已再切走：丢弃 */
       /* 记录里最后一轮若是「进行时」，还原成 curTurn，其余是历史 */
@@ -2799,6 +2842,8 @@ function ensureHist(){
         S.curTurn = arr.pop();
       }
       S.turns = arr.slice(-_turnsN());
+      if (S.turnsCache)   /* 与 IDB 同形（末尾可含进行时那轮），供下次切回来秒铺 */
+        S.turnsCache[conv] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
       turnAudit();
       renderAll();
     });
@@ -3159,6 +3204,20 @@ function renderConvs(rows, conv_unread){
     + '#ur:' + Array.from(ur).sort().join('|')
     + '#sc:' + Array.from(schedSids).sort().join('|')
     + '#nt:' + noteKey;
+  /* 2026-11-13 老板「优先显示会话名」：随手把 sid→显示名 增量记进 LS_NAMES。
+     换服务器 / 断网 / 骨架缓存被清掉时，轮播账查看器仍能显示会话名而不是一串 sid。 */
+  try{
+    if (rows && rows.length){
+      const nm0 = JSON.parse(localStorage.getItem(LS_NAMES) || '{}') || {};
+      let ch = false;
+      rows.forEach(r => {
+        if (!r || r[0] !== 'c') return;
+        const sid = String(r[1] || ''), disp = String(r[3] || '').trim();
+        if (sid && disp && nm0[sid] !== disp){ nm0[sid] = disp; ch = true; }
+      });
+      if (ch) localStorage.setItem(LS_NAMES, JSON.stringify(nm0));
+    }
+  }catch(e){}
   if (key === S.convs_key) return;
   S.convs_key = key;
   el.convs.innerHTML = '';
@@ -4067,7 +4126,10 @@ function renderMsgs(msgs, finish, opts, ask){
           取回必须参与指纹，否则「只队列变了」时会被上面的早退跳过、不重画。 */
        + '#q:' + ((S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue
            .map(x => ((x && x.id) || '') + ':' + String((x && x.text) || '').length)
-           .join(',') : '');
+           .join(',') : '')
+       /* 2026-11-13 老板「账先上」：本地轮播账的内容也要进指纹——账变了但 snap
+          正文没变时，不加这段就会被上面的早退吃掉、屏幕一直停在旧账上。 */
+       + '#tm:' + S.turns.length + ':' + (S.curTurn ? (S.curTurn.uid + ':' + S.curTurn.thinks.length) : '');
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -4080,8 +4142,13 @@ function renderMsgs(msgs, finish, opts, ask){
       - el.msgs.clientHeight < 200;
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
-  if (empty && !S.pending.length && !S.switch_pend && !S.loadingConv){
-    if (renderTurnsLocal()) return;    /* 2.10：snap 正文未到，本地轮播账秒显 */
+  /* 2026-11-13 老板：「当我切换到一个会话的时候，立即展示它的轮播账……
+     不要给我展示空白的」——切换在途（switch_pend）/已确认未到图（loadingConv）
+     时也先把轮播账铺满，然后再把「切换中…」提示条追加到末尾（提示保留、不占屏）。 */
+  let turnsPainted = false;
+  if ((empty || S.switch_pend || S.loadingConv) && !S.pending.length)
+    turnsPainted = renderTurnsLocal();
+  if (!turnsPainted && empty && !S.pending.length && !S.switch_pend && !S.loadingConv){
     el.msgs.innerHTML =
       '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
@@ -4097,6 +4164,8 @@ function renderMsgs(msgs, finish, opts, ask){
     ld.textContent = '正在加载「' + (S.loadingConv.disp || '新会话') + '」…';
     el.msgs.appendChild(ld);
   }
+  /* 账已铺满且正在切换：提示条追加完就收工——别再把这个会话的旧消息叠在账下面 */
+  if (turnsPainted && (S.switch_pend || S.loadingConv)){ renderPending(); return; }
   if (S.loadingMore){                    // 分页窗口：向上补拉老历史在途
     const lmdiv = document.createElement('div');
     lmdiv.className = 'loadmore' + (S.loadMoreFail ? ' fail' : (S.loadMoreEnd ? ' end' : ''));
@@ -4947,7 +5016,21 @@ const APP_NAME = 'wb远程';
    ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
    以下为上一版（2.19）说明存档。 */
 /* 2.31（2026-11-11）：批量签到面板加「勾选 / 凭证到期 / 剩余」三列，勾选后只对指定账号签到与刷新积分 */
-const VER = '2.31';   /* 2.214（2026-11-10，老板原话「网页版小尾巴系统模仿一下 TRAE…我在手机网页版
+const VER = '2.32';   /* 2.32（2026-11-13 老板：「轮播账要按照服务器来隔离……我需要优先显示会话名」
+                         ＋「当我切换到一个会话的时候，立即展示它的轮播账……来了最新的画面，
+                         轮播账就给它让位」）：
+                         ①服务器隔离——轮播账 IDB 键由 sid 改「服务器标识|会话sid」（srvKey()），
+                          家里/宿舍两台服务端同名会话不再互相覆盖；查看器按服务器分组，组标题写
+                          「服务器：家里（1102517923）」。
+                         ②会话名优先——新增 LS_NAMES 长期字典（sid→会话名，renderConvs 增量写），
+                          nameMap() 取值序改为 骨架缓存 → LS_NAMES → 当前快照；断网/换服务器
+                          也能显示名字，不会再退化成一串 sid。卡片副行补 sid 前 8 位便于定位。
+                         ③账先上——S.turnsCache 内存缓存（saveTurnsNow 双写），ensureHist 切会话
+                          先同步铺账再让 IDB 校正，不等读盘。
+                         ④切换在途也让账铺满——renderMsgs 在 switch_pend / loadingConv 时照样
+                          画轮播账（最近 N 轮 + 顶上一条「本地轮播账 · 直播画面到达后自动让位」），
+                          提示条追加在末尾；直播画面一到正常重画自然取而代之。
+   2.214（2026-11-10，老板原话「网页版小尾巴系统模仿一下 TRAE…我在手机网页版
                          点这个按钮也没展开」）：①专属提示词四段折叠卡第四段**标签正名岗位**
                          （底层标记名仍是 fox-ai，服务端 1.19 起「AI 专属提示词」列已废，
                          该段装的就是岗位提示词——宿舍换号助手这类会话终于显示「岗位 ▸」）；
@@ -7221,6 +7304,9 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   /* 老板 2026-11-07 19:42：轮播账按 sid 锚定（不变），但**显示以会话名为准**
      ——只给一长串 sid 认不出是哪个会话。名字来源：当前快照 convs 行 ['c',sid,cur,显示名]，
      断网/未连时退回骨架缓存 LS_SKEL 里的同名行。 */
+  /* 2026-11-13 老板「我需要优先显示会话名，不然我都找不到这是属于哪个会话」：
+     名字来源优先级＝当前快照 convs → LS_NAMES（长期字典）→ 骨架缓存 LS_SKEL。
+     后吃的覆盖先吃的，所以按 低 → 高 的顺序吃。 */
   function nameMap(){
     var m = {};
     function eat(rows){
@@ -7230,14 +7316,34 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
         if (sid && nm) m[sid] = nm;
       });
     }
-    try { eat(S && S.snap && S.snap.convs); } catch(e){}
     try {
       var o = JSON.parse(localStorage.getItem('wb_cli_skel') || 'null');
       if (o && Array.isArray(o.convs)) eat(o.convs);
     } catch(e){}
+    try {
+      var d = JSON.parse(localStorage.getItem('wb_cli_convnames') || 'null');
+      if (d && typeof d === 'object'){
+        Object.keys(d).forEach(function(k){
+          if (k && d[k]) m[String(k)] = String(d[k]);
+        });
+      }
+    } catch(e){}
+    try { eat(S && S.snap && S.snap.convs); } catch(e){}
     return m;
   }
   function nmOf(sid, m){ return (m && m[sid]) || sid; }
+  /* 服务器标识 → 「服务器名（10 位 sid）」：srvKey() 存的是当前服务端的 sid，
+     名册里能按 sid 反查到服务器名（家里 / 宿舍），查不到就原样显示。 */
+  function srvName(sv){
+    try{
+      var ks = Object.keys(S.servers || {});
+      for (var i = 0; i < ks.length; i++){
+        var s = S.servers[ks[i]];
+        if (s && String(s.sid || '') === String(sv)) return ks[i] + '（' + sv + '）';
+      }
+    }catch(e){}
+    return String(sv);
+  }
   function inject(){
     if (document.getElementById('tv_style')) return;
     var st = document.createElement('style'); st.id = 'tv_style';
@@ -7275,7 +7381,17 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
           var cur2 = tx.objectStore('conv').openCursor();
           cur2.onsuccess = function(){
             var c = cur2.result;
-            if (c){ out.push({sid: String(c.key), turns: (c.value && c.value.turns) || []}); c.continue(); }
+            if (c){
+              /* 2026-11-13 老板「按服务器隔离」：键形如 1102517923|sess_xxx，
+                 按第一个 '|' 拆回 服务器标识 / 会话 sid；老键没有 '|' → srv='local' */
+              var k = String(c.key), i = k.indexOf('|');
+              out.push({
+                srv: (i > 0 ? k.slice(0, i) : 'local'),
+                sid: (i > 0 ? k.slice(i + 1) : k),
+                turns: (c.value && c.value.turns) || []
+              });
+              c.continue();
+            }
           };
           tx.oncomplete = function(){ res(out); };
           tx.onerror = function(){ res(out); };
@@ -7305,25 +7421,44 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
     openAll().then(function(list){
       sec.querySelector('.n').textContent = list.length + ' 个会话有本地轮播账';
       if (!list.length){ sec.appendChild(Object.assign(document.createElement('div'), {style:'padding:14px;color:#8a98a6;font-size:13px', textContent:'（本地还没有轮播账）'})); return; }
-      var g = document.createElement('div'); g.className = 'tv_grid';
       var mp = nameMap();
+      /* 2026-11-13 老板「按服务器隔离」+「会话名优先」：先按服务器分组（每组一个
+         标题「服务器：家里（1102517923）」），组内卡片主标题＝会话名，
+         副行＝轮数 · 首句 · sid 前 8 位（认不出名字时也能靠 sid 定位）。 */
+      var groups = {}, order = [];
       list.forEach(function(it){
-        var first = (it.turns[0] && it.turns[0].utext) || '';
-        var nm = nmOf(it.sid, mp);
-        var card = document.createElement('div'); card.className = 'tv_card';
-        card.innerHTML = '<div class="tv_l1">' + esc(nm) + '</div>' +
-          '<div class="tv_l2">' + esc(it.turns.length + ' 轮' + (first ? ' · ' + first.slice(0, 24) : '')
-            + (nm !== it.sid ? ' · ' + String(it.sid).slice(0, 8) : '')) + '</div>';
-        card.setAttribute('data-sid', it.sid);
-        card.onclick = function(){ cur = it; view = 'detail'; render(host); host.scrollTop = 0; };
-        g.appendChild(card);
+        if (!groups[it.srv]){ groups[it.srv] = []; order.push(it.srv); }
+        groups[it.srv].push(it);
       });
-      sec.appendChild(g);
+      order.sort();
+      order.forEach(function(sv){
+        var gs = document.createElement('div'); gs.className = 'tv_sec';
+        gs.innerHTML = '<h3>服务器：' + esc(srvName(sv)) + ' <span class="n">'
+          + groups[sv].length + ' 个会话有本地轮播账</span></h3>';
+        var g = document.createElement('div'); g.className = 'tv_grid';
+        groups[sv].forEach(function(it){
+          var first = (it.turns[0] && it.turns[0].utext) || '';
+          var nm = nmOf(it.sid, mp);
+          var card = document.createElement('div'); card.className = 'tv_card';
+          card.innerHTML = '<div class="tv_l1">' + esc(nm) + '</div>' +
+            '<div class="tv_l2">' + esc(it.turns.length + ' 轮'
+              + (first ? ' · ' + first.slice(0, 24) : '')
+              + ' · ' + String(it.sid).slice(0, 8)) + '</div>';
+          card.setAttribute('data-sid', it.sid);
+          card.setAttribute('data-srv', sv);
+          card.onclick = function(){ cur = it; view = 'detail'; render(host); host.scrollTop = 0; };
+          g.appendChild(card);
+        });
+        gs.appendChild(g);
+        host.appendChild(gs);
+      });
     });
   }
   function renderDetail(host){
     var bar = document.createElement('div'); bar.className = 'tv_dhd';
-    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(nmOf(cur.sid, nameMap())) + '</div>';
+    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(nmOf(cur.sid, nameMap()))
+      + ' <span style="font-weight:400;color:#8a98a6;font-size:11px">'
+      + esc(srvName(cur.srv || '') + ' · ' + String(cur.sid).slice(0, 8)) + '</span></div>';
     bar.querySelector('button').onclick = function(){ view = 'list'; cur = null; render(host); host.scrollTop = 0; };
     host.appendChild(bar);
     var sec = document.createElement('div'); sec.className = 'tv_sec';
