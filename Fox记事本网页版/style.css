@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.37 —— 样式表
+/* Fox记事本 网页版 v1.46 —— 样式表
    约定：顶栏固定两行（约 70px）；正文独占剩余高度；滚动条 5px 窄边；
    手机竖屏（375px）不产生整页横向溢出，只有第二行工具条可横向滑动。 */
 
@@ -565,3 +565,44 @@ body{
   .op-cell .btn{ padding: 0 5px; }
   .search{ width: 120px; }
 }
+
+/* ===== v1.47 考卷格式：下划线 / 着重号 / 答案遮蔽 / 只读提示 / 倒计时浮条 ===== */
+#editor .fox-u{ text-decoration: underline; text-underline-offset: 2px; }
+#editor .fox-dot{
+  text-emphasis: filled dot;
+  text-emphasis-position: under right;
+  -webkit-text-emphasis: filled dot;
+  -webkit-text-emphasis-position: under right;
+}
+/* 答案默认遮蔽：文字仍在 DOM 里，仅不可见（保存时正文不变） */
+#editor .fox-ans{ display: none; }
+#editor.fox-ans-shown .fox-ans{ display: inline; color: var(--fox-ans-color, #E53935); }
+/* 答案区起点锚点：零尺寸，仅用于判断是否滚到答案附近 */
+#editor .fox-ans-anchor{ display: inline-block; width: 0; height: 0; overflow: hidden; }
+
+.fox-lockbar{
+  flex: 0 0 auto;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 6px 10px;
+  background: #fff8e6;
+  border-bottom: 1px solid #f0dcae;
+  color: #8a5a00;
+  font-size: 12px; line-height: 1.5;
+}
+.fox-lockbar .fox-lockmsg{ flex: 1 1 auto; min-width: 0; }
+.fox-lockbar .btn{ height: 22px; padding: 0 8px; font-size: 12px; }
+
+.fox-ansbar{
+  position: fixed;
+  left: 50%; bottom: 28px;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: rgba(30,35,42,.94);
+  color: #fff;
+  font-size: 13px;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.2);
+  z-index: 95;
+}
+.fox-ansbar .btn{ height: 24px; padding: 0 10px; font-size: 12px; }
