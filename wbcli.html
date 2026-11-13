@@ -4068,6 +4068,11 @@ function switchOk(disp, isNew){ /* 1.82：闪现「切换成功」2 秒后交回
 function turnsSwitchTo(sid){
   sid = String(sid || '');
   if (!sid) return;
+  /* 2.36（2026-11-13 老板原话）：「我切换到一个会话的时候，你应该自动给我拉到整个
+     聊天记录的最底部……无论是给我看那些历史轮播画面，还是来了最新的实时画面，
+     你都得给我拉到最底部。」——置一个 30 秒自失效的吸底标记，renderMsgs 每帧
+     见到它就吸底；第一帧真·直播画面画完即撤（见 renderMsgs 尾部）。 */
+  S.pendBottom = Date.now() + 30000;
   const c = (S.turnsCache && S.turnsCache[sid]) ? S.turnsCache[sid].slice() : [];
   S.histConv = sid;
   S.curTurn = null; S.turnWait = {};
@@ -4525,7 +4530,15 @@ function renderMsgs(msgs, finish, opts, ask){
   }
   renderQueue();                    // 1.67：托管排队条（挂在聊天记录末尾）
   renderPending();                  // 1.09：占位气泡永远排在末尾
-  if (inF){
+  /* 2.36（老板 2026-11-13）：「切换到一个会话的时候，你应该自动给我拉到整个聊天
+     记录的最底部……无论是给我看那些历史轮播画面，还是来了最新的实时画面，你都
+     得给我拉到最底部。」——切换起手（turnsSwitchTo 置 S.pendBottom，30 秒自失效）
+     到第一帧真·直播画面落地之间，所有重画一律吸底；直播这帧画完就撤标记，之后
+     回到原来的「近底跟底 / 翻历史保位」规则，绝不跟用户抢滚动。 */
+  if (S.pendBottom && Date.now() < S.pendBottom){
+    fprog(el.msgs.scrollHeight);
+    if (!turnsPainted && msgs.length) S.pendBottom = 0;   /* 直播已接手 */
+  } else if (inF){
     el.msgs.scrollTop = savedTop;   /* 1.20：全屏内只保位置，
                                        绝不自动退出（鬼打墙根因） */
   } else if (nearBottom){
@@ -5103,7 +5116,16 @@ const APP_NAME = 'wb远程';
    ③ 在生成的那一轮默认全展开（S.thinkOpen 改三态 null=自动），点表头仍可收起；
    ④ sendIdle 进重画指纹——刚答完那一刻必须重画，否则停在展开态折不回去；
    ⑤ 本地轮播账同口径：只有未完成的当轮才铺开卡流。 */
-const VER = '2.35';   /* 2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
+/* 2.36（2026-11-13）：切会话自动吸底——
+   ① turnsSwitchTo 置 S.pendBottom＝now+30s（自带失效，怕直播永远不来把用户锁死在底部）；
+   ② renderMsgs 尾部见到它就 fprog(scrollHeight)＝一律吸底：轮播账、切换条、直播首帧都算；
+   ③ 第一帧真·直播画面画完即撤标记，之后回到「近底跟底 / 翻历史保位」，
+      用户自己上翻时不再被拽回底部。
+   ★原来切过去为什么会在上面：renderMsgs 的位置只按「上一屏的 savedTop / nearBottom」
+     决定，而这两个值属于**上一个会话**——上一屏内容短（savedTop=0）或用户本来正在
+     翻历史，切过去照抄旧偏移，就停在新会话的顶部。 */
+const VER = '2.36';   /* 2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
+                         2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
                          ①主人守卫——renderTurnsLocal 开头比对 S.histConv 与目标会话
                          （switch_pend/loadingConv 的目标，否则当前激活会话），对不上一条都不画；
                          ②切换起手换账——pendSwitchSet 里新增 turnsSwitchTo(目标)：有内存缓存
