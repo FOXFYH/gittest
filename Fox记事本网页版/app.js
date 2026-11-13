@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.46 —— 主逻辑
+/* Fox记事本 网页版 v1.47 —— 主逻辑
    与 Python 版共用金山文档表格「Fox记事本」的 6.0 云端库。
    云同步协议：读取索引 / 查找 / 同步提交 / 转正确认 / 批量写入 / 删除行 / 解锁，
    全部照《文件管理6.0专用同步脚本.js》实现，不自行发明参数。 */
@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.46';
+  const APP_VERSION = 'v1.47';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -479,8 +479,9 @@
     const color = deco && deco.color;
     const underline = deco && deco.underline;
     const dot = deco && deco.dot;
-    const answer = deco && deco.answer;
-    if (!color && !underline && !dot && !answer) {
+    const answer = deco && deco.answer;     // '' | 'fox-ans'（题内答案）| 'fox-ans-plain'（底部答案区）
+    const no = deco && deco.no;
+    if (!color && !underline && !dot && !answer && !no) {
       frag.appendChild(document.createTextNode(piece));
       return;
     }
@@ -488,7 +489,8 @@
     if (color) span.style.color = color;
     if (underline || (dot && !支持着重号)) span.classList.add('fox-u');
     if (dot && 支持着重号) span.classList.add('fox-dot');
-    if (answer) span.classList.add('fox-ans');
+    if (answer) span.classList.add(answer);
+    if (no) span.classList.add('fox-ans-no');
     span.appendChild(document.createTextNode(piece));
     frag.appendChild(span);
   }
@@ -557,7 +559,7 @@
       const e = clamp(parseInt(r[1], 10), 0, cpCount);
       if (e > s) 样式段.push([s, e, t]);
     });
-    // 3) 答案遮蔽区间 + 起点锚点
+    // 3) 答案：底部答案区 spans + 题内 items（no=序号显红 / ans=纯答案，公布后原地显红）
     let 答案 = null;
     if (richExtra && richExtra.answers) {
       const a = richExtra.answers;
@@ -568,9 +570,19 @@
         const e = clamp(parseInt(r[1], 10), 0, cpCount);
         if (e > s) spans.push([s, e]);
       });
+      const items = [];
+      (Array.isArray(a.items) ? a.items : []).forEach(function (it) {
+        if (!it || !Array.isArray(it.no) || !Array.isArray(it.ans)) return;
+        const ns = clamp(parseInt(it.no[0], 10), 0, cpCount);
+        const ne = clamp(parseInt(it.no[1], 10), 0, cpCount);
+        const as = clamp(parseInt(it.ans[0], 10), 0, cpCount);
+        const ae = clamp(parseInt(it.ans[1], 10), 0, cpCount);
+        if (ae > as) items.push({ no: [ns, ne], ans: [as, ae] });
+      });
       答案 = {
         start: clamp(parseInt(a.start, 10) || 0, 0, cpCount),
         spans: spans,
+        items: items,
         color: hexFromCss(a.color) || '#E53935',
         countdown: clamp(parseInt(a.countdown, 10) || 60, 1, 3600)
       };
@@ -582,6 +594,7 @@
     样式段.forEach(收点);
     if (答案) {
       答案.spans.forEach(收点);
+      答案.items.forEach(function (it) { 收点(it.no); 收点(it.ans); });
       bounds.push(答案.start);
     }
     bounds.sort(function (a, b) { return a - b; });
@@ -596,11 +609,21 @@
       const color = (ci < 颜色段.length && 颜色段[ci][0] <= a) ? 颜色段[ci][2] : '';
       let underline = false;
       let dot = false;
-      let answer = false;
+      let answer = '';
+      let no = false;
       样式段.forEach(function (r) {
         if (r[0] <= a && a < r[1]) { if (r[2] === 'dot') dot = true; else underline = true; }
       });
-      if (答案) 答案.spans.forEach(function (r) { if (r[0] <= a && a < r[1]) answer = true; });
+      if (答案) {
+        答案.spans.forEach(function (r) {
+          // 有 items 时底部答案区只遮挡、公布后保持黑色；无 items 的旧卷整体变红
+          if (r[0] <= a && a < r[1]) answer = 答案.items.length ? 'fox-ans-plain' : 'fox-ans';
+        });
+        答案.items.forEach(function (it) {
+          if (it.no[0] <= a && a < it.no[1]) no = true;
+          if (it.ans[0] <= a && a < it.ans[1]) answer = 'fox-ans';
+        });
+      }
       if (答案 && !放了锚点 && a === 答案.start) {
         const anchor = document.createElement('span');
         anchor.className = 'fox-ans-anchor';
@@ -608,7 +631,7 @@
         frag.appendChild(anchor);
         放了锚点 = true;
       }
-      appendPiece(frag, text, idx, a, b, { color: color, underline: underline, dot: dot, answer: answer });
+      appendPiece(frag, text, idx, a, b, { color: color, underline: underline, dot: dot, answer: answer, no: no });
     }
     if (答案 && !放了锚点) {
       const anchor = document.createElement('span');
