@@ -586,6 +586,16 @@ body{
 /* 答案区起点锚点：零尺寸，仅用于判断是否滚到答案附近 */
 #editor .fox-ans-anchor{ display: inline-block; width: 0; height: 0; overflow: hidden; }
 
+/* ===== v1.48 纯文本视图：整篇按系统 txt 那样显示 =====
+   一个类盖掉全部富文本 —— 颜色转黑、横线与加点去掉、答案与题内序号全部现身 */
+#editor.fox-plain-only span{
+  color: #000 !important;
+  text-decoration: none !important;
+  text-emphasis: none !important;
+  -webkit-text-emphasis: none !important;
+  display: inline !important;
+}
+
 .fox-lockbar{
   flex: 0 0 auto;
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
