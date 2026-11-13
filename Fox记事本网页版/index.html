@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- 机读版本标记：与页面标题、顶栏版本胶囊、设置页版本显示保持一致（规范 3.2.1） -->
-<meta name="app-version" content="v1.47">
+<meta name="app-version" content="v1.48">
 <meta name="app-sheet" content="Fox记事本">
-<title>Fox记事本 v1.47</title>
+<title>Fox记事本 v1.48</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=1.47">
+<link rel="stylesheet" href="style.css?v=1.48">
 </head>
 <body>
 
@@ -17,7 +17,7 @@
   <div class="bar-row row1">
     <button class="btn" id="btnProps" title="查看当前文件属性（含末尾小尾巴 JSON）">属性</button>
     <span class="brand">Fox记事本</span>
-    <span class="pill ver" id="verPill">v1.47</span>
+    <span class="pill ver" id="verPill">v1.48</span>
     <span class="docname" id="docName">未命名</span>
     <span class="docse" id="docSE">起点 - / 终点 -</span>
     <span class="grow"></span>
@@ -40,6 +40,7 @@
       <input id="fontSizeBox" class="fsize" type="number" min="6" max="128" step="1" value="11" aria-label="字号 6-128">
       <button class="mini" id="btnZoomIn" title="放大字号">A+</button>
     </div>
+    <button class="toggle" id="btnPlain" title="纯文本视图：忽略颜色、横线、加点与答案遮蔽（等同系统 txt 打开）">纯</button>
     <button class="toggle" id="btnWrap">自动换行</button>
     <button class="toggle" id="btnAutoScroll">自动上滑</button>
     <button class="toggle cfgbtn" id="btnScrollCfg" title="上滑设置" aria-label="上滑设置">⋯</button>
@@ -125,7 +126,7 @@
       <div class="bar-row ph1">
         <span class="ph-title">设置</span>
         <span class="grow"></span>
-        <span class="pill ver" id="settingsVer">v1.47</span>
+        <span class="pill ver" id="settingsVer">v1.48</span>
       </div>
     </div>
     <div class="settings-body">
@@ -212,7 +213,7 @@
         <div class="card-title">本地缓存</div>
         <div class="field">
           <label>当前版本</label>
-          <span class="static" id="verStatic">v1.47</span>
+          <span class="static" id="verStatic">v1.48</span>
         </div>
         <div class="field">
           <label>缓存内容</label>
@@ -232,6 +233,6 @@
 <div id="toast" class="toast" hidden></div>
 <div id="modalLayer" class="modal-layer" hidden></div>
 <noscript><div style="padding:20px">本页面需要启用 JavaScript 才能使用。</div></noscript>
-<script src="app.js?v=1.47"></script>
+<script src="app.js?v=1.48"></script>
 </body>
 </html>
