@@ -2356,6 +2356,12 @@ function localTurnHtml(t, isCur){
   return h + ai + '</div>';
 }
 function renderTurnsLocal(){
+  /* 2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
+     主人守卫——账只属于 S.histConv。目标会话＝正在切的那个（switch_pend/loadingConv），
+     否则＝当前激活会话。两者对不上就一条都不许画：宁可短暂空白，绝不张冠李戴。 */
+  const owner = (S.switch_pend && S.switch_pend.title)
+             || (S.loadingConv && S.loadingConv.title) || curConvId();
+  if (S.histConv && owner && S.histConv !== owner) return false;
   if (!S.turns.length && !S.curTurn) return false;
   /* 2026-11-13 老板：「检查一下轮播账的使用方法，它是用来填补空白时间的」——
      原来只画最后 1 轮，切换瞬间屏幕大半是空的；现在按查看器里设的 N 轮
@@ -4044,6 +4050,36 @@ function switchOk(disp, isNew){ /* 1.82：闪现「切换成功」2 秒后交回
   if (_swOkT) clearTimeout(_swOkT);
   _swOkT = setTimeout(() => { S.switch_ok = null; renderAll(); }, 2000);
 }
+/* 2.34（2026-11-13）：切换起手就把「账」换到目标会话。
+   有内存缓存 → 直接铺目标的账（切过去立刻有内容）；没有 → 清空等 IDB
+   （宁可短暂空白，也绝不把上一个会话的账当目标会话的贴上）。
+   顺带 resetPaging：上一会话翻出来的老历史必须作废，否则会串到新会话里。 */
+function turnsSwitchTo(sid){
+  sid = String(sid || '');
+  if (!sid) return;
+  const c = (S.turnsCache && S.turnsCache[sid]) ? S.turnsCache[sid].slice() : [];
+  S.histConv = sid;
+  S.curTurn = null; S.turnWait = {};
+  resetPaging();
+  if (c.length){
+    if (!c[c.length - 1].done) S.curTurn = c.pop();
+    S.turns = c;
+    return;
+  }
+  S.turns = [];
+  /* 缓存没有就立刻问 IDB；回来时若还停在这个目标、且账仍空，换上并重画 */
+  idbLoadTurns(sid).then(arr => {
+    if (S.histConv !== sid) return;                 /* 又切走了：丢弃 */
+    if (S.turns.length || S.curTurn) return;        /* 已有账：不覆盖 */
+    const a = (arr || []).slice();
+    if (a.length && a[a.length - 1] && !a[a.length - 1].done) S.curTurn = a.pop();
+    if (!a.length && !S.curTurn) return;
+    S.turns = a.slice(-_turnsN());
+    if (S.turnsCache)
+      S.turnsCache[sid] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
+    renderAll();
+  });
+}
 function pendSwitchSet(title, disp, local){
   title = title || '';
   disp = disp || '';
@@ -4079,6 +4115,7 @@ function pendSwitchSet(title, disp, local){
     return;
   }
   switchEnd();                        /* 1.82：换目标先清旧在途（含定时器） */
+  turnsSwitchTo(title);               /* 2.34：账随目标走——切换在途绝不画别的会话的账 */
   S.switch_pend = {title: title, ts: Date.now(),
                    fp0: msgsFp(S.snap.msgs), disp: view,
                    phase: phase0, local: !!local};
@@ -5034,7 +5071,13 @@ const APP_NAME = 'wb远程';
    ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
    以下为上一版（2.19）说明存档。 */
 /* 2.31（2026-11-11）：批量签到面板加「勾选 / 凭证到期 / 剩余」三列，勾选后只对指定账号签到与刷新积分 */
-const VER = '2.33';   /* 2.33（2026-11-13，CDP 实测查出的真缺陷）：轮播账**老键回落**——
+const VER = '2.34';   /* 2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
+                         ①主人守卫——renderTurnsLocal 开头比对 S.histConv 与目标会话
+                         （switch_pend/loadingConv 的目标，否则当前激活会话），对不上一条都不画；
+                         ②切换起手换账——pendSwitchSet 里新增 turnsSwitchTo(目标)：有内存缓存
+                         立刻铺目标的账，没有就清空（宁可短暂空白不许张冠李戴），并 resetPaging
+                         作废上一会话翻出的老历史；IDB 回来且仍停在目标时再校正。
+   2.33（2026-11-13，CDP 实测查出的真缺陷）：轮播账**老键回落**——
                          2.32 把 IDB 键从纯 sid 改成「服务器标识|sid」，升级前存的老账按新键
                          查不到，老用户一升级轮播账就凭空消失、切会话又是空白。现在
                          idbLoadTurns() 新键未命中时再查一次纯 sid，命中则顺手按新键静默
