@@ -1140,8 +1140,9 @@ const S = {
   favs: [], models_full: [], fav_invalid: [], fav_warned: [],
   model_names: new Set(),
   convs_key: null, msgs_key: null,
-  thinkOpen: false,          /* 2.86：是否**全部展开**思考块（默认 false＝只展开最新那一段，
-                                点任意表头切换；最新段始终展开，保证「一有动静就看得到」） */
+  thinkOpen: null,           /* 2.86：思考块开合态。2.35 起是三态：
+                                null＝自动（本轮还在生成→全部展开，这是默认）
+                                true＝全展开（用户点过）／false＝只留最新一段（用户点过） */
   busy: false, gen: false, ready: false,
   task_open: false, task_mem: '', task_cur: '', task_lock: null,
   /* 1.68：刚点了「新建对话」的时刻——服务端 set_current 内先推新会话快照、
@@ -2217,7 +2218,11 @@ function thinkBlocksHtml(){
   /* 先滤空段再编号——否则会出现「思考 2/5、4/5」跳号 */
   arr = arr.filter(p => p && String(p.x == null ? '' : p.x).trim());
   const n = arr.length;
-  const all = (S.thinkOpen === true);      /* 点过表头才「全部展开」 */
+  /* 2.35（2026-11-13 老板）：「正在回复的这一轮，把它的思维小卡片都展开。」
+     三态：null（默认）＝全展开；true＝全展开（用户点过）；false＝只留最新一段。
+     ★本函数 2.35 起只在「本轮还在生成」时被调用；已结束的轮改走 histThinkHtml
+     的「💭 思维卡片 ×N（点开看全文）」折叠条（老板：「完整一轮的都要折叠」）。 */
+  const all = (S.thinkOpen === null || S.thinkOpen === undefined) ? true : !!S.thinkOpen;
   let h = '';
   for (let k = 0; k < n; k++){
     const p = arr[k] || {};
@@ -2242,8 +2247,13 @@ function bindThinkBlocks(root){
   if (!heads.length) return;
   heads.forEach(hd => {
     hd.onclick = () => {
-      S.thinkOpen = (S.thinkOpen !== true);
       const blocks = root.querySelectorAll('.think');
+      /* 2.35：先按「现在屏幕上是不是全开着」判方向——全开→收敛只留最新，否则全展开。
+         不能再用 S.thinkOpen !== true 反算：默认态是 null（自动＝全开），
+         照旧写法第一次点会得到 true，画面一动不动＝点了没回音。 */
+      let allNow = blocks.length > 0;
+      blocks.forEach(tk => { if (!tk.classList.contains('open')) allNow = false; });
+      S.thinkOpen = !allNow;
       blocks.forEach((tk, idx) => tk.classList.toggle(
         'open', S.thinkOpen || idx === blocks.length - 1));
       blocks.forEach(tk => {
@@ -2332,8 +2342,9 @@ function localTurnHtml(t, isCur){
               + '<span class="caret">▾</span></div>'
               + '<div class="thinkb">' + esc(s.x || '') + '</div></div>';
     });
-    if (isCur){
-      ai += blocks;                              /* 本轮：卡流全亮 */
+    if (isCur && !t.done){
+      ai += blocks;               /* 2.35：只有「正在进行」的这一轮才把卡流铺开；
+                                     done=true（AI 已给终极结论）＝完整一轮，照样折叠 */
     } else {
       /* 历史轮：折叠成一颗按钮，点开要全轮（缺额服务端补） */
       ai += '<div class="foldbar"><button class="lclbtn" data-uid="'
@@ -4170,6 +4181,9 @@ function renderMsgs(msgs, finish, opts, ask){
        + '#pl:' + ((S.snap && Array.isArray(S.snap.plans)) ? S.snap.plans
            .map(p => { const x = (p && p.x) || '';
                        return x.length + ':' + x.slice(-12); }).join('|') : '')
+       /* 2.35：生成中 ⇄ 已定稿 必须进指纹——否则这一轮刚答完时 key 没变、
+          被早退吃掉，屏幕上那堆思维卡片停在全展开状态，永远折不回去。 */
+       + '#il:' + ((S.snap && S.snap.sendIdle === false) ? 1 : 0)
        + '#more:' + (S.loadingMore ? 1 : 0)
        + '#moref:' + (S.loadMoreFail ? 1 : 0)    /* 1.69：报掉线时也要重画横幅 */
        /* 1.57：折叠条展开/收起参与指纹（否则展开后不重画） */
@@ -4271,7 +4285,17 @@ function renderMsgs(msgs, finish, opts, ask){
     let think = '';
     /* 2.86：紧贴**本轮**最后一条 AI 回答，放出本轮全部思考段（服务端 snap.plans）——
        官方每落一段，这里就多一个 💭 折叠块（内容原样、不再截到 600 字）。 */
-    if (!user && i === lastAgent && lastAgent > lastUserI) think = thinkBlocksHtml();
+    /* 2.35（2026-11-13 老板原话）：「正在回复的这一轮，你把它的思维小卡片都展开。
+       如果本轮已经结束了，那么思维小卡片应该折叠。对于已经结束的会话、或者 AI
+       已经给出终极回复的会话，它就算是一次完整的一轮——完整一轮的思维小卡片
+       都是折叠的，只有正在进行时的才有展开的。」
+       ⇒ 判据换成「这份快照到底在不在生成」（sendIdle=false＝有在途派活）。
+         在生成 → 本轮铺开卡流；已结束（含切进来只看历史）→ 与上面历史轮同一颗
+         「💭 思维卡片 ×N（点开看全文）」折叠条。
+       ★2.34 及以前这里的条件是 lastAgent>lastUserI，可它「一问一答收尾后」照样成立，
+         于是最新那一轮永远铺开——这就是老板看到的「折叠怎么没了」。 */
+    if (!user && i === lastAgent && lastAgent > lastUserI
+        && S.snap && S.snap.sendIdle === false) think = thinkBlocksHtml();
     /* 2.09：其余轮（往上翻看到的历史轮）只挂一颗「💭 思维卡片 ×N」按钮，
        点开才向服务端现取全文——老板要的「往上一翻，一问一答中间夹个按钮」。 */
     else if (!user) think = histThinkHtml(m, i, msgs);
@@ -5071,7 +5095,15 @@ const APP_NAME = 'wb远程';
    ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
    以下为上一版（2.19）说明存档。 */
 /* 2.31（2026-11-11）：批量签到面板加「勾选 / 凭证到期 / 剩余」三列，勾选后只对指定账号签到与刷新积分 */
-const VER = '2.34';   /* 2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
+/* 2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定——
+   ① 判据换成快照的 sendIdle（在生成=true 才铺卡流），不再用 lastAgent>lastUserI
+      （那个条件在「一问一答收尾后」照样成立，导致最新一轮永远铺开＝老板看到的
+      「折叠怎么没了」）；
+   ② 已结束的轮（含切进来只看历史）统一走「💭 思维卡片 ×N（点开看全文）」折叠条；
+   ③ 在生成的那一轮默认全展开（S.thinkOpen 改三态 null=自动），点表头仍可收起；
+   ④ sendIdle 进重画指纹——刚答完那一刻必须重画，否则停在展开态折不回去；
+   ⑤ 本地轮播账同口径：只有未完成的当轮才铺开卡流。 */
+const VER = '2.35';   /* 2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
                          ①主人守卫——renderTurnsLocal 开头比对 S.histConv 与目标会话
                          （switch_pend/loadingConv 的目标，否则当前激活会话），对不上一条都不画；
                          ②切换起手换账——pendSwitchSet 里新增 turnsSwitchTo(目标)：有内存缓存
