@@ -2653,13 +2653,31 @@ function idbOpen(){
 async function idbLoadTurns(sid){
   const db = await idbOpen();
   if (!db) return [];
-  return new Promise(res => {
+  const getOne = key => new Promise(res => {
     try{
-      const rq = db.transaction('conv').objectStore('conv').get(idbKey(sid));
-      rq.onsuccess = () => res((rq.result && rq.result.turns) || []);
-      rq.onerror = () => res([]);
-    }catch(e){ res([]); }
+      const rq = db.transaction('conv').objectStore('conv').get(key);
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror = () => res(null);
+    }catch(e){ res(null); }
   });
+  const nk = idbKey(sid);
+  let rec = await getOne(nk);
+  /* 2.33（2026-11-13）：老键回落——2.32 把键从纯 sid 改成「服务器|sid」后，
+     升级前存的纯 sid 老账按新键根本查不到，老用户一升级轮播账就凭空消失、
+     切会话还是空白。新键没命中就再查一次纯 sid；命中则顺手按新键重写一份
+     （静默迁移，失败只吞掉，绝不让异常冒到渲染链上），然后照常返回它的 turns。 */
+  if (!rec){
+    rec = await getOne(String(sid));
+    if (rec){
+      try{
+        const tx = db.transaction('conv', 'readwrite');
+        tx.onerror = () => {};               /* 迁移失败也不吵：本次照样能显示 */
+        tx.objectStore('conv').put(
+          {turns: rec.turns || [], srv: srvKey(), sid: String(sid)}, nk);
+      }catch(e){}
+    }
+  }
+  return (rec && rec.turns) || [];
 }
 async function idbSaveTurns(sid, turns){
   const db = await idbOpen();
@@ -5016,7 +5034,12 @@ const APP_NAME = 'wb远程';
    ② 重连首拍带 msgs 后若 pageGroups>0，按原页数自动补一次 hist_prev 重锚。
    以下为上一版（2.19）说明存档。 */
 /* 2.31（2026-11-11）：批量签到面板加「勾选 / 凭证到期 / 剩余」三列，勾选后只对指定账号签到与刷新积分 */
-const VER = '2.32';   /* 2.32（2026-11-13 老板：「轮播账要按照服务器来隔离……我需要优先显示会话名」
+const VER = '2.33';   /* 2.33（2026-11-13，CDP 实测查出的真缺陷）：轮播账**老键回落**——
+                         2.32 把 IDB 键从纯 sid 改成「服务器标识|sid」，升级前存的老账按新键
+                         查不到，老用户一升级轮播账就凭空消失、切会话又是空白。现在
+                         idbLoadTurns() 新键未命中时再查一次纯 sid，命中则顺手按新键静默
+                         迁移（失败只吞异常），照常返回 turns。只此一处逻辑改动。
+   2.32（2026-11-13 老板：「轮播账要按照服务器来隔离……我需要优先显示会话名」
                          ＋「当我切换到一个会话的时候，立即展示它的轮播账……来了最新的画面，
                          轮播账就给它让位」）：
                          ①服务器隔离——轮播账 IDB 键由 sid 改「服务器标识|会话sid」（srvKey()），
