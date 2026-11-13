@@ -1,4 +1,4 @@
-/* Fox记事本 网页版 v1.37 —— 主逻辑
+/* Fox记事本 网页版 v1.46 —— 主逻辑
    与 Python 版共用金山文档表格「Fox记事本」的 6.0 云端库。
    云同步协议：读取索引 / 查找 / 同步提交 / 转正确认 / 批量写入 / 删除行 / 解锁，
    全部照《文件管理6.0专用同步脚本.js》实现，不自行发明参数。 */
@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.37';
+  const APP_VERSION = 'v1.46';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -365,37 +365,171 @@
     return out;
   }
 
-  function appendPiece(frag, text, idx, fromCp, toCp, color) {
+  // 着重号能力探测：不支持 text-emphasis 时退化为下划线
+  const 支持着重号 = !!(window.CSS && window.CSS.supports && window.CSS.supports('text-emphasis', 'filled dot'));
+
+  // ===== v1.47 考卷格式：styles（下划线/着重号）与 answers（答案遮蔽）只做保真展示 =====
+  let richExtra = null;      // { text, colors, styles, answers }：打开时的原始考卷数据
+  let 答案状态 = null;       // { answers, 剩余, timer, bar, textEl, revealed }
+  let 只读条 = null;         // 考卷只读提示条（动态创建，不改 index.html）
+
+  function 清除答案浮条() {
+    if (!答案状态) return;
+    if (答案状态.timer) { clearInterval(答案状态.timer); 答案状态.timer = null; }
+    if (答案状态.bar && 答案状态.bar.parentNode) 答案状态.bar.parentNode.removeChild(答案状态.bar);
+    答案状态.bar = null;
+  }
+  function 重置考卷状态() {
+    清除答案浮条();
+    答案状态 = null;
+    editor.classList.remove('fox-ans-shown');
+    editor.style.removeProperty('--fox-ans-color');
+  }
+  function 移除只读条() {
+    if (只读条 && 只读条.parentNode) 只读条.parentNode.removeChild(只读条);
+    只读条 = null;
+  }
+  function 显示只读条() {
+    if (只读条) return;
+    const page = $('pageEdit');
+    const wrap = page && page.querySelector('.editor-wrap');
+    if (!page || !wrap) return;
+    const bar = document.createElement('div');
+    bar.className = 'fox-lockbar';
+    const msg = document.createElement('span');
+    msg.className = 'fox-lockmsg';
+    msg.textContent = '此卷含考卷格式（答案遮蔽），网页端只供查看；要修改请用电脑版 Fox记事本';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn tiny';
+    btn.textContent = '仍要编辑';
+    btn.addEventListener('click', function () {
+      if (!window.confirm('编辑后一旦改动正文，将丢失答案遮蔽与样式，仍要编辑吗？')) return;
+      移除只读条();
+      editor.contentEditable = 'true';
+      editor.focus();
+      toast('已切换为可编辑；改动正文时会再次确认');
+    });
+    bar.appendChild(msg);
+    bar.appendChild(btn);
+    page.insertBefore(bar, wrap);
+    只读条 = bar;
+    editor.contentEditable = 'false';
+  }
+
+  function 创建答案浮条() {
+    if (!答案状态 || 答案状态.bar || 答案状态.revealed) return;
+    const bar = document.createElement('div');
+    bar.className = 'fox-ansbar';
+    const txt = document.createElement('span');
+    txt.className = 'fox-ansbar-text';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn tiny primary';
+    btn.textContent = '立即公布';
+    btn.addEventListener('click', 公布答案);
+    bar.appendChild(txt);
+    bar.appendChild(btn);
+    document.body.appendChild(bar);
+    答案状态.bar = bar;
+    答案状态.textEl = txt;
+    txt.textContent = '答案将在 ' + 答案状态.剩余 + ' 秒后公布';
+    答案状态.timer = setInterval(function () {
+      if (!答案状态 || 答案状态.revealed) return;
+      答案状态.剩余 -= 1;
+      if (答案状态.剩余 <= 0) { 公布答案(); return; }
+      答案状态.textEl.textContent = '答案将在 ' + 答案状态.剩余 + ' 秒后公布';
+    }, 1000);
+  }
+
+  function 公布答案() {
+    if (!答案状态 || 答案状态.revealed) return;
+    答案状态.revealed = true;
+    if (答案状态.timer) { clearInterval(答案状态.timer); 答案状态.timer = null; }
+    editor.style.setProperty('--fox-ans-color', (答案状态.answers && 答案状态.answers.color) || '#E53935');
+    editor.classList.add('fox-ans-shown');
+    if (答案状态.bar && 答案状态.bar.parentNode) 答案状态.bar.parentNode.removeChild(答案状态.bar);
+    答案状态.bar = null;
+    // 公布只改显示层：不动正文、不置 doc.dirty、不写盘
+  }
+
+  function 检查答案浮条() {
+    if (!答案状态 || 答案状态.revealed) return;
+    const anchor = editor.querySelector('.fox-ans-anchor');
+    if (!anchor) return;
+    const er = editor.getBoundingClientRect();
+    const ar = anchor.getBoundingClientRect();
+    if (ar.bottom >= er.top - 24 && ar.top <= er.bottom + 24) 创建答案浮条();
+  }
+
+  function 还原原始考卷() {
+    if (!richExtra) return;
+    const obj = { foxrich: 1, text: richExtra.text, colors: richExtra.colors || [] };
+    if (richExtra.styles) obj.styles = richExtra.styles;
+    if (richExtra.answers) obj.answers = richExtra.answers;
+    setEditorContent(JSON.stringify(obj));
+    toast('已还原原始内容，仍为只读');
+  }
+
+  // 片段渲染：颜色 / 下划线 / 着重号 / 答案遮蔽可叠加；文字始终完整保留
+  function appendPiece(frag, text, idx, fromCp, toCp, deco) {
     if (toCp <= fromCp) return;
     const piece = text.substring(idx[fromCp], idx[toCp]);
     if (!piece) return;
-    if (!color) {
+    const color = deco && deco.color;
+    const underline = deco && deco.underline;
+    const dot = deco && deco.dot;
+    const answer = deco && deco.answer;
+    if (!color && !underline && !dot && !answer) {
       frag.appendChild(document.createTextNode(piece));
-    } else {
-      const span = document.createElement('span');
-      span.style.color = color;
-      span.appendChild(document.createTextNode(piece));
-      frag.appendChild(span);
+      return;
     }
+    const span = document.createElement('span');
+    if (color) span.style.color = color;
+    if (underline || (dot && !支持着重号)) span.classList.add('fox-u');
+    if (dot && 支持着重号) span.classList.add('fox-dot');
+    if (answer) span.classList.add('fox-ans');
+    span.appendChild(document.createTextNode(piece));
+    frag.appendChild(span);
   }
 
   // content（纯文本或 foxrich JSON）→ 编辑器 DOM
+  // 颜色 / 样式 / 答案三套区间按「边界点」统一切分渲染，互不覆盖
   function setEditorContent(content) {
     let text = content || '';
     let colors = [];
+    let obj = null;
     if (typeof text === 'string' && text.indexOf(RICH_PREFIX) === 0) {
-      try {
-        const obj = JSON.parse(text);
-        if (obj && typeof obj.text === 'string' && Array.isArray(obj.colors)) {
-          text = obj.text;
-          colors = obj.colors;
-        }
-      } catch (e) { /* JSON 损坏时按纯文本 */ }
+      try { obj = JSON.parse(text); } catch (e) { obj = null; }
+      if (obj && typeof obj.text === 'string' &&
+          (Array.isArray(obj.colors) || Array.isArray(obj.styles) ||
+           (obj.answers && typeof obj.answers === 'object'))) {
+        text = obj.text;
+        colors = Array.isArray(obj.colors) ? obj.colors : [];
+      } else {
+        obj = null;                              // JSON 损坏 / 非富文本：按纯文本
+      }
     }
+    richExtra = null;
+    重置考卷状态();
+    移除只读条();
+    editor.contentEditable = 'true';
     editor.innerHTML = '';
-    if (!text) return;
+    if (obj) {
+      const styles = Array.isArray(obj.styles) ? obj.styles : null;
+      const answers = (obj.answers && typeof obj.answers === 'object' &&
+        Array.isArray(obj.answers.spans)) ? obj.answers : null;
+      if ((styles && styles.length) || answers) {
+        richExtra = { text: text, colors: colors, styles: styles, answers: answers };
+      }
+    }
+    if (!text) {
+      if (richExtra) 显示只读条();
+      return;
+    }
     const idx = splitCpIndex(text);
     const cpCount = idx.length - 1;
+    // 1) 颜色：沿用旧规则（按起点升序，与上一段重叠的跳过）
     const ranges = [];
     colors.forEach(function (r) {
       if (!Array.isArray(r) || r.length < 3) return;
@@ -406,20 +540,99 @@
       ranges.push([s, e, hex]);
     });
     ranges.sort(function (a, b) { return a[0] - b[0]; });
-    const frag = document.createDocumentFragment();
+    const 颜色段 = [];
     let cur = 0;
     ranges.forEach(function (r) {
-      if (r[0] < cur) return;                    // 与上一段重叠：跳过
-      if (r[0] > cur) appendPiece(frag, text, idx, cur, r[0], '');
-      appendPiece(frag, text, idx, r[0], r[1], r[2]);
+      if (r[0] < cur) return;
+      颜色段.push(r);
       cur = r[1];
     });
-    if (cur < cpCount) appendPiece(frag, text, idx, cur, cpCount, '');
+    // 2) 样式：underline / dot
+    const 样式段 = [];
+    ((richExtra && richExtra.styles) || []).forEach(function (r) {
+      if (!Array.isArray(r) || r.length < 3) return;
+      const t = String(r[2]);
+      if (t !== 'underline' && t !== 'dot') return;
+      const s = clamp(parseInt(r[0], 10), 0, cpCount);
+      const e = clamp(parseInt(r[1], 10), 0, cpCount);
+      if (e > s) 样式段.push([s, e, t]);
+    });
+    // 3) 答案遮蔽区间 + 起点锚点
+    let 答案 = null;
+    if (richExtra && richExtra.answers) {
+      const a = richExtra.answers;
+      const spans = [];
+      (a.spans || []).forEach(function (r) {
+        if (!Array.isArray(r) || r.length < 2) return;
+        const s = clamp(parseInt(r[0], 10), 0, cpCount);
+        const e = clamp(parseInt(r[1], 10), 0, cpCount);
+        if (e > s) spans.push([s, e]);
+      });
+      答案 = {
+        start: clamp(parseInt(a.start, 10) || 0, 0, cpCount),
+        spans: spans,
+        color: hexFromCss(a.color) || '#E53935',
+        countdown: clamp(parseInt(a.countdown, 10) || 60, 1, 3600)
+      };
+    }
+    // 4) 边界点切分，一次渲染
+    const bounds = [0, cpCount];
+    function 收点(r) { bounds.push(r[0], r[1]); }
+    颜色段.forEach(收点);
+    样式段.forEach(收点);
+    if (答案) {
+      答案.spans.forEach(收点);
+      bounds.push(答案.start);
+    }
+    bounds.sort(function (a, b) { return a - b; });
+    const frag = document.createDocumentFragment();
+    let ci = 0;
+    let 放了锚点 = !答案;
+    for (let k = 0; k < bounds.length - 1; k++) {
+      const a = bounds[k];
+      const b = bounds[k + 1];
+      if (b <= a) continue;
+      while (ci < 颜色段.length && 颜色段[ci][1] <= a) ci++;
+      const color = (ci < 颜色段.length && 颜色段[ci][0] <= a) ? 颜色段[ci][2] : '';
+      let underline = false;
+      let dot = false;
+      let answer = false;
+      样式段.forEach(function (r) {
+        if (r[0] <= a && a < r[1]) { if (r[2] === 'dot') dot = true; else underline = true; }
+      });
+      if (答案) 答案.spans.forEach(function (r) { if (r[0] <= a && a < r[1]) answer = true; });
+      if (答案 && !放了锚点 && a === 答案.start) {
+        const anchor = document.createElement('span');
+        anchor.className = 'fox-ans-anchor';
+        anchor.contentEditable = 'false';
+        frag.appendChild(anchor);
+        放了锚点 = true;
+      }
+      appendPiece(frag, text, idx, a, b, { color: color, underline: underline, dot: dot, answer: answer });
+    }
+    if (答案 && !放了锚点) {
+      const anchor = document.createElement('span');
+      anchor.className = 'fox-ans-anchor';
+      anchor.contentEditable = 'false';
+      frag.appendChild(anchor);
+    }
     editor.appendChild(frag);
+    if (richExtra) {
+      显示只读条();
+      答案状态 = 答案 ? { answers: 答案, 剩余: 答案.countdown, timer: null, bar: null, textEl: null, revealed: false } : null;
+    }
+    try { requestAnimationFrame(检查答案浮条); } catch (e) { /* 忽略 */ }
   }
 
   function serializeEditor() {
     const m = buildModel();
+    if (richExtra && m.text === richExtra.text) {
+      // 文本未被改动：styles / answers 原样回写（偏移按码点、数值不动）
+      const obj = { foxrich: 1, text: m.text, colors: m.colors };
+      if (richExtra.styles) obj.styles = richExtra.styles;
+      if (richExtra.answers) obj.answers = richExtra.answers;
+      return JSON.stringify(obj);
+    }
     if (!m.colors.length) return m.text;
     return JSON.stringify({ foxrich: 1, text: m.text, colors: m.colors });
   }
@@ -842,6 +1055,22 @@
   }
 
   function markDirty() {
+    if (richExtra && buildModel().text !== richExtra.text) {
+      // 正文真的变了：答案/样式偏移已不可靠，丢弃前再提醒一次
+      if (!window.confirm('保存后将丢失答案遮蔽与样式，确定？')) {
+        还原原始考卷();
+        return;
+      }
+      richExtra = null;
+      重置考卷状态();
+      editor.querySelectorAll('.fox-ans, .fox-u, .fox-dot').forEach(function (el) {
+        el.classList.remove('fox-ans');
+        el.classList.remove('fox-u');
+        el.classList.remove('fox-dot');
+      });
+      editor.querySelectorAll('.fox-ans-anchor').forEach(function (el) { el.remove(); });
+      toast('已丢弃考卷格式（答案遮蔽/样式），保存将按普通富文本写入');
+    }
     if (doc.isNew) {
       doc.dirty = true;
     } else {
@@ -3042,7 +3271,7 @@
       importLocalFile(f);
     });
     $('fileSearch').addEventListener('input', renderFiles);
-    editor.addEventListener('scroll', function () { 排位置保存(); });
+    editor.addEventListener('scroll', function () { 排位置保存(); 检查答案浮条(); });
     $('crumb').addEventListener('click', function () { if (currentFolder) goRoot(); });
 
     // 多选：行复选框 / 全选 / 批量工具条
