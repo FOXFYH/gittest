@@ -4077,6 +4077,10 @@ function turnsSwitchTo(sid){
      你都得给我拉到最底部。」——置一个 30 秒自失效的吸底标记，renderMsgs 每帧
      见到它就吸底；第一帧真·直播画面画完即撤（见 renderMsgs 尾部）。 */
   S.pendBottom = Date.now() + 30000;
+  /* 吸底只认**目标会话那一帧**：切换在途时快照里还是上一个会话的 msgs，
+     若按「有 msgs 就交接」判，旧内容那一帧就把标记吃掉了，等真直播到场
+     反而不吸底（CDP 实测踩到）。记下目标 sid，等 snap.title 对上才交接。 */
+  S.pendBottomSid = sid;
   const c = (S.turnsCache && S.turnsCache[sid]) ? S.turnsCache[sid].slice() : [];
   S.histConv = sid;
   S.curTurn = null; S.turnWait = {};
@@ -4541,7 +4545,12 @@ function renderMsgs(msgs, finish, opts, ask){
      回到原来的「近底跟底 / 翻历史保位」规则，绝不跟用户抢滚动。 */
   if (S.pendBottom && Date.now() < S.pendBottom){
     fprog(el.msgs.scrollHeight);
-    if (!turnsPainted && msgs.length) S.pendBottom = 0;   /* 直播已接手 */
+    /* 直播已接手＝这一帧画的是**目标会话**的真消息（snap.title 对上才认） */
+    if (!turnsPainted && msgs.length
+        && (!S.pendBottomSid
+            || String((S.snap && S.snap.title) || '') === String(S.pendBottomSid))){
+      S.pendBottom = 0; S.pendBottomSid = '';
+    }
   } else if (inF){
     el.msgs.scrollTop = savedTop;   /* 1.20：全屏内只保位置，
                                        绝不自动退出（鬼打墙根因） */
