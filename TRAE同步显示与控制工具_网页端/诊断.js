@@ -178,7 +178,7 @@ const APP_NAME = 'TRAE远程';
                        后台真帧到达仍走 adoptSnap/帧闸「只进不退」单调替换（空帧/变短不覆盖）。
                        改 缓存.js／输入界面.js／启动.js／会话列表.js（去掉「正在切换到…」
                        提示＋免掉切前空屏重画）／待办卡.js／通用工具.js；服务端零改动。 */
-const VER = '2.158';   /* 2.158（2026-11-05 老板令「附件上传改走 R2，与对话流彻底无关」）：
+const VER = '2.159';   /* 2.158（2026-11-05 老板令「附件上传改走 R2，与对话流彻底无关」）：
                        附件上传网页侧改 R2 直传——file.onchange 多选后发
                        attach_r2_open（names/sizes+锚定 sid）→ 服务端回
                        {task:"附件YYYYMMDD-HHMMSS", uploads:[{n,key,url}]}（预签名
