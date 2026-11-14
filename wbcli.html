@@ -636,7 +636,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
     <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔 10 秒）">✍ 批量签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
-    <div class="dmi" id="btn_turnview" title="本地轮播账（切会话先顶用的那份）">🗂 轮播账查看器</div>
+    <div class="dmi" id="btn_turnview" title="手机上的小账本＝快照账（切会话先顶用的那份）">🗂 小账本（快照账）</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
@@ -1192,9 +1192,7 @@ const S = {
      turnWait=补发在途防重。缺思维卡点开才补、缺结论卡主动补（done=false
      的被终止轮显示「无终极结论」，绝不反复追要）。 */
   turns: [], curTurn: null, turnWait: {}, turnAuditTs: 0,
-  /* 2026-11-13 老板「切到哪个会话就立刻展示它的轮播账」：turnsCache 按会话 sid
-     缓存内存里已有的账——切回来时不必等 IndexedDB 读盘，先铺满再校正。 */
-  turnsCache: {},
+  /* 2.49：turnsCache（轮播账的内存镜像）已随轮播账一并退役——手机只留快照账。 */
   /* 2.37（老板：最新轮次已缓存到本地时，直播画面来了也要一模一样、画面不抖）：
      按会话缓存「最新真快照的 msgs」——切会话先把这份账铺出来，它和直播走同一个
      renderMsgs，指纹一致时连重画都不会发生 ⇒ 零抖动。
@@ -2551,37 +2549,12 @@ function localTurnHtml(t, isCur){
   return h + ai + '</div>';
 }
 function renderTurnsLocal(){
-  /* 2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
-     主人守卫——账只属于 S.histConv。目标会话＝正在切的那个（switch_pend/loadingConv），
-     否则＝当前激活会话。两者对不上就一条都不许画：宁可短暂空白，绝不张冠李戴。 */
-  const owner = (S.switch_pend && S.switch_pend.title)
-             || (S.loadingConv && S.loadingConv.title) || curConvId();
-  if (S.histConv && owner && S.histConv !== owner) return false;
-  if (!S.turns.length && !S.curTurn) return false;
-  /* 2026-11-13 老板：「检查一下轮播账的使用方法，它是用来填补空白时间的」——
-     原来只画最后 1 轮，切换瞬间屏幕大半是空的；现在按查看器里设的 N 轮
-     （默认 5、最多 60）全铺上，顶上插一条说明条：直播画面一到就整块被取代。 */
-  const hist = S.turns.slice(-_turnsN());
-  el.msgs.innerHTML = '';
-  const tip = document.createElement('div');
-  tip.className = 'turns_tip';
-  tip.style.cssText = 'font-size:12px;color:#8a98a6;background:#f4f6f8;'
-    + 'border-radius:6px;padding:5px 8px;margin:0 0 6px';
-  tip.textContent = '本地轮播账 · 直播画面到达后自动让位';
-  el.msgs.appendChild(tip);
-  hist.forEach(t => el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(t, false)));
-  if (S.curTurn) el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(S.curTurn, true));
-  /* 本地秒显层的「点开要全轮」按钮 */
-  el.msgs.querySelectorAll('.lclbtn').forEach(b => {
-    b.onclick = e => {
-      e.stopPropagation();
-      const uid = b.dataset.uid;
-      if (S.turnWait['turn_full:' + uid]) return;
-      flash('正在取回这一轮…', 'var(--blue)');
-      reqTurn('turn_full', uid);
-    };
-  });
-  return true;
+  /* 2.49（老板 2026-11-15：「快照就是小账本，只需要一套就行了」）：**整体退役**，恒返回 false。
+     它原来负责「快照账没命中时拿轮播账顶上」，顶上时会在框顶插一条灰条
+     「本地轮播账 · 直播画面到达后自动让位」——那正是用户偶尔看到的「另一套快照」。
+     现在只认快照账：有就画（与直播同一套渲染、零抖动），没有就走「正在加载」并把
+     上一屏原样留着（2.43 的 _holdOld），绝不再切到第二套账。 */
+  return false;
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -2650,6 +2623,7 @@ function checkVerBump(){
   const k = cacheKeyNow();
   if (cacheKey !== null && cacheKey !== k){
     try { localStorage.removeItem(LS_SKEL); } catch(e){}
+    purgeConvStore();                 /* 2.49：改版顺手清空遗留轮播账（只留快照账） */
     resetPaging();
   }
   cacheKey = k;
@@ -2812,7 +2786,7 @@ function onRes(id, k, v){
       });
       t.thinks.sort((a, b) => (a.t || 0) - (b.t || 0));
     }
-    saveTurnsNow();                              /* 2026-11-13：IDB + 内存缓存双写 */
+    /* 2.49：原来这里调 saveTurnsNow() 落轮播账，已退役（手机只留快照账） */
     renderAll();
   }
 }
@@ -2855,43 +2829,25 @@ function idbOpen(){
     }catch(e){ res(null); }
   });
 }
-async function idbLoadTurns(sid){
-  const db = await idbOpen();
-  if (!db) return [];
-  const getOne = key => new Promise(res => {
-    try{
-      const rq = db.transaction('conv').objectStore('conv').get(key);
-      rq.onsuccess = () => res(rq.result || null);
-      rq.onerror = () => res(null);
-    }catch(e){ res(null); }
-  });
-  const nk = idbKey(sid);
-  let rec = await getOne(nk);
-  /* 2.33（2026-11-13）：老键回落——2.32 把键从纯 sid 改成「服务器|sid」后，
-     升级前存的纯 sid 老账按新键根本查不到，老用户一升级轮播账就凭空消失、
-     切会话还是空白。新键没命中就再查一次纯 sid；命中则顺手按新键重写一份
-     （静默迁移，失败只吞掉，绝不让异常冒到渲染链上），然后照常返回它的 turns。 */
-  if (!rec){
-    rec = await getOne(String(sid));
-    if (rec){
-      try{
-        const tx = db.transaction('conv', 'readwrite');
-        tx.onerror = () => {};               /* 迁移失败也不吵：本次照样能显示 */
-        tx.objectStore('conv').put(
-          {turns: rec.turns || [], srv: srvKey(), sid: String(sid)}, nk);
-      }catch(e){}
-    }
-  }
-  return (rec && rec.turns) || [];
-}
-async function idbSaveTurns(sid, turns){
-  const db = await idbOpen();
-  if (!db) return;
+/* 2.49：一次性清空遗留轮播账（conv）——改版时跑一次，之后全站不再写它，
+   库自然一直为空。失败只吞掉，绝不影响主流程。 */
+function purgeConvStore(){
   try{
-    const tx = db.transaction('conv', 'readwrite');
-    tx.objectStore('conv').put({turns: turns, srv: srvKey(), sid: String(sid)}, idbKey(sid));
+    const rq = indexedDB.open('wbcli_turns', 2);
+    rq.onsuccess = () => {
+      const db = rq.result;
+      try{
+        if (!db.objectStoreNames.contains('conv')) return;
+        db.transaction('conv', 'readwrite').objectStore('conv').clear();
+      }catch(e){}
+    };
+    rq.onerror = () => {};
   }catch(e){}
 }
+/* 2.49（老板 2026-11-15：「快照就是小账本，只需要一套就行了」）：
+   轮播账的读写函数 idbLoadTurns / idbSaveTurns **整块删除**。
+   手机里从此只有一套正文账——快照账（snaps，见下面 2.37 段）。
+   任何代码都不许再往 conv 库写东西；库里遗留的旧记录由 checkVerBump() 一次性清空。 */
 /* ===== 2.37 快照账（切会话的预备帧）===== */
 const SNAP_KEEP = 30;        /* 最多留 30 个会话的快照账 */
 const SNAP_MSGS_MAX = 400;   /* 单会话最多留 400 条，防爆 */
@@ -2909,6 +2865,7 @@ async function idbSaveSnap(sid, rec){
     const tx = db.transaction('snaps', 'readwrite');
     tx.objectStore('snaps').put({msgs: rec.msgs, idle: rec.idle !== false,
                                  finish: rec.finish || null, ts: rec.ts || Date.now()}, idbKey(sid));
+    tx.oncomplete = () => { snapTrimDisk(); };      /* 2.49：落盘后顺手按 30 个会话裁一次 */
   }catch(e){}
 }
 async function idbLoadSnap(sid){
@@ -2921,6 +2878,40 @@ async function idbLoadSnap(sid){
       rq.onerror = () => res(null);
     }catch(e){ res(null); }
   });
+}
+/* 2.49（老板「手机只留一套账」）：快照账**盘上也要裁**。
+   以前 snapTrim() 只删内存里的 S.snapCache，IndexedDB 的 snaps 只增不减——
+   攒久了既吃空间，「最多留 30 个会话」这条规则在盘上空有虚名。
+   一分钟最多裁一次；按 ts 留最新 SNAP_KEEP 条，其余删掉。 */
+let _snapTrimDiskT = 0;
+async function snapTrimDisk(){
+  const now = Date.now();
+  if (now - _snapTrimDiskT < 60000) return;
+  _snapTrimDiskT = now;
+  const db = await idbOpen();
+  if (!db) return;
+  try{
+    const all = [];
+    const tx = db.transaction('snaps', 'readonly');
+    const rq = tx.objectStore('snaps').openCursor();
+    rq.onsuccess = () => {
+      const c = rq.result;
+      if (!c) return;
+      all.push({k: c.key, ts: (c.value && c.value.ts) || 0});
+      c.continue();
+    };
+    rq.onerror = () => {};
+    tx.oncomplete = () => {
+      if (all.length <= SNAP_KEEP) return;
+      all.sort((a, b) => a.ts - b.ts);
+      const drop = all.slice(0, all.length - SNAP_KEEP);
+      if (!drop.length) return;
+      try{
+        const st2 = db.transaction('snaps', 'readwrite').objectStore('snaps');
+        drop.forEach(d => st2.delete(d.k));
+      }catch(e){}
+    };
+  }catch(e){}
 }
 /* 每拍真快照落地就记一份（内存立刻，盘上 400ms 防写爆；生成刚结束则立刻落盘） */
 function snapCacheTouch(snap){
@@ -2939,13 +2930,11 @@ function snapCacheTouch(snap){
   if (justDone){ idbSaveSnap(sid, rec); return; }
   _snapSaveT[k] = setTimeout(() => { _snapSaveT[k] = 0; idbSaveSnap(sid, rec); }, 400);
 }
-/* 2026-11-13 老板「账先上」：落账＝IndexedDB + 内存缓存双写。
-   缓存（S.turnsCache）给「切回这个会话时同步铺满」用——读盘总要几十毫秒，
-   这几十毫秒里屏幕不该是空的。 */
+/* 2.49（老板 2026-11-15：「快照就是小账本，只需要一套就行了」）：
+   轮播账退役，本函数不再落任何账。手机只留快照账（snaps）。 */
 function saveTurnsNow(){
-  const arr = S.turns.concat(S.curTurn ? [S.curTurn] : []);
-  if (S.turnsCache && S.histConv) S.turnsCache[S.histConv] = arr.slice();
-  idbSaveTurns(S.histConv, arr);
+  /* 2.49：**空实现**。原来这里做「IndexedDB + 内存缓存双写」，落的是轮播账（conv）——
+     已按老板口径整套退役（手机只留快照账）。函数名保留只为不动调用点。 */
 }
 /* 登录/换会话后主动现取一次当前轮播（2.94b）：服务端指纹只在有人听时
    前进，join 时错过的首帧不会因为「下次变化」重发——必须自己开口要。 */
@@ -3027,11 +3016,10 @@ async function onTurncast(tc){
       !S.curTurn.thinks.some(s => s.id === lt.id)){
     S.curTurn.thinks.push({id: lt.id, t: lt.t || 0, x: lt.x || ''});
   }
-  /* ④ 收口：留 5 轮、落 IDB、重画、平时自查 */
+  /* ④ 收口：2.49 起**不再落账、不再进内存缓存**（手机只留快照账）。
+     这里的 S.turns 只当实时数据用——喂 mergeThinkSources（思维卡合并）与
+     turnAudit（缺结论主动补拿），既不入库也不铺屏。 */
   if (S.turns.length > _turnsN()) S.turns = S.turns.slice(-_turnsN());
-  idbSaveTurns(S.histConv, S.turns.concat(S.curTurn ? [S.curTurn] : []));
-  if (S.turnsCache && S.histConv)
-    S.turnsCache[S.histConv] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
   renderAll();
   turnAudit();
 }
@@ -3096,27 +3084,11 @@ function ensureHist(){
   if (conv !== S.histConv){
     S.histConv = conv;
     resetPaging();
-    /* 2.10：换会话先摆上本地轮播账（IndexedDB 秒显），snap 正文到了无缝接管
-       2026-11-13 老板：「切到一个会话立即展示它的轮播账，不要给我展示空白的」——
-       先取内存缓存 turnsCache（同步、零等待）铺一次，再让 IDB 回包来校正。 */
-    var c0 = (S.turnsCache && S.turnsCache[conv]) ? S.turnsCache[conv].slice() : [];
+    /* 2.49：轮播账退役——换会话**不再读盘铺账**。
+       S.turns 只在内存里当实时数据（喂思维卡合并、缺结论补拿）；
+       切换要看的画面一律由快照账在 turnsSwitchTo 里装预备帧，与直播同一套渲染。 */
     S.curTurn = null; S.turnWait = {};
-    /* 缓存与 IDB 同一形状（末尾可能是「进行时」那一轮）——是就还原成 curTurn */
-    if (c0.length && c0[c0.length - 1] && !c0[c0.length - 1].done) S.curTurn = c0.pop();
-    S.turns = c0;
-    renderAll();                             /* 账先上：不等读盘 */
-    idbLoadTurns(conv).then(arr => {
-      if (conv !== S.histConv) return;         /* 已再切走：丢弃 */
-      /* 记录里最后一轮若是「进行时」，还原成 curTurn，其余是历史 */
-      if (arr.length && arr[arr.length - 1] && !arr[arr.length - 1].done){
-        S.curTurn = arr.pop();
-      }
-      S.turns = arr.slice(-_turnsN());
-      if (S.turnsCache)   /* 与 IDB 同形（末尾可含进行时那轮），供下次切回来秒铺 */
-        S.turnsCache[conv] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
-      turnAudit();
-      renderAll();
-    });
+    S.turns = [];
     reqTurncast();                           /* 2.10b：本地账之外再要一份当前轮播 */
     /* 换会话后按当前快照重同步窗口元数据（快照可能先于本函数到达，
        而 onEv 里只在「未翻页」时更新 more，这里补齐） */
@@ -4401,28 +4373,12 @@ function turnsSwitchTo(sid){
       renderAll();
     });
   }
-  const c = (S.turnsCache && S.turnsCache[sid]) ? S.turnsCache[sid].slice() : [];
+  /* 2.49：轮播账退役——切换只认快照账（上面 2.37 那段预备帧）。
+     账位清空，等 turncast 进来重新长实时数据；绝不再从 turnsCache / IDB 铺第二套账。 */
   S.histConv = sid;
   S.curTurn = null; S.turnWait = {};
-  resetPaging();
-  if (c.length){
-    if (!c[c.length - 1].done) S.curTurn = c.pop();
-    S.turns = c;
-    return;
-  }
   S.turns = [];
-  /* 缓存没有就立刻问 IDB；回来时若还停在这个目标、且账仍空，换上并重画 */
-  idbLoadTurns(sid).then(arr => {
-    if (S.histConv !== sid) return;                 /* 又切走了：丢弃 */
-    if (S.turns.length || S.curTurn) return;        /* 已有账：不覆盖 */
-    const a = (arr || []).slice();
-    if (a.length && a[a.length - 1] && !a[a.length - 1].done) S.curTurn = a.pop();
-    if (!a.length && !S.curTurn) return;
-    S.turns = a.slice(-_turnsN());
-    if (S.turnsCache)
-      S.turnsCache[sid] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
-    renderAll();
-  });
+  resetPaging();
 }
 function pendSwitchSet(title, disp, local){
   title = title || '';
@@ -4594,7 +4550,10 @@ function renderMsgs(msgs, finish, opts, ask){
   const _holdOld = !prepOn && !msgs.length && !S.pending.length
       && (S.switch_pend || S.loadingConv)
       && el.msgs.childElementCount > 0
-      && !(S.turns && S.turns.length);
+      /* 2.49：这里原来还有一条「S.turns 非空就不留旧屏」——那时轮播账会把账铺上屏，
+         不留也对。轮播账退役后账不再铺屏，再留这条就成了「目标内容没到、旧屏也清掉、
+         只剩一条加载条」。现在只要旧屏还在就一直留着，12 秒兜底不变。 */
+      ;
   if (_holdOld){
     if (!S.holdFrom) S.holdFrom = Date.now();
     if (Date.now() - S.holdFrom < 12000){
@@ -5686,7 +5645,21 @@ const APP_NAME = 'wb远程';
    ②级别说清楚：本机已发出 → 服务器已签收（收到服务端 broadcast 'sent' 才升）→ 进对话流撤卡；
    ③服务端 stage='queued'（真回执）也置 'sent'，不再停在「等回应」让人以为没回；
    ④窄屏 who 换行，编号不挤出框。撤卡判据一个字没动（acks 命中 / 进排队条）。 */
-const VER = '2.48';
+/* 2.49（2026-11-15，老板原话：「快照就是小账本，就是只需要一套就行了。本地有大账本，
+   手机上有一个小账本，只要记录一份就够了呀……根本就不需要在手机上同时记好几套账」）：
+   ★手机网页版**只留一套账＝快照账（IndexedDB 的 snaps）**，轮播账（conv）整套退役。
+   从前并行记着两套正文账，内容九成重合：快照账（每拍真快照落盘，和直播同一套渲染、
+   切换零抖动）与轮播账（turncast 逐张捡的最近 N 轮，快照账没命中时顶上，顶上必带一条
+   灰条「本地轮播账 · 直播画面到达后自动让位」）——用户偶尔看到的「另一套快照」就是它。
+   ① saveTurnsNow() 停写；idbSaveTurns / idbLoadTurns 删除（全站不再往 conv 写一个字节）；
+   ② renderTurnsLocal() 整体退役、恒返回 false（灰条兜底这条路径彻底消失）；
+   ③ ensureHist / turnsSwitchTo 不再读盘铺账，切会话只认快照账的预备帧；
+   ④ 新增 snapTrimDisk()：快照账**盘上**也按 SNAP_KEEP=30 裁（以前只裁内存）；
+   ⑤ checkVerBump() 改版时清空遗留 conv 库，一次清干净；
+   ⑥ 菜单「轮播账查看器」→「小账本（快照账）」，读的是 snaps。
+   ★S.turns 仍留在内存里，但只是实时数据（喂 mergeThinkSources 与 turnAudit），
+     不落盘、不铺屏——账只有一套。 */
+const VER = '2.49';
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
@@ -8052,9 +8025,9 @@ loadSrvs();                                      /* 1.43：先恢复落盘的多
 pickCur(); renderSrvList(); renderTop();         /* 1.48：打开即渲染名册 + 直接选中上次那台 */
 if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
 
-/* ======== 轮播账查看器（老板 2026-11-06 18:43：可视化 + 最近 N 轮） ======== */
+/* ======== 小账本查看器（原「轮播账查看器」；2.49 起改读快照账 snaps） ======== */
 (function(){
-  var built = false, CV_VER = '1.00', view = 'list', cur = null;
+  var built = false, CV_VER = '1.10', view = 'list', cur = null;
   var NKEY = 'wb_turns_n';
   function nGet(){ try{ var v = parseInt(localStorage.getItem(NKEY) || '5', 10); return (v >= 2 && v <= 60) ? v : 5; }catch(e){ return 5; } }
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -8128,24 +8101,34 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       '.tv_turn .m{font-size:11px;color:#8a98a6;margin-top:6px}';
     document.head.appendChild(st);
   }
+  /* 2.49：改读**快照账**（snaps）。轮播账（conv）已退役，库里那条路不再有数据。 */
+  function tsTxt(ms){
+    if (!ms) return '';
+    try{
+      var d = new Date(ms);
+      function p2(n){ return (n < 10 ? '0' : '') + n; }
+      return (d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+    }catch(e){ return ''; }
+  }
   function openAll(){
     return new Promise(function(res){
-      var rq = indexedDB.open('wbcli_turns', 2);   /* 2.37：跟着主库升到 2，否则低版本打开会 VersionError */
+      var rq = indexedDB.open('wbcli_turns', 2);
       rq.onsuccess = function(){
         var db = rq.result, out = [];
         try{
-          var tx = db.transaction('conv', 'readonly');
-          var cur2 = tx.objectStore('conv').openCursor();
+          var tx = db.transaction('snaps', 'readonly');
+          var cur2 = tx.objectStore('snaps').openCursor();
           cur2.onsuccess = function(){
             var c = cur2.result;
             if (c){
-              /* 2026-11-13 老板「按服务器隔离」：键形如 1102517923|sess_xxx，
-                 按第一个 '|' 拆回 服务器标识 / 会话 sid；老键没有 '|' → srv='local' */
+              /* 键形如「服务器标识|会话sid」；老键没有 '|' → srv='local' */
               var k = String(c.key), i = k.indexOf('|');
               out.push({
                 srv: (i > 0 ? k.slice(0, i) : 'local'),
                 sid: (i > 0 ? k.slice(i + 1) : k),
-                turns: (c.value && c.value.turns) || []
+                msgs: (c.value && c.value.msgs) || [],
+                idle: !(c.value && c.value.idle === false),
+                ts: (c.value && c.value.ts) || 0
               });
               c.continue();
             }
@@ -8160,28 +8143,28 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   function render(host){
     host.innerHTML = '';
     var cfg = document.createElement('div'); cfg.className = 'tv_sec';
-    cfg.innerHTML = '<h3>轮播账参数 <span class="n">改后新轮按新值保留</span></h3>' +
-      '<div style="padding:10px 14px;font-size:13px;display:flex;align-items:center;gap:8px">' +
-      '保存最近 <input id="tv_n" type="number" min="2" max="60" step="1" style="width:64px;border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px" value="5"> 轮' +
-      '<span style="color:#8a98a6;font-size:11px">（人类问＋AI 终答算一轮）</span></div>';
+    cfg.innerHTML = '<h3>小账本（快照账）<span class="n">手机只留这一套</span></h3>' +
+      '<div style="padding:10px 14px;font-size:13px;color:#6b7b8c;line-height:1.7">' +
+      '切会话时先铺的就是它：每个会话最近一次真快照（单会话最多 400 条消息），' +
+      '与直播画面同一套渲染，所以切过去不抖、不闪、没有多余提示条。<br>' +
+      '磁盘上最多留最近 ' + SNAP_KEEP + ' 个会话，超出的自动清掉。' +
+      '轮播账（旧那套）已整体退役，不再写盘、不再显示。</div>';
     host.appendChild(cfg);
-    var ne = cfg.querySelector('#tv_n');
-    ne.value = nGet();
-    ne.onchange = function(){
-      var v = parseInt(ne.value, 10); if (!(v >= 2 && v <= 60)) v = 5;
-      ne.value = v; try { localStorage.setItem(NKEY, String(v)); } catch(e){}
-    };
     if (view === 'detail' && cur){ renderDetail(host); return; }
     var sec = document.createElement('div'); sec.className = 'tv_sec';
-    sec.innerHTML = '<h3>本地轮播账 <span class="n">读取中…</span></h3>';
+    sec.innerHTML = '<h3>本地快照账 <span class="n">读取中…</span></h3>';
     host.appendChild(sec);
     openAll().then(function(list){
-      sec.querySelector('.n').textContent = list.length + ' 个会话有本地轮播账';
-      if (!list.length){ sec.appendChild(Object.assign(document.createElement('div'), {style:'padding:14px;color:#8a98a6;font-size:13px', textContent:'（本地还没有轮播账）'})); return; }
+      list.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
+      sec.querySelector('.n').textContent = list.length + ' 个会话有本地快照账';
+      if (!list.length){
+        sec.appendChild(Object.assign(document.createElement('div'),
+          {style:'padding:14px;color:#8a98a6;font-size:13px',
+           textContent:'（本地还没有快照账，切几个会话就会攒起来）'}));
+        return;
+      }
       var mp = nameMap();
-      /* 2026-11-13 老板「按服务器隔离」+「会话名优先」：先按服务器分组（每组一个
-         标题「服务器：家里（1102517923）」），组内卡片主标题＝会话名，
-         副行＝轮数 · 首句 · sid 前 8 位（认不出名字时也能靠 sid 定位）。 */
+      /* 按服务器分组（家里 / 宿舍两台服务端会话同名也不会混淆） */
       var groups = {}, order = [];
       list.forEach(function(it){
         if (!groups[it.srv]){ groups[it.srv] = []; order.push(it.srv); }
@@ -8191,15 +8174,19 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       order.forEach(function(sv){
         var gs = document.createElement('div'); gs.className = 'tv_sec';
         gs.innerHTML = '<h3>服务器：' + esc(srvName(sv)) + ' <span class="n">'
-          + groups[sv].length + ' 个会话有本地轮播账</span></h3>';
+          + groups[sv].length + ' 个会话有本地快照账</span></h3>';
         var g = document.createElement('div'); g.className = 'tv_grid';
         groups[sv].forEach(function(it){
-          var first = (it.turns[0] && it.turns[0].utext) || '';
+          var firstu = '';
+          for (var q = 0; q < it.msgs.length; q++){
+            if (it.msgs[q] && it.msgs[q][0] === 'u'){ firstu = String(it.msgs[q][1] || ''); break; }
+          }
           var nm = nmOf(it.sid, mp);
           var card = document.createElement('div'); card.className = 'tv_card';
           card.innerHTML = '<div class="tv_l1">' + esc(nm) + '</div>' +
-            '<div class="tv_l2">' + esc(it.turns.length + ' 轮'
-              + (first ? ' · ' + first.slice(0, 24) : '')
+            '<div class="tv_l2">' + esc(it.msgs.length + ' 条 · ' + tsTxt(it.ts)
+              + (it.idle ? '' : ' · 生成中')
+              + (firstu ? ' · ' + firstu.slice(0, 20) : '')
               + ' · ' + String(it.sid).slice(0, 8)) + '</div>';
           card.setAttribute('data-sid', it.sid);
           card.setAttribute('data-srv', sv);
@@ -8215,18 +8202,19 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
     var bar = document.createElement('div'); bar.className = 'tv_dhd';
     bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(nmOf(cur.sid, nameMap()))
       + ' <span style="font-weight:400;color:#8a98a6;font-size:11px">'
-      + esc(srvName(cur.srv || '') + ' · ' + String(cur.sid).slice(0, 8)) + '</span></div>';
+      + esc(srvName(cur.srv || '') + ' · ' + String(cur.sid).slice(0, 8)
+            + ' · ' + tsTxt(cur.ts)) + '</span></div>';
     bar.querySelector('button').onclick = function(){ view = 'list'; cur = null; render(host); host.scrollTop = 0; };
     host.appendChild(bar);
     var sec = document.createElement('div'); sec.className = 'tv_sec';
-    sec.innerHTML = '<h3>轮播账 · ' + esc(cur.turns.length + ' 轮') + '</h3>';
+    sec.innerHTML = '<h3>快照账 · ' + esc(cur.msgs.length + ' 条') + '</h3>';
     var box = document.createElement('div'); box.style.padding = '6px 10px 12px';
-    cur.turns.forEach(function(t, i){
+    cur.msgs.forEach(function(m, i){
+      var isU = (m && (m[0] === 'u' || m[0] === 'user'));
       var d = document.createElement('div'); d.className = 'tv_turn';
-      var n = (t.thinks && t.thinks.length) || 0;
-      d.innerHTML = '<div class="u">' + esc('你：' + (t.utext || '（无）')) + '</div>' +
-        '<div class="a">' + esc('AI：' + (t.atext || (t.done ? '（无终极结论）' : '（生成中）'))) + '</div>' +
-        '<div class="m">' + esc('第 ' + (i + 1) + ' 轮 · 思维卡 ' + n + ' 张 · ' + (t.done ? '已结束' : '进行中')) + '</div>';
+      d.innerHTML = '<div class="' + (isU ? 'u' : 'a') + '">'
+        + esc((isU ? '你：' : 'AI：') + String((m && m[1]) || '')) + '</div>'
+        + '<div class="m">' + esc('第 ' + (i + 1) + ' 条') + '</div>';
       box.appendChild(d);
     });
     sec.appendChild(box); host.appendChild(sec);
@@ -8234,7 +8222,7 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   function build(){
     if (built) return; built = true; inject();
     var pg = document.createElement('div'); pg.id = 'tv_page';
-    pg.innerHTML = '<div id="tv_hd"><button id="tv_back">‹ 返回</button><div class="t">轮播账查看器 v' + CV_VER + '</div><button id="tv_reload">刷新</button></div><div id="tv_bd"></div>';
+    pg.innerHTML = '<div id="tv_hd"><button id="tv_back">‹ 返回</button><div class="t">小账本查看器 v' + CV_VER + '</div><button id="tv_reload">刷新</button></div><div id="tv_bd"></div>';
     document.body.appendChild(pg);
     var bd = pg.querySelector('#tv_bd');
     pg.querySelector('#tv_back').onclick = function(){ pg.classList.remove('on'); };
