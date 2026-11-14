@@ -191,8 +191,11 @@ body.fmsg #fexit{display:block;}
 /* ── 1.09：待确认占位气泡（空窗期反馈）── */
 .msg.pend{background:var(--ubg); border:1px dashed rgba(21,101,192,.55);}
 .msg.pend .body{color:#5a6b7d;}
+/* 2.44：卡上带「本条编号」，窄屏放不下就让按钮换行，别把编号挤没/挤出框 */
+.msg.pend .who{flex-wrap:wrap; row-gap:3px;}
 .msg.pend .pstat{font-size:11px; margin-left:6px; padding:1px 7px;
-  border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);}
+  border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .msg.pend.ok .pstat{background:rgba(10,125,50,.14); color:var(--green);}
 .msg.pend.bad{border-color:rgba(198,40,40,.65);}
 .msg.pend.bad .pstat{background:rgba(198,40,40,.14); color:var(--red);}
@@ -3972,23 +3975,34 @@ function wsRetry(p, c, a, n){
   }, WS_RETRY_MS);
 }
 
+/* 2.44：每条占位卡带自己的编号——老板要「发一句话就有一个号，销卡认这个号」。
+   rid 是发出去那一刻本地生成的 10 位随机码（全号在 title 里），
+   它会随命令带给服务端，服务端落地后按同一个 rid 广播 acks。 */
+function pendNo(p){
+  const r = String((p && p.rid) || '');
+  if (!r) return '';
+  return ' #' + (r.length > 6 ? r.slice(-6) : r);
+}
 function pendStat(p){
-  if (p.state === 'typed')   return ['已输入 WorkBuddy…', ''];
+  const no = pendNo(p);
+  if (p.state === 'typed')   return ['已进输入框' + no + ' · 等点发送', ''];
   /* 2.41：不再报「N/6 次」这种像要失败的口径——那条消息已经记下了，
      网络一回来就自动发出（outbox 同为 10 分钟窗）。 */
-  if (p.state === 'wsretry') return ['已记下·联网后自动发出', 'ok'];
-  if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
-  if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
+  if (p.state === 'wsretry') return ['已记下' + no + ' · 联网后自动发出', 'ok'];
+  if (p.state === 'queued')  return ['已排队' + no + ' · 等 AI 处理', 'ok'];
+  /* 2.44：sent＝服务端真回了回执（broadcast 'sent'）→ 明确说「签收了」，
+     让「服务器到底回不回应」这件事在卡上看得见。 */
+  if (p.state === 'sent')    return ['服务器已签收' + no + ' · 等进对话流', 'ok'];
   /* 2.17 P26-3：排队条放行后用原 rid 重挂的「发射中/待落地」卡 */
-  if (p.state === 'launching') return ['发射中，等待落地…', 'ok'];
+  if (p.state === 'launching') return ['发射中' + no + ' · 等落地', 'ok'];
   /* 2.16：⚡立即发送失败——服务端明说这条没送达，红字如实告知（失败优先） */
-  if (p.state === 'fail')    return ['未送达，请重发或重试', 'bad'];
+  if (p.state === 'fail')    return ['未送达' + no + '，请重发或重试', 'bad'];
   /* 1.32：超时（默认 30 秒）仍未确认才标「未确认」，此时给出
      改写/丢弃/重发；正常瞬发直接就撤下卡片了 */
-  if (p.state === 'timeout') return ['⚠ 未确认（可丢弃/改写/重发）', 'bad'];
-  /* 1.63：直发默认态——单条消息发出去后先看传输层，显示「已发送，正等待
-     服务器回应」，不再误写成「已排队，等待 AI 处理…」（用户 09-29 定）。 */
-  return ['已发送，正等待服务器回应', 'ok'];
+  if (p.state === 'timeout') return ['⚠ 未确认' + no + '（可丢弃/改写/重发）', 'bad'];
+  /* 2.44：默认态＝本机已发出、还没等到服务端回执。分两级说清楚：
+     本级「本机已发出·等服务器签收」→ 下一级「服务器已签收·等进对话流」。 */
+  return ['本机已发出' + no + ' · 等服务器签收', 'ok'];
 }
 
 function renderPending(){
@@ -4009,8 +4023,9 @@ function renderPending(){
     const st = pendStat(p);
     const d = document.createElement('div');
     d.className = 'msg user pend ' + st[1] + (p.state === 'fail' ? ' fail' : '');
-    let h = '<div class="who">我<span class="pstat">' + esc(st[0])
-          + '</span>';
+    let h = '<div class="who">我<span class="pstat"'
+          + (p.rid ? ' title="本条编号：' + esc(String(p.rid)) + '"' : '')
+          + '>' + esc(st[0]) + '</span>';
     /* 1.39：占位卡始终提供「复制」（复制占位里的文字，用户反馈），
        改写/丢弃/重发仍只在真超时（state==='timeout'）才出现。 */
     h += '<span class="pacts"><button class="pendbtn cp" data-cp="'
@@ -5623,7 +5638,15 @@ const APP_NAME = 'wb远程';
    ③粘底放手改「用户接管」：本次切换内一旦有真实手势且离底>48px，就一直放手，
      只有用户滚回近底 48px 内才恢复；打字中（输入框有焦点）绝不补滚。
    ★2.39 的「手势 2 秒内」判据作废——手指离开/惯性滑完刚过 2 秒就被拽回底，那才是抖。 */
-const VER = '2.43';
+/* 2.44（2026-11-14，老板原话：「我发一段话给你的时候，它会显示正在等待服务器回应。
+   那你服务器到底会不会回应说我收到这句话了？……我一句话发过去以后，你至少得给我一个
+   回执说这句话已经收到了。然后我以卡片的形式继续等待，直到广播会话流播过来的是这句话
+   已经存在于对话流之中，那就可以提醒我这边销卡」）：
+   ①占位卡标题带上本条编号（rid 后 6 位，全号在 title）——销卡认号；
+   ②级别说清楚：本机已发出 → 服务器已签收（收到服务端 broadcast 'sent' 才升）→ 进对话流撤卡；
+   ③服务端 stage='queued'（真回执）也置 'sent'，不再停在「等回应」让人以为没回；
+   ④窄屏 who 换行，编号不挤出框。撤卡判据一个字没动（acks 命中 / 进排队条）。 */
+const VER = '2.44';
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
@@ -6520,10 +6543,11 @@ function onEv(kind, v){
                                     && pendSidOk(x, evSid(v))
                                     && x.state !== 'timeout' && x.state !== 'fail');
       if (p){
-        /* 1.63：stage='queued'=直发已受理——保持默认态「已发送，正等待服务器
-           回应」，不再误标成「已排队，等待 AI 处理」（用户 09-29 定：
-           单条消息先关心 WS/传输层，排队态只留给真·托管入队）。 */
+        /* 1.63：stage='queued'=服务端已受理并投进 WorkBuddy（真回执到手）。
+           2.44：此时置 'sent'＝卡上显示「服务器已签收 #XXXX · 等进对话流」，
+           让「服务器回没回应」一眼可见；排队态仍只留给真·托管入队。 */
         if (stage === 'clicked') p.state = 'sent';
+        else if (stage === 'queued') p.state = 'sent';
         else if (stage === 'typed') p.state = 'typed';
       }
       S.msgs_key = null;
