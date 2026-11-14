@@ -56,7 +56,11 @@ select{font-size:12px;}
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 /* ── 消息区 ── */
 #msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:8px 8px 4px; background:#fff;}
+  padding:8px 8px 4px; background:#fff;
+  /* 2.39：禁掉浏览器的「滚动锚定」——切会话时 innerHTML 整体重写，Chrome/安卓
+     WebView 会自作聪明按视觉锚点把 scrollTop 改走，程序刚设到底又被它拽回上面。
+     这是「明明到底了、一转眼又在顶部」的元凶之一。 */
+  overflow-anchor:none; -webkit-overflow-anchoring:none;}
 /* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
    消息区独占整屏，能看更多历史；body.fmsg 生效 */
 body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
@@ -4141,6 +4145,8 @@ function turnsSwitchTo(sid){
   /* 2.38：切换起手这 3 秒也钉在底部——在途帧（轮播账/加载条）不许把人留在上面 */
   S.pinUntil = Date.now() + 3000;
   S.pinSid = sid;
+  /* 2.39：切起就进粘底状态——点下去到真内容落地之间（手机可能好几秒）全程跟底 */
+  stickBegin(sid, 25000);
   /* 2.37：先看有没有这个会话的真快照账——有就立刻铺它（和直播同一套渲染，零抖动）；
      没有才退回轮播账兜底。内存没有就问 IndexedDB，回来时若目标还没等到直播才补上。 */
   const _sc = (S.snapCache && S.snapCache[sid]) ? S.snapCache[sid] : null;
@@ -4259,9 +4265,14 @@ function renderMsgs(msgs, finish, opts, ask){
      另一台手机切、断线重连后换图，只要这一帧画的是另一个会话，就把视野
      按到最新一条，并保持 1.5 秒（防字体/布局回流把底又顶高）。 */
   if (_sidNow && _sidNow !== S.paintSid){
+    /* 2.39：会话一变 → 进粘底状态，慢网/晚到快照也一定落底。
+       首次上屏（S.paintSid 还空）给 45 秒——手机冷启动 + WS 握手 + 快照，
+       慢的时候能到二十几秒；普通切换 25 秒足够。用户随时上翻即放手。 */
+    const _first = !S.paintSid;
     S.paintSid = _sidNow;
     S.pinUntil = Date.now() + 1500;
     S.pinSid = _sidNow;
+    stickBegin(_sidNow, _first ? 45000 : 25000);
   }
   const _liveOn = !!(S.snap && S.snap._hasMsgs && S.prepSid
                      && _sidNow === String(S.prepSid));
@@ -4318,7 +4329,7 @@ function renderMsgs(msgs, finish, opts, ask){
   if (key === S.msgs_key){
     /* 2.38：指纹一致＝零重画，但「吸底」不能跟着跳过——预备帧与直播帧内容
        完全一样时，这里以前把吸底标记直接吃掉却**没有滚动**，屏幕就停在上面。 */
-    if (pinOn()) fprog(el.msgs.scrollHeight);
+    if (pinOn() || stickOn()) fprog(el.msgs.scrollHeight);
     if (S.pendBottom && Date.now() < S.pendBottom && S.pendBottomSid
         && _sidNow && _sidNow === String(S.pendBottomSid)){
       S.pendBottom = 0; S.pendBottomSid = '';
@@ -4360,7 +4371,7 @@ function renderMsgs(msgs, finish, opts, ask){
   }
   /* 账已铺满且正在切换：提示条追加完就收工——别再把这个会话的旧消息叠在账下面 */
   if (turnsPainted && (S.switch_pend || S.loadingConv)){
-    if (pinOn()) fprog(el.msgs.scrollHeight);   /* 2.38：切换在途这一帧也要在底部 */
+    if (pinOn() || stickOn()) fprog(el.msgs.scrollHeight);   /* 2.38：切换在途这一帧也要在底部 */
     renderPending(); return;
   }
   if (S.loadingMore){                    // 分页窗口：向上补拉老历史在途
@@ -4658,7 +4669,7 @@ function renderMsgs(msgs, finish, opts, ask){
      得给我拉到最底部。」——切换起手（turnsSwitchTo 置 S.pendBottom，30 秒自失效）
      到第一帧真·直播画面落地之间，所有重画一律吸底；直播这帧画完就撤标记，之后
      回到原来的「近底跟底 / 翻历史保位」规则，绝不跟用户抢滚动。 */
-  if (pinOn() || (S.pendBottom && Date.now() < S.pendBottom)){
+  if (pinOn() || stickOn() || (S.pendBottom && Date.now() < S.pendBottom)){
     fprog(el.msgs.scrollHeight);
     /* 直播已接手＝这一帧画的是**目标会话**的真消息（snap.title 对上才认） */
     if (!turnsPainted && msgs.length
@@ -4694,10 +4705,54 @@ function fprog(to){                 // 程序化滚动：静默期内不参与�
    贴底；用户一反手上翻立即放手，绝不跟人抢滚动。 */
 function pinOn(){ return !!(S.pinUntil && Date.now() < S.pinUntil); }
 function pinCancel(){ S.pinUntil = 0; S.pinSid = ''; }
+/* 2.39（老板 2026-11-14：「手机上还是得从头往下翻，你测到彻底解决」）：
+   上面这套「时间窗」不可靠——手机网络慢、快照 3~10 秒才到，1.5 秒窗口早过期，
+   于是照抄上一屏的旧偏移 = 又落回顶部。改成**状态机粘底**：
+     stickBegin() 之后每 100ms 巡检一次，只要没到底就补到底；图片/卡片/字体/
+     晚到的快照把内容顶高，自动跟着往下贴；只有两种情况放手：
+       ① 用户真上翻（手指/滚轮动作之后离底 >48px）
+       ② 60 秒兜底超时（极慢网也不至于一直跟）
+   与「翻历史保位」不冲突：用户一动手就退出粘底，位置归用户。 */
+var _stickT = 0, _userMark = 0, _stickSH = 0;
+function stickBegin(sid, ms){
+  S.stickUntil = Date.now() + (ms || 60000);
+  S.stickSid = String(sid || '');
+  _stickSH = 0;
+  if (!_stickT) _stickT = setInterval(_stickTick, 100);
+  _stickTick();
+}
+function stickOn(){ return !!(S.stickUntil && Date.now() < S.stickUntil); }
+function stickEnd(){
+  S.stickUntil = 0; S.stickSid = '';
+  if (_stickT){ clearInterval(_stickT); _stickT = 0; }
+}
+function _stickTick(){
+  if (!stickOn()){ stickEnd(); return; }
+  var m = el.msgs;
+  var sh = m.scrollHeight;
+  var dist = sh - m.scrollTop - m.clientHeight;
+  /* 内容长高（图片/卡片/字体/晚到快照把页面顶高）≠ 人在翻历史：
+     只有「高度没变、位置却离底 >48px」才是人把页面拖上去了 → 放手。 */
+  var grew = sh > _stickSH + 2;
+  _stickSH = sh;
+  if (dist > 48 && !grew && _userMark && Date.now() - _userMark < 2000){
+    stickEnd(); return;
+  }
+  if (dist > 1){
+    m.scrollTop = sh;
+    fLockUntil = Date.now() + 450;      /* 程序滚动：别被误判成「人找历史」 */
+  }
+}
+/* 用户手势标记——只有「人动过」才允许打断粘底，程序自己滚不算 */
+try {
+  ['touchstart','pointerdown','wheel'].forEach(function(ev){
+    el.msgs.addEventListener(ev, function(){ _userMark = Date.now(); }, {passive:true});
+  });
+} catch(e){}
 if (window.MutationObserver){
   try {
     new MutationObserver(function(){
-      if (pinOn()) fprog(el.msgs.scrollHeight);
+      if (pinOn() || stickOn()) fprog(el.msgs.scrollHeight);
     }).observe(el.msgs, {childList: true, subtree: true});
   } catch(e){}
 }
@@ -4738,9 +4793,12 @@ el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
   /* 2.38：吸底钉期间用户主动上翻（离底 >48px）→ 立刻放手。
      程序自己滚到底时 dist≈0，不会误判成「人在翻历史」。 */
-  if (pinOn()){
+  if (pinOn() || stickOn()){
     const d0 = el.msgs.scrollHeight - el.msgs.scrollTop - el.msgs.clientHeight;
-    if (d0 > 48) pinCancel();
+    /* 2.39：必须「手指/滚轮刚动过」才算人真上翻——否则程序自己补底也会误判 */
+    if (d0 > 48 && _userMark && Date.now() - _userMark < 1500){
+      pinCancel(); stickEnd();
+    }
   }
   if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
   cliTouch();                               // 1.64：翻对话记录＝人工操作（续登录+上报）
@@ -5282,8 +5340,9 @@ const APP_NAME = 'wb远程';
    ★原来切过去为什么会在上面：renderMsgs 的位置只按「上一屏的 savedTop / nearBottom」
      决定，而这两个值属于**上一个会话**——上一屏内容短（savedTop=0）或用户本来正在
      翻历史，切过去照抄旧偏移，就停在新会话的顶部。 */
-const VER = '2.38';   /* 2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
-                         2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
+const VER = '2.39';   /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
+                         2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
+   2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
                          ①主人守卫——renderTurnsLocal 开头比对 S.histConv 与目标会话
                          （switch_pend/loadingConv 的目标，否则当前激活会话），对不上一条都不画；
                          ②切换起手换账——pendSwitchSet 里新增 turnsSwitchTo(目标)：有内存缓存
