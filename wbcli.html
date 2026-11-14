@@ -3466,7 +3466,10 @@ function renderConvs(rows, conv_unread){
       if (ch) localStorage.setItem(LS_NAMES, JSON.stringify(nm0));
     }
   }catch(e){}
-  if (key === S.convs_key) return;
+  /* 2.45（老板 2026-11-14 复报「会话列表还是会变纯白」）：指纹相同但**容器已被外部
+     清空**时也要重建——旧写法只比指纹，一旦别处把 el.convs 清成空（换目标/复用节点），
+     key 没变就永远 return，白屏永久停住、只能整页刷新。 */
+  if (key === S.convs_key && el.convs && el.convs.childElementCount) return;
   /* 2.42（老板：「在最新的会话列表来之前，旧的就要保持可用」「它应该永远不会变成
      纯白色」）：**不再先清空再逐行往可见 DOM 里塞**。
      旧写法 `el.convs.innerHTML=''` + 循环 appendChild ＝ 清空那一刻列表就是白的，
@@ -5646,7 +5649,7 @@ const APP_NAME = 'wb远程';
    ②级别说清楚：本机已发出 → 服务器已签收（收到服务端 broadcast 'sent' 才升）→ 进对话流撤卡；
    ③服务端 stage='queued'（真回执）也置 'sent'，不再停在「等回应」让人以为没回；
    ④窄屏 who 换行，编号不挤出框。撤卡判据一个字没动（acks 命中 / 进排队条）。 */
-const VER = '2.44';
+const VER = '2.45';
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
@@ -6319,7 +6322,8 @@ function switchSrv(nm){
   S.alive = new Set(); S.boxes = [];
   el.model.innerHTML = ''; S.model_map = {};
   S.box = '(未连接)'; S.port = 0;
-  el.convs.innerHTML = '';
+  /* 2.45：手动换操控目标同样**不清会话列表**——留着旧的可用，新目标第一拍快照
+     到了由 renderConvs 一次原子换页（老板 11-14：「它应该永远不会变成纯白色」）。 */
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
                      + ' …）</div>';
   renderAttach([]);
@@ -7096,7 +7100,9 @@ function applySwitch(box, port, keepSnap){
   S.switch_target = null;                   /* 1.28：目标备忘随切换消费/作废 */
   S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
                        // 原不重置，boot 一次 S.busy 永卡 true 锁死目标切换
-  el.convs.innerHTML = '';
+  /* 2.45：**绝不清空会话列表**。换目标（box/端口变动）时旧列表原样留着，
+     等新目标的快照到达由 renderConvs 原子整张换掉——老板 2026-11-14：
+     「会话列表是基础设施，未经同意不要变白；更新来之前旧的必须一直可用」。 */
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
                      + ' …）</div>';
   renderAttach([]);
