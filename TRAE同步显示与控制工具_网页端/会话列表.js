@@ -105,8 +105,11 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       const cfx = cfRows ? cfRows.find(o => o && (
         (sid && o.sid === sid) || (sKey && o.stable === sKey))) : null;
       const light = cfx && cfx.status ? (cfx.status.light || '') : '';
-      const uread = cfx ? !!(cfx.status && cfx.status.unread) :
-        ((st === 'done') && (useId && sid ? uri.has(sid) : ur.has(title)));
+      /* 2026-11-14（老板：点一个会话，全部橙灯先灭再全亮）：回退分支此前要求
+         st==='done' 才认未读，而命令路径的裸帧里 r[3] 常为空 ⇒ 橙灯被误灭。
+         未读集合本身就是「完成未查看」的权威来源，命中即亮，不再看 st。 */
+      const uread = cfx ? !!(cfx.status && cfx.status.unread)
+        : (useId && sid ? uri.has(sid) : ur.has(title));
       const dotCls = cfx
         ? (light === 'busy' ? 'stdot-run'
           : light === 'fail' ? 'stdot-fail'
