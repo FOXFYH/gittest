@@ -4,7 +4,22 @@ function drawerOpen(){
 }
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
+/* 2026-11-14（老板：点一个会话，全部橙灯先灭再全亮＝假消除）：
+   命令路径推来的「裸快照」不带 convs_full / conv_unread，若按空集合渲染，
+   所有橙灯会被误灭，下一拍正常快照又全亮。裸帧一律沿用上一次的未读集合。 */
+var _cvUnreadMemo = null;      /* {k, titles, ids}：上一份带未读数据的帧 */
 function renderConvs(rows, conv_unread, conv_unread_ids){
+  const _cf0 = (S.snap && Array.isArray(S.snap.convs_full)) ? S.snap.convs_full : null;
+  const _hasUnread = Array.isArray(conv_unread) || Array.isArray(conv_unread_ids);
+  const _mk = String(S.cur || '') + '|' + String(S.port || '');
+  if (!_cf0 && !_hasUnread && _cvUnreadMemo && _cvUnreadMemo.k === _mk){
+    conv_unread = _cvUnreadMemo.titles;
+    conv_unread_ids = _cvUnreadMemo.ids || undefined;
+  } else if (_cf0 || _hasUnread){
+    _cvUnreadMemo = {k: _mk,
+                     titles: Array.isArray(conv_unread) ? conv_unread.slice() : [],
+                     ids: Array.isArray(conv_unread_ids) ? conv_unread_ids.slice() : null};
+  }
   /* v1.49：conv_unread=服务端快照顶层可选字段「完成-未查看」标题列表。
      旧服务端/无该字段时回退旧行为。清单参与指纹——unread 变化也要重绘。
      v1.95：新增 conv_unread_ids=同一未读集合的【稳定 ID】口径（服务端
