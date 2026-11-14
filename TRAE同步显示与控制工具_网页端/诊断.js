@@ -178,7 +178,17 @@ const APP_NAME = 'TRAE远程';
                        后台真帧到达仍走 adoptSnap/帧闸「只进不退」单调替换（空帧/变短不覆盖）。
                        改 缓存.js／输入界面.js／启动.js／会话列表.js（去掉「正在切换到…」
                        提示＋免掉切前空屏重画）／待办卡.js／通用工具.js；服务端零改动。 */
-const VER = '2.160';   /* 2.158（2026-11-05 老板令「附件上传改走 R2，与对话流彻底无关」）：
+const VER = '2.161';   /* 2.161（2026-11-14 老板令「阶段反馈不够、TRAE 与 WB 一视同仁」）：
+                       TTS 阶段回执拆五拍，与本机 TTS 服务端 1.08 同一协议——
+                       recv（已收到任务·带字数）→ conv（开始转码）/ cache（命中缓存）
+                       → ready（转码完成·带字节与耗时）→ send（开始传输·带片数）
+                       → tts_audio × N（逐片显示「正在接收 n/N（已收 xx KB）」）
+                       → done（全部发完）。WS 不在线一律写「WS 链接中…」；
+                       30 秒无回执切服务端时也出文案（原来静默）。
+                       ★ 文案与 WB 网页端 wbcli.html 2.46 的 ttsAckText 逐字一致。
+                       改：TTS直连.js／卡片TTS.js／入口 html（title＋2 处 ?v=）／本文件 VER；
+                       服务端零改动（TTS 服务另升 1.08）。
+  2.160 原记录：2.158（2026-11-05 老板令「附件上传改走 R2，与对话流彻底无关」）：
                        附件上传网页侧改 R2 直传——file.onchange 多选后发
                        attach_r2_open（names/sizes+锚定 sid）→ 服务端回
                        {task:"附件YYYYMMDD-HHMMSS", uploads:[{n,key,url}]}（预签名
