@@ -1127,6 +1127,9 @@ const S = {
      空对象＝全不选，但提交时按「空＝全部」处理（见 ckPickKeys）。 */
   ck_pick: null,
   attach_pending: null,
+  /* 2.41 活体投递：断网时点下的命令先排这里（localStorage 持久），连上自动补发。
+     outN=队列长度（状态灯角标用，renderLink 读它）。 */
+  outbox: [], outN: 0,
   /* 2.03：加急插入勾选（输入框放大态「急」）——true=本次发送若进托管队列
      则立即插队发送（发 queue_sendnow 立刻放行、不干等队尾）。**只活在本会话
      内存里、不落任何持久配置**：每次打开/刷新页面都回到 false（未选中）。 */
@@ -1307,6 +1310,7 @@ function flash(msg, color){
      ④ 执行结果：失败【单独】红字提示；成功并入原业务信号（快照更新/列表刷新）
    文案＋颜色只此一处产出，各按钮/命令一律转调，杜绝各写各的文案漂移。 */
 const SRV_PHASE = {
+  queued:  ['已记下·联网后自动发', 'var(--orange)'],
   offline: ['WS 连接中',        'var(--orange)'],
   sent:    ['等待服务器回应',   'var(--blue)'],
   ack:     ['服务器开始执行',   'var(--blue)'],
@@ -1364,22 +1368,43 @@ function srvOpTrack(c, label, extra){
   srvOpAcct[id] = op;
   return id;
 }
-/* 未连上中转的统一拦口：true=已拦（命令未发出，如实告知） */
-function srvNeedOnline(label){
-  if (S.onLine && foxReady()) return false;
-  srvOpFlash('offline', label, '命令未发出，稍后再试');
-  return true;
+/* 2.41：用**已生成好的 id** 登记在途——报文里的 id 必须与账本 id 完全一致，
+   否则服务端回执对不上号、srvOpDone 收不了口（发完永远停在「等待回应」）。 */
+function srvOpTrack2(id, c, label, extra){
+  const op = {c: c || '', label: label || '', extra: extra || '',
+              timer: null, stage: 'sent', at: Date.now()};
+  const _ttl = (c === 'switch') ? 65000 : SRV_OP_TTL;
+  op.timer = setTimeout(() => {
+    if (!srvOpAcct[id]) return;
+    delete srvOpAcct[id];
+    srvOpFlash('timeout', op.label, op.extra);
+  }, _ttl);
+  srvOpAcct[id] = op;
+  return id;
 }
-/* ②「等待服务器回应」只在报文确实写上线时才播报；未连上则报 ① 并返回 false。 */
+/* 2.41：这里原来是「未连上中转就不许发」的死闸门。老板明令拆掉——
+   断网也让你点，命令进 outbox，联网自动补发。保留函数只为不动二十多个调用点。 */
+function srvNeedOnline(label){
+  return false;
+}
+/* ②「等待服务器回应」只在报文确实写上线时才播报；没写上线 → 入队重投（2.41）。 */
 function srvOpSend(c, a, label, extra, ms){
   const lb = label || srvOpsLabel(c);
-  if (!S.onLine || !foxReady()){
-    srvOpFlash('offline', lb, '命令未发出，稍后再试');
-    return false;
-  }
-  const id = srvOpTrack(c, lb, typeof extra === 'string' ? extra : '');
+  const id = srvOpNewId();
   const ex = {id: id};
   if (extra && typeof extra === 'object') for (const k in extra) ex[k] = extra[k];
+  const d = {t: 'cmd', c: c, a: a};
+  for (const k in ex) d[k] = ex[k];
+  if (c === 'send' && !d.conv){          /* 与 sendCmd 同规则：带目标会话 sid */
+    const cid = curConvId();
+    if (cid) d.conv = cid;
+  }
+  if (!S.onLine || !foxReady()){
+    outboxPush(d, lb);
+    srvOpFlash('queued', lb, '断网已入队，连上自动送出');
+    return true;                          /* 已受理（不是失败，别让调用方当失败处理） */
+  }
+  srvOpTrack2(id, c, lb, typeof extra === 'string' ? extra : '');
   sendCmd(c, a, ex);
   srvOpFlash('sent', lb, typeof extra === 'string' ? extra : '', ms);
   return true;
@@ -1387,13 +1412,15 @@ function srvOpSend(c, a, label, extra, ms){
 /* 非 cmd 控制帧（boot/attach_files）的四态出口——同样带 id 登记在途。 */
 function srvOpSendJson(obj, label, extra, ms){
   const lb = label || '操作';
-  if (!S.onLine || !foxReady()){
-    srvOpFlash('offline', lb, '命令未发出，稍后再试');
-    return false;
-  }
-  const id = srvOpTrack((obj && obj.t) || '', lb, extra || '');
+  const id = srvOpNewId();
   const d = obj || {};
   d.id = id;
+  if (!S.onLine || !foxReady()){
+    outboxPush(d, lb);
+    srvOpFlash('queued', lb, '断网已入队，连上自动送出');
+    return true;
+  }
+  srvOpTrack2(id, (obj && obj.t) || '', lb, extra || '');
   sendJson(d);
   srvOpFlash('sent', lb, extra || '', ms);
   return true;
@@ -1450,6 +1477,109 @@ function srvOpDone(c){
   /* 成功并入业务信号后，把「服务器开始执行」交回普通状态灯；
      若该操作另有成功横幅，业务处理随后会再 flash 覆盖它。 */
   if (hit && typeof renderState === 'function') renderState(S.snap);
+}
+/* ================= 2.41 活体投递（离线命令排队 · 联网自动补发） =================
+   老板 2026-11-14：「哪怕网络突然间延迟了，或者真实物理断网，我这边该怎么操作就
+   怎么操作，都是活的……你在一定的时间范围内重试把这些遥控指令发过去就行，不用
+   太在意服务器那边有没有回应。不用跟它彻底绑死。」
+
+   规矩（三条）：
+   ① 报文只要**没写进 WS**（=根本没发出去），就不许丢 → 排进本地 outbox，按时间窗
+      自动重投；页面刷新也不丢（localStorage）。
+   ② ★只兜「一个字都没发出去」这一段。foxSend 返回成功（哪怕服务端没收到）绝不入队
+      ——否则重投会重复建会话、重复发消息。不确定就不重发。
+   ③ 入队立刻回显「已记下·联网后自动发」，不让用户干等，也不弹「命令未发出」的错。 */
+const OUT_TTL   = 10 * 60 * 1000;   /* 单条最长守 10 分钟（够断网/切后台一轮） */
+const OUT_TICK  = 1500;             /* 重投心跳 */
+const OUT_MAX   = 50;               /* 队列上限，超了丢最老的一条 */
+const OUT_KEY   = 'wbcli_outbox_v1';
+function outboxLoad(){
+  try { const a = JSON.parse(localStorage.getItem(OUT_KEY) || '[]');
+        if (Array.isArray(a)) S.outbox = a; } catch(e){ S.outbox = []; }
+}
+function outboxSave(){
+  try { localStorage.setItem(OUT_KEY, JSON.stringify(S.outbox || [])); } catch(e){}
+}
+/* 与 sendJson 同规则的载荷盖章（昵称 + 目标服务端稳定 sid）——入队时要先盖好，
+   否则出队时已换了目标或页面重开丢了 S.cur。 */
+function _stampJson(d){
+  if (!d) return d;
+  if (d.nick === undefined) d.nick = MY_NICK;
+  if (!d.to){
+    const s = S.cur ? S.servers[S.cur] : null;
+    const dst = (s && s.sid) ? s.sid : (S.cur || '');
+    if (dst) d.to = dst;
+  }
+  return d;
+}
+function outboxPush(d, label){
+  if (!d) return '';
+  _stampJson(d);
+  const sig = JSON.stringify([d.t, d.c, d.a, d.conv, d.to]);
+  const now = Date.now();
+  /* 同一动作连点（5 秒内同载荷）只留一条，避免狂点排队 */
+  for (let i = 0; i < S.outbox.length; i++){
+    const o = S.outbox[i];
+    if (o.sig === sig && now - o.at < 5000) return o.id;
+  }
+  if (S.outbox.length >= OUT_MAX) S.outbox.shift();
+  const id = 'q' + now.toString(36) + '-' + (S.outbox.length + 1);
+  S.outbox.push({id: id, sig: sig, d: d, label: label || '操作', at: now, try: 0});
+  outboxSave();
+  return id;
+}
+/* 队列里还有没有这条命令（还没送出）——给「别急着判死」用：
+   断网时切会话命令在队里排着，60 秒超时到了也不该报「切换失败」。 */
+function outboxHas(c, a){
+  for (let i = 0; i < S.outbox.length; i++){
+    const d = S.outbox[i].d;
+    if (!d || d.c !== c) continue;
+    if (a === undefined || d.a === a) return true;
+  }
+  return false;
+}
+/* 把队列里没超时的报文按入队顺序写进 WS（WS 本身保序，不必逐条等回执）。 */
+function outboxFlush(){
+  if (!foxReady() || !S.outbox.length) return 0;
+  const now = Date.now();
+  const keep = [];
+  let n = 0;
+  for (let i = 0; i < S.outbox.length; i++){
+    const o = S.outbox[i];
+    if (now - o.at > OUT_TTL){ keep.push(o); continue; }
+    try {
+      _stampJson(o.d);
+      if (!foxSend(JSON.stringify(o.d))){ keep.push(o); continue; }   /* 中途掉线：这条留着 */
+      n++;
+    } catch(e){ keep.push(o); }
+  }
+  if (n || keep.length !== S.outbox.length){ S.outbox = keep; outboxSave(); }
+  if (n){
+    srvOpFlash('queued', '补发', n + ' 条已送出');
+    if (typeof renderState === 'function') renderState(S.snap);
+  }
+  return n;
+}
+function outboxSweep(){
+  const now = Date.now();
+  let dead = 0;
+  const keep = [];
+  for (let i = 0; i < S.outbox.length; i++){
+    const o = S.outbox[i];
+    if (now - o.at > OUT_TTL){ dead++; continue; }
+    keep.push(o);
+  }
+  if (dead){
+    S.outbox = keep; outboxSave();
+    srvOpFlash('fail', '离线操作', dead + ' 条超时没送到，请重做');
+  }
+  outboxFlush();
+}
+/* 待发角标：让用户看得见「我点的事还挂着」——挂在状态灯后面，不另占一行。 */
+function outboxBadge(){
+  S.outN = (S.outbox || []).length;
+  /* 页面还在解析时 el.rlink 可能还没挂上——静默跳过，下个心跳自然会补 */
+  if (typeof renderLink === 'function' && el && el.rlink) renderLink();
 }
 /* 快照到时静默收口「已进入执行档」的动作——快照刷新本身就是成功信号。 */
 function srvOpSnapDone(){
@@ -3287,6 +3417,12 @@ function drawerOpen(){
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
 function renderConvs(rows, conv_unread){
+  /* 2.40：空帧不清列表——老板「切换会话后会话列表都是白屏」。服务端任何一拍
+     没带上会话表（骨架快照/切会话瞬间/上游异常），都不许把已经画好的列表抹掉：
+     有旧内容就保留上一帧直接返回，等下一拍带表再来。 */
+  if (!Array.isArray(rows) || !rows.length){
+    if (el.convs && el.convs.children.length) return;   /* 有货就留着 */
+  }
   /* v1.50：conv_unread=服务端快照顶层可选字段「完成-未查看」的**会话 sid 列表**
      （v1.50 起服务端改发 sid；旧服务端发展示名，下面的判定两者都认）。
      无该字段/空 → 不亮橙灯（安全回退）。清单参与指纹——unread 变化也要重绘。 */
@@ -3324,6 +3460,10 @@ function renderConvs(rows, conv_unread){
   let inFolder = false, idx = 0;
   /* 1.31：按位取值（兼容旧 4 元组）——r[4]=状态灯 run/done/fail/stop/'' */
   for (const r of rows){
+    /* 2.40：单行容错——某一行数据畸形只跳过这一行，绝不让整张列表建到一半就停住。
+       旧写法是「先清空再逐行建」，任何一行抛异常就留下半张空表，后续帧还在
+       同一行继续抛 → 永久白屏。 */
+    try{
     const kind = r[0], title = r[1] || '', flag = r[2],
           disp = r[3] || '', st = r[4] || '';
     if (kind === 'f'){
@@ -3414,6 +3554,7 @@ function renderConvs(rows, conv_unread){
       el.convs.appendChild(d);
       idx++;
     }
+    }catch(e){ console.warn('[renderConvs] 跳过异常行', r, e); }
   }
 }
 
@@ -4106,14 +4247,23 @@ function switchArm(p){
     }
     sendCmd('switch', p.title);           /* 补发同一条切换命令 */
   }, SWITCH_RESEND_MS);
-  _swTmoT = setTimeout(() => {
+  /* 2.41：命令还在 outbox（断网没送出去）→ 不判死，续 25 秒等联网补发。
+     老板：「断网了我该怎么操作就怎么操作，你别当成失败。」 */
+  const _swDeadline = () => {
     if (S.switch_pend !== p) return;
+    if (outboxHas('switch', p.title)){
+      p.phase = 'connecting';
+      renderAll();
+      _swTmoT = setTimeout(_swDeadline, 25000);
+      return;
+    }
     p.phase = 'fail';
     switchDisarm();
     srvOpDone('switch');       /* 2.14：切换失败即收口在途，免 65s 后又被「待确认」盖掉 */
     renderAll();
     _swFailT = setTimeout(() => { if (S.switch_pend === p) switchEnd(); }, 4000);
-  }, SWITCH_FAIL_MS);
+  };
+  _swTmoT = setTimeout(_swDeadline, SWITCH_FAIL_MS);
 }
 function switchEnd(){          /* 结束一次切换（成功/失败/换目标）：连带清定时器 */
   switchDisarm();
@@ -4301,13 +4451,16 @@ function renderMsgs(msgs, finish, opts, ask){
   key += '#pend:' + pendSig()
        + (prepOn ? '' : ('#sw:' + (S.switch_pend ? S.switch_pend.title : '')
                         + '#ld:' + (S.loadingConv ? S.loadingConv.title : '')))
-       + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80)
-       /* 2.86：本轮思考段列表也要进重画指纹——段数/各段长度/末段末 12 字。
-          只看 plan 的前 80 字不够：模板化思考开头常常一样，最后一块会被
-          「指纹没变」早退吃掉、停在旧内容上。 */
-       + '#pl:' + ((S.snap && Array.isArray(S.snap.plans)) ? S.snap.plans
-           .map(p => { const x = (p && p.x) || '';
-                       return x.length + ':' + x.slice(-12); }).join('|') : '')
+       /* 2.41：预备帧期间不许把**上一个会话**的思考段/计划塞进指纹——
+          否则一进预备帧就按旧会话内容重画一次，等真快照到了又重画一次，
+          「切换零重画」就判死了（S.snap 此刻还是旧会话的图）。 */
+       + (prepOn ? '' : ('#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80)
+        /* 2.86：本轮思考段列表也要进重画指纹——段数/各段长度/末段末 12 字。
+           只看 plan 的前 80 字不够：模板化思考开头常常一样，最后一块会被
+           「指纹没变」早退吃掉、停在旧内容上。 */
+        + '#pl:' + ((S.snap && Array.isArray(S.snap.plans)) ? S.snap.plans
+            .map(p => { const x = (p && p.x) || '';
+                        return x.length + ':' + x.slice(-12); }).join('|') : '')))
        /* 2.35：生成中 ⇄ 已定稿 必须进指纹——否则这一轮刚答完时 key 没变、
           被早退吃掉，屏幕上那堆思维卡片停在全展开状态，永远折不回去。 */
        + '#il:' + (genOn ? 1 : 0)
@@ -4319,10 +4472,11 @@ function renderMsgs(msgs, finish, opts, ask){
        + '#thh:' + Object.keys(S.thinkHistOpen)
            .filter(k => S.thinkHistOpen[k]).join(',')
        /* 1.67：托管排队条也画在本函数里（挂在聊天记录末尾），队列的增删/改序/
-          取回必须参与指纹，否则「只队列变了」时会被上面的早退跳过、不重画。 */
-       + '#q:' + ((S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue
+          取回必须参与指纹，否则「只队列变了」时会被上面的早退跳过、不重画。
+          2.41：预备帧期间同样屏蔽——S.snap.queue 还是上一个会话的。 */
+       + (prepOn ? '' : ('#q:' + ((S.snap && Array.isArray(S.snap.queue)) ? S.snap.queue
            .map(x => ((x && x.id) || '') + ':' + String((x && x.text) || '').length)
-           .join(',') : '')
+           .join(',') : '')))
        /* 2026-11-13 老板「账先上」：本地轮播账的内容也要进指纹——账变了但 snap
           正文没变时，不加这段就会被上面的早退吃掉、屏幕一直停在旧账上。 */
        + (ledgerMode ? ('#tm:' + S.turns.length + ':' + (S.curTurn ? (S.curTurn.uid + ':' + S.curTurn.thinks.length) : '')) : '');
@@ -4913,11 +5067,13 @@ function refreshSendBtn(){               // 1.30/1.52/1.53：发送 ⇄ 停止 �
 /* 1.xx：未就绪态分级——用户 2026-10-07：「对面服务器不在线的时候，横幅只会
    显示『WorkBuddy 界面未就绪』，不够准确」（TRAE 远程控制 2.0 同款修正）。
    原实现只要 snap.online 为假就一律写这一句，把「服务端（电脑上的程序）没在
-   跑」也归成了「界面未就绪」。现按真实原因分三档：
+   跑」也归成了没就绪。现按真实原因分档：
      · 本端连不上中转频道 → 说频道问题（与本机网络/中继有关，与服务端无关）；
      · 选中的服务端最近无任何来向消息（> SRV_DEAD_MS，或名册里从没听过它）
-       → 判定「服务端不在线」；
-     · 服务端消息新鲜（在跑）但 WorkBuddy 没连上 → 才是「界面未就绪」。
+       → 判定「服务端不在线」。
+   2.40（2026-11-14，老板「界面应该随时永远都是活的」）：第三档整档删除——
+     WorkBuddy CLI 后端读的是本地 jsonl，根本没有"界面"这回事；TRAE 那套
+     「CDP 没切过去就活不了」的该死等待不该学过来把自己做死。服务端可达＝永远就绪。
    判据 S.servers[cur].ts＝该服务端最后一次来向消息时刻（regSrv 每收必刷）。 */
 function notReadyState(){
   if (!S.onLine)
@@ -4928,14 +5084,16 @@ function notReadyState(){
   const ts = (s && s.ts) || 0;
   if (!ts || Date.now() - ts > SRV_DEAD_MS)
     return {txt: '服务端「' + S.cur + '」不在线（无响应）', col: 'var(--red)'};
-  return {txt: 'WorkBuddy 界面未就绪', col: 'var(--red)'};
+  return null;                      /* 2.40：服务端活着＝永远就绪（CLI 版没有"界面"这回事） */
 }
 let _nrTxt = '';            /* 最近一次写入的「未就绪」文案（防抢一次性提示） */
 function renderState(snap){
   S.gen = false;
-  S.ready = !!(snap && snap.online);
-  if (!S.ready){
-    const nr = notReadyState();
+  /* 2.40：就绪只跟「服务端可达不可达」有关，彻底不看 snap.online——
+     切会话瞬间目标会话没命中 jsonl 也不会再闪「界面未就绪」。 */
+  const nr = notReadyState();
+  S.ready = !nr;
+  if (nr){
     _nrTxt = nr.txt;
     el.state.textContent = nr.txt;
     el.state.style.color = nr.col;
@@ -4943,7 +5101,11 @@ function renderState(snap){
     return;
   }
   _nrTxt = '';
-  const idle = snap.sendIdle, inp = snap.inputText || '',
+  /* 2.40：判据从「sendIdle 为真」改成「sendIdle 不为假」——切会话那一下
+     S.snap 会被清成 {}（applySwitch keepSnap=false），空对象里没有 sendIdle，
+     旧写法 undefined 会被当成「生成中」，状态条错闪「输出中」还锁了发送键。
+     只有服务端明确说 false 才算生成中。 */
+  const idle = snap.sendIdle !== false, inp = snap.inputText || '',
         tail = snap.tail;
   if (!idle){                                // 生成中（含远端残留）→ 停止/插话
     S.gen = true;
@@ -5319,6 +5481,14 @@ const APP_NAME = 'wb远程';
    ③ 在生成的那一轮默认全展开（S.thinkOpen 改三态 null=自动），点表头仍可收起；
    ④ sendIdle 进重画指纹——刚答完那一刻必须重画，否则停在展开态折不回去；
    ⑤ 本地轮播账同口径：只有未完成的当轮才铺开卡流。 */
+/* 2.40（2026-11-14）活着原则（老板：「这个界面未就绪就不应该出现，界面应该随时
+   永远都是活的」「我们和 TRAE 原理不同，我们应该比它快顺畅许多才对」）：
+   ① 彻底删除「未就绪」的第三档——CLI 后端读本地 jsonl，没有"界面"这回事，
+      只要服务端可达就算就绪，状态条永远只写真实活动（空闲/生成中/在途）；
+   ② 发消息 / 新建不再被 snap.online 挡（srvNeedOnline 已是唯一闸门）；
+   ③ 会话列表只进不退——空帧不清列表、单行异常只跳过这一行，绝不再白屏；
+   ④ 服务端配套：空会话 online=True（cli_engine.make_snap）＋ 落地核对水位
+      不被空会话重置（host.snap，判据改成 msgs 非空）。 */
 /* 2.37（2026-11-13）：切会话零抖动——
    ① 按会话缓存真快照当「预备帧」：snapCache（内存）+ IndexedDB wbcli_turns/snaps（盘）；
    ② turnsSwitchTo 起手就装：有快照账立刻铺，没有才退回轮播账（真账优先）；
@@ -5340,7 +5510,21 @@ const APP_NAME = 'wb远程';
    ★原来切过去为什么会在上面：renderMsgs 的位置只按「上一屏的 savedTop / nearBottom」
      决定，而这两个值属于**上一个会话**——上一屏内容短（savedTop=0）或用户本来正在
      翻历史，切过去照抄旧偏移，就停在新会话的顶部。 */
-const VER = '2.39';   /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
+/* 2.41（2026-11-14，老板：「我们是活的，TRAE 是死的」「哪怕真实物理断网，我这边
+   该怎么操作就怎么操作」「你在一定的时间范围内重试把这些遥控指令发过去」）：
+   ① 拆掉「未连上中转就不许发」的死闸门（srvNeedOnline 恒 false）——二十多个按钮
+      不再因为断网被拦下；
+   ② 新增活体投递 outbox：报文没写进 WS 就排队（localStorage 持久，刷新也不丢），
+      每 1.5 秒试投一次，单条最长守 10 分钟，超时才如实报「请重做」；
+   ③ srvOpSend / srvOpSendJson 离线改「已记下·联网后自动发」，不再弹「命令未发出」；
+   ④ cmd() 的非消息命令离线同样入队（切换/停止/定时/排队都不作废）；
+   ⑤ 状态灯挂「· 待发 N 条」角标，让用户看得见还挂着几件事；
+   ⑥ 预备帧期间屏蔽 #plan/#pl/#q 指纹（S.snap 还是旧会话的图，会多画一帧）。
+   ★只兜「一个字都没发出去」这一段：foxSend 成功就绝不入队——否则重投会造成
+     重复建会话、重复发消息。不确定就不重发。 */
+const VER = '2.41';
+const _VER_240 = '2.40';   /* 2.40（2026-11-14）活着原则——删「未就绪」第三档、会话列表只进不退（见上段） */
+                      /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
                          ①主人守卫——renderTurnsLocal 开头比对 S.histConv 与目标会话
@@ -6875,6 +7059,9 @@ function renderLink(){
   el.rlink.textContent = '🌐' + txt;
   el.rlink.style.color = col;
   el.rlink.title = LINKDOC[txt] || '';       // 1.25：白话解释（长按可见）
+  /* 2.41：有待发命令就在状态灯后面挂个数——用户看得见「我点的事还挂着」，
+     不至于以为点了没反应。连上后 outboxFlush 会把它清零。 */
+  if (S.outN) el.rlink.textContent += ' · 待发 ' + S.outN + ' 条';
 }
 function srvSeen(){                    // 服务端来向消息：判活 + 即时刷新
   S.lastSrv = Date.now();
@@ -6882,6 +7069,10 @@ function srvSeen(){                    // 服务端来向消息：判活 + 即�
   renderLink();
 }
 setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
+/* 2.41 活体投递：开机把上次没送出的命令捡回来，之后每 1.5 秒试投一次
+   （foxReady 为假时 outboxFlush 直接返回，不烧 CPU、不刷屏）。 */
+outboxLoad(); outboxBadge();
+setInterval(outboxSweep, OUT_TICK);
 
 function renderPorts(){
   /* 1.89：顶栏「在线 x/y」已撤下，改为登录账号切换下拉；元素不存在时直接跳过。 */
@@ -6910,7 +7101,13 @@ function cmd(c, a, lockConv){
       renderAll();
       return;
     }
-    srvOpFlash('offline', srvOpsLabel(c), '命令未发出，稍后再试');
+    /* 2.41：非消息命令离线也不再丢——排队，连上自动补发（活体投递）。
+       老板：「断网了我该怎么操作就怎么操作」——切换/停止/定时都不许因为
+       "这会儿没网"就作废。 */
+    const dd = {t: 'cmd', c: c, a: a};
+    if (c === 'send'){ const cid = curConvId(); if (cid) dd.conv = cid; }
+    outboxPush(dd, srvOpsLabel(c));
+    srvOpFlash('queued', srvOpsLabel(c), '断网已入队，连上自动送出');
     renderAll();
     return;
   }
@@ -7104,7 +7301,9 @@ bindGrowBtn(el.urgent, () => {
 el.new.onclick = () => {         // 1.68：CLI 无目录可选、无输入区要「展开」——
   drawerClose();                 // 直接建新会话，不再绕「新建任务」弹窗页（少一页）
   if (srvNeedOnline('新建对话')) return;
-  if (!S.snap || !S.snap.online){ flash('⚠ WorkBuddy 未在线'); return; }
+  /* 2.40：这里原来还有一道 `!S.snap.online → 提示未在线` 的闸门，已删——
+     上面 srvNeedOnline 才是唯一正确的闸门（服务端可达即可建）。
+     再拿 snap.online 拦一道＝把"这个会话还没正文"误当成"软件死了"。 */
   S.verify = null;               // 新建即放弃上一轮的模型校验态
   S.new_conv_pends.push(Date.now());  // 2.13：每点一次压一个，供 switched 逐帧认领（保住各自的新快照）
   if (S.new_conv_pends.length > 8) S.new_conv_pends.shift();
@@ -7113,7 +7312,9 @@ el.new.onclick = () => {         // 1.68：CLI 无目录可选、无输入区要
 el.launch.onclick = () => {       // 1.07：拉起/重启当前目标（远程 boot
   drawerClose();                  // 本就先杀再拉——原在线时本地拦下，
   if (srvNeedOnline('拉起/重启')) return;   // WorkBuddy 卡死救不了）
-  const online = S.snap && S.snap.online;
+  /* 2.40：这句只看「当前会话有没有正文」来决定确认文案（重启 or 拉起），
+     与"软件活没活"无关——所以不许再读 snap.online 当生死。 */
+  const online = !!(S.snap && S.snap.msgs && S.snap.msgs.length);
   if (!confirm(online
     ? '要重启当前目标 ' + S.box + ' 的 WorkBuddy 吗？\n'
       + '（正在生成的任务会中断，重启后自动重连）'
