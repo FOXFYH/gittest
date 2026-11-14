@@ -304,6 +304,12 @@ function sendJson(d){
      login/hb 已显式带 nick，此处仅兜底其余帧（ctl/req/tts/chk/act/cmd/
      switch_box 等均经本函数）。 */
   if (d && typeof d === 'object' && d.nick === undefined) d.nick = nickGet();
+  /* 2.162（老板令）：**完全静默＝正常态，不算任何故障**。服务端本来就是
+     「变了才发」，页面安静不代表出问题。只有「我主动发了要回应的动作」
+     才开计时；20 秒没回音才判服务器有毛病（判据在 renderLink）。 */
+  if (d && (d.t === 'cmd' || d.t === 'req')){
+    S.waitT = Date.now(); S.waitN = 0; S.waitLast = 0;
+  }
   foxSend(JSON.stringify(d));
 }
 /* 1.88：10 位随机数字对话 ID——客户端发出的发送/插话自带一个
