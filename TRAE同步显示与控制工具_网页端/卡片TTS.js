@@ -404,11 +404,12 @@ function foxPlay(seg){
     if (_sent || !_tts_pend[id]) return;
     _sent = true;
     if (ttsRoute(id, seg, payload)){
-      ttsStage(seg, '任务已提交', 'var(--blue)');
+      ttsStage(seg, '任务已提交，等 TTS 接收…', 'var(--blue)');
       flash('🔈 任务已提交，等 TTS 接收…', 'var(--blue)');
     } else {
-      ttsStage(seg, '直连未就绪，30 秒内未连通将自动回落服务端…', 'var(--orange)');
-      flash('🔈 直连未就绪，稍后自动回落服务端…', 'var(--orange)');
+      /* 2.159：WS 没在线时别只写"未就绪"，直接说正在连——老板要知道当前在哪个阶段 */
+      ttsStage(seg, 'WS 链接中…（最多 30 秒，不通用服务端中转）', 'var(--orange)');
+      flash('🔈 WS 链接中…（最多 30 秒，不通用服务端中转）', 'var(--orange)');
     }
   };
   requestAnimationFrame(() => requestAnimationFrame(doSend));
