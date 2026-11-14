@@ -69,6 +69,9 @@ function ttsWatchdog(id){
     /* WS 已发但 30 秒无回执 → 串行改走服务端（仅此一次） */
     if (f.used) return;
     f.used = true; f.line = 'srv';
+    /* 2.159：切线路这一拍也要让人看见（否则 30 秒里像卡死） */
+    if (_tts_pend[id] && _tts_pend[id].seg)
+      ttsStage(_tts_pend[id].seg, 'WS 30 秒无回执，改走服务端中转…', 'var(--orange)');
     try { sendJson(ttsPayload(id)); } catch(e){}
     return;
   }
@@ -76,7 +79,7 @@ function ttsWatchdog(id){
   /* line===''（WS 一直没连上、还没真正发过）→ 优先补发 WS；还不行才服务端 */
   if (wsReady && ttsFoxSend(ttsPayload(id))){
     f.line = 'ws'; _ttsArmWatch(id);
-    ttsStage(_tts_pend[id].seg, '任务已提交', 'var(--blue)');
+    ttsStage(_tts_pend[id].seg, '任务已提交，等 TTS 接收…', 'var(--blue)');
     return;
   }
   f.used = true; f.line = 'srv';
@@ -162,7 +165,7 @@ function ttsFlushWait(){
     if (!_tts_pend[id]){ clearTimeout(f.wd); delete _tts_fb[id]; return; }
     if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
       f.line = 'ws'; _ttsArmWatch(id);
-      ttsStage(_tts_pend[id].seg, '任务已提交', 'var(--blue)');
+      ttsStage(_tts_pend[id].seg, '任务已提交，等 TTS 接收…', 'var(--blue)');
     }
   });
 }
@@ -205,26 +208,49 @@ function ttsOnMsg(msg){
   if (d.t !== 'tts_audio') return;
   const j = _tts_pend[d.id];
   if (!j) return;                        // 过期/不匹配（多端）忽略
-  const a = _tts_parts[d.id] || (_tts_parts[d.id] = {n: 0, total: 0, bin: ''});
+  const a = _tts_parts[d.id] || (_tts_parts[d.id] = {n: 0, total: 0, bin: '', bytes: 0});
   a.total = parseInt(d.total) || 1;
-  if (d.b64){ a.n++; a.bin += atob(d.b64); }   // 分片按**字节**拼，不能拼 base64
+  if (d.b64){
+    const piece = atob(d.b64);                 // 分片按**字节**拼，不能拼 base64
+    a.n++; a.bytes += piece.length; a.bin += piece;
+  }
+  /* 2.159：接收是本地被动的，收到第几片必须一片一片写出来（老板 2026-11-14：
+     「本地接收到了几个，也该展示出这个过程」），免得一片片到达时页面毫无动静。 */
   if (a.n >= a.total){
     const bin = a.bin;
     delete _tts_parts[d.id];
     ttsDeliver(d.id, bin);
   } else {
-    ttsStage(j.seg, '正在接收音频 ' + a.n + '/' + a.total + '…', 'var(--blue)');
+    ttsStage(j.seg, '正在接收音频 ' + a.n + '/' + a.total + '（' + _ttsKb(a.bytes) + '）…', 'var(--blue)');
   }
 }
+function _ttsKb(n){
+  n = parseInt(n) || 0;
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1024).toFixed(1) + ' KB';
+}
+function ttsAckText(d){
+  /* 2.159（老板 2026-11-14）：阶段回执五拍，与 TTS 服务端 1.08 同一套协议。
+     ★ 这段文案与 WB 网页端 wbcli.html 的 ttsAckText 必须逐字一致（两端一视同仁）。 */
+  switch (d.st){
+    case 'recv':  return 'TTS 已收到任务（' + (parseInt(d.chars) || 0) + ' 字），排队中…';
+    case 'conv':  return '已接收任务，正在转码…';
+    case 'cache': return '命中缓存（' + _ttsKb(d.bytes) + '），准备传输…';
+    case 'ready': return '转码完成（' + _ttsKb(d.bytes) + '，耗时 ' + ((parseInt(d.ms) || 0) / 1000).toFixed(1) + ' 秒），准备传输…';
+    case 'send':  return '开始传输，共 ' + (parseInt(d.total) || 1) + ' 片…';
+    case 'done':  return '传输完成';
+  }
+  return '';
+}
 function onTtsAck(d){
-  /* TTS 阶段回执——recv=已收到并受理、conv=引擎已开始合成 */
+  /* TTS 阶段回执——recv=已收到并受理 / conv=开始转码 / cache=命中缓存 /
+     ready=转码完成可传输 / send=开始传输 / done=全部发完（1.08 服务端） */
   const j = _tts_pend[d.id];
   if (!j) return;
   /* 2.78：任一路收到回执＝该路活着 → 撤掉 30 秒看门狗，绝不再切另一条（不重复干活） */
   const f = _tts_fb[d.id];
   if (f && f.wd){ clearTimeout(f.wd); f.wd = null; }
-  const conv = (d.st === 'conv');
-  const txt = conv ? 'TTS 引擎正在转换…' : 'TTS 已收到，引擎正在转换…';
+  const txt = ttsAckText(d);
+  if (!txt) return;
   ttsStage(j.seg, txt, 'var(--blue)');
   flash('🔈 ' + txt, 'var(--blue)');
 }
