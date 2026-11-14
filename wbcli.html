@@ -3421,10 +3421,15 @@ function drawerOpen(){
 function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remove('on'); }
 
 function renderConvs(rows, conv_unread){
+  /* 2.42：先把畸形行剔掉再算指纹——旧写法直接 `rows.map(r => r.join('|'))`，
+     服务端只要发来一条 null/非数组（切换瞬间的空壳行、旧版本残留）就当场抛异常，
+     整帧渲染中断、列表停在上一帧甚至被前一帧清空后的空白状态。这是"白屏"
+     的第二条来路（第一条是 innerHTML='' 的中间帧）。 */
+  rows = (Array.isArray(rows) ? rows : []).filter(r => Array.isArray(r));
   /* 2.40：空帧不清列表——老板「切换会话后会话列表都是白屏」。服务端任何一拍
      没带上会话表（骨架快照/切会话瞬间/上游异常），都不许把已经画好的列表抹掉：
      有旧内容就保留上一帧直接返回，等下一拍带表再来。 */
-  if (!Array.isArray(rows) || !rows.length){
+  if (!rows.length){
     if (el.convs && el.convs.children.length) return;   /* 有货就留着 */
   }
   /* v1.50：conv_unread=服务端快照顶层可选字段「完成-未查看」的**会话 sid 列表**
@@ -3459,8 +3464,14 @@ function renderConvs(rows, conv_unread){
     }
   }catch(e){}
   if (key === S.convs_key) return;
-  S.convs_key = key;
-  el.convs.innerHTML = '';
+  /* 2.42（老板：「在最新的会话列表来之前，旧的就要保持可用」「它应该永远不会变成
+     纯白色」）：**不再先清空再逐行往可见 DOM 里塞**。
+     旧写法 `el.convs.innerHTML=''` + 循环 appendChild ＝ 清空那一刻列表就是白的，
+     手机上一个几十行的列表逐行 append 要好几帧，用户就看到整片白（若中途抛异常
+     还会永久停白）。现在改为在 DocumentFragment 里离线建完整张表，**一次原子换页**
+     —— 要么还是旧列表，要么已经整张新列表，中间不存在"空的"那一帧。 */
+  const _oldTop = el.convs ? el.convs.scrollTop : 0;
+  const frag = document.createDocumentFragment();
   let inFolder = false, idx = 0;
   /* 1.31：按位取值（兼容旧 4 元组）——r[4]=状态灯 run/done/fail/stop/'' */
   for (const r of rows){
@@ -3495,7 +3506,7 @@ function renderConvs(rows, conv_unread){
       d.onclick = () => {              /* 1.09：折叠/展开也要有反馈（2.14 统一四级） */
         srvOpSend('toggle_folder', title, '折叠/展开文件夹');
       };
-      el.convs.appendChild(d);
+      frag.appendChild(d);
       inFolder = true;
     } else {
       const d = document.createElement('div');
@@ -3555,11 +3566,25 @@ function renderConvs(rows, conv_unread){
           drawerClose();
         }
       };
-      el.convs.appendChild(d);
+      frag.appendChild(d);
       idx++;
     }
     }catch(e){ console.warn('[renderConvs] 跳过异常行', r, e); }
   }
+  /* 一行都没建出来（数据全畸形 / DOM 被外部清过）：保留旧列表，撤回指纹让
+     下一帧重试——**宁可显示上一帧的旧列表，也绝不给用户看一片白**。 */
+  if (!frag.childNodes.length){
+    S.convs_key = null;
+    return;
+  }
+  if (typeof el.convs.replaceChildren === 'function'){
+    el.convs.replaceChildren(frag);     /* 2.42：原子换页，中间不存在空容器 */
+  } else {
+    el.convs.innerHTML = '';
+    el.convs.appendChild(frag);         /* 老内核兜底（只有这条路径会闪一瞬） */
+  }
+  if (_oldTop) el.convs.scrollTop = _oldTop;   /* 别把用户正在看的位置甩回顶部 */
+  S.convs_key = key;
 }
 
 /* 1.25：会话操作菜单（长按会话行弹出）。本期实现「重命名」——
@@ -5529,8 +5554,16 @@ const APP_NAME = 'wb远程';
    ⑥ 预备帧期间屏蔽 #plan/#pl/#q 指纹（S.snap 还是旧会话的图，会多画一帧）。
    ★只兜「一个字都没发出去」这一段：foxSend 成功就绝不入队——否则重投会造成
      重复建会话、重复发消息。不确定就不重发。 */
-const VER = '2.41';
-const _VER_240 = '2.40';   /* 2.40（2026-11-14）活着原则——删「未就绪」第三档、会话列表只进不退（见上段） */
+/* 2.42（2026-11-14，老板：「那个会话列表还是会变成纯白色的，它应该永远不会变成
+   纯白色。在最新的会话列表来之前，旧的就要保持可用」）：
+   ★真凶不是"收到空帧"，而是 renderConvs 自己：旧写法 `el.convs.innerHTML=''`
+     紧跟逐行 appendChild——**清空那一刻列表就是白的**，几十行逐行 append 要好几帧，
+     手机慢网下这几帧被用户看得清清楚楚；中途任何异常还会永久停白。
+   改法：整张表在 DocumentFragment 里离线建完，最后 `replaceChildren(frag)` **一次
+   原子换页**——任何一帧要么是完整旧列表，要么是完整新列表，中间不存在"空的"。
+   一行都没建出来时直接放弃这帧（撤指纹、保留旧列表），绝不换成空表；换页后
+   还原 scrollTop，不把用户正看的位置甩回顶部。 */
+const VER = '2.42';
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
