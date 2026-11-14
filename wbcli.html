@@ -3906,7 +3906,9 @@ function pendAdd(kind, text, rid, convSid){
 }
 
 /* 1.63：WS 失联自动重发——每 10 秒重试一次，最多 6 次（用户 09-29 定）。 */
-const WS_RETRY_MS = 10000, WS_RETRY_MAX = 6;
+/* 2.41：6 次/60 秒太短——老板「断网了我该怎么操作就怎么操作」。改成跟 outbox
+   同一个时间窗（10 分钟）：这期间网络一恢复就自动发出，不再 60 秒就判未确认。 */
+const WS_RETRY_MS = 10000, WS_RETRY_MAX = 60;
 
 /* 1.63：WS 不可用时把这条消息挂成「重试中」并起定时器：
    每 WS_RETRY_MS 试发一次；WS 一恢复真的发出去 → 回默认态（已发送，等回应）；
@@ -3943,8 +3945,9 @@ function wsRetry(p, c, a, n){
 
 function pendStat(p){
   if (p.state === 'typed')   return ['已输入 WorkBuddy…', ''];
-  if (p.state === 'wsretry') return ['WS 失联重试中（' + (p.wsTry || 1)
-                                    + '/' + WS_RETRY_MAX + '）', 'bad'];
+  /* 2.41：不再报「N/6 次」这种像要失败的口径——那条消息已经记下了，
+     网络一回来就自动发出（outbox 同为 10 分钟窗）。 */
+  if (p.state === 'wsretry') return ['已记下·联网后自动发出', 'ok'];
   if (p.state === 'queued')  return ['已排队，等待 AI 处理…', 'ok'];
   if (p.state === 'sent')    return ['已发出，等待同步…', 'ok'];
   /* 2.17 P26-3：排队条放行后用原 rid 重挂的「发射中/待落地」卡 */
@@ -7095,8 +7098,9 @@ function cmd(c, a, lockConv){
     if (isMsg){
       const p = pendAdd(c, a, null, lockConv);
       if (p){ outRidNote(p); wsRetry(p, c, a, 1); }   /* 2.16：离线重试也登记 rid→回执 */
-      /* 2.14 第①级：WS 不在线一律「WS 连接中」，并如实说明命令未发出 */
-      srvOpFlash('offline', srvOpsLabel(c), '命令未发出，正在重试发送');
+      /* 2.41：口径改成「已记下·联网后自动发」——消息已经在重试队列里了，
+         不该再吓人说"命令未发出"（老板：「我们都是活的」）。 */
+      srvOpFlash('queued', srvOpsLabel(c), '断网已记下，连上自动送出');
       el.ent.value = '';
       renderAll();
       return;
