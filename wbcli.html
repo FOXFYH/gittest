@@ -1178,6 +1178,12 @@ const S = {
   /* 2026-11-13 老板「切到哪个会话就立刻展示它的轮播账」：turnsCache 按会话 sid
      缓存内存里已有的账——切回来时不必等 IndexedDB 读盘，先铺满再校正。 */
   turnsCache: {},
+  /* 2.37（老板：最新轮次已缓存到本地时，直播画面来了也要一模一样、画面不抖）：
+     按会话缓存「最新真快照的 msgs」——切会话先把这份账铺出来，它和直播走同一个
+     renderMsgs，指纹一致时连重画都不会发生 ⇒ 零抖动。
+     prep*=正在显示的预备帧（prepSid=它属于哪个会话）；snapCache=内存快照账。 */
+  prepMsgs: null, prepSid: '', prepIdle: true, prepFinish: null,
+  snapCache: {},
   qopen: {},                         /* 1.67：托管排队条「展开全文」态（键=条目 id） */
   pend_head: 100,                    /* 1.23 遗留：确认匹配字数（1.63 起已不再用于比对，
                                        仅保留字段兼容 hello/pendcfg 握手） */
@@ -2660,8 +2666,12 @@ function idbKey(sid){ return srvKey() + '|' + sid; }
 function idbOpen(){
   return new Promise(res => {
     try{
-      const rq = indexedDB.open('wbcli_turns', 1);
-      rq.onupgradeneeded = () => { rq.result.createObjectStore('conv'); };
+      const rq = indexedDB.open('wbcli_turns', 2);
+      rq.onupgradeneeded = () => {
+        const db = rq.result;
+        if (!db.objectStoreNames.contains('conv')) db.createObjectStore('conv');
+        if (!db.objectStoreNames.contains('snaps')) db.createObjectStore('snaps');
+      };
       rq.onsuccess = () => res(rq.result);
       rq.onerror = () => res(null);
     }catch(e){ res(null); }
@@ -2703,6 +2713,53 @@ async function idbSaveTurns(sid, turns){
     const tx = db.transaction('conv', 'readwrite');
     tx.objectStore('conv').put({turns: turns, srv: srvKey(), sid: String(sid)}, idbKey(sid));
   }catch(e){}
+}
+/* ===== 2.37 快照账（切会话的预备帧）===== */
+const SNAP_KEEP = 30;        /* 最多留 30 个会话的快照账 */
+const SNAP_MSGS_MAX = 400;   /* 单会话最多留 400 条，防爆 */
+let _snapSaveT = {};
+function snapTrim(){
+  const ks = Object.keys(S.snapCache || {});
+  if (ks.length <= SNAP_KEEP) return;
+  ks.sort((a, b) => ((S.snapCache[a] || {}).ts | 0) - ((S.snapCache[b] || {}).ts | 0));
+  for (let i = 0; i < ks.length - SNAP_KEEP; i++) delete S.snapCache[ks[i]];
+}
+async function idbSaveSnap(sid, rec){
+  const db = await idbOpen();
+  if (!db || !rec) return;
+  try{
+    const tx = db.transaction('snaps', 'readwrite');
+    tx.objectStore('snaps').put({msgs: rec.msgs, idle: rec.idle !== false,
+                                 finish: rec.finish || null, ts: rec.ts || Date.now()}, idbKey(sid));
+  }catch(e){}
+}
+async function idbLoadSnap(sid){
+  const db = await idbOpen();
+  if (!db) return null;
+  return new Promise(res => {
+    try{
+      const rq = db.transaction('snaps').objectStore('snaps').get(idbKey(sid));
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror = () => res(null);
+    }catch(e){ res(null); }
+  });
+}
+/* 每拍真快照落地就记一份（内存立刻，盘上 400ms 防写爆；生成刚结束则立刻落盘） */
+function snapCacheTouch(snap){
+  if (!snap || !Array.isArray(snap.msgs) || !snap.msgs.length) return;
+  const sid = String(snap.title || '');
+  if (!sid) return;
+  const prev = S.snapCache[sid];
+  const msgs = snap.msgs.slice(-SNAP_MSGS_MAX);
+  const idle = (snap.sendIdle !== false);
+  const rec = {msgs: msgs, idle: idle, finish: snap.finish || null, ts: Date.now()};
+  S.snapCache[sid] = rec;
+  snapTrim();
+  const k = idbKey(sid);
+  if (_snapSaveT[k]){ clearTimeout(_snapSaveT[k]); _snapSaveT[k] = 0; }
+  const justDone = prev && prev.idle === false && idle === true;   /* 本轮刚答完：赶紧记录 */
+  if (justDone){ idbSaveSnap(sid, rec); return; }
+  _snapSaveT[k] = setTimeout(() => { _snapSaveT[k] = 0; idbSaveSnap(sid, rec); }, 400);
 }
 /* 2026-11-13 老板「账先上」：落账＝IndexedDB + 内存缓存双写。
    缓存（S.turnsCache）给「切回这个会话时同步铺满」用——读盘总要几十毫秒，
@@ -4081,6 +4138,26 @@ function turnsSwitchTo(sid){
      若按「有 msgs 就交接」判，旧内容那一帧就把标记吃掉了，等真直播到场
      反而不吸底（CDP 实测踩到）。记下目标 sid，等 snap.title 对上才交接。 */
   S.pendBottomSid = sid;
+  /* 2.38：切换起手这 3 秒也钉在底部——在途帧（轮播账/加载条）不许把人留在上面 */
+  S.pinUntil = Date.now() + 3000;
+  S.pinSid = sid;
+  /* 2.37：先看有没有这个会话的真快照账——有就立刻铺它（和直播同一套渲染，零抖动）；
+     没有才退回轮播账兜底。内存没有就问 IndexedDB，回来时若目标还没等到直播才补上。 */
+  const _sc = (S.snapCache && S.snapCache[sid]) ? S.snapCache[sid] : null;
+  if (_sc && Array.isArray(_sc.msgs) && _sc.msgs.length){
+    S.prepMsgs = _sc.msgs; S.prepSid = sid;
+    S.prepIdle = (_sc.idle !== false); S.prepFinish = _sc.finish || null;
+  } else {
+    S.prepMsgs = null; S.prepSid = ''; S.prepIdle = true; S.prepFinish = null;
+    idbLoadSnap(sid).then(rec => {
+      if (S.histConv !== sid || !rec || !Array.isArray(rec.msgs) || !rec.msgs.length) return;
+      const sn = S.snap || {};
+      if (sn._hasMsgs && String(sn.title || '') === String(sid)) return;   /* 直播已到 */
+      S.prepMsgs = rec.msgs; S.prepSid = sid;
+      S.prepIdle = (rec.idle !== false); S.prepFinish = rec.finish || null;
+      renderAll();
+    });
+  }
   const c = (S.turnsCache && S.turnsCache[sid]) ? S.turnsCache[sid].slice() : [];
   S.histConv = sid;
   S.curTurn = null; S.turnWait = {};
@@ -4174,6 +4251,32 @@ function msgKey(m){
 }
 function renderMsgs(msgs, finish, opts, ask){
   opts = opts || [];
+  /* 2.37：预备帧判定——目标会话的真快照还没到，就先拿本地账顶上。
+     直播一到（snap 带真正文且 title 对上）预备帧自动退场。 */
+  const _sidNow = String((S.snap && S.snap.title) || '');
+  /* 2.38（老板 2026-11-14）：「切换会话默认就是来到最底下，不用滚动。」
+     ——**会话一变就吸底**，不问这次切换是谁发起的：本机点、电脑端切、
+     另一台手机切、断线重连后换图，只要这一帧画的是另一个会话，就把视野
+     按到最新一条，并保持 1.5 秒（防字体/布局回流把底又顶高）。 */
+  if (_sidNow && _sidNow !== S.paintSid){
+    S.paintSid = _sidNow;
+    S.pinUntil = Date.now() + 1500;
+    S.pinSid = _sidNow;
+  }
+  const _liveOn = !!(S.snap && S.snap._hasMsgs && S.prepSid
+                     && _sidNow === String(S.prepSid));
+  const prepOn = !!(S.prepMsgs && S.prepSid && !_liveOn);
+  if (prepOn){
+    msgs = S.prepMsgs; finish = S.prepFinish; opts = []; ask = null;
+  } else if (_liveOn && S.prepMsgs){
+    S.prepMsgs = null; S.prepSid = '';        /* 预备帧功成身退（DOM 已经一模一样） */
+  }
+  /* 生成中标记：预备帧按它记账时的状态（已结束的会话就是 true） */
+  const genOn = prepOn ? (S.prepIdle === false)
+                       : !!(S.snap && S.snap.sendIdle === false);
+  /* 这一帧是不是在画轮播账（只有画账时才需要账的指纹） */
+  const ledgerMode = !prepOn && (!msgs.length || S.switch_pend || S.loadingConv)
+                     && !S.pending.length;
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
      与 opts（选项卡答完即销毁）；F1：消息文本指纹哈希化 */
   let key = 'n' + msgs.length + '#'              // F1：条数显式进 key（增删必重画）
@@ -4185,8 +4288,8 @@ function renderMsgs(msgs, finish, opts, ask){
   key += '#opt:' + opts.map(o => o.t).join('|');
   /* 1.09：待确认占位 + 切换在途条参与指纹（状态推进/撤下要重画） */
   key += '#pend:' + pendSig()
-       + (S.switch_pend ? '#sw:' + S.switch_pend.title : '')
-       + (S.loadingConv ? '#ld:' + S.loadingConv.title : '')
+       + (prepOn ? '' : ('#sw:' + (S.switch_pend ? S.switch_pend.title : '')
+                        + '#ld:' + (S.loadingConv ? S.loadingConv.title : '')))
        + '#plan:' + ((S.snap && S.snap.plan) || '').slice(0, 80)
        /* 2.86：本轮思考段列表也要进重画指纹——段数/各段长度/末段末 12 字。
           只看 plan 的前 80 字不够：模板化思考开头常常一样，最后一块会被
@@ -4196,7 +4299,7 @@ function renderMsgs(msgs, finish, opts, ask){
                        return x.length + ':' + x.slice(-12); }).join('|') : '')
        /* 2.35：生成中 ⇄ 已定稿 必须进指纹——否则这一轮刚答完时 key 没变、
           被早退吃掉，屏幕上那堆思维卡片停在全展开状态，永远折不回去。 */
-       + '#il:' + ((S.snap && S.snap.sendIdle === false) ? 1 : 0)
+       + '#il:' + (genOn ? 1 : 0)
        + '#more:' + (S.loadingMore ? 1 : 0)
        + '#moref:' + (S.loadMoreFail ? 1 : 0)    /* 1.69：报掉线时也要重画横幅 */
        /* 1.57：折叠条展开/收起参与指纹（否则展开后不重画） */
@@ -4211,8 +4314,17 @@ function renderMsgs(msgs, finish, opts, ask){
            .join(',') : '')
        /* 2026-11-13 老板「账先上」：本地轮播账的内容也要进指纹——账变了但 snap
           正文没变时，不加这段就会被上面的早退吃掉、屏幕一直停在旧账上。 */
-       + '#tm:' + S.turns.length + ':' + (S.curTurn ? (S.curTurn.uid + ':' + S.curTurn.thinks.length) : '');
-  if (key === S.msgs_key) return;
+       + (ledgerMode ? ('#tm:' + S.turns.length + ':' + (S.curTurn ? (S.curTurn.uid + ':' + S.curTurn.thinks.length) : '')) : '');
+  if (key === S.msgs_key){
+    /* 2.38：指纹一致＝零重画，但「吸底」不能跟着跳过——预备帧与直播帧内容
+       完全一样时，这里以前把吸底标记直接吃掉却**没有滚动**，屏幕就停在上面。 */
+    if (pinOn()) fprog(el.msgs.scrollHeight);
+    if (S.pendBottom && Date.now() < S.pendBottom && S.pendBottomSid
+        && _sidNow && _sidNow === String(S.pendBottomSid)){
+      S.pendBottom = 0; S.pendBottomSid = '';
+    }
+    return;
+  }
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
      1.20：非全屏时若用户已上翻找历史（未近底）同样保位置——快照
@@ -4228,26 +4340,29 @@ function renderMsgs(msgs, finish, opts, ask){
      不要给我展示空白的」——切换在途（switch_pend）/已确认未到图（loadingConv）
      时也先把轮播账铺满，然后再把「切换中…」提示条追加到末尾（提示保留、不占屏）。 */
   let turnsPainted = false;
-  if ((empty || S.switch_pend || S.loadingConv) && !S.pending.length)
+  if (!prepOn && (empty || S.switch_pend || S.loadingConv) && !S.pending.length)
     turnsPainted = renderTurnsLocal();
   if (!turnsPainted && empty && !S.pending.length && !S.switch_pend && !S.loadingConv){
     el.msgs.innerHTML =
       '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
   }
-  if (S.switch_pend){                    // 1.09：切换在途提示条
+  if (!prepOn && S.switch_pend){                    // 1.09：切换在途提示条
     const sw = document.createElement('div');
     sw.className = 'switching';
     sw.textContent = switchTipTxt(S.switch_pend);   /* 1.82：分档文案 */
     el.msgs.appendChild(sw);
-  } else if (S.loadingConv){             // 1.28：switched 已确认、snap 未到
+  } else if (!prepOn && S.loadingConv){             // 1.28：switched 已确认、snap 未到
     const ld = document.createElement('div');
     ld.className = 'switching';
     ld.textContent = '正在加载「' + (S.loadingConv.disp || '新会话') + '」…';
     el.msgs.appendChild(ld);
   }
   /* 账已铺满且正在切换：提示条追加完就收工——别再把这个会话的旧消息叠在账下面 */
-  if (turnsPainted && (S.switch_pend || S.loadingConv)){ renderPending(); return; }
+  if (turnsPainted && (S.switch_pend || S.loadingConv)){
+    if (pinOn()) fprog(el.msgs.scrollHeight);   /* 2.38：切换在途这一帧也要在底部 */
+    renderPending(); return;
+  }
   if (S.loadingMore){                    // 分页窗口：向上补拉老历史在途
     const lmdiv = document.createElement('div');
     lmdiv.className = 'loadmore' + (S.loadMoreFail ? ' fail' : (S.loadMoreEnd ? ' end' : ''));
@@ -4308,7 +4423,7 @@ function renderMsgs(msgs, finish, opts, ask){
        ★2.34 及以前这里的条件是 lastAgent>lastUserI，可它「一问一答收尾后」照样成立，
          于是最新那一轮永远铺开——这就是老板看到的「折叠怎么没了」。 */
     if (!user && i === lastAgent && lastAgent > lastUserI
-        && S.snap && S.snap.sendIdle === false) think = thinkBlocksHtml();
+        && genOn) think = thinkBlocksHtml();
     /* 2.09：其余轮（往上翻看到的历史轮）只挂一颗「💭 思维卡片 ×N」按钮，
        点开才向服务端现取全文——老板要的「往上一翻，一问一答中间夹个按钮」。 */
     else if (!user) think = histThinkHtml(m, i, msgs);
@@ -4543,7 +4658,7 @@ function renderMsgs(msgs, finish, opts, ask){
      得给我拉到最底部。」——切换起手（turnsSwitchTo 置 S.pendBottom，30 秒自失效）
      到第一帧真·直播画面落地之间，所有重画一律吸底；直播这帧画完就撤标记，之后
      回到原来的「近底跟底 / 翻历史保位」规则，绝不跟用户抢滚动。 */
-  if (S.pendBottom && Date.now() < S.pendBottom){
+  if (pinOn() || (S.pendBottom && Date.now() < S.pendBottom)){
     fprog(el.msgs.scrollHeight);
     /* 直播已接手＝这一帧画的是**目标会话**的真消息（snap.title 对上才认） */
     if (!turnsPainted && msgs.length
@@ -4574,6 +4689,17 @@ var fLockUntil = 0;                 // 程序滚动/进出全屏后的静默截�
 function fprog(to){                 // 程序化滚动：静默期内不参与判定
   fLockUntil = Date.now() + 450;
   el.msgs.scrollTop = to;
+}
+/* 2.38：吸底钉——切会话后 1.5~3 秒内，内容还在长高（字体重排/卡片晚到）就跟着
+   贴底；用户一反手上翻立即放手，绝不跟人抢滚动。 */
+function pinOn(){ return !!(S.pinUntil && Date.now() < S.pinUntil); }
+function pinCancel(){ S.pinUntil = 0; S.pinSid = ''; }
+if (window.MutationObserver){
+  try {
+    new MutationObserver(function(){
+      if (pinOn()) fprog(el.msgs.scrollHeight);
+    }).observe(el.msgs, {childList: true, subtree: true});
+  } catch(e){}
 }
 /* 1.21：点输入框 → 手机键盘弹出 → 窗口 resize，#msgs 可视高度骤缩
    使距底距离瞬间超过进入门槛 → 被误判「在找历史」进了全屏、输入行
@@ -4610,6 +4736,12 @@ function exitFmsg(){
 }
 el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
+  /* 2.38：吸底钉期间用户主动上翻（离底 >48px）→ 立刻放手。
+     程序自己滚到底时 dist≈0，不会误判成「人在翻历史」。 */
+  if (pinOn()){
+    const d0 = el.msgs.scrollHeight - el.msgs.scrollTop - el.msgs.clientHeight;
+    if (d0 > 48) pinCancel();
+  }
   if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
   cliTouch();                               // 1.64：翻对话记录＝人工操作（续登录+上报）
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
@@ -5129,6 +5261,19 @@ const APP_NAME = 'wb远程';
    ③ 在生成的那一轮默认全展开（S.thinkOpen 改三态 null=自动），点表头仍可收起；
    ④ sendIdle 进重画指纹——刚答完那一刻必须重画，否则停在展开态折不回去；
    ⑤ 本地轮播账同口径：只有未完成的当轮才铺开卡流。 */
+/* 2.37（2026-11-13）：切会话零抖动——
+   ① 按会话缓存真快照当「预备帧」：snapCache（内存）+ IndexedDB wbcli_turns/snaps（盘）；
+   ② turnsSwitchTo 起手就装：有快照账立刻铺，没有才退回轮播账（真账优先）；
+   ③ 预备帧走的是同一个 renderMsgs，直播到达时指纹一致 ⇒ 连重画都不发生；
+   ④ 生成刚结束（idle false→true）那一拍立刻落盘＝最新轮次赶紧记录，否则盘上还是旧的；
+   ⑤ 预备帧显示期间不画轮播账、不压「正在加载」条（内容已是真账，再压一条就是多余）。 */
+/* 2.38（2026-11-14，老板：切会话每次还得从头往下翻）：
+   ① 不再只认「本机点的切换」——renderMsgs 里比对 S.paintSid，**会话一变就吸底**
+      （电脑端切、另一台手机切、断线重连换图都算），并保持 1.5 秒；
+   ② 两条早退路径（指纹一致 / 切换在途只画轮播账）以前直接 return，把吸底标记
+      吃掉却不滚动——现在早退前也滚到底；
+   ③ MutationObserver 在吸底窗口内跟着内容长高贴底（字体重排/卡片晚到）；
+   ④ 用户一反手上翻（离底>48px）立即放手，不跟人抢滚动。 */
 /* 2.36（2026-11-13）：切会话自动吸底——
    ① turnsSwitchTo 置 S.pendBottom＝now+30s（自带失效，怕直播永远不来把用户锁死在底部）；
    ② renderMsgs 尾部见到它就 fprog(scrollHeight)＝一律吸底：轮播账、切换条、直播首帧都算；
@@ -5137,7 +5282,7 @@ const APP_NAME = 'wb远程';
    ★原来切过去为什么会在上面：renderMsgs 的位置只按「上一屏的 savedTop / nearBottom」
      决定，而这两个值属于**上一个会话**——上一屏内容短（savedTop=0）或用户本来正在
      翻历史，切过去照抄旧偏移，就停在新会话的顶部。 */
-const VER = '2.36';   /* 2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
+const VER = '2.38';   /* 2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
                          2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
                          ①主人守卫——renderTurnsLocal 开头比对 S.histConv 与目标会话
                          （switch_pend/loadingConv 的目标，否则当前激活会话），对不上一条都不画；
@@ -5941,11 +6086,13 @@ function onEv(kind, v){
       /* 1.78：本拍是否真带正文——撤占位卡只认「带正文且已落地」的快照
          （见 pendReconcile；骨架快照无 msgs，不可据此撤卡）。 */
       const hasMsgs = ('msgs' in v);
+      v._hasMsgs = hasMsgs;        /* 2.37：骨架快照不算真正文（骨架会把旧正文抄过来） */
       /* 1.xx：骨架快照（登录连上先发框架、无 msgs）→ 用旧正文兜底，
          不闪空；带 msgs 的下一拍正常快照到达后自然补齐。 */
       if (!hasMsgs && S.snap && Array.isArray(S.snap.msgs))
         v.msgs = S.snap.msgs;
       S.snap = v;
+      if (hasMsgs) snapCacheTouch(v);   /* 2.37：最新轮次赶紧记录（内存 + 盘） */
       srvOpSnapDone();       /* 2.14：快照刷新＝业务成功信号 → 静默收口在途动作 */
       /* 分页窗口元数据随快照更新：游标（翻页基准）、窗口前的「我」条数
          （回退/删除全局下标）、能否再翻。窗口推进触发的重锚在 renderAll
@@ -7506,7 +7653,7 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   }
   function openAll(){
     return new Promise(function(res){
-      var rq = indexedDB.open('wbcli_turns', 1);
+      var rq = indexedDB.open('wbcli_turns', 2);   /* 2.37：跟着主库升到 2，否则低版本打开会 VersionError */
       rq.onsuccess = function(){
         var db = rq.result, out = [];
         try{
