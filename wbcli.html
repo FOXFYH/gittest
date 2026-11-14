@@ -4531,6 +4531,36 @@ function renderMsgs(msgs, finish, opts, ask){
   const savedTop = el.msgs.scrollTop;
   const nearBottom = el.msgs.scrollHeight - savedTop
       - el.msgs.clientHeight < 200;
+  /* 2.43（老板 2026-11-14：「切换一个会话，显示切换成功以后，会话列表就变成纯白色，
+     一个都看不到，只显示正在加载」）——切换在途、目标会话的真内容还没到、本地也没有
+     它的账时，**绝不清屏**：上一屏原样留着，末尾挂一条加载提示，等目标的第一帧内容
+     到达再整屏换掉。CDP 实测旧版这段空白持续约 1.6 秒（慢网更久），用户看到的就是
+     「你把我的东西丢了」。超 12 秒仍无内容才让空态出现（防服务端不回时永远停在旧屏）。 */
+  const _holdOld = !prepOn && !msgs.length && !S.pending.length
+      && (S.switch_pend || S.loadingConv)
+      && el.msgs.childElementCount > 0
+      && !(S.turns && S.turns.length);
+  if (_holdOld){
+    if (!S.holdFrom) S.holdFrom = Date.now();
+    if (Date.now() - S.holdFrom < 12000){
+      let bar = document.getElementById('swhold');
+      if (!bar){
+        bar = document.createElement('div');
+        bar.id = 'swhold';
+        bar.className = 'switching';
+        bar.style.position = 'sticky';
+        bar.style.bottom = '0';
+        el.msgs.appendChild(bar);
+      }
+      const _t2 = '正在加载「' + ((S.switch_pend && S.switch_pend.disp)
+                    || (S.loadingConv && S.loadingConv.disp) || '新会话')
+                    + '」…（先保留上一个会话的画面）';
+      if (bar.textContent !== _t2) bar.textContent = _t2;
+      if (pinOn() || stickOn()) fprog(el.msgs.scrollHeight);
+      return;
+    }
+  }
+  S.holdFrom = 0;
   el.msgs.innerHTML = '';
   const empty = !msgs.length && !opts.length;
   /* 2026-11-13 老板：「当我切换到一个会话的时候，立即展示它的轮播账……
@@ -4899,46 +4929,66 @@ function pinCancel(){ S.pinUntil = 0; S.pinSid = ''; }
        ① 用户真上翻（手指/滚轮动作之后离底 >48px）
        ② 60 秒兜底超时（极慢网也不至于一直跟）
    与「翻历史保位」不冲突：用户一动手就退出粘底，位置归用户。 */
-var _stickT = 0, _userMark = 0, _stickSH = 0;
+var _stickT = 0, _userMark = 0, _stickSH = 0, _stickT0 = 0;
 function stickBegin(sid, ms){
   S.stickUntil = Date.now() + (ms || 60000);
   S.stickSid = String(sid || '');
-  _stickSH = 0;
+  S.stickHold = 0;                     /* 2.43：新一次切换＝重新允许贴底 */
+  _stickSH = 0; _stickT0 = Date.now();
   if (!_stickT) _stickT = setInterval(_stickTick, 100);
   _stickTick();
 }
-function stickOn(){ return !!(S.stickUntil && Date.now() < S.stickUntil); }
+function stickOn(){
+  return !!(S.stickUntil && Date.now() < S.stickUntil && !S.stickHold);
+}
 function stickEnd(){
-  S.stickUntil = 0; S.stickSid = '';
+  S.stickUntil = 0; S.stickSid = ''; S.stickHold = 0;
   if (_stickT){ clearInterval(_stickT); _stickT = 0; }
 }
 function _stickTick(){
-  if (!stickOn()){ stickEnd(); return; }
+  if (!S.stickUntil || Date.now() >= S.stickUntil){ stickEnd(); return; }
   var m = el.msgs;
   var sh = m.scrollHeight;
   var dist = sh - m.scrollTop - m.clientHeight;
-  /* 内容长高（图片/卡片/字体/晚到快照把页面顶高）≠ 人在翻历史：
-     只有「高度没变、位置却离底 >48px」才是人把页面拖上去了 → 放手。 */
   var grew = sh > _stickSH + 2;
   _stickSH = sh;
-  if (dist > 48 && !grew && _userMark && Date.now() - _userMark < 2000){
-    stickEnd(); return;
+  /* 2.43（老板 2026-11-14：「我打字的时候，那些历史网页就拼命抖动」）：
+     ①**用户接管就一直是用户的**——本次粘底开始后只要出现过真实手势、且已离底
+       >48px，就置 stickHold 长期放手，只有他自己滚回底部 48px 内才重新贴。
+       旧写法用「手势 2 秒内」做判据：手指离开/惯性滑完刚过 2 秒，巡检又把页面
+       拽回底部，用户再上翻又被拽——手机上看就是整片内容反复上下跳。
+     ②手指一碰、页面一离底 → 立即放手（scroll 监听里同步置位）。 */
+  if (S.stickHold){
+    if (dist < 48) S.stickHold = 0;    /* 回到近底：恢复贴底 */
+    else return;
   }
-  if (dist > 1){
+  if (dist > 48 && !grew && _userMark > _stickT0){ S.stickHold = 1; return; }
+  /* ③正在打字（输入框有焦点）时绝不跟输入抢滚动：手机输入法弹出、输入框增高
+     都会反复改 #msgs 的可视高度，这边每 100ms 补一次底就是"抖"的来源。 */
+  if (dist > 1 && !fTyping()){
     m.scrollTop = sh;
     fLockUntil = Date.now() + 450;      /* 程序滚动：别被误判成「人找历史」 */
   }
 }
-/* 用户手势标记——只有「人动过」才允许打断粘底，程序自己滚不算 */
+/* 用户手势标记——只有「人动过」才允许打断粘底，程序自己滚不算。
+   2.43：一碰就定性质——若此刻已离底 >48px（正看历史），立刻把粘底让给用户，
+   不再等他滑动结束、更不靠「2 秒窗口」猜。 */
 try {
   ['touchstart','pointerdown','wheel'].forEach(function(ev){
-    el.msgs.addEventListener(ev, function(){ _userMark = Date.now(); }, {passive:true});
+    el.msgs.addEventListener(ev, function(){
+      _userMark = Date.now();
+      if (S.stickUntil){
+        var d0 = el.msgs.scrollHeight - el.msgs.scrollTop - el.msgs.clientHeight;
+        if (d0 > 48) S.stickHold = 1;
+      }
+    }, {passive:true});
   });
 } catch(e){}
 if (window.MutationObserver){
   try {
     new MutationObserver(function(){
-      if (pinOn() || stickOn()) fprog(el.msgs.scrollHeight);
+      /* 2.43：打字中不补滚（输入框增高/键盘伸缩会连番触发这里，正是抖动来源） */
+      if ((pinOn() || stickOn()) && !fTyping()) fprog(el.msgs.scrollHeight);
     }).observe(el.msgs, {childList: true, subtree: true});
   } catch(e){}
 }
@@ -4977,14 +5027,12 @@ function exitFmsg(){
 }
 el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
-  /* 2.38：吸底钉期间用户主动上翻（离底 >48px）→ 立刻放手。
-     程序自己滚到底时 dist≈0，不会误判成「人在翻历史」。 */
+  /* 2.43：粘底/吸底期间用户真上翻（离底 >48px 且手指刚动过）→ 交给用户。
+     只置 stickHold、不 stickEnd：本次切换的粘底期还在，用户滚回近底会自动恢复；
+     若直接 stickEnd，下一拍 renderMsgs 又会 stickBegin 把人拽回来。 */
   if (pinOn() || stickOn()){
     const d0 = el.msgs.scrollHeight - el.msgs.scrollTop - el.msgs.clientHeight;
-    /* 2.39：必须「手指/滚轮刚动过」才算人真上翻——否则程序自己补底也会误判 */
-    if (d0 > 48 && _userMark && Date.now() - _userMark < 1500){
-      pinCancel(); stickEnd();
-    }
+    if (d0 > 48 && _userMark > _stickT0){ pinCancel(); S.stickHold = 1; }
   }
   if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
   cliTouch();                               // 1.64：翻对话记录＝人工操作（续登录+上报）
@@ -5563,7 +5611,19 @@ const APP_NAME = 'wb远程';
    原子换页**——任何一帧要么是完整旧列表，要么是完整新列表，中间不存在"空的"。
    一行都没建出来时直接放弃这帧（撤指纹、保留旧列表），绝不换成空表；换页后
    还原 scrollTop，不把用户正看的位置甩回顶部。 */
-const VER = '2.42';
+/* 2.43（2026-11-14，老板两条原话：「切换一个会话，显示切换成功以后，会话列表就变成
+   纯白色，一个都看不到，只显示正在加载——你丢弃了之前的会话列表，在等最新的」；
+   「我打字的时候，那些历史网页就拼命抖动，为什么我的字会影响他们」）：
+   ①切换在途且目标内容未到 → **保留上一屏**（不清 innerHTML），末尾挂 sticky 加载条；
+     目标第一帧到达才整屏换。12 秒兜底。实测旧版白屏 1.6 秒。
+   ②打字抖动真凶＝输入框每键改高度(34↔255↔390) → #msgs 可视高度 696↔477 →
+     浏览器夹 scrollTop 4300，粘底巡检又补 4518 → 每键上下跳 218px。
+     改法：entFit/focus/blur 全部走 keepMsgsView（改前记距底、改后按原距离复原），
+     grow 态不再先置 auto。
+   ③粘底放手改「用户接管」：本次切换内一旦有真实手势且离底>48px，就一直放手，
+     只有用户滚回近底 48px 内才恢复；打字中（输入框有焦点）绝不补滚。
+   ★2.39 的「手势 2 秒内」判据作废——手指离开/惯性滑完刚过 2 秒就被拽回底，那才是抖。 */
+const VER = '2.43';
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
@@ -7230,11 +7290,32 @@ if (el.edit_row){
 }
 /* 聚焦增高输入框（约7倍单行高度），失焦缩回单行，随内容自动扩展（对齐 TRAE） */
 const ENT_GROW = 255, ENT_MAX = 390;
-function entFit(){
-  el.ent.style.height = 'auto';
-  const h2 = Math.max(el.ent.scrollHeight,
-                      (el.ent.value || '') ? ENT_GROW : 34);
-  el.ent.style.height = Math.min(h2, ENT_MAX) + 'px';
+/* 2.43（老板 2026-11-14：「我打字的时候，那些历史网页就拼命抖动」）——
+   真凶：输入框每键改高度 → #msgs 可视高度跟着变（696↔477）→ 浏览器立刻把
+   scrollTop 夹到新上限（4300）→ 粘底巡检又补回 4518 → 每按一键上下跳 218px。
+   对策：改布局前记「距底距离」，改完按原距离复原；grow 态**不再先置 auto**
+   （那一瞬间的矮高度正是被拿去夹 scrollTop 的）。 */
+function keepMsgsView(fn){
+  const m = el.msgs;
+  const sh0 = m.scrollHeight, ch0 = m.clientHeight, t0 = m.scrollTop;
+  const atB = (sh0 - t0 - ch0) <= 2;
+  fn();
+  const sh = m.scrollHeight, ch = m.clientHeight;
+  /* 在底部 → 继续贴底；在看历史 → **原样保持 scrollTop**（改的只是可视区高矮，
+     内容并没有重排，位置一动就等于把用户正在看的那一行推走了）。 */
+  m.scrollTop = atB ? sh : Math.max(0, Math.min(t0, sh - ch));
+}
+function entFit(raw){
+  const run = function(){
+    if (!el.ent.classList.contains('grow')){ el.ent.style.height = '34px'; return; }
+    /* grow 态：高度只增不减（≥255），scrollHeight 就是内容真实高度 */
+    const cur = el.ent.offsetHeight || ENT_GROW;
+    const need = Math.max(ENT_GROW, el.ent.scrollHeight + 2, cur);
+    el.ent.style.height = Math.min(need, ENT_MAX) + 'px';
+  };
+  /* raw=true：调用方自己已在外层做过 keepMsgsView（如 focus/blur 连改 class
+     再改高度，必须从改 class 之前的状态开始记） */
+  if (raw) run(); else keepMsgsView(run);
 }
 /* 1.40：打开大输入框即在正文后铺 3 个空行（对齐 TRAE 1.82）——
    输入法弹出会盖住大框（255px≈9 行）最下面约 3 行，正文一长就被吞掉、
@@ -7269,13 +7350,20 @@ if (window.visualViewport){   /* 输入法弹出/收起都会动视口尺寸 */
   });
 }
 el.ent.addEventListener('focus', () => {
-  el.ent.classList.add('grow'); el.input_row.classList.add('grow');   /* 按钮跳顶行 */
-  entPadOpen();          /* 1.40：铺 3 个空行 + 光标落正文末尾 */
-  entFit(); entPin();
+  /* 2.43：增高这一步整段包在 keepMsgsView 里——34→255px 会让 #msgs 矮 221px，
+     浏览器随即夹 scrollTop；不补偿就是「一点输入框，历史内容猛跳一下」。 */
+  keepMsgsView(() => {
+    el.ent.classList.add('grow'); el.input_row.classList.add('grow');   /* 按钮跳顶行 */
+    entPadOpen();          /* 1.40：铺 3 个空行 + 光标落正文末尾 */
+    entFit(true);
+  });
+  entPin();
 });
 el.ent.addEventListener('blur', () => {
-  el.ent.classList.remove('grow'); el.input_row.classList.remove('grow');
-  el.ent.style.height = '34px';
+  keepMsgsView(() => {
+    el.ent.classList.remove('grow'); el.input_row.classList.remove('grow');
+    el.ent.style.height = '34px';
+  });
   entPin();           /* 1.40：缩回单行 → 停在开头，看得到第一个字 */
 });
 el.ent.addEventListener('input', () => { refreshSendBtn(); entFit();
