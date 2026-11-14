@@ -206,7 +206,12 @@ function cliRebind(){
      pagehide 的「离开页面即下线」也已移除——关掉网页后由服务端
      150s 无心跳超时兜底。 */
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) return;      // 切后台：不再下线
+    if (document.hidden){
+      /* 2.163：切后台时定时器被冻，这段时间「没收到回应」不能算服务器没回
+         ——撤销本次等回应，避免回前台瞬间误报「服务器无响应」。 */
+      S.waitT = 0; S.waitN = 0; S.waitLast = 0;
+      return;                          // 切后台：不再下线
+    }
     cliResume('回前台');              // 回前台：秒续或立即重连
   });
   window.addEventListener('pageshow', () => cliResume('回到页面'));
