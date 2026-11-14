@@ -1499,6 +1499,8 @@ function outboxLoad(){
 }
 function outboxSave(){
   try { localStorage.setItem(OUT_KEY, JSON.stringify(S.outbox || [])); } catch(e){}
+  /* 每次队列变动都刷新角标——入队要出现、补发完要消失（2.41 冒烟漏的） */
+  outboxBadge();
 }
 /* 与 sendJson 同规则的载荷盖章（昵称 + 目标服务端稳定 sid）——入队时要先盖好，
    否则出队时已换了目标或页面重开丢了 S.cur。 */
