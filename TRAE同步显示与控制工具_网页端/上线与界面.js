@@ -92,9 +92,9 @@ function setOnLine(b){
 const LINKDOC = {
   '链接频道…':        '正在连中转频道（第一次连，或刚点过重连）',
   '链接频道·重试 N':  '频道没连上/刚断——正在自动重试，通常几秒内恢复',
-  '等待服务器回应':   '频道已连通，正在等服务端消息（20~60 秒没动静，多半手机后台被冻或中转抖一下，工作仍在做）',
-  '等待服务器回应·超时': '频道已连通，但 1 分钟没收到服务端消息——多半服务端（电脑上的程序）没在跑，去电脑上看看',
-  '已连接':           '频道通、服务端正常，可以发指令收消息'
+  '已连接':           '频道通、服务端正常，可以发指令收消息（安静没消息也是正常的）',
+  '服务器无响应·重试连接中…': '我刚发了动作、20 秒没回音——正在重连，最多试 3 次',
+  '服务器无响应（已重试 3 次）': '连着重试 3 次都没有回应——电脑上的服务端可能没在跑，去看看'
 };
 function renderLink(){
   let txt, col, doc;
@@ -107,17 +107,28 @@ function renderLink(){
     else { txt = '链接频道…'; col = 'var(--gray)'; }   // 首次，还没断过
     doc = '频道没连上，正在自动重试（第 ' + (n || 1) + ' 次）——通常几秒内恢复';
   } else {
-    const gap = Date.now() - (S.lastSrv || S.wsOpenAt);
-    if (S.lastSrv && gap < SRV_IDLE_MS){
+    /* 2.162（老板令·完全静默是正常态）：频道通＝「已连接」，**绝不因为一段时间
+       没听到服务端就降级**——服务端本来就是「变了才发」，安静不等于坏。
+       只有「我主动发出动作」后 20 秒仍无回音，才判服务器有毛病，并真的重连
+       （20 秒一次、最多 3 次）；收到任何服务端消息即结清回绿。 */
+    const wt = S.waitT || 0;
+    if (!wt){
       txt = '已连接'; col = 'var(--green)';
-    } else if (gap < SRV_IDLE_MS){             // 频道通、刚连上，等服务端应答
-      txt = '同步中…'; col = 'var(--gray)';
-    } else if (gap < SRV_DEAD_MS){
-      /* 频道已通，但 20~60 秒没听到服务端动静——后台被冻/中继抖，
-         工作仍在做，中性提示不报故障 */
-      txt = '等待服务器回应'; col = 'var(--gray)';
     } else {
-      txt = '等待服务器回应·超时'; col = 'var(--orange)';   // 服务端可能没跑
+      const wg = Date.now() - wt;
+      if (wg < SRV_IDLE_MS){
+        txt = '已连接'; col = 'var(--green)';
+      } else if ((S.waitN || 0) < 3){
+        txt = '服务器无响应·重试连接中…'; col = 'var(--orange)';
+        if (!S.waitLast || Date.now() - S.waitLast >= SRV_IDLE_MS){
+          S.waitLast = Date.now(); S.waitN = (S.waitN || 0) + 1;
+          try { diagLog('主动动作 ' + Math.round(wg / 1000) + ' 秒无回应 → 第 '
+                        + S.waitN + ' 次重连', 'bad'); } catch(e){}
+          try { connect(); } catch(e){}
+        }
+      } else {
+        txt = '服务器无响应（已重试 3 次）'; col = 'var(--orange)';
+      }
     }
     doc = LINKDOC[txt];
   }
@@ -127,6 +138,8 @@ function renderLink(){
 }
 function srvSeen(){                    // 服务端来向消息：判活 + 即时刷新
   S.lastSrv = Date.now();
+  /* 2.162：只要收到服务端任何动静，本次「等回应」就算结清——立刻回「已连接」 */
+  S.waitT = 0; S.waitN = 0; S.waitLast = 0;
   if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;   // 测服务器：收到即成功
   renderLink();
 }
