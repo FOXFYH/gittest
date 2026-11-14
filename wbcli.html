@@ -1965,11 +1965,12 @@ function foxPlay(seg){
      30 秒(TTS_GRACE)内直连就绪即改走直连，直连仍无结果才回落服务端中转（备用兜底）。 */
   const payload = {t:'tts', id:id, text:seg, voice:ttsVoice(), rate:ttsRate()};
   if (ttsRoute(id, seg, payload)){
-    ttsStage(seg, '任务已提交', 'var(--blue)');
+    ttsStage(seg, '任务已提交，等 TTS 接收…', 'var(--blue)');
     flash('🔈 任务已提交，等 TTS 接收…', 'var(--blue)');
   } else {
-    flash('🔈 直连未就绪，' + (TTS_GRACE/1000) + ' 秒内未连通将自动回落服务端…',
-          'var(--orange)');
+    /* 2.46：WS 没在线时别只 flash 一条就停在"正在连接"，横幅要写清当前阶段（对齐 TRAE） */
+    ttsStage(seg, 'WS 链接中…（最多 30 秒，不通用服务端中转）', 'var(--orange)');
+    flash('🔈 WS 链接中…（最多 30 秒，不通用服务端中转）', 'var(--orange)');
   }
 }
 function ttsFlushWait(){
@@ -1982,16 +1983,36 @@ function ttsFlushWait(){
     if (!_tts_pend[id]){ if (f.tm) clearTimeout(f.tm); delete _tts_fb[id]; return; }
     if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(ttsPayload(id))){
       f.wsSent = true;
-      ttsStage(_tts_pend[id].seg, '任务已提交', 'var(--blue)');
+      ttsStage(_tts_pend[id].seg, '任务已提交，等 TTS 接收…', 'var(--blue)');
     }
   });
 }
+function ttsKb(n){
+  n = parseInt(n) || 0;
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1024).toFixed(1) + ' KB';
+}
+function ttsAckText(d){
+  /* 2.46（老板 2026-11-14）：阶段回执五拍，与 TTS 服务端 1.08 同一套协议。
+     ★ 这段文案与 TRAE 网页端 TTS直连.js 的 ttsAckText 必须逐字一致（两端一视同仁）。 */
+  switch (d.st){
+    case 'recv':  return 'TTS 已收到任务（' + (parseInt(d.chars) || 0) + ' 字），排队中…';
+    case 'conv':  return '已接收任务，正在转码…';
+    case 'cache': return '命中缓存（' + ttsKb(d.bytes) + '），准备传输…';
+    case 'ready': return '转码完成（' + ttsKb(d.bytes) + '，耗时 ' + ((parseInt(d.ms) || 0) / 1000).toFixed(1) + ' 秒），准备传输…';
+    case 'send':  return '开始传输，共 ' + (parseInt(d.total) || 1) + ' 片…';
+    case 'done':  return '传输完成';
+  }
+  return '';
+}
 function onTtsAck(d){
-  /* TTS 阶段回执——recv=已收到并受理、conv=引擎已开始合成 */
+  /* TTS 阶段回执——recv / conv / cache / ready / send / done（服务端 1.08） */
   const j = _tts_pend[d.id];
   if (!j) return;
-  const conv = (d.st === 'conv');
-  const txt = conv ? 'TTS 引擎正在转换…' : 'TTS 已收到，引擎正在转换…';
+  /* 2.78 对齐 TRAE：任一路收到回执＝该路活着 → 撤掉 30 秒切换定时器，绝不再切另一条 */
+  const f = _tts_fb[d.id];
+  if (f && f.tm){ clearTimeout(f.tm); f.tm = null; }
+  const txt = ttsAckText(d);
+  if (!txt) return;
   ttsStage(j.seg, txt, 'var(--blue)');
   flash('🔈 ' + txt, 'var(--blue)');
 }
@@ -2052,13 +2073,14 @@ function ttsPreview(){
   foxUnlock();                       // 借「试听」这次点击的手势解锁音频通道
   const id = rid10(), seg = '__tts_preview__';
   _tts_pend[id] = {ts: Date.now(), seg: seg};
-  ttsFlash('正在合成试听…', 'var(--blue)');
+  ttsFlash('正在连接 TTS…', 'var(--gray)');
   /* 1.84/2.02：与语音卡片同一条路由（优先直连 + 服务端兜底） */
   const payload = {t:'tts', id:id, text:TTS_PREVIEW_TXT,
                    voice:ttsVoice(), rate:ttsRate()};
-  if (!ttsRoute(id, seg, payload))
-    ttsFlash('直连未就绪，' + (TTS_GRACE/1000) + ' 秒内未连通将自动回落服务端…',
-             'var(--orange)');
+  if (ttsRoute(id, seg, payload))
+    ttsFlash('任务已提交，等 TTS 接收…', 'var(--blue)');
+  else
+    ttsFlash('WS 链接中…（最多 30 秒，不通用服务端中转）', 'var(--orange)');
 }
 /* 在途 tts 请求超时兜底：90 秒没回就清掉（防 _tts_pend 泄漏）。
    2.02：60→90 秒——WS 优先线的 30 秒切换窗口 + 服务端兜底合成（edge-tts 慢
@@ -2144,9 +2166,12 @@ function ttsFallback(id){
   if (f) f.tm = null;
   if (!_tts_pend[id]){ delete _tts_fb[id]; return; }
   if (f && f.srvSent) return;                     // 兜底已发出：不再重复
+  /* 2.46：切线路这一拍也要让人看见（否则 30 秒里像卡死） */
+  const _sg = (_tts_pend[id] || {}).seg;
   if (f && f.wsSent){
     /* 直连发出去了，但 30 秒没结果 → 切服务端本机中转（备用兜底，同 id 最多一次） */
     f.srvSent = true;
+    if (_sg) ttsStage(_sg, 'WS 30 秒无回执，改走服务端中转…', 'var(--orange)');
     try { sendJson(ttsPayload(id)); } catch(e){}
     return;
   }
@@ -2253,15 +2278,20 @@ function ttsOnMsg(msg){
   if (d.t !== 'tts_audio') return;
   const j = _tts_pend[d.id];
   if (!j) return;                        // 过期/不匹配（多端）忽略
-  const a = _tts_parts[d.id] || (_tts_parts[d.id] = {n: 0, total: 0, bin: ''});
+  const a = _tts_parts[d.id] || (_tts_parts[d.id] = {n: 0, total: 0, bin: '', bytes: 0});
   a.total = parseInt(d.total) || 1;
-  if (d.b64){ a.n++; a.bin += atob(d.b64); }   // 分片按**字节**拼，不能拼 base64
+  if (d.b64){
+    const piece = atob(d.b64);                 // 分片按**字节**拼，不能拼 base64
+    a.n++; a.bytes += piece.length; a.bin += piece;
+  }
+  /* 2.46：接收是本地被动的，收到第几片必须一片一片写出来（老板 2026-11-14：
+     「本地接收到了几个，也该展示出这个过程」），与 TRAE 侧同一文案。 */
   if (a.n >= a.total){
     const bin = a.bin;
     delete _tts_parts[d.id];
     ttsDeliver(d.id, bin);
   } else {
-    ttsStage(j.seg, '正在接收音频 ' + a.n + '/' + a.total + '…', 'var(--blue)');
+    ttsStage(j.seg, '正在接收音频 ' + a.n + '/' + a.total + '（' + ttsKb(a.bytes) + '）…', 'var(--blue)');
   }
 }
 
@@ -5649,7 +5679,7 @@ const APP_NAME = 'wb远程';
    ②级别说清楚：本机已发出 → 服务器已签收（收到服务端 broadcast 'sent' 才升）→ 进对话流撤卡；
    ③服务端 stage='queued'（真回执）也置 'sent'，不再停在「等回应」让人以为没回；
    ④窄屏 who 换行，编号不挤出框。撤卡判据一个字没动（acks 命中 / 进排队条）。 */
-const VER = '2.45';
+const VER = '2.46';
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
