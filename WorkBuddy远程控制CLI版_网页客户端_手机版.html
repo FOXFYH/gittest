@@ -5686,7 +5686,7 @@ const APP_NAME = 'wb远程';
    ②级别说清楚：本机已发出 → 服务器已签收（收到服务端 broadcast 'sent' 才升）→ 进对话流撤卡；
    ③服务端 stage='queued'（真回执）也置 'sent'，不再停在「等回应」让人以为没回；
    ④窄屏 who 换行，编号不挤出框。撤卡判据一个字没动（acks 命中 / 进排队条）。 */
-const VER = '2.47';
+const VER = '2.48';
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
@@ -6125,7 +6125,12 @@ function ensureConnect(){
 /* 1.25：切后台/锁屏不再主动下线；回前台自动续上
    1.64：切后台/锁屏也算「人走了」——上报 away，本对话跑完即可亮橙灯。 */
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden){ cliActAway(); return; }
+  if (document.hidden){
+    /* 2.47：手机切后台/锁屏时定时器会被冻结，这段时间「没收到回应」
+       不能算服务器没回——撤销本次等回应，避免回前台瞬间误报。 */
+    S.waitT = 0; S.waitN = 0; S.waitLast = 0;
+    cliActAway(); return;
+  }
   cliResume();
 });
 window.addEventListener('pageshow', () => {  // 从浏览器缓存(bfcache)返回
