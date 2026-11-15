@@ -192,12 +192,24 @@ const FoxInTts = {                       // TTS 通道 FOX 拼装器（60s 残�
   }
 };
 function ttsOnMsg(msg){
-  /* TTS 通道收帧：FOX 拼装 → JSON → 分流（tts_ack / tts_audio / tts_error） */
+  /* TTS 通道收帧：FOX 拼装 → JSON → 分流（tts_ack / tts_audio / tts_error）
+     ★ 2026-11-15（老板报「点播放一直等 TTS 接收，等很久」）：
+       TTS 服务 1.07 起 `_ws_send_obj` 改发**纯 JSON**（为兼容只做 JSON.parse 的
+       手机端.html），本端原来只走 FoxInTts.feed → 纯 JSON 匹配不到 FOX 头 → 整包
+       被当成"残余段"丢弃 → 服务端明明 250ms 就回了 recv/conv，页面一个回执都拿不到，
+       只能硬等 30 秒看门狗切「服务端中转」（实测回执 253ms、整段 2.6s）。
+       此处兼收两种：FOX 帧照旧；首字符是 '{' 的纯 JSON 直接当正文解析。 */
   statsAdd(msg.length, 0, 1, 0);
+  let body = '';
   const r = FoxInTts.feed(msg);
-  if (!r) return;                        // 残余段 / 中继系统消息
-  const [sender, body] = r;
-  if (sender[0] !== '1') return;         // 只认 TTS 服务端（'1' 开头）
+  if (r){
+    if (r[0][0] !== '1') return;         // 只认 TTS 服务端（'1' 开头）
+    body = r[1];
+  } else if (msg && msg.charCodeAt(0) === 123){
+    body = msg;                          // '{' → 服务端 1.07+ 的纯 JSON
+  } else {
+    return;                              // 残余段 / 中继系统消息
+  }
   let d; try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
   if (d.t === 'tts_ack'){ onTtsAck(d); return; }
