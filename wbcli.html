@@ -4587,6 +4587,16 @@ function renderMsgs(msgs, finish, opts, ask){
   }
   const _liveOn = !!(S.snap && S.snap._hasMsgs && S.prepSid
                      && _sidNow === String(S.prepSid));
+  /* 2.53：目标会话的直播帧确实来了、但正文是空的（真·空会话 / 消息被清空）——
+     预备帧（小账本）不许永远顶着：连等 20 秒仍无正文就交出去，露出空态。
+     20 秒外的正常情况一律让预备帧顶住（老板：「有小账本优先拿小账本顶上」）。 */
+  if (S.prepMsgs && S.prepSid && S.snap && !S.snap._hasMsgs
+      && _sidNow === String(S.prepSid)){
+    if (!S.prepEmptyAt) S.prepEmptyAt = Date.now();
+    else if (Date.now() - S.prepEmptyAt > 20000){
+      S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
+    }
+  } else if (S.prepEmptyAt) S.prepEmptyAt = 0;
   const prepOn = !!(S.prepMsgs && S.prepSid && !_liveOn);
   if (prepOn){
     msgs = S.prepMsgs; finish = S.prepFinish; opts = []; ask = null;
@@ -5780,7 +5790,25 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.52';
+const VER = '2.53';
+                      /* 2.53（2026-11-15，老板原话：「我现在跟你的这个会话显示空闲，然后是全空白的？
+                         我们这边不是有小账本吗？优先会拿小账本顶上。刚才我好像看到小账本顶了一会，
+                         最后切着换成功的时候，这里显示空闲，然后什么聊天记录都没有，怎么会这样？」
+                         「非要我跟你再聊一句，然后才出现」）：
+                         切会话成功后一片空白——真因在 snap 处理那一段：
+                           ① 服务端 make_snap 的底座里**恒有 'msgs': []**，切会话那一拍就是
+                             「键在、正文没到」；旧口径 hasMsgs = ('msgs' in v) 把它当成
+                             「真·带正文」，于是 renderMsgs 里预备帧（小账本）的 _liveOn 判真，
+                             小账本当场「功成身退」；
+                           ② 同一拍的空正文还被 snapCacheTouch 写回账本，把这个会话的小账本
+                             也抹成空——两刀一起，屏幕只剩「空闲」＋白屏，直到我下一条消息
+                             进快照才有内容（正是老板说的「再聊一句才出现」）。
+                         修法：把「带没带 msgs 键」与「真·带正文（非空数组）」拆开——
+                           hasMsgsKey 决定要不要抄旧正文，hasMsgs 决定退不退预备帧/写不写账本；
+                           同会话的空帧抄旧正文（防闪空），换会话的空帧绝不抄（交给预备帧）；
+                           另加 20 秒兜底：真·空会话时预备帧不会永远顶着。
+                         验收：CDP 复现（断网＋直接操作 S）——旧口径空帧→0 条（＝白屏）；
+                           新口径空帧→小账本仍 3 条；直播正文到达→2 条且预备帧清干净，PASS。 */
                       /* 2.52（2026-11-15，老板原话：「我从手机发出去的文本，不管那边你怎么给
                          我加小尾巴，我手机需要重新让它展示在输入框的时候，这些都要剥离掉」）：
                          小尾巴回填**全出口封堵**。先做了 WB-01~WB-24 + EXT-01/02 穷举复现
@@ -6643,13 +6671,32 @@ function onEv(kind, v){
     case 'snap': {
       if (v._port !== S.port) return;        // 旧目标迟到快照，丢弃防串台
       /* 1.78：本拍是否真带正文——撤占位卡只认「带正文且已落地」的快照
-         （见 pendReconcile；骨架快照无 msgs，不可据此撤卡）。 */
-      const hasMsgs = ('msgs' in v);
-      v._hasMsgs = hasMsgs;        /* 2.37：骨架快照不算真正文（骨架会把旧正文抄过来） */
-      /* 1.xx：骨架快照（登录连上先发框架、无 msgs）→ 用旧正文兜底，
-         不闪空；带 msgs 的下一拍正常快照到达后自然补齐。 */
-      if (!hasMsgs && S.snap && Array.isArray(S.snap.msgs))
-        v.msgs = S.snap.msgs;
+         （见 pendReconcile；骨架快照无 msgs，不可据此撤卡）。
+         ★2.53（老板 2026-11-15：「切着换成功的时候，这里显示空闲，然后什么聊天记录都没有，
+           非要我跟你再聊一句，然后才出现」）——服务端 make_snap 的底座里恒有 'msgs': []，
+           切会话那一拍很可能就是「键在、正文还没到」。旧口径 hasMsgs = ('msgs' in v)
+           把这种空帧当成真·带正文，后果两条：
+             ① renderMsgs 里预备帧（小账本）的 _liveOn 判真 → 小账本当场「功成身退」，
+             ② 空正文又被 snapCacheTouch 写进账本，把这个会话的小账本也抹成空。
+           屏幕于是只剩「空闲」＋一片白，直到下一条真消息进来。现在把两件事拆开：
+             hasMsgsKey＝这一拍带没带 msgs 字段（决定要不要抄旧正文）；
+             hasMsgs   ＝**真·带正文（非空数组）**（决定退不退预备帧、写不写账本）。 */
+      const hasMsgsKey = ('msgs' in v);
+      const hasMsgs = Array.isArray(v.msgs) && v.msgs.length > 0;
+      v._hasMsgs = hasMsgs;        /* 2.37：骨架/空帧都不算真正文 */
+      const _prevSnap = S.snap;
+      /* 1.xx：骨架快照（登录连上先发框架、无 msgs 键）→ 用旧正文兜底，
+         不闪空；带 msgs 的下一拍正常快照到达后自然补齐。
+         2.53：空数组同理——但只限「同一会话」才抄：换会话时抄旧正文会把上一台的
+         消息顶到新会话名下（那种情况交给预备帧与 2.43 的留旧屏＋加载条）。 */
+      if (!hasMsgs){
+        const _sameConv = _prevSnap && String(_prevSnap.title || '') === String(v.title || '');
+        if (!hasMsgsKey && _prevSnap && Array.isArray(_prevSnap.msgs))
+          v.msgs = _prevSnap.msgs;
+        else if (hasMsgsKey && _sameConv && Array.isArray(_prevSnap.msgs)
+                 && _prevSnap.msgs.length)
+          v.msgs = _prevSnap.msgs;
+      }
       S.snap = v;
       if (hasMsgs) snapCacheTouch(v);   /* 2.37：最新轮次赶紧记录（内存 + 盘） */
       srvOpSnapDone();       /* 2.14：快照刷新＝业务成功信号 → 静默收口在途动作 */
