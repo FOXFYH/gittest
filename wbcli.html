@@ -2848,16 +2848,29 @@ function purgeConvStore(){
    轮播账的读写函数 idbLoadTurns / idbSaveTurns **整块删除**。
    手机里从此只有一套正文账——快照账（snaps，见下面 2.37 段）。
    任何代码都不许再往 conv 库写东西；库里遗留的旧记录由 checkVerBump() 一次性清空。 */
-/* ===== 2.37 快照账（切会话的预备帧）===== */
-const SNAP_KEEP = 30;        /* 最多留 30 个会话的快照账 */
-const SNAP_MSGS_MAX = 400;   /* 单会话最多留 400 条，防爆 */
-let _snapSaveT = {};
-function snapTrim(){
-  const ks = Object.keys(S.snapCache || {});
-  if (ks.length <= SNAP_KEEP) return;
-  ks.sort((a, b) => ((S.snapCache[a] || {}).ts | 0) - ((S.snapCache[b] || {}).ts | 0));
-  for (let i = 0; i < ks.length - SNAP_KEEP; i++) delete S.snapCache[ks[i]];
+/* ===== 2.37 快照账（切会话的预备帧） =====
+   2.50（2026-11-15 老板原话：「小账本的话，不说保留最近 n 个会话，是每个会话都保存。
+   毕竟叫小账本，所以会限制每个会话小账本的条数啊。比如每个会话保留最新的 N 条，默认
+   填个 5 吧。按照这样的逻辑来管理，超出的就自动删掉比较旧的。」）：
+   ★口径改成「**会话不限量、每会话限条数**」——
+     · 会话：取消原来 30 个的上限，用过的每个会话都留一份（内存 S.snapCache + IDB snaps）。
+     · 条数：单会话只留**最新 N 条**（N 可配、默认 5，见 _snapN()），更旧的自动丢掉。
+   原常量 SNAP_KEEP=30（会话数上限）、SNAP_MSGS_MAX=400（单会话条数上限）已按新口径废除；
+   snapTrim()（按会话数裁内存）与 snapTrimDisk()（按会话数裁盘）随之删除——
+   现在每会话只有 N 条，总量 = 会话数 × N，本来就不大，不需要再按会话数裁。 */
+const SNAP_N_KEY = 'wb_snap_n';      /* localStorage 键：每个会话保留多少条 */
+const SNAP_N_DEF = 5;                /* 老板定的默认值 */
+const SNAP_N_MAX = 200;              /* 参数护栏：最多 200 条 */
+function _snapN(){
+  try{
+    var v = parseInt(localStorage.getItem(SNAP_N_KEY) || '', 10);
+    if (v >= 1 && v <= SNAP_N_MAX) return v;
+  }catch(e){}
+  return SNAP_N_DEF;
 }
+let _snapSaveT = {};
+/* 2.50：原 snapTrim()（按会话数裁内存，SNAP_KEEP=30）已删除——会话不再限量，
+   每会话只留 N 条，内存里自然不大，不需要再按会话数裁。 */
 async function idbSaveSnap(sid, rec){
   const db = await idbOpen();
   if (!db || !rec) return;
@@ -2865,7 +2878,7 @@ async function idbSaveSnap(sid, rec){
     const tx = db.transaction('snaps', 'readwrite');
     tx.objectStore('snaps').put({msgs: rec.msgs, idle: rec.idle !== false,
                                  finish: rec.finish || null, ts: rec.ts || Date.now()}, idbKey(sid));
-    tx.oncomplete = () => { snapTrimDisk(); };      /* 2.49：落盘后顺手按 30 个会话裁一次 */
+    /* 2.50：不再按会话数裁盘——每个会话都保留，只限每会话条数（在写入时就已裁好） */
   }catch(e){}
 }
 async function idbLoadSnap(sid){
@@ -2879,51 +2892,19 @@ async function idbLoadSnap(sid){
     }catch(e){ res(null); }
   });
 }
-/* 2.49（老板「手机只留一套账」）：快照账**盘上也要裁**。
-   以前 snapTrim() 只删内存里的 S.snapCache，IndexedDB 的 snaps 只增不减——
-   攒久了既吃空间，「最多留 30 个会话」这条规则在盘上空有虚名。
-   一分钟最多裁一次；按 ts 留最新 SNAP_KEEP 条，其余删掉。 */
-let _snapTrimDiskT = 0;
-async function snapTrimDisk(){
-  const now = Date.now();
-  if (now - _snapTrimDiskT < 60000) return;
-  _snapTrimDiskT = now;
-  const db = await idbOpen();
-  if (!db) return;
-  try{
-    const all = [];
-    const tx = db.transaction('snaps', 'readonly');
-    const rq = tx.objectStore('snaps').openCursor();
-    rq.onsuccess = () => {
-      const c = rq.result;
-      if (!c) return;
-      all.push({k: c.key, ts: (c.value && c.value.ts) || 0});
-      c.continue();
-    };
-    rq.onerror = () => {};
-    tx.oncomplete = () => {
-      if (all.length <= SNAP_KEEP) return;
-      all.sort((a, b) => a.ts - b.ts);
-      const drop = all.slice(0, all.length - SNAP_KEEP);
-      if (!drop.length) return;
-      try{
-        const st2 = db.transaction('snaps', 'readwrite').objectStore('snaps');
-        drop.forEach(d => st2.delete(d.k));
-      }catch(e){}
-    };
-  }catch(e){}
-}
+/* 2.50：snapTrimDisk() 已删除。老板新口径＝每个会话都保存，只限每个会话的条数；
+   条数在 snapCacheTouch() 写入时就按 _snapN() 裁好，所以盘上不需要再按会话数裁。 */
 /* 每拍真快照落地就记一份（内存立刻，盘上 400ms 防写爆；生成刚结束则立刻落盘） */
 function snapCacheTouch(snap){
   if (!snap || !Array.isArray(snap.msgs) || !snap.msgs.length) return;
   const sid = String(snap.title || '');
   if (!sid) return;
   const prev = S.snapCache[sid];
-  const msgs = snap.msgs.slice(-SNAP_MSGS_MAX);
+  /* 2.50：只留最新 N 条（默认 5）——超出的自动删最旧的。会话本身不限量。 */
+  const msgs = snap.msgs.slice(-_snapN());
   const idle = (snap.sendIdle !== false);
   const rec = {msgs: msgs, idle: idle, finish: snap.finish || null, ts: Date.now()};
   S.snapCache[sid] = rec;
-  snapTrim();
   const k = idbKey(sid);
   if (_snapSaveT[k]){ clearTimeout(_snapSaveT[k]); _snapSaveT[k] = 0; }
   const justDone = prev && prev.idle === false && idle === true;   /* 本轮刚答完：赶紧记录 */
@@ -5659,7 +5640,18 @@ const APP_NAME = 'wb远程';
    ⑥ 菜单「轮播账查看器」→「小账本（快照账）」，读的是 snaps。
    ★S.turns 仍留在内存里，但只是实时数据（喂 mergeThinkSources 与 turnAudit），
      不落盘、不铺屏——账只有一套。 */
-const VER = '2.49';
+/* 2.50（2026-11-15 老板原话：「小账本的话，不说保留最近 n 个会话，是每个会话都保存。
+   毕竟叫小账本，所以会限制每个会话小账本的条数啊。比如每个会话保留最新的 N 条，默认
+   填个 5 吧。按照这样的逻辑来管理，超出的就自动删掉比较旧的。」）：
+   ★小账本（快照账）的管理口径改为「**会话不限量、每会话限条数**」：
+   ① 取消 SNAP_KEEP=30 的会话数上限——用过的每个会话都留一份，不因为超过 30 个就丢老会话；
+   ② 单会话条数由 SNAP_MSGS_MAX=400 改为可配的 N（`wb_snap_n`，默认 5，上限 200）；
+      内存与 IDB 写入时都按 `slice(-_snapN())` 裁，超出的就是最旧的几条，自动丢掉；
+   ③ snapTrim()（按会话数裁内存）与 snapTrimDisk()（按会话数裁盘）一并删除——
+      每会话只有 N 条，总量 = 会话数 × N，本来就不大；
+   ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
+      改后下一拍生效。 */
+const VER = '2.50';
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
@@ -8143,13 +8135,25 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   function render(host){
     host.innerHTML = '';
     var cfg = document.createElement('div'); cfg.className = 'tv_sec';
-    cfg.innerHTML = '<h3>小账本（快照账）<span class="n">手机只留这一套</span></h3>' +
-      '<div style="padding:10px 14px;font-size:13px;color:#6b7b8c;line-height:1.7">' +
-      '切会话时先铺的就是它：每个会话最近一次真快照（单会话最多 400 条消息），' +
-      '与直播画面同一套渲染，所以切过去不抖、不闪、没有多余提示条。<br>' +
-      '磁盘上最多留最近 ' + SNAP_KEEP + ' 个会话，超出的自动清掉。' +
-      '轮播账（旧那套）已整体退役，不再写盘、不再显示。</div>';
+    cfg.innerHTML = '<h3>小账本（快照账）<span class="n">手机只留这一套 · 每个会话都存</span></h3>' +
+      '<div style="padding:10px 14px 8px;font-size:13px;color:#6b7b8c;line-height:1.7">' +
+      '切会话时先铺的就是它，与直播画面同一套渲染，所以切过去不抖、不闪、没有多余提示条。<br>' +
+      '规则：<b>每个会话都保存</b>（不限会话个数），但每个会话只留<b>最新 N 条</b>，' +
+      '超出的自动删最旧的。轮播账（旧那套）已整体退役，不再写盘、不再显示。</div>' +
+      '<div style="padding:0 14px 12px;font-size:13px;display:flex;align-items:center;gap:8px">' +
+      '每个会话保留最新 <input id="tv_sn" type="number" min="1" max="200" step="1" ' +
+      'style="width:72px;border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px"> 条' +
+      '<span style="color:#8a98a6;font-size:11px">（默认 5）</span></div>';
     host.appendChild(cfg);
+    var sne = cfg.querySelector('#tv_sn');
+    sne.value = _snapN();
+    sne.onchange = function(){
+      var v = parseInt(sne.value, 10);
+      if (!(v >= 1)) v = SNAP_N_DEF;
+      if (v > SNAP_N_MAX) v = SNAP_N_MAX;
+      sne.value = v;
+      try { localStorage.setItem(SNAP_N_KEY, String(v)); } catch(e){}
+    };
     if (view === 'detail' && cur){ renderDetail(host); return; }
     var sec = document.createElement('div'); sec.className = 'tv_sec';
     sec.innerHTML = '<h3>本地快照账 <span class="n">读取中…</span></h3>';
