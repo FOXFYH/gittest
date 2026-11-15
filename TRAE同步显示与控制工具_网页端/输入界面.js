@@ -178,6 +178,16 @@ function revertRefill(snap){
   if (!el.ent.value.trim()){
     el.ent.value = clean;
     refreshSendBtn();
+  } else {
+    /* 2.164：框里已有字就不覆盖（用户可能在改），但也不许留着尾巴——
+       就地净化一次（DID 头 ＋ 四段/FOX 标记）；没标记时一个字不动。
+       TR-05(b)：上一次回退带进来的脏值正占着框，旧实现直接跳过 → 脏值一直留着。 */
+    const cur = el.ent.value;
+    const fixed = foxStripTail(stripHeadDid(cur));
+    if (fixed !== cur){
+      el.ent.value = fixed;
+      refreshSendBtn();
+    }
   }
   const pv = clean.length > 40 ? clean.slice(0, 40) + '…' : clean;
   flash('↩ 已撤回并取回：' + pv, 'var(--blue)', 6000);

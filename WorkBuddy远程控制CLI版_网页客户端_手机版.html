@@ -636,7 +636,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
     <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔 10 秒）">✍ 批量签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
-    <div class="dmi" id="btn_turnview" title="本地轮播账（切会话先顶用的那份）">🗂 轮播账查看器</div>
+    <div class="dmi" id="btn_turnview" title="手机上的小账本＝快照账（切会话先顶用的那份）">🗂 小账本（快照账）</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
@@ -1192,9 +1192,7 @@ const S = {
      turnWait=补发在途防重。缺思维卡点开才补、缺结论卡主动补（done=false
      的被终止轮显示「无终极结论」，绝不反复追要）。 */
   turns: [], curTurn: null, turnWait: {}, turnAuditTs: 0,
-  /* 2026-11-13 老板「切到哪个会话就立刻展示它的轮播账」：turnsCache 按会话 sid
-     缓存内存里已有的账——切回来时不必等 IndexedDB 读盘，先铺满再校正。 */
-  turnsCache: {},
+  /* 2.49：turnsCache（轮播账的内存镜像）已随轮播账一并退役——手机只留快照账。 */
   /* 2.37（老板：最新轮次已缓存到本地时，直播画面来了也要一模一样、画面不抖）：
      按会话缓存「最新真快照的 msgs」——切会话先把这份账铺出来，它和直播走同一个
      renderMsgs，指纹一致时连重画都不会发生 ⇒ 零抖动。
@@ -1823,6 +1821,55 @@ function stripHintMarks(txt){
     .replace(FSC_REG, '').replace(FUC_REG, '').replace(FCC_REG, '').replace(FAI_REG, '')
     .replace(/\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+}
+/* ── 2.52（老板 2026-11-15 定）：「我从手机发出去的文本，不管那边怎么给我加小尾巴，
+   我手机需要重新让它展示在输入框的时候，这些都要剥离掉」——
+   凡是「文本要回到手机输入框 / 剪贴板 / 待发队列 / 排队条」的出口，一律先过这里：
+     ① 语音卡/提问卡标记（fox-play / fox-ask）：只摘标记、**内容保留**（那是 AI 说的话）；
+     ② 四段专属提示词（sys/usr/co/ai）：连被包住的正文一起删（那是服务端拼的提示词）；
+     ③ 只在「确属尾部拼装」时才整段删——判据＝删完四段后剩余部分只有空白；
+        正文后面还有真内容（用户自己写了 (@fox-sys1)…(@fox-sys2)）就只摘标记、留内容；
+     ④ 剥完一个字不剩（整条就是标记）→ 退回「只摘标记」，绝不给空框；
+     ⑤ 没出现过 '(@fox-' 的文本原样返回，一个字都不动（不 trim、不归一换行）。 */
+const FPLAY_ANY = /\(@fox-play\d?\s*\)/g;
+const FASK_ANY  = /\(@fox-ask\d?\s*\)/g;
+const FH_ANY    = /\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g;
+function foxStripTail(txt){
+  let s = String(txt == null ? '' : txt);
+  if (s.indexOf('(@fox-') < 0) return s;
+  const raw = s;
+  s = s.replace(FPLAY_ANY, '').replace(FASK_ANY, '');
+  let idx = -1;
+  FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
+  /* ③'：整条就以段头开头（前面一个字都没有）＝用户自己写的正文，不是服务端追加的尾巴。
+     这种情形按「一个字都不许动」处理（老板要的是「别把提示词带回来」，不是「改写我写的字」）。
+     服务端拼尾永远是「正文 + 尾巴」，正文非空时段头必然不在 0 位。 */
+  if (idx > 0){
+    const head = s.slice(0, idx), tail = s.slice(idx);
+    const cut = tail.replace(FSC_REG, '').replace(FUC_REG, '')
+                    .replace(FCC_REG, '').replace(FAI_REG, '').replace(FH_ANY, '');
+    /* ③：四段删完还剩真内容 ⇒ 这对标记是用户自己写在正文里的，只摘标记、内容全留；
+       一点不剩（只剩空白）⇒ 确属服务端追加的尾巴，连内容整段砍。 */
+    s = cut.trim() ? (head + tail.replace(FH_ANY, '')) : head;
+  }
+  s = s.replace(/\r\n?/g, '\n')
+       .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+  if (!s && raw.trim()){                        /* ④：整条都是标记 → 只摘标记、留正文 */
+    s = raw.replace(FPLAY_ANY, '').replace(FASK_ANY, '').replace(FH_ANY, '')
+           .replace(/\n{3,}/g, '\n\n').trim();
+  }
+  return s;
+}
+/* 2.52：正文 → 气泡正文 HTML（语音卡 / 提问卡 / 四段折叠卡统一在这里渲染）。
+   原先这段内联在气泡循环里，折叠区（历史中间气泡）自己走 mdHtml 直出，
+   于是折叠区里能选中/复制到 (@fox- 原文——现在两处共用同一个函数。 */
+function msgBodyHtml(text){
+  const fsegs = [], asegs = [], hsegs = [];
+  let h = mdHtml(foxHintCards(foxAskCards(foxPlayCards(String(text || ''), fsegs), asegs), hsegs));
+  fsegs.forEach((ft, n) => { h = h.replace('@@FPC' + n + '@@', foxCardHtml(ft)); });
+  asegs.forEach((at, n) => { h = h.replace('@@FAC' + n + '@@', foxCardHtml(at, true)); });
+  hsegs.forEach((hz, n) => { h = h.replace('@@FHC' + n + '@@', foxHintHtml(hz)); });
+  return h;
 }
 /* 音色/语速：默认**女声晓晓**（用户 2026-09-30 明确不喜欢原先写死的男声云希）。
    由「设置→语音播报」改，随每次播报一起发给服务端。 */
@@ -2551,37 +2598,12 @@ function localTurnHtml(t, isCur){
   return h + ai + '</div>';
 }
 function renderTurnsLocal(){
-  /* 2.34（2026-11-13，CDP 实测：切会话在途 0.2~13.6 秒里显示的是**上一个会话**的账）：
-     主人守卫——账只属于 S.histConv。目标会话＝正在切的那个（switch_pend/loadingConv），
-     否则＝当前激活会话。两者对不上就一条都不许画：宁可短暂空白，绝不张冠李戴。 */
-  const owner = (S.switch_pend && S.switch_pend.title)
-             || (S.loadingConv && S.loadingConv.title) || curConvId();
-  if (S.histConv && owner && S.histConv !== owner) return false;
-  if (!S.turns.length && !S.curTurn) return false;
-  /* 2026-11-13 老板：「检查一下轮播账的使用方法，它是用来填补空白时间的」——
-     原来只画最后 1 轮，切换瞬间屏幕大半是空的；现在按查看器里设的 N 轮
-     （默认 5、最多 60）全铺上，顶上插一条说明条：直播画面一到就整块被取代。 */
-  const hist = S.turns.slice(-_turnsN());
-  el.msgs.innerHTML = '';
-  const tip = document.createElement('div');
-  tip.className = 'turns_tip';
-  tip.style.cssText = 'font-size:12px;color:#8a98a6;background:#f4f6f8;'
-    + 'border-radius:6px;padding:5px 8px;margin:0 0 6px';
-  tip.textContent = '本地轮播账 · 直播画面到达后自动让位';
-  el.msgs.appendChild(tip);
-  hist.forEach(t => el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(t, false)));
-  if (S.curTurn) el.msgs.insertAdjacentHTML('beforeend', localTurnHtml(S.curTurn, true));
-  /* 本地秒显层的「点开要全轮」按钮 */
-  el.msgs.querySelectorAll('.lclbtn').forEach(b => {
-    b.onclick = e => {
-      e.stopPropagation();
-      const uid = b.dataset.uid;
-      if (S.turnWait['turn_full:' + uid]) return;
-      flash('正在取回这一轮…', 'var(--blue)');
-      reqTurn('turn_full', uid);
-    };
-  });
-  return true;
+  /* 2.49（老板 2026-11-15：「快照就是小账本，只需要一套就行了」）：**整体退役**，恒返回 false。
+     它原来负责「快照账没命中时拿轮播账顶上」，顶上时会在框顶插一条灰条
+     「本地轮播账 · 直播画面到达后自动让位」——那正是用户偶尔看到的「另一套快照」。
+     现在只认快照账：有就画（与直播同一套渲染、零抖动），没有就走「正在加载」并把
+     上一屏原样留着（2.43 的 _holdOld），绝不再切到第二套账。 */
+  return false;
 }
 function resolveTimes(msgs){
   const cache = timesGet(), title = curTitle(), out = [];
@@ -2636,45 +2658,117 @@ function curConvId(){
    进会话只渲染「最近 3 组」（服务端快照自带窗口）；向上滚动再按组向前翻
    （{t:'req',c:'hist_prev'} → {t:'res',k:'hist_prev',v:{msgs,more}}）。
    骨架缓存：localStorage 秒出会话列表，免等连上。 */
-const LS_SKEL = 'wb_cli_skel';           /* 骨架缓存（会话列表） */
+const LS_SKEL = 'wb_cli_skel';           /* 骨架缓存（会话列表·按服务器分档） */
 /* 2026-11-13 老板「我需要优先显示会话名」：sid→会话名 的长期小字典。
    骨架缓存只留最后一台服务器，换服务器/断网就查不到名字了；这份字典只增不删，
    跨服务器共用（sid 本身带服务器含义，撞了也不会串）。 */
 const LS_NAMES = 'wb_cli_convnames';
-let cacheKey = null, reqSeq = 0, skelLastSave = 0;
+let cacheKey = null, reqSeq = 0, skelLastSave = 0, skelLastTag = '';
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
-const LS_SRVV = 'wb_cli_srvver';         /* 服务端版本号持久化（供冷启动拼键） */
+const LS_SRVV = 'wb_cli_srvver';         /* {服务器: 服务端版本号}（分档持久化） */
+/* 2.51（老板 2026-11-15：「你得锚定服务器啊……分开分别建档」）：
+   骨架档从「全书一格」改成「一台服务器一格」。格子名＝服务器显示名
+   （S.cur；冷启动时用 LS_SRV 记着的那台）——名册里唯一、落盘稳定，
+   刷新/断网/重开都认得出是同一台。
+   口径不变（2.42/2.45 不动）：同一台上「新列表没来，旧的照用」；
+   换服务器时只铺**这台自己**那格，绝不把上一台的会话名顶在这台名下。 */
+function srvTagNow(){
+  if (S && S.cur) return String(S.cur);
+  try { const w = localStorage.getItem(LS_SRV); if (w) return String(w); } catch(e){}
+  return 'local';
+}
+function srvVerGet(tag){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SRVV) || 'null');
+    if (o && typeof o === 'object') return String(o[String(tag)] || '0');
+    return String(o || '0');        /* 旧版裸字符串：先当这台的值用一次 */
+  } catch(e){ return '0'; }
+}
+function srvVerSet(tag, v){
+  let o = {};
+  try {
+    const d = JSON.parse(localStorage.getItem(LS_SRVV) || 'null');
+    if (d && typeof d === 'object') o = d;
+  } catch(e){}
+  o[String(tag)] = String(v || '0');
+  try { localStorage.setItem(LS_SRVV, JSON.stringify(o)); } catch(e){}
+}
+function skelBook(){
+  /* 档案册：{_v:2, srv:{<服务器名>:{key,ts,convs,conv_unread}}}
+     旧版单格格式（顶层直接带 convs）认不出属于哪台 → 当作没有，
+     连上第一拍快照就重写一份，代价只是这一次没秒出。 */
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SKEL) || 'null');
+    if (o && o._v === 2 && o.srv && typeof o.srv === 'object') return o;
+  } catch(e){}
+  return {_v: 2, srv: {}};
+}
+function skelBucket(tag){
+  const t = String(tag || srvTagNow());
+  const b = skelBook().srv[t];
+  if (!b || b.v !== VER) return null;               /* 网页端改版＝这档作废 */
+  /* 服务端版本对不上也作废（双版本号铁律）；两边的版本只要有一边不知道
+     （'0'＝冷启动还没 hello / 老档没记），就放行——宁可先给它自己那台用，
+     等 hello 到了 checkVerBump 再判一次。 */
+  const sv = String(S.srvVer || '0'), bv = String(b.sv || '0');
+  if (sv !== '0' && bv !== '0' && bv !== sv) return null;
+  return b;
+}
+function skelDrop(tag){
+  /* 只丢一台的档，不牵连同门（版本变化时别台的档案还在） */
+  const book = skelBook(), t = String(tag || srvTagNow());
+  if (book.srv[t]){ delete book.srv[t]; try { localStorage.setItem(LS_SKEL, JSON.stringify(book)); } catch(e){} }
+}
 function checkVerBump(){
-  /* 首次定键 / 版本变化 → 清空本地骨架缓存并重置翻页（改版重下） */
+  /* 首次定键 / 版本变化 → 只作废**当前这台**的骨架档并重置翻页（改版重下） */
   const k = cacheKeyNow();
   if (cacheKey !== null && cacheKey !== k){
-    try { localStorage.removeItem(LS_SKEL); } catch(e){}
+    skelDrop();
+    purgeConvStore();                 /* 2.49：改版顺手清空遗留轮播账（只留快照账） */
     resetPaging();
   }
   cacheKey = k;
-  /* 持久化服务端版本号：冷启动时先按上次的键读骨架缓存秒显，等 hello
-     回来若服务端确实升版，checkVerBump 再清一次（双版本号铁律不破）。 */
-  try { localStorage.setItem(LS_SRVV, S.srvVer || '0'); } catch(e){}
+  /* 持久化「这台的服务端版本号」：冷启动先按上次的键读骨架档秒显，
+     等 hello 回来若服务端确实升版，checkVerBump 再作废一次（双版本号铁律不破）。 */
+  srvVerSet(srvTagNow(), S.srvVer || '0');
 }
 /* —— 骨架缓存：打开页面即秒显会话列表（不用等连上） —— */
 function skelCacheSave(snap){
   if (!snap || !Array.isArray(snap.convs) || !snap.convs.length) return;
-  const now = Date.now();
-  if (now - skelLastSave < 2000) return;      /* 节流：2 秒内只写一次 */
-  skelLastSave = now;
+  const now = Date.now(), tag = srvTagNow();
+  /* 节流：同一台 2 秒内只写一次；换台（tag 变了）立即落，别让新台的档案等着 */
+  if (now - skelLastSave < 2000 && tag === skelLastTag) return;
+  skelLastSave = now; skelLastTag = tag;
   try {
-    const o = {key: cacheKeyNow(), ts: now,
-               convs: snap.convs, conv_unread: snap.conv_unread || []};
-    localStorage.setItem(LS_SKEL, JSON.stringify(o));
+    const book = skelBook();
+    book.srv[tag] = {v: VER, sv: S.srvVer || '0', ts: now,
+                     convs: snap.convs, conv_unread: snap.conv_unread || []};
+    /* 护栏：最多存 8 台的档，超了丢最久没更新的，免把 localStorage 撑爆 */
+    const ks = Object.keys(book.srv);
+    if (ks.length > 8){
+      ks.sort((a, b) => (book.srv[a].ts || 0) - (book.srv[b].ts || 0));
+      while (ks.length > 8) delete book.srv[ks.shift()];
+    }
+    localStorage.setItem(LS_SKEL, JSON.stringify(book));
   } catch(e){}
 }
-function skelCacheLoad(){
-  try {
-    const o = JSON.parse(localStorage.getItem(LS_SKEL) || 'null');
-    if (!o || o.key !== cacheKeyNow()) return null;
-    return o;
-  } catch(e){ return null; }
+function skelCacheLoad(){ return skelBucket(srvTagNow()); }
+/* 2.51：换服务器＝换档案夹——把这台自己的旧会话表铺上（有就原子换页，
+   没有才立占位）。铁律不变：**同一台**上「新列表没来旧的照用」；这里换的是
+   另一台服务器，把上一台的名字留在这儿就是张冠李戴，所以宁可先占位。 */
+function convArchiveLoad(nm){
+  S.convs_key = null;
+  const b = skelBucket(nm);
+  if (b && Array.isArray(b.convs) && b.convs.length){
+    renderConvs(b.convs, b.conv_unread || []);
+    return;
+  }
+  if (el.convs){
+    el.convs.innerHTML = '<div class="empty">（' +
+      (typeof esc === 'function' ? esc(nm) : nm) +
+      ' 暂无本地会话档案，等它的快照…）</div>';
+  }
 }
 function ledToArr(r){
   /* 1.57：补第 6 元 seq（第 7 元折叠标记 {f:N}）——账本翻页记录与快照窗口
@@ -2812,7 +2906,7 @@ function onRes(id, k, v){
       });
       t.thinks.sort((a, b) => (a.t || 0) - (b.t || 0));
     }
-    saveTurnsNow();                              /* 2026-11-13：IDB + 内存缓存双写 */
+    /* 2.49：原来这里调 saveTurnsNow() 落轮播账，已退役（手机只留快照账） */
     renderAll();
   }
 }
@@ -2855,53 +2949,48 @@ function idbOpen(){
     }catch(e){ res(null); }
   });
 }
-async function idbLoadTurns(sid){
-  const db = await idbOpen();
-  if (!db) return [];
-  const getOne = key => new Promise(res => {
-    try{
-      const rq = db.transaction('conv').objectStore('conv').get(key);
-      rq.onsuccess = () => res(rq.result || null);
-      rq.onerror = () => res(null);
-    }catch(e){ res(null); }
-  });
-  const nk = idbKey(sid);
-  let rec = await getOne(nk);
-  /* 2.33（2026-11-13）：老键回落——2.32 把键从纯 sid 改成「服务器|sid」后，
-     升级前存的纯 sid 老账按新键根本查不到，老用户一升级轮播账就凭空消失、
-     切会话还是空白。新键没命中就再查一次纯 sid；命中则顺手按新键重写一份
-     （静默迁移，失败只吞掉，绝不让异常冒到渲染链上），然后照常返回它的 turns。 */
-  if (!rec){
-    rec = await getOne(String(sid));
-    if (rec){
-      try{
-        const tx = db.transaction('conv', 'readwrite');
-        tx.onerror = () => {};               /* 迁移失败也不吵：本次照样能显示 */
-        tx.objectStore('conv').put(
-          {turns: rec.turns || [], srv: srvKey(), sid: String(sid)}, nk);
-      }catch(e){}
-    }
-  }
-  return (rec && rec.turns) || [];
-}
-async function idbSaveTurns(sid, turns){
-  const db = await idbOpen();
-  if (!db) return;
+/* 2.49：一次性清空遗留轮播账（conv）——改版时跑一次，之后全站不再写它，
+   库自然一直为空。失败只吞掉，绝不影响主流程。 */
+function purgeConvStore(){
   try{
-    const tx = db.transaction('conv', 'readwrite');
-    tx.objectStore('conv').put({turns: turns, srv: srvKey(), sid: String(sid)}, idbKey(sid));
+    const rq = indexedDB.open('wbcli_turns', 2);
+    rq.onsuccess = () => {
+      const db = rq.result;
+      try{
+        if (!db.objectStoreNames.contains('conv')) return;
+        db.transaction('conv', 'readwrite').objectStore('conv').clear();
+      }catch(e){}
+    };
+    rq.onerror = () => {};
   }catch(e){}
 }
-/* ===== 2.37 快照账（切会话的预备帧）===== */
-const SNAP_KEEP = 30;        /* 最多留 30 个会话的快照账 */
-const SNAP_MSGS_MAX = 400;   /* 单会话最多留 400 条，防爆 */
-let _snapSaveT = {};
-function snapTrim(){
-  const ks = Object.keys(S.snapCache || {});
-  if (ks.length <= SNAP_KEEP) return;
-  ks.sort((a, b) => ((S.snapCache[a] || {}).ts | 0) - ((S.snapCache[b] || {}).ts | 0));
-  for (let i = 0; i < ks.length - SNAP_KEEP; i++) delete S.snapCache[ks[i]];
+/* 2.49（老板 2026-11-15：「快照就是小账本，只需要一套就行了」）：
+   轮播账的读写函数 idbLoadTurns / idbSaveTurns **整块删除**。
+   手机里从此只有一套正文账——快照账（snaps，见下面 2.37 段）。
+   任何代码都不许再往 conv 库写东西；库里遗留的旧记录由 checkVerBump() 一次性清空。 */
+/* ===== 2.37 快照账（切会话的预备帧） =====
+   2.50（2026-11-15 老板原话：「小账本的话，不说保留最近 n 个会话，是每个会话都保存。
+   毕竟叫小账本，所以会限制每个会话小账本的条数啊。比如每个会话保留最新的 N 条，默认
+   填个 5 吧。按照这样的逻辑来管理，超出的就自动删掉比较旧的。」）：
+   ★口径改成「**会话不限量、每会话限条数**」——
+     · 会话：取消原来 30 个的上限，用过的每个会话都留一份（内存 S.snapCache + IDB snaps）。
+     · 条数：单会话只留**最新 N 条**（N 可配、默认 5，见 _snapN()），更旧的自动丢掉。
+   原常量 SNAP_KEEP=30（会话数上限）、SNAP_MSGS_MAX=400（单会话条数上限）已按新口径废除；
+   snapTrim()（按会话数裁内存）与 snapTrimDisk()（按会话数裁盘）随之删除——
+   现在每会话只有 N 条，总量 = 会话数 × N，本来就不大，不需要再按会话数裁。 */
+const SNAP_N_KEY = 'wb_snap_n';      /* localStorage 键：每个会话保留多少条 */
+const SNAP_N_DEF = 5;                /* 老板定的默认值 */
+const SNAP_N_MAX = 200;              /* 参数护栏：最多 200 条 */
+function _snapN(){
+  try{
+    var v = parseInt(localStorage.getItem(SNAP_N_KEY) || '', 10);
+    if (v >= 1 && v <= SNAP_N_MAX) return v;
+  }catch(e){}
+  return SNAP_N_DEF;
 }
+let _snapSaveT = {};
+/* 2.50：原 snapTrim()（按会话数裁内存，SNAP_KEEP=30）已删除——会话不再限量，
+   每会话只留 N 条，内存里自然不大，不需要再按会话数裁。 */
 async function idbSaveSnap(sid, rec){
   const db = await idbOpen();
   if (!db || !rec) return;
@@ -2909,6 +2998,7 @@ async function idbSaveSnap(sid, rec){
     const tx = db.transaction('snaps', 'readwrite');
     tx.objectStore('snaps').put({msgs: rec.msgs, idle: rec.idle !== false,
                                  finish: rec.finish || null, ts: rec.ts || Date.now()}, idbKey(sid));
+    /* 2.50：不再按会话数裁盘——每个会话都保留，只限每会话条数（在写入时就已裁好） */
   }catch(e){}
 }
 async function idbLoadSnap(sid){
@@ -2922,30 +3012,30 @@ async function idbLoadSnap(sid){
     }catch(e){ res(null); }
   });
 }
+/* 2.50：snapTrimDisk() 已删除。老板新口径＝每个会话都保存，只限每个会话的条数；
+   条数在 snapCacheTouch() 写入时就按 _snapN() 裁好，所以盘上不需要再按会话数裁。 */
 /* 每拍真快照落地就记一份（内存立刻，盘上 400ms 防写爆；生成刚结束则立刻落盘） */
 function snapCacheTouch(snap){
   if (!snap || !Array.isArray(snap.msgs) || !snap.msgs.length) return;
   const sid = String(snap.title || '');
   if (!sid) return;
   const prev = S.snapCache[sid];
-  const msgs = snap.msgs.slice(-SNAP_MSGS_MAX);
+  /* 2.50：只留最新 N 条（默认 5）——超出的自动删最旧的。会话本身不限量。 */
+  const msgs = snap.msgs.slice(-_snapN());
   const idle = (snap.sendIdle !== false);
   const rec = {msgs: msgs, idle: idle, finish: snap.finish || null, ts: Date.now()};
   S.snapCache[sid] = rec;
-  snapTrim();
   const k = idbKey(sid);
   if (_snapSaveT[k]){ clearTimeout(_snapSaveT[k]); _snapSaveT[k] = 0; }
   const justDone = prev && prev.idle === false && idle === true;   /* 本轮刚答完：赶紧记录 */
   if (justDone){ idbSaveSnap(sid, rec); return; }
   _snapSaveT[k] = setTimeout(() => { _snapSaveT[k] = 0; idbSaveSnap(sid, rec); }, 400);
 }
-/* 2026-11-13 老板「账先上」：落账＝IndexedDB + 内存缓存双写。
-   缓存（S.turnsCache）给「切回这个会话时同步铺满」用——读盘总要几十毫秒，
-   这几十毫秒里屏幕不该是空的。 */
+/* 2.49（老板 2026-11-15：「快照就是小账本，只需要一套就行了」）：
+   轮播账退役，本函数不再落任何账。手机只留快照账（snaps）。 */
 function saveTurnsNow(){
-  const arr = S.turns.concat(S.curTurn ? [S.curTurn] : []);
-  if (S.turnsCache && S.histConv) S.turnsCache[S.histConv] = arr.slice();
-  idbSaveTurns(S.histConv, arr);
+  /* 2.49：**空实现**。原来这里做「IndexedDB + 内存缓存双写」，落的是轮播账（conv）——
+     已按老板口径整套退役（手机只留快照账）。函数名保留只为不动调用点。 */
 }
 /* 登录/换会话后主动现取一次当前轮播（2.94b）：服务端指纹只在有人听时
    前进，join 时错过的首帧不会因为「下次变化」重发——必须自己开口要。 */
@@ -3027,11 +3117,10 @@ async function onTurncast(tc){
       !S.curTurn.thinks.some(s => s.id === lt.id)){
     S.curTurn.thinks.push({id: lt.id, t: lt.t || 0, x: lt.x || ''});
   }
-  /* ④ 收口：留 5 轮、落 IDB、重画、平时自查 */
+  /* ④ 收口：2.49 起**不再落账、不再进内存缓存**（手机只留快照账）。
+     这里的 S.turns 只当实时数据用——喂 mergeThinkSources（思维卡合并）与
+     turnAudit（缺结论主动补拿），既不入库也不铺屏。 */
   if (S.turns.length > _turnsN()) S.turns = S.turns.slice(-_turnsN());
-  idbSaveTurns(S.histConv, S.turns.concat(S.curTurn ? [S.curTurn] : []));
-  if (S.turnsCache && S.histConv)
-    S.turnsCache[S.histConv] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
   renderAll();
   turnAudit();
 }
@@ -3096,27 +3185,11 @@ function ensureHist(){
   if (conv !== S.histConv){
     S.histConv = conv;
     resetPaging();
-    /* 2.10：换会话先摆上本地轮播账（IndexedDB 秒显），snap 正文到了无缝接管
-       2026-11-13 老板：「切到一个会话立即展示它的轮播账，不要给我展示空白的」——
-       先取内存缓存 turnsCache（同步、零等待）铺一次，再让 IDB 回包来校正。 */
-    var c0 = (S.turnsCache && S.turnsCache[conv]) ? S.turnsCache[conv].slice() : [];
+    /* 2.49：轮播账退役——换会话**不再读盘铺账**。
+       S.turns 只在内存里当实时数据（喂思维卡合并、缺结论补拿）；
+       切换要看的画面一律由快照账在 turnsSwitchTo 里装预备帧，与直播同一套渲染。 */
     S.curTurn = null; S.turnWait = {};
-    /* 缓存与 IDB 同一形状（末尾可能是「进行时」那一轮）——是就还原成 curTurn */
-    if (c0.length && c0[c0.length - 1] && !c0[c0.length - 1].done) S.curTurn = c0.pop();
-    S.turns = c0;
-    renderAll();                             /* 账先上：不等读盘 */
-    idbLoadTurns(conv).then(arr => {
-      if (conv !== S.histConv) return;         /* 已再切走：丢弃 */
-      /* 记录里最后一轮若是「进行时」，还原成 curTurn，其余是历史 */
-      if (arr.length && arr[arr.length - 1] && !arr[arr.length - 1].done){
-        S.curTurn = arr.pop();
-      }
-      S.turns = arr.slice(-_turnsN());
-      if (S.turnsCache)   /* 与 IDB 同形（末尾可含进行时那轮），供下次切回来秒铺 */
-        S.turnsCache[conv] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
-      turnAudit();
-      renderAll();
-    });
+    S.turns = [];
     reqTurncast();                           /* 2.10b：本地账之外再要一份当前轮播 */
     /* 换会话后按当前快照重同步窗口元数据（快照可能先于本函数到达，
        而 onEv 里只在「未翻页」时更新 more，这里补齐） */
@@ -3145,6 +3218,16 @@ function curMsgs(){
 
 function renderAll(){
   const snap = S.snap;
+  /* 2.52（老板 11-15）：「我从手机发出去的文本，不管那边怎么给我加小尾巴，手机
+     重新展示到输入框的时候这些都要剥离掉」。凡有画面刷新，就顺手把关一次——
+     换会话/换服务器/刷新恢复这几条路都绕不过 renderAll；没有标记的草稿一个字
+     不动（foxStripTail 首行 indexOf 就早退）。 */
+  try {
+    if (el.ent && el.ent.value && el.ent.value.indexOf('(@fox-') >= 0){
+      const _bv = foxStripTail(el.ent.value);
+      if (_bv !== el.ent.value){ el.ent.value = _bv; entFit(); refreshSendBtn(); }
+    }
+  } catch(e){}
   skelCacheSave(snap);                 /* 1.33：骨架缓存写回（秒开列表） */
   ensureHist();                        /* 1.33：本地历史秒开+请求式增量 */
   renderConvs(snap.convs || [], snap.conv_unread);
@@ -3747,7 +3830,8 @@ function schedDlgRender(){
   jobs.forEach(j => {
     const card = document.createElement('div');
     card.className = 'sd-job';
-    card.innerHTML = '<div class="jt">' + esc(j.text || '') + '</div>'
+    /* 2.52：卡面也别摊小尾巴（长按全选会被抄走） */
+    card.innerHTML = '<div class="jt">' + esc(foxStripTail(j.text || '')) + '</div>'
       + '<div class="jm">每 ' + schedMinStr(j.every) + ' 分 · 共 '
       + (j.total | 0) + ' 次 · 已 ' + (j.done | 0) + ' 次</div>';
     const ja = document.createElement('div');
@@ -3757,7 +3841,7 @@ function schedDlgRender(){
     bD.className = 'jdel'; bD.textContent = '取消定时';
     bE.onclick = () => {                    /* 编辑 = 表单回填 + 切「保存修改」 */
       ov._edit = j;
-      $('sd_text').value = j.text || '';
+      $('sd_text').value = foxStripTail(j.text || '');
       $('sd_every').value = schedMinStr(j.every);
       $('sd_total').value = j.total | 0;
       $('sd_ok').textContent = '保存修改';
@@ -3919,7 +4003,9 @@ function pendRestore(){
       S.pend_seq++;
       const np = {
         id: S.pend_seq, rid: p.rid || rid10(), kind: p.kind || 'send',
-        text: p.text,
+        /* 2.52：待发箱落盘里可能是旧格式（带小尾巴）——恢复时一并净化，
+           否则刷新后卡面/复制/重发三条路又会把尾巴带回手机 */
+        text: foxStripTail(p.text),
         sid: psid,                  /* P29-3：会话维度随卡一并恢复 */
         convSid: p.convSid || psid || '',   /* 1.66：绑定的会话一并恢复（旧卡无此字段=空，照常显示） */
         /* 2.16：失败态与回执基线一并恢复——刷新后失败卡仍是「未送达」，还能重发 */
@@ -3956,6 +4042,9 @@ function fmtPts(v){
 }
 
 function pendAdd(kind, text, rid, convSid){
+  /* 2.52：卡面/卡内文本一律净化——占位卡的「复制 / 改写 / 重发」三个出口都吃 p.text，
+     这里是唯一入口，堵在这里等于一次堵死三个出口（含服务端 pend 回显、旧格式恢复卡）。 */
+  text = foxStripTail(text);
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
   /* P29-3：占位卡锁定到「发送那一刻」的会话 sid（新卡写 sid，兼容 P26 卡片 convSid） */
   const cs = String(convSid || curConvId() || '');
@@ -4083,7 +4172,7 @@ function renderPending(){
          + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>';
     }
     h += '</span>';
-    h += '</div><div class="body">' + esc(p.text) + '</div>';
+    h += '</div><div class="body">' + esc(foxStripTail(p.text)) + '</div>';
     d.innerHTML = h;
     wrap.appendChild(d);
   });
@@ -4096,14 +4185,15 @@ function renderPending(){
       const cpi = parseInt(b.dataset.cp || '0');   // 1.39：复制占位文字
       if (cpi){
         const p = S.pending.find(x => x.id === cpi);
-        if (p && p.text) copyText(p.text);
+        if (p && p.text) copyText(foxStripTail(p.text));
         return;
       }
       if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
         const p = S.pending.find(x => x.id === ei);
         if (!p) return;
         S.pending = S.pending.filter(x => x.id !== ei);
-        el.ent.value = p.text || '';
+        el.ent.value = foxStripTail(p.text || '');
+        entFit();
         refreshSendBtn();
         try { el.ent.focus(); } catch(e2){}
         renderAll();
@@ -4123,7 +4213,7 @@ function renderPending(){
       S.pending = S.pending.filter(x => x.id !== gi);
       /* 1.66：手动重发同样带上**锁定**的会话 sid（发送那一刻记下的），
          即便此刻已切到别的会话，也投回原会话；旧卡无锁定值则维持原行为。 */
-      cmd(p.kind, p.text, p.sid || p.convSid);   // 重发（cmd 内会重新登记占位，沿用原会话 sid）
+      cmd(p.kind, foxStripTail(p.text), p.sid || p.convSid);   // 重发（cmd 内会重新登记占位，沿用原会话 sid）
     };
   });
   el.msgs.appendChild(wrap);
@@ -4401,28 +4491,12 @@ function turnsSwitchTo(sid){
       renderAll();
     });
   }
-  const c = (S.turnsCache && S.turnsCache[sid]) ? S.turnsCache[sid].slice() : [];
+  /* 2.49：轮播账退役——切换只认快照账（上面 2.37 那段预备帧）。
+     账位清空，等 turncast 进来重新长实时数据；绝不再从 turnsCache / IDB 铺第二套账。 */
   S.histConv = sid;
   S.curTurn = null; S.turnWait = {};
-  resetPaging();
-  if (c.length){
-    if (!c[c.length - 1].done) S.curTurn = c.pop();
-    S.turns = c;
-    return;
-  }
   S.turns = [];
-  /* 缓存没有就立刻问 IDB；回来时若还停在这个目标、且账仍空，换上并重画 */
-  idbLoadTurns(sid).then(arr => {
-    if (S.histConv !== sid) return;                 /* 又切走了：丢弃 */
-    if (S.turns.length || S.curTurn) return;        /* 已有账：不覆盖 */
-    const a = (arr || []).slice();
-    if (a.length && a[a.length - 1] && !a[a.length - 1].done) S.curTurn = a.pop();
-    if (!a.length && !S.curTurn) return;
-    S.turns = a.slice(-_turnsN());
-    if (S.turnsCache)
-      S.turnsCache[sid] = S.turns.concat(S.curTurn ? [S.curTurn] : []);
-    renderAll();
-  });
+  resetPaging();
 }
 function pendSwitchSet(title, disp, local){
   title = title || '';
@@ -4594,7 +4668,10 @@ function renderMsgs(msgs, finish, opts, ask){
   const _holdOld = !prepOn && !msgs.length && !S.pending.length
       && (S.switch_pend || S.loadingConv)
       && el.msgs.childElementCount > 0
-      && !(S.turns && S.turns.length);
+      /* 2.49：这里原来还有一条「S.turns 非空就不留旧屏」——那时轮播账会把账铺上屏，
+         不留也对。轮播账退役后账不再铺屏，再留这条就成了「目标内容没到、旧屏也清掉、
+         只剩一条加载条」。现在只要旧屏还在就一直留着，12 秒兜底不变。 */
+      ;
   if (_holdOld){
     if (!S.holdFrom) S.holdFrom = Date.now();
     if (Date.now() - S.holdFrom < 12000){
@@ -4683,8 +4760,8 @@ function renderMsgs(msgs, finish, opts, ask){
       ui++;
       acts += '<button class="mact ed" data-k="edit" data-i="' + i
             + '">✎ 重编</button>';
-      if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
-                      + (uoff + ui) + '">↩ 回退</button>';
+      if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-i="' + i
+                      + '" data-mi="' + (uoff + ui) + '">↩ 回退</button>';
       if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
                       + (uoff + ui) + '">🗑 删除</button>';
     }
@@ -4712,24 +4789,7 @@ function renderMsgs(msgs, finish, opts, ask){
     /* 1.69：AI 消息正文识别 (@fox-play1)…(@fox-play2) 包夹段 → 渲染成语音
        小卡片（占位符先过 mdHtml，再替换成卡片 HTML）。「我」的消息不处理。 */
     let bodyHtml;
-    {
-      const fsegs = [], asegs = [], hsegs = [];
-      /* 1.70：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）互不冲突，
-         先摘语音、后摘提问，再各自回填卡片（提问卡叠 .ask 琥珀色）。
-         2.01：再加「专属提示词三段折叠卡」（@@FHC，见 foxHintCards）。
-         ★用户消息与 AI 消息**一视同仁**处理——专属提示词由服务端拼在「我」发出的
-         消息末尾，必须同样渲染成折叠卡（此前用户消息只 esc 原样）。 */
-      bodyHtml = mdHtml(foxHintCards(foxAskCards(foxPlayCards(m[1], fsegs), asegs), hsegs));
-      fsegs.forEach((ft, n) => {
-        bodyHtml = bodyHtml.replace('@@FPC' + n + '@@', foxCardHtml(ft));
-      });
-      asegs.forEach((at, n) => {
-        bodyHtml = bodyHtml.replace('@@FAC' + n + '@@', foxCardHtml(at, true));
-      });
-      hsegs.forEach((hz, n) => {
-        bodyHtml = bodyHtml.replace('@@FHC' + n + '@@', foxHintHtml(hz));
-      });
-    }
+    bodyHtml = msgBodyHtml(m[1]);
     let h = '<div class="who">' + (user ? '我' : 'WorkBuddy')
           + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
@@ -4754,13 +4814,17 @@ function renderMsgs(msgs, finish, opts, ask){
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
         if (k === 'copy'){
-          copyText(msgs[parseInt(b.dataset.i)][1]);
+          /* 2.52：复制一律过净化——手机粘贴回输入框时不许再见到 (@fox- 小尾巴 */
+          const ci = msgs[parseInt(b.dataset.i)];
+          copyText(foxStripTail(ci ? (ci[1] || '') : ''));
           return;
         }
         if (k === 'edit'){
           const it = msgs[parseInt(b.dataset.i)];
           /* 2.01：重编＝把我发的原话取回输入框——剥掉服务端追加的专属词三段标记，还原纯正文 */
-          el.ent.value = it ? stripHintMarks(it[1] || '') : '';
+          /* 2.52：改走 foxStripTail（连语音卡/提问卡标记一起摘，内容保留） */
+          el.ent.value = it ? foxStripTail(it[1] || '') : '';
+          entFit();
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
           flash('已回填输入框，可修改后重新发送', 'var(--blue)');
@@ -4769,9 +4833,12 @@ function renderMsgs(msgs, finish, opts, ask){
         if (k === 'rewind'){
           /* 1.79：回退＝撤回「我」的这一问——截断后续之外，把该条原文取回输入框
              （用户 2026-10-06 定：「回退应该把文本取回，输入框重新编辑」）。
-             2.01：取回时剥掉专属词三段标记，还原纯正文。 */
+             2.01：取回时剥掉专属词三段标记，还原纯正文。
+             2.52：① 回退钮原本只有 data-mi、没有 data-i，取原文永远取不到（回填空框）；
+                   现按 data-i 取，老 DOM 兜底用 mi 反推；
+                   ② 取回一律过 foxStripTail。 */
           const it = msgs[parseInt(b.dataset.i)];
-          const back = it ? stripHintMarks(it[1] || '') : '';
+          const back = it ? foxStripTail(it[1] || '') : '';
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
             + '其后全部对话（含 AI 回复）将一并移除。\n'
             + '（这条原文会取回输入框，可改完再发）')) return;
@@ -4806,7 +4873,9 @@ function renderMsgs(msgs, finish, opts, ask){
       if (S.foldOpen[sk]){
         const arr = S.foldData[sk] || [];
         let bh = '<div class="foldbody">';
-        arr.forEach(t => { bh += '<div class="foldbub">' + mdHtml(t) + '</div>'; });
+        /* 2.52：中间气泡也走 msgBodyHtml——四段/语音/提问都折叠成卡片，
+           不再把 (@fox- 原文直接摊在 DOM 里（否则长按全选＝把提示词复制走） */
+        arr.forEach(t => { bh += '<div class="foldbub">' + msgBodyHtml(t) + '</div>'; });
         bh += '</div>';
         fb.innerHTML = '<div class="foldhd"><span>🗂 中间气泡 ' + m[6].f
           + ' 条</span><button class="foldbtn" data-sk="' + sk
@@ -5686,7 +5755,69 @@ const APP_NAME = 'wb远程';
    ②级别说清楚：本机已发出 → 服务器已签收（收到服务端 broadcast 'sent' 才升）→ 进对话流撤卡；
    ③服务端 stage='queued'（真回执）也置 'sent'，不再停在「等回应」让人以为没回；
    ④窄屏 who 换行，编号不挤出框。撤卡判据一个字没动（acks 命中 / 进排队条）。 */
-const VER = '2.48';
+/* 2.49（2026-11-15，老板原话：「快照就是小账本，就是只需要一套就行了。本地有大账本，
+   手机上有一个小账本，只要记录一份就够了呀……根本就不需要在手机上同时记好几套账」）：
+   ★手机网页版**只留一套账＝快照账（IndexedDB 的 snaps）**，轮播账（conv）整套退役。
+   从前并行记着两套正文账，内容九成重合：快照账（每拍真快照落盘，和直播同一套渲染、
+   切换零抖动）与轮播账（turncast 逐张捡的最近 N 轮，快照账没命中时顶上，顶上必带一条
+   灰条「本地轮播账 · 直播画面到达后自动让位」）——用户偶尔看到的「另一套快照」就是它。
+   ① saveTurnsNow() 停写；idbSaveTurns / idbLoadTurns 删除（全站不再往 conv 写一个字节）；
+   ② renderTurnsLocal() 整体退役、恒返回 false（灰条兜底这条路径彻底消失）；
+   ③ ensureHist / turnsSwitchTo 不再读盘铺账，切会话只认快照账的预备帧；
+   ④ 新增 snapTrimDisk()：快照账**盘上**也按 SNAP_KEEP=30 裁（以前只裁内存）；
+   ⑤ checkVerBump() 改版时清空遗留 conv 库，一次清干净；
+   ⑥ 菜单「轮播账查看器」→「小账本（快照账）」，读的是 snaps。
+   ★S.turns 仍留在内存里，但只是实时数据（喂 mergeThinkSources 与 turnAudit），
+     不落盘、不铺屏——账只有一套。 */
+/* 2.50（2026-11-15 老板原话：「小账本的话，不说保留最近 n 个会话，是每个会话都保存。
+   毕竟叫小账本，所以会限制每个会话小账本的条数啊。比如每个会话保留最新的 N 条，默认
+   填个 5 吧。按照这样的逻辑来管理，超出的就自动删掉比较旧的。」）：
+   ★小账本（快照账）的管理口径改为「**会话不限量、每会话限条数**」：
+   ① 取消 SNAP_KEEP=30 的会话数上限——用过的每个会话都留一份，不因为超过 30 个就丢老会话；
+   ② 单会话条数由 SNAP_MSGS_MAX=400 改为可配的 N（`wb_snap_n`，默认 5，上限 200）；
+      内存与 IDB 写入时都按 `slice(-_snapN())` 裁，超出的就是最旧的几条，自动丢掉；
+   ③ snapTrim()（按会话数裁内存）与 snapTrimDisk()（按会话数裁盘）一并删除——
+      每会话只有 N 条，总量 = 会话数 × N，本来就不大；
+   ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
+      改后下一拍生效。 */
+const VER = '2.52';
+                      /* 2.52（2026-11-15，老板原话：「我从手机发出去的文本，不管那边你怎么给
+                         我加小尾巴，我手机需要重新让它展示在输入框的时候，这些都要剥离掉」）：
+                         小尾巴回填**全出口封堵**。先做了 WB-01~WB-24 + EXT-01/02 穷举复现
+                         （断网＋假快照＋CDP，18 条违规），再按违规逐条堵：
+                         ① 新增 foxStripTail(txt)（唯一净化器）：语音卡/提问卡标记只摘标记、
+                           内容保留；四段专属提示词连内容一起删；只在「删完四段后只剩空白」
+                           时才认定是服务端尾巴——正文后面还有真内容（用户自己写的标记）就
+                           只摘标记、留内容；整条以段头开头的原样不动。
+                         ② 气泡：📋 复制（原 4768 行裸 copyText）／✎ 重编／↩ 回退全过它；
+                           回退钮原本只有 data-mi、没有 data-i，取原文永远拿不到（回填空框），
+                           现补 data-i。
+                         ③ 折叠区「中间气泡」原走 mdHtml 直出（长按全选能抄到 (@fox- 原文）——
+                           新增 msgBodyHtml()，与气泡共用同一套 语音卡/提问卡/四段折叠卡 渲染。
+                         ④ 占位卡：净化收口在 pendAdd()（复制/改写/重发三个出口都吃 p.text），
+                           另加 卡面/复制/改写/重发 四处显式剥；待发箱 pendRestore 恢复时剥。
+                         ⑤ 排队条 queue_recall_ok 取回剥；outbox 走 cmd() 最后一道闸：
+                           send/interject/queue_restore/sched_* 的文本参数一律先剥再发/再入队。
+                         ⑥ 定时任务：卡面与「编辑」回填都剥（原 3774/3784 裸显示）。
+                         ⑦ 换台（switchSrv）＋每次 renderAll 顺手把关输入框——换会话/换服务器/
+                           刷新恢复都绕不过去；没有标记的草稿一个字不动。
+                         见 临时测试/tail_wb_20261115/违规清单_WB场_20261115.md。 */
+                      /* 2.51（2026-11-15，老板原话：「我要求会话列表呢，能用就用……不要下一个
+                         新的还没来，旧的就先清空了，这个机制已经实现了。但是你得锚定服务器啊，
+                         现在我切换到别的服务器，它还给我留着上一个服务器的会话名称，这样不行啊，
+                         分开分别建档」）：会话列表骨架档**按服务器分档**——
+                         ① LS_SKEL 由「全书一格」改存 {_v:2, srv:{<服务器名>:{key,ts,convs,
+                           conv_unread}}}；格子名＝服务器显示名（名册唯一、落盘稳定，刷新/断网
+                           都认得出是同一台）。上一台的名字再也不会顶在这台名下。
+                         ② 冷启动先 loadSrvs→pickCur 选定「上次那台」，再取**它自己**那格铺列表
+                           （原顺序是先铺列表后选台，等于拿别台的档上屏）。
+                         ③ switchSrv 换台即 convArchiveLoad(nm)：这台的档有就原子换页铺上，
+                           没有才立「暂无本地会话档案」占位；顺手把 S.srvVer 换成这台的，
+                           否则还拿着上一台的缓存键、新台的档一张都取不到。
+                         ④ 服务端版本号改按台存（LS_SRVV 变 {服务器:版本}），改版只作废当前这台
+                           的档（skelDrop），别台的档案不被牵连。
+                         ★未动 2.42/2.45 铁律：**同一台**服务器上，新列表没来之前旧列表照用，
+                           一次原子换页，绝不出现空白帧。
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
@@ -6319,6 +6450,9 @@ function pickCur(){
 function enterCur(){
   flash('已选择服务端 [' + S.cur + ']', 'var(--blue)');
   applySrvEntry();                           // 载入其缓存状态
+  /* 2.51：选中的是哪台，就铺哪台的会话档——自动接管/名册剔旧换台时
+     同样不许把上一台的会话名留着（老板「分开分别建档」）。 */
+  try { convArchiveLoad(S.cur); } catch(e){}
   sendJson({t: 'hello'});                    // 拉即时全量
   helloWatch();                              // 1.14：快照看门狗
 }
@@ -6351,10 +6485,21 @@ function switchSrv(nm){
   if (S.cur && S.onLine) sendJson({t: 'ctl_free'});
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   setCur(nm);
+  /* 2.51：换台先按「这台记着的服务端版本号」重算缓存键，再去取它自己的档案——
+     不重算就还拿着上一台的键，新台的档一张都取不到。这台没记过版本（首次连）
+     就沿用现值，等 hello 回来由 checkVerBump 校正。 */
+  { const _sv = srvVerGet(nm); if (_sv && _sv !== '0') S.srvVer = _sv; }
+  cacheKey = cacheKeyNow();
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.pending = []; switchEnd(); S._swFail = null;   /* 1.82：连带清在途定时器 */
   S.recall = null; renderEditRow();   /* 1.53：换服务端，取回修改态作废 */
+  /* 2.52：换台时框里若还挂着上一台取回的文本，就地净化（只剥尾巴、不清他打的字） */
+  try {
+    if (el.ent && el.ent.value && el.ent.value.indexOf('(@fox-') >= 0){
+      el.ent.value = foxStripTail(el.ent.value); entFit(); refreshSendBtn();
+    }
+  } catch(e){}
   S.loadingConv = null;               /* 1.28：换服务端，加载占位作废 */
   S.switch_target = null;             /* 1.28：目标备忘作废 */
   S.busy = false; S.model_busy = false;
@@ -6364,8 +6509,10 @@ function switchSrv(nm){
   S.alive = new Set(); S.boxes = [];
   el.model.innerHTML = ''; S.model_map = {};
   S.box = '(未连接)'; S.port = 0;
-  /* 2.45：手动换操控目标同样**不清会话列表**——留着旧的可用，新目标第一拍快照
-     到了由 renderConvs 一次原子换页（老板 11-14：「它应该永远不会变成纯白色」）。 */
+  /* 2.51：换服务器＝换档案夹（老板 11-15：「你得锚定服务器啊…分开分别建档」）——
+     把这台自己的旧会话表原子铺上；它没档才立占位。**同一台**上「新列表没来，
+     旧的照用」的铁律不变（2.45），换台则绝不把上一台的会话名顶在这台名下。 */
+  convArchiveLoad(nm);
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
                      + ' …）</div>';
   renderAttach([]);
@@ -6696,7 +6843,8 @@ function onEv(kind, v){
         S.pending = S.pending.filter(x => !(String(x.rid || '') === String(v.id)
                                             && pendSidOk(x, recallSid)));
       }
-      el.ent.value = (v && v.text) || '';
+      /* 2.52：队列里存的是注入专属提示词后的全文，取回到手机输入框必须先剥干净 */
+      el.ent.value = foxStripTail((v && v.text) || '');
       entFit();
       renderEditRow(); refreshSendBtn(); renderAll();
       flash('已取回队列中的一条：改好后点「放回」（回原位），或取消', 'var(--blue)');
@@ -7271,6 +7419,11 @@ function renderPorts(){
 /* ================= 命令 ================= */
 
 function cmd(c, a, lockConv){
+  /* 2.52：出站载荷净化（最后一道闸）——send / interject / queue_restore / sched_* 的
+     文本参数一律先剥小尾巴：不管上层是从队列取回的、旧卡恢复的、还是别端广播来的，
+     都不许把这个尾巴再发回服务端、更不许落进 outbox 等刷新后补发（WB-12 那条路）。 */
+  if (typeof a === 'string') a = foxStripTail(a);
+  else if (Array.isArray(a)) a = a.map(x => (typeof x === 'string' ? foxStripTail(x) : x));
   /* 1.63：WS 不可用——发消息不再直接拒发（此前只提示「文字已保留」）：
      挂占位卡并每 10 秒重试一次（共 6 次），卡面显示「WS 失联重试中」；
      非消息命令（切换/停止等）仍如实告知未发出。
@@ -7500,7 +7653,7 @@ bindGrowBtn(el.copy, () => {     // 1.40：一键复制输入框内容（放大�
   const t = el.ent.value;
   /* 判空必须走 trim —— 框内恒有 3 个空行，`!t` 会假报"已复制" */
   if (!t.trim()){ flash('输入框是空的，没东西可复制'); return; }
-  copyText(t);                   // 复用 1.24 的 copyText（含非安全上下文兜底）
+  copyText(foxStripTail(t));      // 复用 1.24 的 copyText（含非安全上下文兜底）；2.52：顺带剥尾
 });
 /* 2.03：「急」加急插入勾选（放大态顶行）——对齐 TRAE T63。
    未选＝白底常态 / 选中＝红底（醒目）。点它＝取反本次发送的「加急」标志
@@ -8034,9 +8187,15 @@ function channelPrompt(){
 
 /* 1.xx：统一版本号渲染 → 标题栏（三个地方：title / 菜单栏 / 底部） */
 renderVer();
-/* 1.33 全新架构：骨架秒出——按上次的服务端版本号拼缓存键，本地会话列表
-   直接渲染（不用等连上，永不闪空）；hello 到达若版本变了会再清缓存重下。 */
-try { S.srvVer = localStorage.getItem(LS_SRVV) || '0'; } catch(e){}
+/* 1.33 全新架构：骨架秒出——本地会话列表直接渲染（不用等连上，永不闪空）；
+   hello 到达若版本变了会再作废重下。
+   2.51：先把「上次那台」选定再取档案——顺序反了就会拿别台的骨架档
+   顶在这台名下（老板 11-15「你得锚定服务器……分开分别建档」）。 */
+loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
+pickCur();                                       /* 1.48：打开即选中上次那台 */
+renderAcct();                                    /* 1.33：账号行首显 — */
+renderSrvList(); renderTop();
+try { S.srvVer = srvVerGet(srvTagNow()); } catch(e){ S.srvVer = '0'; }
 checkVerBump();
 {
   const sk = skelCacheLoad();
@@ -8047,14 +8206,11 @@ checkVerBump();
 pendRestore();
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
-renderAcct();                                    /* 1.33：账号行首显 — */
-loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
-pickCur(); renderSrvList(); renderTop();         /* 1.48：打开即渲染名册 + 直接选中上次那台 */
 if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
 
-/* ======== 轮播账查看器（老板 2026-11-06 18:43：可视化 + 最近 N 轮） ======== */
+/* ======== 小账本查看器（原「轮播账查看器」；2.49 起改读快照账 snaps） ======== */
 (function(){
-  var built = false, CV_VER = '1.00', view = 'list', cur = null;
+  var built = false, CV_VER = '1.10', view = 'list', cur = null;
   var NKEY = 'wb_turns_n';
   function nGet(){ try{ var v = parseInt(localStorage.getItem(NKEY) || '5', 10); return (v >= 2 && v <= 60) ? v : 5; }catch(e){ return 5; } }
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -8074,8 +8230,9 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       });
     }
     try {
-      var o = JSON.parse(localStorage.getItem('wb_cli_skel') || 'null');
-      if (o && Array.isArray(o.convs)) eat(o.convs);
+      /* 2.51：骨架档改按服务器分档，这里只吃**当前这台**那格 */
+      var b = skelBucket(srvTagNow());
+      if (b && Array.isArray(b.convs)) eat(b.convs);
     } catch(e){}
     try {
       var d = JSON.parse(localStorage.getItem('wb_cli_convnames') || 'null');
@@ -8128,24 +8285,34 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       '.tv_turn .m{font-size:11px;color:#8a98a6;margin-top:6px}';
     document.head.appendChild(st);
   }
+  /* 2.49：改读**快照账**（snaps）。轮播账（conv）已退役，库里那条路不再有数据。 */
+  function tsTxt(ms){
+    if (!ms) return '';
+    try{
+      var d = new Date(ms);
+      function p2(n){ return (n < 10 ? '0' : '') + n; }
+      return (d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+    }catch(e){ return ''; }
+  }
   function openAll(){
     return new Promise(function(res){
-      var rq = indexedDB.open('wbcli_turns', 2);   /* 2.37：跟着主库升到 2，否则低版本打开会 VersionError */
+      var rq = indexedDB.open('wbcli_turns', 2);
       rq.onsuccess = function(){
         var db = rq.result, out = [];
         try{
-          var tx = db.transaction('conv', 'readonly');
-          var cur2 = tx.objectStore('conv').openCursor();
+          var tx = db.transaction('snaps', 'readonly');
+          var cur2 = tx.objectStore('snaps').openCursor();
           cur2.onsuccess = function(){
             var c = cur2.result;
             if (c){
-              /* 2026-11-13 老板「按服务器隔离」：键形如 1102517923|sess_xxx，
-                 按第一个 '|' 拆回 服务器标识 / 会话 sid；老键没有 '|' → srv='local' */
+              /* 键形如「服务器标识|会话sid」；老键没有 '|' → srv='local' */
               var k = String(c.key), i = k.indexOf('|');
               out.push({
                 srv: (i > 0 ? k.slice(0, i) : 'local'),
                 sid: (i > 0 ? k.slice(i + 1) : k),
-                turns: (c.value && c.value.turns) || []
+                msgs: (c.value && c.value.msgs) || [],
+                idle: !(c.value && c.value.idle === false),
+                ts: (c.value && c.value.ts) || 0
               });
               c.continue();
             }
@@ -8160,28 +8327,40 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   function render(host){
     host.innerHTML = '';
     var cfg = document.createElement('div'); cfg.className = 'tv_sec';
-    cfg.innerHTML = '<h3>轮播账参数 <span class="n">改后新轮按新值保留</span></h3>' +
-      '<div style="padding:10px 14px;font-size:13px;display:flex;align-items:center;gap:8px">' +
-      '保存最近 <input id="tv_n" type="number" min="2" max="60" step="1" style="width:64px;border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px" value="5"> 轮' +
-      '<span style="color:#8a98a6;font-size:11px">（人类问＋AI 终答算一轮）</span></div>';
+    cfg.innerHTML = '<h3>小账本（快照账）<span class="n">手机只留这一套 · 每个会话都存</span></h3>' +
+      '<div style="padding:10px 14px 8px;font-size:13px;color:#6b7b8c;line-height:1.7">' +
+      '切会话时先铺的就是它，与直播画面同一套渲染，所以切过去不抖、不闪、没有多余提示条。<br>' +
+      '规则：<b>每个会话都保存</b>（不限会话个数），但每个会话只留<b>最新 N 条</b>，' +
+      '超出的自动删最旧的。轮播账（旧那套）已整体退役，不再写盘、不再显示。</div>' +
+      '<div style="padding:0 14px 12px;font-size:13px;display:flex;align-items:center;gap:8px">' +
+      '每个会话保留最新 <input id="tv_sn" type="number" min="1" max="200" step="1" ' +
+      'style="width:72px;border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px"> 条' +
+      '<span style="color:#8a98a6;font-size:11px">（默认 5）</span></div>';
     host.appendChild(cfg);
-    var ne = cfg.querySelector('#tv_n');
-    ne.value = nGet();
-    ne.onchange = function(){
-      var v = parseInt(ne.value, 10); if (!(v >= 2 && v <= 60)) v = 5;
-      ne.value = v; try { localStorage.setItem(NKEY, String(v)); } catch(e){}
+    var sne = cfg.querySelector('#tv_sn');
+    sne.value = _snapN();
+    sne.onchange = function(){
+      var v = parseInt(sne.value, 10);
+      if (!(v >= 1)) v = SNAP_N_DEF;
+      if (v > SNAP_N_MAX) v = SNAP_N_MAX;
+      sne.value = v;
+      try { localStorage.setItem(SNAP_N_KEY, String(v)); } catch(e){}
     };
     if (view === 'detail' && cur){ renderDetail(host); return; }
     var sec = document.createElement('div'); sec.className = 'tv_sec';
-    sec.innerHTML = '<h3>本地轮播账 <span class="n">读取中…</span></h3>';
+    sec.innerHTML = '<h3>本地快照账 <span class="n">读取中…</span></h3>';
     host.appendChild(sec);
     openAll().then(function(list){
-      sec.querySelector('.n').textContent = list.length + ' 个会话有本地轮播账';
-      if (!list.length){ sec.appendChild(Object.assign(document.createElement('div'), {style:'padding:14px;color:#8a98a6;font-size:13px', textContent:'（本地还没有轮播账）'})); return; }
+      list.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
+      sec.querySelector('.n').textContent = list.length + ' 个会话有本地快照账';
+      if (!list.length){
+        sec.appendChild(Object.assign(document.createElement('div'),
+          {style:'padding:14px;color:#8a98a6;font-size:13px',
+           textContent:'（本地还没有快照账，切几个会话就会攒起来）'}));
+        return;
+      }
       var mp = nameMap();
-      /* 2026-11-13 老板「按服务器隔离」+「会话名优先」：先按服务器分组（每组一个
-         标题「服务器：家里（1102517923）」），组内卡片主标题＝会话名，
-         副行＝轮数 · 首句 · sid 前 8 位（认不出名字时也能靠 sid 定位）。 */
+      /* 按服务器分组（家里 / 宿舍两台服务端会话同名也不会混淆） */
       var groups = {}, order = [];
       list.forEach(function(it){
         if (!groups[it.srv]){ groups[it.srv] = []; order.push(it.srv); }
@@ -8191,15 +8370,19 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       order.forEach(function(sv){
         var gs = document.createElement('div'); gs.className = 'tv_sec';
         gs.innerHTML = '<h3>服务器：' + esc(srvName(sv)) + ' <span class="n">'
-          + groups[sv].length + ' 个会话有本地轮播账</span></h3>';
+          + groups[sv].length + ' 个会话有本地快照账</span></h3>';
         var g = document.createElement('div'); g.className = 'tv_grid';
         groups[sv].forEach(function(it){
-          var first = (it.turns[0] && it.turns[0].utext) || '';
+          var firstu = '';
+          for (var q = 0; q < it.msgs.length; q++){
+            if (it.msgs[q] && it.msgs[q][0] === 'u'){ firstu = String(it.msgs[q][1] || ''); break; }
+          }
           var nm = nmOf(it.sid, mp);
           var card = document.createElement('div'); card.className = 'tv_card';
           card.innerHTML = '<div class="tv_l1">' + esc(nm) + '</div>' +
-            '<div class="tv_l2">' + esc(it.turns.length + ' 轮'
-              + (first ? ' · ' + first.slice(0, 24) : '')
+            '<div class="tv_l2">' + esc(it.msgs.length + ' 条 · ' + tsTxt(it.ts)
+              + (it.idle ? '' : ' · 生成中')
+              + (firstu ? ' · ' + firstu.slice(0, 20) : '')
               + ' · ' + String(it.sid).slice(0, 8)) + '</div>';
           card.setAttribute('data-sid', it.sid);
           card.setAttribute('data-srv', sv);
@@ -8215,18 +8398,19 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
     var bar = document.createElement('div'); bar.className = 'tv_dhd';
     bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(nmOf(cur.sid, nameMap()))
       + ' <span style="font-weight:400;color:#8a98a6;font-size:11px">'
-      + esc(srvName(cur.srv || '') + ' · ' + String(cur.sid).slice(0, 8)) + '</span></div>';
+      + esc(srvName(cur.srv || '') + ' · ' + String(cur.sid).slice(0, 8)
+            + ' · ' + tsTxt(cur.ts)) + '</span></div>';
     bar.querySelector('button').onclick = function(){ view = 'list'; cur = null; render(host); host.scrollTop = 0; };
     host.appendChild(bar);
     var sec = document.createElement('div'); sec.className = 'tv_sec';
-    sec.innerHTML = '<h3>轮播账 · ' + esc(cur.turns.length + ' 轮') + '</h3>';
+    sec.innerHTML = '<h3>快照账 · ' + esc(cur.msgs.length + ' 条') + '</h3>';
     var box = document.createElement('div'); box.style.padding = '6px 10px 12px';
-    cur.turns.forEach(function(t, i){
+    cur.msgs.forEach(function(m, i){
+      var isU = (m && (m[0] === 'u' || m[0] === 'user'));
       var d = document.createElement('div'); d.className = 'tv_turn';
-      var n = (t.thinks && t.thinks.length) || 0;
-      d.innerHTML = '<div class="u">' + esc('你：' + (t.utext || '（无）')) + '</div>' +
-        '<div class="a">' + esc('AI：' + (t.atext || (t.done ? '（无终极结论）' : '（生成中）'))) + '</div>' +
-        '<div class="m">' + esc('第 ' + (i + 1) + ' 轮 · 思维卡 ' + n + ' 张 · ' + (t.done ? '已结束' : '进行中')) + '</div>';
+      d.innerHTML = '<div class="' + (isU ? 'u' : 'a') + '">'
+        + esc((isU ? '你：' : 'AI：') + String((m && m[1]) || '')) + '</div>'
+        + '<div class="m">' + esc('第 ' + (i + 1) + ' 条') + '</div>';
       box.appendChild(d);
     });
     sec.appendChild(box); host.appendChild(sec);
@@ -8234,7 +8418,7 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   function build(){
     if (built) return; built = true; inject();
     var pg = document.createElement('div'); pg.id = 'tv_page';
-    pg.innerHTML = '<div id="tv_hd"><button id="tv_back">‹ 返回</button><div class="t">轮播账查看器 v' + CV_VER + '</div><button id="tv_reload">刷新</button></div><div id="tv_bd"></div>';
+    pg.innerHTML = '<div id="tv_hd"><button id="tv_back">‹ 返回</button><div class="t">小账本查看器 v' + CV_VER + '</div><button id="tv_reload">刷新</button></div><div id="tv_bd"></div>';
     document.body.appendChild(pg);
     var bd = pg.querySelector('#tv_bd');
     pg.querySelector('#tv_back').onclick = function(){ pg.classList.remove('on'); };

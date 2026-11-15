@@ -41,7 +41,10 @@ function pendAdd(kind, text){
    老卡（IDB 恢复等无 body）现场剥首行 DID 兜底。 */
 function pendBody(p){
   if (!p) return '';
-  return (p.body != null) ? p.body : stripHeadDid(p.text);
+  /* 2.164：卡文本可能来自服务端 pend 回显 / IDB 旧格式 / 别端投递（带四段尾巴）——
+     卡面、复制、改写、重发四个出口都吃这里，收口于此一次剥净。 */
+  const raw = (p.body != null) ? p.body : stripHeadDid(p.text);
+  return foxStripTail(String(raw == null ? '' : raw));
 }
 
 function pendStat(p){

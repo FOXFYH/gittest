@@ -1822,6 +1822,55 @@ function stripHintMarks(txt){
     .replace(/\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
 }
+/* ── 2.52（老板 2026-11-15 定）：「我从手机发出去的文本，不管那边怎么给我加小尾巴，
+   我手机需要重新让它展示在输入框的时候，这些都要剥离掉」——
+   凡是「文本要回到手机输入框 / 剪贴板 / 待发队列 / 排队条」的出口，一律先过这里：
+     ① 语音卡/提问卡标记（fox-play / fox-ask）：只摘标记、**内容保留**（那是 AI 说的话）；
+     ② 四段专属提示词（sys/usr/co/ai）：连被包住的正文一起删（那是服务端拼的提示词）；
+     ③ 只在「确属尾部拼装」时才整段删——判据＝删完四段后剩余部分只有空白；
+        正文后面还有真内容（用户自己写了 (@fox-sys1)…(@fox-sys2)）就只摘标记、留内容；
+     ④ 剥完一个字不剩（整条就是标记）→ 退回「只摘标记」，绝不给空框；
+     ⑤ 没出现过 '(@fox-' 的文本原样返回，一个字都不动（不 trim、不归一换行）。 */
+const FPLAY_ANY = /\(@fox-play\d?\s*\)/g;
+const FASK_ANY  = /\(@fox-ask\d?\s*\)/g;
+const FH_ANY    = /\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g;
+function foxStripTail(txt){
+  let s = String(txt == null ? '' : txt);
+  if (s.indexOf('(@fox-') < 0) return s;
+  const raw = s;
+  s = s.replace(FPLAY_ANY, '').replace(FASK_ANY, '');
+  let idx = -1;
+  FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
+  /* ③'：整条就以段头开头（前面一个字都没有）＝用户自己写的正文，不是服务端追加的尾巴。
+     这种情形按「一个字都不许动」处理（老板要的是「别把提示词带回来」，不是「改写我写的字」）。
+     服务端拼尾永远是「正文 + 尾巴」，正文非空时段头必然不在 0 位。 */
+  if (idx > 0){
+    const head = s.slice(0, idx), tail = s.slice(idx);
+    const cut = tail.replace(FSC_REG, '').replace(FUC_REG, '')
+                    .replace(FCC_REG, '').replace(FAI_REG, '').replace(FH_ANY, '');
+    /* ③：四段删完还剩真内容 ⇒ 这对标记是用户自己写在正文里的，只摘标记、内容全留；
+       一点不剩（只剩空白）⇒ 确属服务端追加的尾巴，连内容整段砍。 */
+    s = cut.trim() ? (head + tail.replace(FH_ANY, '')) : head;
+  }
+  s = s.replace(/\r\n?/g, '\n')
+       .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+  if (!s && raw.trim()){                        /* ④：整条都是标记 → 只摘标记、留正文 */
+    s = raw.replace(FPLAY_ANY, '').replace(FASK_ANY, '').replace(FH_ANY, '')
+           .replace(/\n{3,}/g, '\n\n').trim();
+  }
+  return s;
+}
+/* 2.52：正文 → 气泡正文 HTML（语音卡 / 提问卡 / 四段折叠卡统一在这里渲染）。
+   原先这段内联在气泡循环里，折叠区（历史中间气泡）自己走 mdHtml 直出，
+   于是折叠区里能选中/复制到 (@fox- 原文——现在两处共用同一个函数。 */
+function msgBodyHtml(text){
+  const fsegs = [], asegs = [], hsegs = [];
+  let h = mdHtml(foxHintCards(foxAskCards(foxPlayCards(String(text || ''), fsegs), asegs), hsegs));
+  fsegs.forEach((ft, n) => { h = h.replace('@@FPC' + n + '@@', foxCardHtml(ft)); });
+  asegs.forEach((at, n) => { h = h.replace('@@FAC' + n + '@@', foxCardHtml(at, true)); });
+  hsegs.forEach((hz, n) => { h = h.replace('@@FHC' + n + '@@', foxHintHtml(hz)); });
+  return h;
+}
 /* 音色/语速：默认**女声晓晓**（用户 2026-09-30 明确不喜欢原先写死的男声云希）。
    由「设置→语音播报」改，随每次播报一起发给服务端。 */
 if (!CFG.tts_voice) CFG.tts_voice = 'zh-CN-XiaoxiaoNeural';
@@ -3169,6 +3218,16 @@ function curMsgs(){
 
 function renderAll(){
   const snap = S.snap;
+  /* 2.52（老板 11-15）：「我从手机发出去的文本，不管那边怎么给我加小尾巴，手机
+     重新展示到输入框的时候这些都要剥离掉」。凡有画面刷新，就顺手把关一次——
+     换会话/换服务器/刷新恢复这几条路都绕不过 renderAll；没有标记的草稿一个字
+     不动（foxStripTail 首行 indexOf 就早退）。 */
+  try {
+    if (el.ent && el.ent.value && el.ent.value.indexOf('(@fox-') >= 0){
+      const _bv = foxStripTail(el.ent.value);
+      if (_bv !== el.ent.value){ el.ent.value = _bv; entFit(); refreshSendBtn(); }
+    }
+  } catch(e){}
   skelCacheSave(snap);                 /* 1.33：骨架缓存写回（秒开列表） */
   ensureHist();                        /* 1.33：本地历史秒开+请求式增量 */
   renderConvs(snap.convs || [], snap.conv_unread);
@@ -3771,7 +3830,8 @@ function schedDlgRender(){
   jobs.forEach(j => {
     const card = document.createElement('div');
     card.className = 'sd-job';
-    card.innerHTML = '<div class="jt">' + esc(j.text || '') + '</div>'
+    /* 2.52：卡面也别摊小尾巴（长按全选会被抄走） */
+    card.innerHTML = '<div class="jt">' + esc(foxStripTail(j.text || '')) + '</div>'
       + '<div class="jm">每 ' + schedMinStr(j.every) + ' 分 · 共 '
       + (j.total | 0) + ' 次 · 已 ' + (j.done | 0) + ' 次</div>';
     const ja = document.createElement('div');
@@ -3781,7 +3841,7 @@ function schedDlgRender(){
     bD.className = 'jdel'; bD.textContent = '取消定时';
     bE.onclick = () => {                    /* 编辑 = 表单回填 + 切「保存修改」 */
       ov._edit = j;
-      $('sd_text').value = j.text || '';
+      $('sd_text').value = foxStripTail(j.text || '');
       $('sd_every').value = schedMinStr(j.every);
       $('sd_total').value = j.total | 0;
       $('sd_ok').textContent = '保存修改';
@@ -3943,7 +4003,9 @@ function pendRestore(){
       S.pend_seq++;
       const np = {
         id: S.pend_seq, rid: p.rid || rid10(), kind: p.kind || 'send',
-        text: p.text,
+        /* 2.52：待发箱落盘里可能是旧格式（带小尾巴）——恢复时一并净化，
+           否则刷新后卡面/复制/重发三条路又会把尾巴带回手机 */
+        text: foxStripTail(p.text),
         sid: psid,                  /* P29-3：会话维度随卡一并恢复 */
         convSid: p.convSid || psid || '',   /* 1.66：绑定的会话一并恢复（旧卡无此字段=空，照常显示） */
         /* 2.16：失败态与回执基线一并恢复——刷新后失败卡仍是「未送达」，还能重发 */
@@ -3980,6 +4042,9 @@ function fmtPts(v){
 }
 
 function pendAdd(kind, text, rid, convSid){
+  /* 2.52：卡面/卡内文本一律净化——占位卡的「复制 / 改写 / 重发」三个出口都吃 p.text，
+     这里是唯一入口，堵在这里等于一次堵死三个出口（含服务端 pend 回显、旧格式恢复卡）。 */
+  text = foxStripTail(text);
   if (!text || kind === 'switch') return null;   /* 1.10：切换走提示条，绝不进气泡 */
   /* P29-3：占位卡锁定到「发送那一刻」的会话 sid（新卡写 sid，兼容 P26 卡片 convSid） */
   const cs = String(convSid || curConvId() || '');
@@ -4107,7 +4172,7 @@ function renderPending(){
          + '<button class="pendbtn go" data-go="' + p.id + '">重发</button>';
     }
     h += '</span>';
-    h += '</div><div class="body">' + esc(p.text) + '</div>';
+    h += '</div><div class="body">' + esc(foxStripTail(p.text)) + '</div>';
     d.innerHTML = h;
     wrap.appendChild(d);
   });
@@ -4120,14 +4185,15 @@ function renderPending(){
       const cpi = parseInt(b.dataset.cp || '0');   // 1.39：复制占位文字
       if (cpi){
         const p = S.pending.find(x => x.id === cpi);
-        if (p && p.text) copyText(p.text);
+        if (p && p.text) copyText(foxStripTail(p.text));
         return;
       }
       if (ei){                       // 1.24：改写 = 撤占位 + 回填输入框
         const p = S.pending.find(x => x.id === ei);
         if (!p) return;
         S.pending = S.pending.filter(x => x.id !== ei);
-        el.ent.value = p.text || '';
+        el.ent.value = foxStripTail(p.text || '');
+        entFit();
         refreshSendBtn();
         try { el.ent.focus(); } catch(e2){}
         renderAll();
@@ -4147,7 +4213,7 @@ function renderPending(){
       S.pending = S.pending.filter(x => x.id !== gi);
       /* 1.66：手动重发同样带上**锁定**的会话 sid（发送那一刻记下的），
          即便此刻已切到别的会话，也投回原会话；旧卡无锁定值则维持原行为。 */
-      cmd(p.kind, p.text, p.sid || p.convSid);   // 重发（cmd 内会重新登记占位，沿用原会话 sid）
+      cmd(p.kind, foxStripTail(p.text), p.sid || p.convSid);   // 重发（cmd 内会重新登记占位，沿用原会话 sid）
     };
   });
   el.msgs.appendChild(wrap);
@@ -4694,8 +4760,8 @@ function renderMsgs(msgs, finish, opts, ask){
       ui++;
       acts += '<button class="mact ed" data-k="edit" data-i="' + i
             + '">✎ 重编</button>';
-      if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-mi="'
-                      + (uoff + ui) + '">↩ 回退</button>';
+      if (m[3]) acts += '<button class="mact rev" data-k="rewind" data-i="' + i
+                      + '" data-mi="' + (uoff + ui) + '">↩ 回退</button>';
       if (m[4]) acts += '<button class="mact del" data-k="del_msg" data-mi="'
                       + (uoff + ui) + '">🗑 删除</button>';
     }
@@ -4723,24 +4789,7 @@ function renderMsgs(msgs, finish, opts, ask){
     /* 1.69：AI 消息正文识别 (@fox-play1)…(@fox-play2) 包夹段 → 渲染成语音
        小卡片（占位符先过 mdHtml，再替换成卡片 HTML）。「我」的消息不处理。 */
     let bodyHtml;
-    {
-      const fsegs = [], asegs = [], hsegs = [];
-      /* 1.70：语音段与提问段分别摘出——两套占位符（@@FPC / @@FAC）互不冲突，
-         先摘语音、后摘提问，再各自回填卡片（提问卡叠 .ask 琥珀色）。
-         2.01：再加「专属提示词三段折叠卡」（@@FHC，见 foxHintCards）。
-         ★用户消息与 AI 消息**一视同仁**处理——专属提示词由服务端拼在「我」发出的
-         消息末尾，必须同样渲染成折叠卡（此前用户消息只 esc 原样）。 */
-      bodyHtml = mdHtml(foxHintCards(foxAskCards(foxPlayCards(m[1], fsegs), asegs), hsegs));
-      fsegs.forEach((ft, n) => {
-        bodyHtml = bodyHtml.replace('@@FPC' + n + '@@', foxCardHtml(ft));
-      });
-      asegs.forEach((at, n) => {
-        bodyHtml = bodyHtml.replace('@@FAC' + n + '@@', foxCardHtml(at, true));
-      });
-      hsegs.forEach((hz, n) => {
-        bodyHtml = bodyHtml.replace('@@FHC' + n + '@@', foxHintHtml(hz));
-      });
-    }
+    bodyHtml = msgBodyHtml(m[1]);
     let h = '<div class="who">' + (user ? '我' : 'WorkBuddy')
           + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
@@ -4765,13 +4814,17 @@ function renderMsgs(msgs, finish, opts, ask){
         e.stopPropagation();
         const k = b.dataset.k, mi = parseInt(b.dataset.mi);
         if (k === 'copy'){
-          copyText(msgs[parseInt(b.dataset.i)][1]);
+          /* 2.52：复制一律过净化——手机粘贴回输入框时不许再见到 (@fox- 小尾巴 */
+          const ci = msgs[parseInt(b.dataset.i)];
+          copyText(foxStripTail(ci ? (ci[1] || '') : ''));
           return;
         }
         if (k === 'edit'){
           const it = msgs[parseInt(b.dataset.i)];
           /* 2.01：重编＝把我发的原话取回输入框——剥掉服务端追加的专属词三段标记，还原纯正文 */
-          el.ent.value = it ? stripHintMarks(it[1] || '') : '';
+          /* 2.52：改走 foxStripTail（连语音卡/提问卡标记一起摘，内容保留） */
+          el.ent.value = it ? foxStripTail(it[1] || '') : '';
+          entFit();
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
           flash('已回填输入框，可修改后重新发送', 'var(--blue)');
@@ -4780,9 +4833,12 @@ function renderMsgs(msgs, finish, opts, ask){
         if (k === 'rewind'){
           /* 1.79：回退＝撤回「我」的这一问——截断后续之外，把该条原文取回输入框
              （用户 2026-10-06 定：「回退应该把文本取回，输入框重新编辑」）。
-             2.01：取回时剥掉专属词三段标记，还原纯正文。 */
+             2.01：取回时剥掉专属词三段标记，还原纯正文。
+             2.52：① 回退钮原本只有 data-mi、没有 data-i，取原文永远取不到（回填空框）；
+                   现按 data-i 取，老 DOM 兜底用 mi 反推；
+                   ② 取回一律过 foxStripTail。 */
           const it = msgs[parseInt(b.dataset.i)];
-          const back = it ? stripHintMarks(it[1] || '') : '';
+          const back = it ? foxStripTail(it[1] || '') : '';
           if (!confirm('回退到第 ' + (mi + 1) + ' 条「我」的消息之前？\n'
             + '其后全部对话（含 AI 回复）将一并移除。\n'
             + '（这条原文会取回输入框，可改完再发）')) return;
@@ -4817,7 +4873,9 @@ function renderMsgs(msgs, finish, opts, ask){
       if (S.foldOpen[sk]){
         const arr = S.foldData[sk] || [];
         let bh = '<div class="foldbody">';
-        arr.forEach(t => { bh += '<div class="foldbub">' + mdHtml(t) + '</div>'; });
+        /* 2.52：中间气泡也走 msgBodyHtml——四段/语音/提问都折叠成卡片，
+           不再把 (@fox- 原文直接摊在 DOM 里（否则长按全选＝把提示词复制走） */
+        arr.forEach(t => { bh += '<div class="foldbub">' + msgBodyHtml(t) + '</div>'; });
         bh += '</div>';
         fb.innerHTML = '<div class="foldhd"><span>🗂 中间气泡 ' + m[6].f
           + ' 条</span><button class="foldbtn" data-sk="' + sk
@@ -5722,7 +5780,28 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.51';
+const VER = '2.52';
+                      /* 2.52（2026-11-15，老板原话：「我从手机发出去的文本，不管那边你怎么给
+                         我加小尾巴，我手机需要重新让它展示在输入框的时候，这些都要剥离掉」）：
+                         小尾巴回填**全出口封堵**。先做了 WB-01~WB-24 + EXT-01/02 穷举复现
+                         （断网＋假快照＋CDP，18 条违规），再按违规逐条堵：
+                         ① 新增 foxStripTail(txt)（唯一净化器）：语音卡/提问卡标记只摘标记、
+                           内容保留；四段专属提示词连内容一起删；只在「删完四段后只剩空白」
+                           时才认定是服务端尾巴——正文后面还有真内容（用户自己写的标记）就
+                           只摘标记、留内容；整条以段头开头的原样不动。
+                         ② 气泡：📋 复制（原 4768 行裸 copyText）／✎ 重编／↩ 回退全过它；
+                           回退钮原本只有 data-mi、没有 data-i，取原文永远拿不到（回填空框），
+                           现补 data-i。
+                         ③ 折叠区「中间气泡」原走 mdHtml 直出（长按全选能抄到 (@fox- 原文）——
+                           新增 msgBodyHtml()，与气泡共用同一套 语音卡/提问卡/四段折叠卡 渲染。
+                         ④ 占位卡：净化收口在 pendAdd()（复制/改写/重发三个出口都吃 p.text），
+                           另加 卡面/复制/改写/重发 四处显式剥；待发箱 pendRestore 恢复时剥。
+                         ⑤ 排队条 queue_recall_ok 取回剥；outbox 走 cmd() 最后一道闸：
+                           send/interject/queue_restore/sched_* 的文本参数一律先剥再发/再入队。
+                         ⑥ 定时任务：卡面与「编辑」回填都剥（原 3774/3784 裸显示）。
+                         ⑦ 换台（switchSrv）＋每次 renderAll 顺手把关输入框——换会话/换服务器/
+                           刷新恢复都绕不过去；没有标记的草稿一个字不动。
+                         见 临时测试/tail_wb_20261115/违规清单_WB场_20261115.md。 */
                       /* 2.51（2026-11-15，老板原话：「我要求会话列表呢，能用就用……不要下一个
                          新的还没来，旧的就先清空了，这个机制已经实现了。但是你得锚定服务器啊，
                          现在我切换到别的服务器，它还给我留着上一个服务器的会话名称，这样不行啊，
@@ -6415,6 +6494,12 @@ function switchSrv(nm){
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.pending = []; switchEnd(); S._swFail = null;   /* 1.82：连带清在途定时器 */
   S.recall = null; renderEditRow();   /* 1.53：换服务端，取回修改态作废 */
+  /* 2.52：换台时框里若还挂着上一台取回的文本，就地净化（只剥尾巴、不清他打的字） */
+  try {
+    if (el.ent && el.ent.value && el.ent.value.indexOf('(@fox-') >= 0){
+      el.ent.value = foxStripTail(el.ent.value); entFit(); refreshSendBtn();
+    }
+  } catch(e){}
   S.loadingConv = null;               /* 1.28：换服务端，加载占位作废 */
   S.switch_target = null;             /* 1.28：目标备忘作废 */
   S.busy = false; S.model_busy = false;
@@ -6758,7 +6843,8 @@ function onEv(kind, v){
         S.pending = S.pending.filter(x => !(String(x.rid || '') === String(v.id)
                                             && pendSidOk(x, recallSid)));
       }
-      el.ent.value = (v && v.text) || '';
+      /* 2.52：队列里存的是注入专属提示词后的全文，取回到手机输入框必须先剥干净 */
+      el.ent.value = foxStripTail((v && v.text) || '');
       entFit();
       renderEditRow(); refreshSendBtn(); renderAll();
       flash('已取回队列中的一条：改好后点「放回」（回原位），或取消', 'var(--blue)');
@@ -7333,6 +7419,11 @@ function renderPorts(){
 /* ================= 命令 ================= */
 
 function cmd(c, a, lockConv){
+  /* 2.52：出站载荷净化（最后一道闸）——send / interject / queue_restore / sched_* 的
+     文本参数一律先剥小尾巴：不管上层是从队列取回的、旧卡恢复的、还是别端广播来的，
+     都不许把这个尾巴再发回服务端、更不许落进 outbox 等刷新后补发（WB-12 那条路）。 */
+  if (typeof a === 'string') a = foxStripTail(a);
+  else if (Array.isArray(a)) a = a.map(x => (typeof x === 'string' ? foxStripTail(x) : x));
   /* 1.63：WS 不可用——发消息不再直接拒发（此前只提示「文字已保留」）：
      挂占位卡并每 10 秒重试一次（共 6 次），卡面显示「WS 失联重试中」；
      非消息命令（切换/停止等）仍如实告知未发出。
@@ -7562,7 +7653,7 @@ bindGrowBtn(el.copy, () => {     // 1.40：一键复制输入框内容（放大�
   const t = el.ent.value;
   /* 判空必须走 trim —— 框内恒有 3 个空行，`!t` 会假报"已复制" */
   if (!t.trim()){ flash('输入框是空的，没东西可复制'); return; }
-  copyText(t);                   // 复用 1.24 的 copyText（含非安全上下文兜底）
+  copyText(foxStripTail(t));      // 复用 1.24 的 copyText（含非安全上下文兜底）；2.52：顺带剥尾
 });
 /* 2.03：「急」加急插入勾选（放大态顶行）——对齐 TRAE T63。
    未选＝白底常态 / 选中＝红底（醒目）。点它＝取反本次发送的「加急」标志

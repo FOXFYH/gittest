@@ -739,6 +739,15 @@ function adoptSnap(v){
 /* ================= 渲染 ================= */
 
 function renderAll(){
+  /* 2.164（老板 11-15）：「手机重新展示到输入框的时候，小尾巴都要剥离掉」——
+     每次刷新画面顺手把关一次输入框（换会话/换服务器/回退脏值残留都绕不过这里）；
+     框里没有 '(@fox-' 就一个字不动（foxStripTail 首行 indexOf 早退）。 */
+  try {
+    if (el && el.ent && el.ent.value && el.ent.value.indexOf('(@fox-') >= 0){
+      const _bv = foxStripTail(el.ent.value);
+      if (_bv !== el.ent.value){ el.ent.value = _bv; refreshSendBtn(); }
+    }
+  } catch(e){}
   /* 2.57B：切换在途 → 用「目标会话本地存帧（或空）」覆盖正文类字段，绝不再
      显示旧会话 A 的内容（用户 2026-10-07；见 缓存.js liveOverlay）。 */
   const snap = liveOverlay(S.snap);

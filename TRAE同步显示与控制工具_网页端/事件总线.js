@@ -181,7 +181,9 @@ function onEv(kind, v){
         S.qedit = null;
         const t = (v.inputText || '').trim();
         if (t){
-          el.ent.value = t;
+          /* 2.164：快照路与 pend_edit_out 事件路口径统一——都走 copyPlain(true)，
+             剥 DID＋四段＋FOX 标记（旧实现此处裸写，TR-07 漏尾） */
+          el.ent.value = copyPlain(t, true);
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
           flash('已取出排队消息，可修改后重新发送', 'var(--blue)');
@@ -578,7 +580,8 @@ function onEv(kind, v){
         try {
           const t = ((S.snap && S.snap.inputText) || '').trim();
           if (t){
-            el.ent.value = t;
+            /* 2.164：即时回填也要剥（旧实现裸写 S.snap.inputText，DID＋四段原样进框 → TR-04） */
+            el.ent.value = copyPlain(t, true);
             refreshSendBtn();
             try { el.ent.focus(); } catch(e2){}
             S.revertPend = 0;
