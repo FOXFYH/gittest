@@ -2609,46 +2609,117 @@ function curConvId(){
    进会话只渲染「最近 3 组」（服务端快照自带窗口）；向上滚动再按组向前翻
    （{t:'req',c:'hist_prev'} → {t:'res',k:'hist_prev',v:{msgs,more}}）。
    骨架缓存：localStorage 秒出会话列表，免等连上。 */
-const LS_SKEL = 'wb_cli_skel';           /* 骨架缓存（会话列表） */
+const LS_SKEL = 'wb_cli_skel';           /* 骨架缓存（会话列表·按服务器分档） */
 /* 2026-11-13 老板「我需要优先显示会话名」：sid→会话名 的长期小字典。
    骨架缓存只留最后一台服务器，换服务器/断网就查不到名字了；这份字典只增不删，
    跨服务器共用（sid 本身带服务器含义，撞了也不会串）。 */
 const LS_NAMES = 'wb_cli_convnames';
-let cacheKey = null, reqSeq = 0, skelLastSave = 0;
+let cacheKey = null, reqSeq = 0, skelLastSave = 0, skelLastTag = '';
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
-const LS_SRVV = 'wb_cli_srvver';         /* 服务端版本号持久化（供冷启动拼键） */
+const LS_SRVV = 'wb_cli_srvver';         /* {服务器: 服务端版本号}（分档持久化） */
+/* 2.51（老板 2026-11-15：「你得锚定服务器啊……分开分别建档」）：
+   骨架档从「全书一格」改成「一台服务器一格」。格子名＝服务器显示名
+   （S.cur；冷启动时用 LS_SRV 记着的那台）——名册里唯一、落盘稳定，
+   刷新/断网/重开都认得出是同一台。
+   口径不变（2.42/2.45 不动）：同一台上「新列表没来，旧的照用」；
+   换服务器时只铺**这台自己**那格，绝不把上一台的会话名顶在这台名下。 */
+function srvTagNow(){
+  if (S && S.cur) return String(S.cur);
+  try { const w = localStorage.getItem(LS_SRV); if (w) return String(w); } catch(e){}
+  return 'local';
+}
+function srvVerGet(tag){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SRVV) || 'null');
+    if (o && typeof o === 'object') return String(o[String(tag)] || '0');
+    return String(o || '0');        /* 旧版裸字符串：先当这台的值用一次 */
+  } catch(e){ return '0'; }
+}
+function srvVerSet(tag, v){
+  let o = {};
+  try {
+    const d = JSON.parse(localStorage.getItem(LS_SRVV) || 'null');
+    if (d && typeof d === 'object') o = d;
+  } catch(e){}
+  o[String(tag)] = String(v || '0');
+  try { localStorage.setItem(LS_SRVV, JSON.stringify(o)); } catch(e){}
+}
+function skelBook(){
+  /* 档案册：{_v:2, srv:{<服务器名>:{key,ts,convs,conv_unread}}}
+     旧版单格格式（顶层直接带 convs）认不出属于哪台 → 当作没有，
+     连上第一拍快照就重写一份，代价只是这一次没秒出。 */
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SKEL) || 'null');
+    if (o && o._v === 2 && o.srv && typeof o.srv === 'object') return o;
+  } catch(e){}
+  return {_v: 2, srv: {}};
+}
+function skelBucket(tag){
+  const t = String(tag || srvTagNow());
+  const b = skelBook().srv[t];
+  if (!b || b.v !== VER) return null;               /* 网页端改版＝这档作废 */
+  /* 服务端版本对不上也作废（双版本号铁律）；两边的版本只要有一边不知道
+     （'0'＝冷启动还没 hello / 老档没记），就放行——宁可先给它自己那台用，
+     等 hello 到了 checkVerBump 再判一次。 */
+  const sv = String(S.srvVer || '0'), bv = String(b.sv || '0');
+  if (sv !== '0' && bv !== '0' && bv !== sv) return null;
+  return b;
+}
+function skelDrop(tag){
+  /* 只丢一台的档，不牵连同门（版本变化时别台的档案还在） */
+  const book = skelBook(), t = String(tag || srvTagNow());
+  if (book.srv[t]){ delete book.srv[t]; try { localStorage.setItem(LS_SKEL, JSON.stringify(book)); } catch(e){} }
+}
 function checkVerBump(){
-  /* 首次定键 / 版本变化 → 清空本地骨架缓存并重置翻页（改版重下） */
+  /* 首次定键 / 版本变化 → 只作废**当前这台**的骨架档并重置翻页（改版重下） */
   const k = cacheKeyNow();
   if (cacheKey !== null && cacheKey !== k){
-    try { localStorage.removeItem(LS_SKEL); } catch(e){}
+    skelDrop();
     purgeConvStore();                 /* 2.49：改版顺手清空遗留轮播账（只留快照账） */
     resetPaging();
   }
   cacheKey = k;
-  /* 持久化服务端版本号：冷启动时先按上次的键读骨架缓存秒显，等 hello
-     回来若服务端确实升版，checkVerBump 再清一次（双版本号铁律不破）。 */
-  try { localStorage.setItem(LS_SRVV, S.srvVer || '0'); } catch(e){}
+  /* 持久化「这台的服务端版本号」：冷启动先按上次的键读骨架档秒显，
+     等 hello 回来若服务端确实升版，checkVerBump 再作废一次（双版本号铁律不破）。 */
+  srvVerSet(srvTagNow(), S.srvVer || '0');
 }
 /* —— 骨架缓存：打开页面即秒显会话列表（不用等连上） —— */
 function skelCacheSave(snap){
   if (!snap || !Array.isArray(snap.convs) || !snap.convs.length) return;
-  const now = Date.now();
-  if (now - skelLastSave < 2000) return;      /* 节流：2 秒内只写一次 */
-  skelLastSave = now;
+  const now = Date.now(), tag = srvTagNow();
+  /* 节流：同一台 2 秒内只写一次；换台（tag 变了）立即落，别让新台的档案等着 */
+  if (now - skelLastSave < 2000 && tag === skelLastTag) return;
+  skelLastSave = now; skelLastTag = tag;
   try {
-    const o = {key: cacheKeyNow(), ts: now,
-               convs: snap.convs, conv_unread: snap.conv_unread || []};
-    localStorage.setItem(LS_SKEL, JSON.stringify(o));
+    const book = skelBook();
+    book.srv[tag] = {v: VER, sv: S.srvVer || '0', ts: now,
+                     convs: snap.convs, conv_unread: snap.conv_unread || []};
+    /* 护栏：最多存 8 台的档，超了丢最久没更新的，免把 localStorage 撑爆 */
+    const ks = Object.keys(book.srv);
+    if (ks.length > 8){
+      ks.sort((a, b) => (book.srv[a].ts || 0) - (book.srv[b].ts || 0));
+      while (ks.length > 8) delete book.srv[ks.shift()];
+    }
+    localStorage.setItem(LS_SKEL, JSON.stringify(book));
   } catch(e){}
 }
-function skelCacheLoad(){
-  try {
-    const o = JSON.parse(localStorage.getItem(LS_SKEL) || 'null');
-    if (!o || o.key !== cacheKeyNow()) return null;
-    return o;
-  } catch(e){ return null; }
+function skelCacheLoad(){ return skelBucket(srvTagNow()); }
+/* 2.51：换服务器＝换档案夹——把这台自己的旧会话表铺上（有就原子换页，
+   没有才立占位）。铁律不变：**同一台**上「新列表没来旧的照用」；这里换的是
+   另一台服务器，把上一台的名字留在这儿就是张冠李戴，所以宁可先占位。 */
+function convArchiveLoad(nm){
+  S.convs_key = null;
+  const b = skelBucket(nm);
+  if (b && Array.isArray(b.convs) && b.convs.length){
+    renderConvs(b.convs, b.conv_unread || []);
+    return;
+  }
+  if (el.convs){
+    el.convs.innerHTML = '<div class="empty">（' +
+      (typeof esc === 'function' ? esc(nm) : nm) +
+      ' 暂无本地会话档案，等它的快照…）</div>';
+  }
 }
 function ledToArr(r){
   /* 1.57：补第 6 元 seq（第 7 元折叠标记 {f:N}）——账本翻页记录与快照窗口
@@ -5651,7 +5722,23 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.50';
+const VER = '2.51';
+                      /* 2.51（2026-11-15，老板原话：「我要求会话列表呢，能用就用……不要下一个
+                         新的还没来，旧的就先清空了，这个机制已经实现了。但是你得锚定服务器啊，
+                         现在我切换到别的服务器，它还给我留着上一个服务器的会话名称，这样不行啊，
+                         分开分别建档」）：会话列表骨架档**按服务器分档**——
+                         ① LS_SKEL 由「全书一格」改存 {_v:2, srv:{<服务器名>:{key,ts,convs,
+                           conv_unread}}}；格子名＝服务器显示名（名册唯一、落盘稳定，刷新/断网
+                           都认得出是同一台）。上一台的名字再也不会顶在这台名下。
+                         ② 冷启动先 loadSrvs→pickCur 选定「上次那台」，再取**它自己**那格铺列表
+                           （原顺序是先铺列表后选台，等于拿别台的档上屏）。
+                         ③ switchSrv 换台即 convArchiveLoad(nm)：这台的档有就原子换页铺上，
+                           没有才立「暂无本地会话档案」占位；顺手把 S.srvVer 换成这台的，
+                           否则还拿着上一台的缓存键、新台的档一张都取不到。
+                         ④ 服务端版本号改按台存（LS_SRVV 变 {服务器:版本}），改版只作废当前这台
+                           的档（skelDrop），别台的档案不被牵连。
+                         ★未动 2.42/2.45 铁律：**同一台**服务器上，新列表没来之前旧列表照用，
+                           一次原子换页，绝不出现空白帧。
                       /* 2.39（2026-11-14）：切会话粘底**改状态机**（见 stickBegin）——
                          2.38 的 1.5 秒时间窗在手机慢网下必然过期，等于没修。
    2.35（2026-11-13）：思维卡片开合按「这一轮完没完」定（详见上一段）；
@@ -6284,6 +6371,9 @@ function pickCur(){
 function enterCur(){
   flash('已选择服务端 [' + S.cur + ']', 'var(--blue)');
   applySrvEntry();                           // 载入其缓存状态
+  /* 2.51：选中的是哪台，就铺哪台的会话档——自动接管/名册剔旧换台时
+     同样不许把上一台的会话名留着（老板「分开分别建档」）。 */
+  try { convArchiveLoad(S.cur); } catch(e){}
   sendJson({t: 'hello'});                    // 拉即时全量
   helloWatch();                              // 1.14：快照看门狗
 }
@@ -6316,6 +6406,11 @@ function switchSrv(nm){
   if (S.cur && S.onLine) sendJson({t: 'ctl_free'});
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   setCur(nm);
+  /* 2.51：换台先按「这台记着的服务端版本号」重算缓存键，再去取它自己的档案——
+     不重算就还拿着上一台的键，新台的档一张都取不到。这台没记过版本（首次连）
+     就沿用现值，等 hello 回来由 checkVerBump 校正。 */
+  { const _sv = srvVerGet(nm); if (_sv && _sv !== '0') S.srvVer = _sv; }
+  cacheKey = cacheKeyNow();
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
   S.pending = []; switchEnd(); S._swFail = null;   /* 1.82：连带清在途定时器 */
@@ -6329,8 +6424,10 @@ function switchSrv(nm){
   S.alive = new Set(); S.boxes = [];
   el.model.innerHTML = ''; S.model_map = {};
   S.box = '(未连接)'; S.port = 0;
-  /* 2.45：手动换操控目标同样**不清会话列表**——留着旧的可用，新目标第一拍快照
-     到了由 renderConvs 一次原子换页（老板 11-14：「它应该永远不会变成纯白色」）。 */
+  /* 2.51：换服务器＝换档案夹（老板 11-15：「你得锚定服务器啊…分开分别建档」）——
+     把这台自己的旧会话表原子铺上；它没档才立占位。**同一台**上「新列表没来，
+     旧的照用」的铁律不变（2.45），换台则绝不把上一台的会话名顶在这台名下。 */
+  convArchiveLoad(nm);
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
                      + ' …）</div>';
   renderAttach([]);
@@ -7999,9 +8096,15 @@ function channelPrompt(){
 
 /* 1.xx：统一版本号渲染 → 标题栏（三个地方：title / 菜单栏 / 底部） */
 renderVer();
-/* 1.33 全新架构：骨架秒出——按上次的服务端版本号拼缓存键，本地会话列表
-   直接渲染（不用等连上，永不闪空）；hello 到达若版本变了会再清缓存重下。 */
-try { S.srvVer = localStorage.getItem(LS_SRVV) || '0'; } catch(e){}
+/* 1.33 全新架构：骨架秒出——本地会话列表直接渲染（不用等连上，永不闪空）；
+   hello 到达若版本变了会再作废重下。
+   2.51：先把「上次那台」选定再取档案——顺序反了就会拿别台的骨架档
+   顶在这台名下（老板 11-15「你得锚定服务器……分开分别建档」）。 */
+loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
+pickCur();                                       /* 1.48：打开即选中上次那台 */
+renderAcct();                                    /* 1.33：账号行首显 — */
+renderSrvList(); renderTop();
+try { S.srvVer = srvVerGet(srvTagNow()); } catch(e){ S.srvVer = '0'; }
 checkVerBump();
 {
   const sk = skelCacheLoad();
@@ -8012,9 +8115,6 @@ checkVerBump();
 pendRestore();
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
-renderAcct();                                    /* 1.33：账号行首显 — */
-loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
-pickCur(); renderSrvList(); renderTop();         /* 1.48：打开即渲染名册 + 直接选中上次那台 */
 if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
 
 /* ======== 小账本查看器（原「轮播账查看器」；2.49 起改读快照账 snaps） ======== */
@@ -8039,8 +8139,9 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       });
     }
     try {
-      var o = JSON.parse(localStorage.getItem('wb_cli_skel') || 'null');
-      if (o && Array.isArray(o.convs)) eat(o.convs);
+      /* 2.51：骨架档改按服务器分档，这里只吃**当前这台**那格 */
+      var b = skelBucket(srvTagNow());
+      if (b && Array.isArray(b.convs)) eat(b.convs);
     } catch(e){}
     try {
       var d = JSON.parse(localStorage.getItem('wb_cli_convnames') || 'null');
