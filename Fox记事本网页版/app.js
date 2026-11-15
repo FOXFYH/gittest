@@ -399,7 +399,7 @@
     bar.className = 'fox-lockbar';
     const msg = document.createElement('span');
     msg.className = 'fox-lockmsg';
-    msg.textContent = '此卷含考卷格式（答案遮蔽），网页端只供查看；要修改请用电脑版 Fox记事本';
+    msg.textContent = '考卷格式·网页只读·要修改请用电脑版 Fox记事本';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn tiny';
