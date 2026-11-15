@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.48';
+  const APP_VERSION = 'v1.49';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -429,8 +429,14 @@
     btn.className = 'btn tiny primary';
     btn.textContent = '立即公布';
     btn.addEventListener('click', 公布答案);
+    const btn2 = document.createElement('button');
+    btn2.type = 'button';
+    btn2.className = 'btn tiny';
+    btn2.textContent = '暂不显示';
+    btn2.addEventListener('click', 暂不显示答案);
     bar.appendChild(txt);
     bar.appendChild(btn);
+    bar.appendChild(btn2);
     document.body.appendChild(bar);
     答案状态.bar = bar;
     答案状态.textEl = txt;
@@ -452,6 +458,27 @@
     if (答案状态.bar && 答案状态.bar.parentNode) 答案状态.bar.parentNode.removeChild(答案状态.bar);
     答案状态.bar = null;
     // 公布只改显示层：不动正文、不置 doc.dirty、不写盘
+  }
+
+  function 暂不显示答案() {
+    if (!答案状态 || 答案状态.revealed) return;
+    if (答案状态.timer) { clearInterval(答案状态.timer); 答案状态.timer = null; }
+    if (答案状态.bar && 答案状态.bar.parentNode) 答案状态.bar.parentNode.removeChild(答案状态.bar);
+    答案状态.bar = null;
+    答案状态.textEl = null;
+    答案状态.剩余 = (答案状态.answers && 答案状态.answers.countdown) || 60;   // 下次碰底从头倒数
+    try {
+      const anchor = editor.querySelector('.fox-ans-anchor');
+      if (anchor) {
+        for (let n = 0; n < 12; n++) {
+          const er = editor.getBoundingClientRect();
+          const ar = anchor.getBoundingClientRect();
+          if (ar.top > er.bottom + 24) break;      // 答案区已退到视野下方，收手
+          editor.scrollTop = Math.max(0, editor.scrollTop - Math.max(80, Math.round(editor.clientHeight * 0.5)));
+        }
+      }
+    } catch (e) { /* 忽略 */ }
+    // 往上退了但没退到顶；下次再滑到底碰锚点，会重新创建浮条、重新整段倒计时
   }
 
   function 检查答案浮条() {
