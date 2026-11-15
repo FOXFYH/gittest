@@ -2316,12 +2316,23 @@ const FoxInTts = {                       // TTS 通道 FOX 拼装器（60s 残�
   }
 };
 function ttsOnMsg(msg){
-  /* TTS 通道收帧：FOX 拼装 → JSON → 分流（tts_ack / tts_audio / tts_error） */
+  /* TTS 通道收帧：FOX 拼装 → JSON → 分流（tts_ack / tts_audio / tts_error）
+     ★ 2026-11-15（老板报「点播放一直等 TTS 接收，等很久」）：
+       TTS 服务 1.07 起 `_ws_send_obj` 改发**纯 JSON**（为兼容只做 JSON.parse 的
+       手机端.html），本端原来只走 FoxInTts.feed → 纯 JSON 匹配不到 FOX 头 → 整包
+       被当成"残余段"丢弃 → 服务端 250ms 就回的 recv/conv 一个都收不到，只能硬等
+       30 秒看门狗切「服务端中转」。此处兼收两种：FOX 帧照旧；'{' 开头的纯 JSON 直收。 */
   statsAdd(msg.length, 0, 1, 0);
+  let body = '';
   const r = FoxInTts.feed(msg);
-  if (!r) return;                        // 残余段 / 中继系统消息
-  const [sender, body] = r;
-  if (sender[0] !== '1') return;         // 只认 TTS 服务端（'1' 开头）
+  if (r){
+    if (r[0][0] !== '1') return;         // 只认 TTS 服务端（'1' 开头）
+    body = r[1];
+  } else if (msg && msg.charCodeAt(0) === 123){
+    body = msg;                          // '{' → 服务端 1.07+ 的纯 JSON
+  } else {
+    return;                              // 残余段 / 中继系统消息
+  }
   let d; try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
   if (d.t === 'tts_ack'){ onTtsAck(d); return; }
@@ -5790,7 +5801,7 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.53';
+const VER = '2.54';
                       /* 2.53（2026-11-15，老板原话：「我现在跟你的这个会话显示空闲，然后是全空白的？
                          我们这边不是有小账本吗？优先会拿小账本顶上。刚才我好像看到小账本顶了一会，
                          最后切着换成功的时候，这里显示空闲，然后什么聊天记录都没有，怎么会这样？」
