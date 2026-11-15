@@ -39,16 +39,21 @@
 
 /**
  * ============================================================
- * 多站切换器  v2.19   （手机端 / AutoX.js v7 / 独立 APK＝永久外壳；文件名不带括号，打包才稳）
+ * 多站切换器  v2.21   （手机端 / AutoX.js v7 / 独立 APK＝永久外壳；文件名不带括号，打包才稳）
  * ------------------------------------------------------------
  * 干什么：
- *   一个应用装两个网站：全屏 WebView + 右上角一条浮层竖条，
- *   竖条上四个同款方块按钮 **T / W / ↻ / ⚙**：
+ *   一个应用装三个网站：全屏 WebView + 右上角一条浮层竖条，
+ *   竖条上五个方块按钮 **T / W / P / ↻ / ⚙**：
  *     · T ＝ TRAE 网页版（AI，TRAE同步显示与控制工具 手机客户端）
  *     · W ＝ WorkBuddy 网页版（wbcli 手机客户端）
+ *     · P ＝ 任务面板（清单系统 1.0）
  *     · ↻ ＝ 刷新当前网页
  *     · ⚙ ＝ 设置面板（版本号 / 当前站 / 检查更新 / 清缓存 / 条位复位 / 退出）
- *   点 T/W ＝ 切到对应网站，应用被切到后台时会自己再提到前台。
+ *   点 T/W/P ＝ 切到对应网站，应用被切到后台时会自己再提到前台。
+ *
+ * ★ v2.21：多页常驻。一个 WebView 里挂三个 iframe，各站只加载一次；
+ *   切站只改显示，页面状态、滚动位置、输入框、WebSocket 全保住，不再整页重来。
+ *   首访才加载，没点过的站不会白占内存。
  *
  * 竖条：
  *   · T / W / ↻ / ⚙ 四个圆角方块，统一 79×79px（黑底+白描边+白字）；
@@ -85,6 +90,7 @@
 
 importClass(android.webkit.WebViewClient);
 importClass(android.webkit.WebChromeClient);
+importClass(android.webkit.ValueCallback);
 
 // ================================================================
 // ★ 底座（v2.00）——这是"打进 APK 的那一层"，只干两件事：
@@ -214,7 +220,8 @@ function 本体() {
 记("进入本体 " + 底座版本);
 
 var APP_NAME = "多站切换器";
-var APP_VERSION = "v2.20";   // v2.20：任务面板(P)站点地址改为《清单系统 1.0/清单系统.html》
+var APP_VERSION = "v2.21";   // v2.21：★多页常驻 —— 一个 WebView 里挂 T/W/P 三个 iframe，切站只换显示不重载（治"每次切站像重新登录"）
+                             // v2.20：任务面板(P)站点地址改为《清单系统 1.0/清单系统.html》
                              // v2.18：★文件名去掉全角括号（打包器对「（apk 加壳）」这种名字不友好）→ 统一叫 多站切换器.js / 多站切换器_config.json；app 显示名＝多站切换器；行为零改动
                              // v2.16：只加"维护总纲"（文件头那一段）——把"以后所有更新都服务于 APK 外壳"写进代码，行为零改动
                              // v2.15：★外壳自愈（健康.json 体检：上一轮白屏的版本下次开机直接弃用，外壳永不被坏脚本锁死）＋设置面板加「修复白屏」（一键弃用热更缓存、退回自带版）＋白屏看门狗自动重试并弹面板＋启动标记"运行来源"
@@ -358,6 +365,50 @@ function 站URL(k) {
 }
 function 存记事() {
     try { files.write(记事文件, JSON.stringify(记事)); } catch (e) {}
+}
+
+// ★ v2.21：多页常驻壳 —— 一个 WebView 挂三个 iframe；切站只切显示，不 loadUrl 整页重来。
+//   首访才给 iframe 设 src（懒加载），之后一直活着；T/W/P 各自保状态。
+var 壳已载 = false;
+function 壳转义(s) {
+    return String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+function 壳页(首站) {
+    var uT = 壳转义(站URL("T")), uW = 壳转义(站URL("W")), uP = 壳转义(站URL("P"));
+    return '<!doctype html><html><head><meta charset="utf-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">' +
+        '<style>html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#fff}' +
+        'iframe{position:fixed;left:0;top:0;width:100%;height:100%;border:0;display:none;background:#fff}' +
+        'iframe.on{display:block}</style></head><body>' +
+        '<iframe id="fT"></iframe><iframe id="fW"></iframe><iframe id="fP"></iframe>' +
+        '<script>var U={T:\'' + uT + '\',W:\'' + uW + '\',P:\'' + uP + '\'};var M={};' +
+        'function sw(k){var f=document.getElementById("f"+k);if(!f)return;' +
+        'if(!M[k]){M[k]=1;f.src=U[k];}' +
+        'var a=document.getElementsByTagName("iframe");for(var i=0;i<a.length;i++){a[i].className=(a[i].id==="f"+k)?"on":"";}' +
+        '}' +
+        'function rl(k){var f=document.getElementById("f"+k);if(f){M[k]=1;f.src=U[k];}}' +
+        'function bk(k){try{var f=document.getElementById("f"+k);if(f&&f.contentWindow&&f.contentWindow.history.length>1){f.contentWindow.history.back();return true;}}catch(e){}return false;}' +
+        'window.__sw=sw;window.__reload=rl;window.__back=bk;' +
+        'sw("' + 首站 + '");<\/script></body></html>';
+}
+function 载壳(k) {
+    if (!wv) return;
+    壳已载 = true;
+    页面OK = false;
+    记("多页常驻：载壳 → " + k);
+    try {
+        wv.loadDataWithBaseURL("https://foxfyh.github.io/gittest/", 壳页(k), "text/html", "utf-8", null);
+    } catch (e) {
+        壳已载 = false;
+        记("载壳失败：" + e);
+    }
+}
+function 切壳(k) {
+    var js = "try{__sw('" + k + "')}catch(e){}";
+    try { wv.evaluateJavascript(js, null); }
+    catch (e) {
+        try { wv.loadUrl("javascript:" + js); } catch (e2) { 记("切壳失败：" + e2); }
+    }
 }
 
 var 当前站 = 记事.当前站;
@@ -531,12 +582,12 @@ function 配视(v, k) {
 
 // 只做两件事：把 k 站显示出来（别的藏起）、首次才 loadUrl。**切换本身不重载。**
 function 亮出(k) {
-    if (!三视) {                                  // 单视图：覆盖式加载
+    if (!三视) {                                  // 单视图：多页常驻壳（v2.21）
         wv = 视图.T || wv;
         if (!wv) { 记("亮出失败：wv 为空，站点 " + k); return; }
-        var u = 站URL(k);
-        记("单视图加载 " + k + " → " + u);
-        try { wv.loadUrl(u); } catch (e) { 记("loadUrl 异常：" + e); }
+        if (!壳已载) { 载壳(k); return; }
+        记("切到常驻页 " + k);
+        切壳(k);
         return;
     }
     var 键 = ["T", "W", "P"];
@@ -602,7 +653,7 @@ function 切站(k, 强制) {
     当前站 = k;
     记事.当前站 = k;
     存记事();
-    页面OK = false;
+    页面OK = 壳已载;      // v2.21：常驻页切换不再触发 onPageFinished；壳在＝页面在，别让看门狗误判白屏
     最近备注 = "切到" + 站点说明[k];
     // ★ v2.10：不再 loadUrl —— 三站各自常驻，切过去只是"把它显示出来"，页面原封不动（滚动位置、输入框、播放进度全在）
     try {
@@ -783,9 +834,14 @@ var 绑过设 = false;
 function 刷新页() {
     if (已结束 || 已让位) return;
     关设置();
-    页面OK = false;
+    页面OK = 壳已载;      // v2.21：iframe 刷新不触发 onPageFinished，壳在就不算白屏
     最近备注 = "手动刷新";
-    try { ui.run(function () { try { wv.reload(); } catch (e) {} }); } catch (e) {}
+    try { ui.run(function () {
+        try {
+            if (壳已载) { wv.evaluateJavascript("try{__reload('" + 当前站 + "')}catch(e){}", null); }
+            else { wv.reload(); }
+        } catch (e) {}
+    }); } catch (e) {}
     try { toast("正在刷新…"); } catch (e) {}
     落状态(true);
 }
@@ -904,9 +960,14 @@ function 清缓存重载() {
     try { wv.clearCache(true); } catch (e) {}
     try { wv.clearFormData(); } catch (e) {}
     关设置();
-    页面OK = false;
+    页面OK = 壳已载;      // v2.21：iframe 重载不触发 onPageFinished，壳在就不算白屏
     最近备注 = "清缓存重载";
-    try { ui.run(function () { try { wv.loadUrl(站URL(当前站)); } catch (e) {} }); } catch (e) {}
+    try { ui.run(function () {
+        try {
+            if (壳已载) { wv.evaluateJavascript("try{__reload('" + 当前站 + "')}catch(e){}", null); }
+            else { wv.loadUrl(站URL(当前站)); }
+        } catch (e) {}
+    }); } catch (e) {}
     try { toast("已清缓存，正在重载"); } catch (e) {}
 }
 
@@ -1122,7 +1183,12 @@ threads.start(function () {
                 记("回到前台：页面OK=" + 页面OK + " · wv=" + (wv ? "有" : "无"));
                 try { if (条 && 条.根) 条.根.setVisibility(0); } catch (e0) {}
                 if (!wv || !页面OK) {
-                    try { ui.run(function () { try { wv.loadUrl(站URL(当前站)); } catch (eL) {} }); } catch (e3) {}
+                    try { ui.run(function () {
+                        try {
+                            if (壳已载 && wv) { 载壳(当前站); }
+                            else { wv.loadUrl(站URL(当前站)); }
+                        } catch (eL) {}
+                    }); } catch (e3) {}
                     记("回到前台：补载当前站 " + 当前站);
                 }
                 落状态(true);
@@ -1144,6 +1210,27 @@ function onBackKey(e) {
     var now = Date.now();
     if (now - 上次返回 < 300) return;
     上次返回 = now;
+    if (壳已载) {
+        var 壳已接管 = false;
+        try {
+            wv.evaluateJavascript("__back('" + 当前站 + "')", new JavaAdapter(ValueCallback, {
+                onReceiveValue: function (r) {
+                    if (String(r) === "true") return;
+                    ui.run(function () {
+                        if (Date.now() - 上次提示 < 2000) {
+                            记事.意愿 = "退出"; 存记事();
+                            用户退出();
+                        } else {
+                            上次提示 = Date.now();
+                            try { toast("再按一次退出"); } catch (e) {}
+                        }
+                    });
+                }
+            }));
+            壳已接管 = true;
+        } catch (e) {}
+        if (壳已接管) return;
+    }
     if (wv.canGoBack()) {
         wv.goBack();
     } else if (now - 上次提示 < 2000) {
@@ -1222,7 +1309,12 @@ threads.start(function () {
         try { toast("白屏自检：" + 因); } catch (e) {}
         if (wv) {
             sleep(1000);
-            try { ui.run(function () { try { wv.loadUrl(站URL(当前站)); } catch (e) {} }); } catch (e) {}
+            try { ui.run(function () {
+                try {
+                    if (壳已载) { wv.evaluateJavascript("try{__reload('" + 当前站 + "')}catch(e){}", null); }
+                    else { wv.loadUrl(站URL(当前站)); }
+                } catch (e) {}
+            }); } catch (e) {}
             记("看门狗：已自动重载一次");
             try { toast("已自动重载一次…"); } catch (e) {}
         } else {
