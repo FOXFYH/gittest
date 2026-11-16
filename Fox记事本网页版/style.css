@@ -624,3 +624,17 @@ body{
   z-index: 95;
 }
 .fox-ansbar .btn{ height: 24px; padding: 0 10px; font-size: 12px; }
+
+/* ===== v1.63 顶部数据行（考卷）：小字号固定 11px、不随正文字号缩放、随正文翻走 ===== */
+#editor[data-bar]:not([data-bar=""])::before{
+  content: attr(data-bar);
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #8a8a8a;
+  padding: 0 0 6px 0;
+  letter-spacing: .3px;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
