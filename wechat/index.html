@@ -163,6 +163,7 @@
       <button class="go" id="btnGate">连接</button>
       <div class="bad" id="gateBad"></div>
       <div class="warn2">口令是内部钥匙，勿转发、勿截图、勿贴群里。</div>
+      <div class="link" id="gateAdmin" style="text-align:center;margin-top:16px;font-size:13.5px">服务器状态 / 管理 ›</div>
     </div>
   </div>
 
@@ -202,6 +203,7 @@
         <div class="item"><span>网页版版本</span><span class="v" id="verText">1.00</span></div>
         <div class="item"><span>连接状态</span><span class="v" id="connText">连接中…</span></div>
         <div class="item" id="btnChannel"><span>通信频道</span><span class="v" id="chText">—</span></div>
+        <div class="item" id="btnAdmin"><span>管理（口令 / 服务器）</span><span class="v">›</span></div>
         <div class="item"><span>消息提醒</span><span class="v" id="notifyText">未开启</span></div>
       </div>
       <div class="group">
@@ -232,6 +234,29 @@
     </div>
   </div>
 
+  <!-- ========== 管理（口令 / 服务器在线） ========== -->
+  <div class="view hide" id="adminView" style="background:var(--bg);overflow-y:auto">
+    <div class="nav">
+      <div class="side"><span class="back" id="adminBack">‹</span></div>
+      <h1>管理</h1>
+      <div class="side r"></div>
+    </div>
+    <div class="group">
+      <div class="item" id="adminChangeCh"><span>频道口令</span><span class="v" id="adminChText">—</span></div>
+      <div class="item" id="adminReconnect"><span>重新连接</span><span class="v" id="adminConnText">—</span></div>
+    </div>
+    <div class="group">
+      <div class="item"><span>线路</span><span class="v" id="adminLine">—</span></div>
+      <div class="item"><span>本次连接</span><span class="v" id="adminUptime">—</span></div>
+    </div>
+    <div class="group" style="padding-bottom:0">
+      <div class="item" style="border-bottom:0"><span><b>服务器在线</b></span><span class="v">自报 · 不探测</span></div>
+      <div id="adminSrv"></div>
+    </div>
+    <div style="padding:12px 16px 4px"><span class="btn" id="adminSrvRefresh">让服务器报个到</span></div>
+    <div style="text-align:center;color:#bbb;font-size:11px;padding:6px 16px 20px;line-height:1.7" id="adminSrvFoot">—</div>
+  </div>
+
 </div>
 <div class="toast" id="toast"></div>
 
@@ -240,7 +265,7 @@
    仿微信聊天工具 · 网页端 1.00
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.07';
+const VER = '1.08';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
   urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
@@ -250,7 +275,7 @@ const CFG = {
    ① 电脑版/本机浏览器 → 由本地服务端注入 window.FOX_CHANNEL（自动，免手输）
    ② 公网网页 / 手机 → 首次打开手输一次，只存本机 localStorage
    ③ 「我」页可随时更换；口令只在本机，不上传任何地方 */
-const K_ME = 'fc_me', K_ACC = 'fc_acc', K_MSG = 'fc_msg_', K_CH = 'fc_ch', K_RTS = 'fc_rts';
+const K_ME = 'fc_me', K_ACC = 'fc_acc', K_MSG = 'fc_msg_', K_CH = 'fc_ch', K_RTS = 'fc_rts', K_SRV = 'fc_srv';
 
 const S = {
   me: '', name: '',   // 当前账号
@@ -258,7 +283,9 @@ const S = {
   accounts: [], online: [], convs: [],
   peer: '', msgs: [], 
   ws: null, ok: false, line: 0, retry: 0, reqId: 0, pend: {}, reTimer: 0, gotWelcome: false,
-  notifOn: false, unreadTotal: 0
+  notifOn: false, unreadTotal: 0,
+  servers: {},        // 见过自报的服务器：srv → {电脑名,ver,ts}
+  upAt: 0             // 本次连接建立的时刻
 };
 
 const $ = s => document.querySelector(s);
@@ -392,7 +419,7 @@ function connect() {
   try { ws = new WebSocket(wsUrl()); } catch (e) { S.reTimer = setTimeout(connect, 4000); return; }
   S.ws = ws;
   ws.onopen = () => {
-    S.ok = true; S.retry = 0;
+    S.ok = true; S.retry = 0; S.upAt = Date.now();
     $('#connText').textContent = '已连接（静默）';
     $('#connTip').classList.add('hide');
     if (S.me) hello();
@@ -453,6 +480,14 @@ function onFrame(d) {
   } else if (c === 'pins') {
     if (a && a.accounts) { S.accounts = a.accounts; lsSet(K_ACC, S.accounts); }
     renderAll();
+  } else if (c === 'srv') {
+    const id = String(a.srv || '');
+    if (id) {
+      S.servers[id] = { srv: id, 电脑名: a.电脑名 || '', ver: a.ver || '',
+                        ts: Number(a.ts) || Date.now(), pid: a.pid || '' };
+      lsSet(K_SRV, S.servers);
+      if ($('#adminView') && !$('#adminView').classList.contains('hide')) renderAdmin();
+    }
   } else if (c === 'presence') {
     S.online = a.online || [];
     renderAll();
@@ -580,6 +615,60 @@ function renderLogin() {
     d.onclick = () => login(a.key);
     box.appendChild(d);
   });
+}
+
+/* ---------- 渲染：管理页（口令 / 服务器在线） ---------- */
+function 多久前(ts) {
+  if (!ts) return '—';
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return s + ' 秒前';
+  if (s < 3600) return Math.round(s / 60) + ' 分钟前';
+  if (s < 86400) return Math.round(s / 3600) + ' 小时前';
+  return Math.round(s / 86400) + ' 天前';
+}
+function renderAdmin() {
+  if ($('#adminChText')) $('#adminChText').textContent = (S.ch ? 频道打码(S.ch) : '未设置') + '　›';
+  if ($('#adminConnText')) $('#adminConnText').textContent =
+    S.ok ? '已连接　›' : (S.ch ? '未连上服务端　›' : '未设置　›');
+  if ($('#adminLine')) $('#adminLine').textContent =
+    '线路 ' + (S.line === 0 ? 'A' : 'B') + '（' + (S.ok ? '通' : '断') + '）';
+  if ($('#adminUptime')) $('#adminUptime').textContent =
+    S.upAt ? (Math.max(1, Math.round((Date.now() - S.upAt) / 60000)) + ' 分钟') : '—';
+  const box = $('#adminSrv'); if (!box) return;
+  box.innerHTML = '';
+  const arr = Object.keys(S.servers).map(k => S.servers[k]).sort((x, y) => y.ts - x.ts);
+  if (!arr.length) {
+    box.appendChild(el('div', 'empty', '还没收到任何服务器自报。<br>口令可能不对，或服务器没开。'));
+  } else {
+    arr.forEach(s => {
+      const 龄 = Date.now() - s.ts;
+      const 在 = 龄 < 6 * 60000;
+      const d = el('div', 'item');
+      d.innerHTML = '<span>' + esc(s.电脑名 || s.srv) +
+        '<span style="color:#bbb;font-size:11px"> · v' + esc(s.ver || '?') + '</span></span>' +
+        '<span class="v">' + (在
+          ? '<span style="color:#07c160">● 在线</span>'
+          : '<span style="color:#999">' + esc(龄 < 10 * 60000 ? '刚失联' : '沉默') + '</span>') +
+        '<br><span style="font-size:11px">' + esc(多久前(s.ts)) + '</span></span>';
+      box.appendChild(d);
+    });
+  }
+  if ($('#adminSrvFoot')) $('#adminSrvFoot').textContent =
+    '服务器每 5 分钟自报一次，这里零探测流量。';
+
+}
+function openAdmin(from) {
+  S.adminFrom = from || '';
+  renderAdmin();
+  $('#adminView').classList.remove('hide');
+  if (!S.adminTimer) S.adminTimer = setInterval(() => {
+    if ($('#adminView') && !$('#adminView').classList.contains('hide')) renderAdmin();
+  }, 2000);
+}
+function closeAdmin() {
+  const v = $('#adminView'); if (v) v.classList.add('hide');
+  const from = S.adminFrom || ''; S.adminFrom = '';
+  if (from === 'gate') { if (S.me) hideGate(); else showGate(''); }
 }
 
 /* ---------- 渲染：主界面 ---------- */
@@ -955,6 +1044,7 @@ function showGate(msg) {
   $('#loginView').classList.add('hide');
   $('#mainView').classList.add('hide');
   $('#chatView').classList.add('hide');
+  const av = $('#adminView'); if (av) av.classList.add('hide');
   g.classList.remove('hide');
   const inp = $('#gateCh');
   if (inp && !inp.value && S.ch) inp.value = S.ch;
@@ -1018,10 +1108,31 @@ $('#gateCh').addEventListener('keydown', e => {
 });
 $('#btnChannel').onclick = () => showGate(S.ch ? ('当前：' + 频道打码(S.ch) + '　输入新的口令') : '');
 
+/* ---------- 管理页（口令 / 服务器在线） ---------- */
+$('#gateAdmin').onclick = () => { $('#gateView').classList.add('hide'); openAdmin('gate'); };
+$('#btnAdmin').onclick = () => openAdmin('me');
+$('#adminBack').onclick = closeAdmin;
+$('#adminChangeCh').onclick = () => {
+  closeAdmin();
+  showGate(S.ch ? ('当前：' + 频道打码(S.ch) + '　输入新的口令') : '');
+};
+$('#adminReconnect').onclick = () => {
+  if (!S.ch) { closeAdmin(); showGate(''); return; }
+  toast('正在重连…');
+  S.retry = 0; connect(); renderAdmin();
+};
+$('#adminSrvRefresh').onclick = () => {
+  const b = $('#adminSrvRefresh');
+  b.textContent = '已喊话，等报到…';
+  req('srvsay', {}, () => {});
+  setTimeout(() => { b.textContent = '让服务器报个到'; renderAdmin(); }, 3000);
+};
+
 /* ---------- 启动 ---------- */
 (function boot() {
   $('#verText').textContent = VER;
   S.accounts = lsGet(K_ACC, []);
+  S.servers = lsGet(K_SRV, {}) || {};
   renderLogin();
   // 频道口令：本机服务端注入 > 本机上次手输 > 都没有就弹输入（绝不写死在代码里）
   const inj = (typeof window.FOX_CHANNEL === 'string') ? window.FOX_CHANNEL : '';
@@ -1030,7 +1141,15 @@ $('#btnChannel').onclick = () => showGate(S.ch ? ('当前：' + 频道打码(S.c
   if (S.ch) {
     connect();
     // 握手探活：只问本机服务端一句（不喊全员、不打扰别的机器），同时验证口令
-    setTimeout(() => { if (S.ok && !S.gotWelcome) req('hello', {}, () => {}); }, 2500);
+    let 探过 = false;
+    const 探活 = () => {
+      if (探过) return;
+      if (!S.ok) { setTimeout(探活, 600); return; }   // 等 WS 真连上再发，别在没连上时白扔掉
+      探过 = true;
+      if (!S.gotWelcome) req('hello', {}, () => {});
+      req('srvsay', {}, () => {});        // 让在线服务器各报一次户口（页面打开只此一次）
+    };
+    setTimeout(探活, 1200);
     // 12 秒还没有任何回帧 → 口令填错 / 服务端没起，别让人一直卡在「等应答」
     setTimeout(() => {
       if (S.gotWelcome) return;
