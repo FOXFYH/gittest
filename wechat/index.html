@@ -240,7 +240,7 @@
    仿微信聊天工具 · 网页端 1.00
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.04';
+const VER = '1.05';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
   urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
@@ -447,26 +447,39 @@ function onFrame(d) {
     if (S.peer === a.peer) renderMsgs();
     renderChatList(a.unread || {});
   } else if (c === 'mstatus') {
-    if (a && a.mid) setMsgStatus(a.mid, a.文案 || a.state || '');
+    if (a && a.mid) setMsgStatus(a.mid, a.文案 || a.state || '', /已落盘/.test(String(a.文案 || a.state || '')));
     if (S.peer === a.sid) renderMsgs();
+  } else if (c === 'pending') {
+    // 对方上线来取：把「我发出但对方还没落盘」的补给我 —— 我落盘、回执
+    (a.msgs || []).forEach(m => {
+      const peer = (m.t === S.me) ? m.f : m.t;
+      saveMsg(peer, { mid: m.mid, from: m.f, to: m.t, text: m.text, ts: m.ts, 送达: 1, 状态: '' });
+      send({ t: 'chat', c: 'stored', a: { mid: m.mid } });
+    });
+    renderMsgs(); reqConvs();
   } else if (c === 'msg') {
     onIncoming(a);
   }
 }
 
 /* 把某条消息的投递状态写回本地缓存 */
-function setMsgStatus(mid, st) {
+function setMsgStatus(mid, st, 落盘) {
   const all = msgsAll();
+  let ch = false;
   Object.keys(all).forEach(k => {
-    (all[k] || []).forEach(x => { if (x.mid === mid) x.状态 = st; });
+    (all[k] || []).forEach(x => {
+      if (x.mid === mid) { x.状态 = st; if (落盘) x.送达 = 1; ch = true; }
+    });
   });
-  lsSet(K_MSG + S.me, all);
+  if (ch) lsSet(K_MSG + S.me, all);
 }
 
 function onIncoming(m) {
   if (!S.me) return;
   if (m.to !== S.me && m.from !== S.me) return;
   const peer = m.from === S.me ? m.to : m.from;
+  // 落盘回执：收到发给我的 → 先落本地，再告诉发送方「已落盘」
+  if (m.to === S.me) send({ t: 'chat', c: 'stored', a: { mid: m.mid } });
   const added = saveMsg(peer, m);
   if (!added) return;
   // 「正看着这个人」＝聊天页打开且页面在前台；此时直接显示、不打扰
@@ -480,10 +493,16 @@ function onIncoming(m) {
 }
 
 /* ---------- 登录 ---------- */
+function pullPending() {
+  // 主动索取：我还没落盘的（对方发给我、当时我离线没收到的）
+  if (!S.me || !S.ok) return;
+  req('pull', { me: S.me }, () => {}, 8000);
+}
 function hello() {
   const a = accOf(S.me);
   req('hello', { me: S.me, 电脑名: a.电脑名 || '', 产品名: a.产品名 || '', 会话名: a.会话名 || '', 地址: a.地址 || '' }, r => {
-    if (!r) { $('#loginState').textContent = '没有服务端应答'; }
+    if (!r) { $('#loginState').textContent = '没有服务端应答'; return; }
+    pullPending();
   });
 }
 function login(key) {
@@ -737,12 +756,17 @@ function renderMsgs() {
     const d = el('div', 'msg' + (mine ? ' me' : ''));
     const st = String(m.状态 || '');
     let 尾 = '';
-    if (mine && S.peer !== 'human') {
-      if (m.送达 === 0 && !st) 尾 += '<span class="warn">未投递到对方会话</span>';
-      const cls = /排队中/.test(st) ? ' wait' : (/已进入对话流/.test(st) ? ' ok' : (/插队/.test(st) ? ' ok' : ''));
-      尾 += '<div class="st"><span class="chip' + cls + '">' + esc(st || '已受理·状态未知') + '</span>' +
-        '<a data-act="refresh" data-mid="' + esc(m.mid) + '">刷新</a>' +
-        '<a data-act="promote" data-mid="' + esc(m.mid) + '">⚡插队</a></div>';
+    if (mine) {
+      const 已落 = m.送达 === 1;
+      let chips = '<span class="chip ' + (已落 ? 'ok' : 'wait') + '">' +
+        (已落 ? '✓已落盘' : '⏳等对方落盘') + '</span>';
+      if (st) {
+        const cls = /排队中/.test(st) ? ' wait' : ' ok';
+        chips += '<span class="chip' + cls + '">' + esc(st) + '</span>';
+      }
+      chips += '<a data-act="refresh" data-mid="' + esc(m.mid) + '">刷新</a>';
+      if (S.peer !== 'human') chips += '<a data-act="promote" data-mid="' + esc(m.mid) + '">⚡插队</a>';
+      尾 = '<div class="st">' + chips + '</div>';
     }
     d.innerHTML = avatar(displayName(mine ? S.me : m.from), 'sm') +
       '<div class="bubble">' + esc(m.text) + 尾 + '</div>';
@@ -766,7 +790,7 @@ function doSend() {
     const mid = r.a.mid;
     const all = msgsAll(); const arr = all[peer] || [];
     const one = arr.find(x => x.mid === tmp.mid);
-    if (one) { one.mid = mid; one.送达 = (r.a.投递 && r.a.投递.ok) ? 1 : 0; }
+    if (one) { one.mid = mid; one.送达 = r.a.落盘 ? 1 : 0; }   // 只有对方回执落盘才算发送成功
     // 广播帧可能先到：同 mid 的只留一条
     const 见 = {}; all[peer] = arr.filter(x => (见[x.mid] ? false : (见[x.mid] = 1)));
     lsSet(K_MSG + S.me, all);
