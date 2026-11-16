@@ -157,12 +157,12 @@
   <div class="view hide" id="gateView">
     <div class="gate">
       <div class="logo" style="background:#2d2d2d;box-shadow:0 6px 16px rgba(0,0,0,.25)">🔑</div>
-      <h2>输入频道号</h2>
-      <p class="tip">首次打开要填一次频道号（找总管要）。<br>只存在这台设备，不上传、不写进网页代码。</p>
-      <div class="fld"><span>#</span><input id="gateCh" placeholder="粘贴频道号" autocomplete="off" spellcheck="false"></div>
+      <h2>输入频道口令</h2>
+      <p class="tip">填的是<b>口令</b>（结尾带 @ 的那一串，找总管要），<br>不是频道名。<br>只存在这台设备，不上传、不写进网页代码。</p>
+      <div class="fld"><span>#</span><input id="gateCh" placeholder="粘贴口令，例：12345678Ab@" autocomplete="off" spellcheck="false"></div>
       <button class="go" id="btnGate">连接</button>
       <div class="bad" id="gateBad"></div>
-      <div class="warn2">频道号是内部口令，勿转发、勿截图、勿贴群里。</div>
+      <div class="warn2">口令是内部钥匙，勿转发、勿截图、勿贴群里。</div>
     </div>
   </div>
 
@@ -178,7 +178,7 @@
       <span class="link" id="btnRoster" style="white-space:nowrap;font-size:13px">喊一声</span>
     </div>
     <div class="acc-list" id="accList"></div>
-    <div class="login-foot">账号来自总管命令在线名册 · <span id="loginState">正在喊全员…</span></div>
+    <div class="login-foot">账号来自服务器名册 · <span id="loginState">…</span></div>
   </div>
 
   <!-- ========== 主界面 ========== -->
@@ -240,7 +240,7 @@
    仿微信聊天工具 · 网页端 1.00
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.06';
+const VER = '1.07';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
   urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
@@ -250,7 +250,7 @@ const CFG = {
    ① 电脑版/本机浏览器 → 由本地服务端注入 window.FOX_CHANNEL（自动，免手输）
    ② 公网网页 / 手机 → 首次打开手输一次，只存本机 localStorage
    ③ 「我」页可随时更换；口令只在本机，不上传任何地方 */
-const K_ME = 'fc_me', K_ACC = 'fc_acc', K_MSG = 'fc_msg_', K_CH = 'fc_ch';
+const K_ME = 'fc_me', K_ACC = 'fc_acc', K_MSG = 'fc_msg_', K_CH = 'fc_ch', K_RTS = 'fc_rts';
 
 const S = {
   me: '', name: '',   // 当前账号
@@ -275,6 +275,21 @@ function saveMsg(peer, m) {
   if (arr.some(x => x.mid === m.mid)) return false;
   arr.push(m); if (arr.length > 400) arr.splice(0, arr.length - 400);
   all[peer] = arr; lsSet(K_MSG + S.me, all); return true;
+}
+
+/* ---------- 名册（服务器每 6 小时刷一次，客户端吃缓存） ---------- */
+const 名册上限 = 6 * 3600 * 1000;
+function 名册该刷新() {
+  const t = Number(lsGet(K_RTS, 0)) || 0;
+  return !(S.accounts || []).length || !t || (Date.now() - t > 名册上限);
+}
+function 名册状态() {
+  const n = (S.accounts || []).length;
+  const t = Number(lsGet(K_RTS, 0)) || 0;
+  if (!t) return n ? ('缓存 ' + n + ' 人') : '等服务器应答…';
+  const d = new Date(t), p = x => ('0' + x).slice(-2);
+  const 旧 = (Date.now() - t > 名册上限) ? ' · 超 6 小时，可喊一声' : '';
+  return '缓存 ' + n + ' 人 · 上次 ' + (d.getMonth() + 1) + '-' + d.getDate() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + 旧;
 }
 
 /* ---------- 小工具 ---------- */
@@ -381,7 +396,7 @@ function connect() {
     $('#connText').textContent = '已连接（静默）';
     $('#connTip').classList.add('hide');
     if (S.me) hello();
-    else { req('accounts', {}, () => {}); }
+    else if (名册该刷新()) req('accounts', {}, () => {});   // 6 小时内的缓存直接用，不多问
   };
   ws.onmessage = ev => { let d; try { d = JSON.parse(ev.data); } catch (e) { return; } onFrame(d); };
   ws.onclose = () => {
@@ -422,15 +437,17 @@ function onFrame(d) {
   // 带 id 的应答只有请求方能认；否则是同一频道里别人家的应答，不能当广播用
   if (d.id && !我的) return;
   if (c === 'welcome') {
-    S.accounts = a.accounts || S.accounts;
+    if (a.accounts && a.accounts.length) { S.accounts = a.accounts; lsSet(K_RTS, Date.now()); }
     S.online = a.online || S.online;
-    if (S.me) { lsSet(K_ACC, S.accounts); renderAll(); reqConvs(); }
-    $('#loginState').textContent = '服务端在（' + (a.srv || '') + '）';
+    lsSet(K_ACC, S.accounts);
+    if (S.me) { renderAll(); reqConvs(); } else renderLogin();
+    $('#loginState').textContent = 名册状态();
   } else if (c === 'accounts') {
     const 新 = a.accounts || [];
     if (新.length || !S.accounts.length) S.accounts = 新;   // 防「空应答」把名单刷空
     lsSet(K_ACC, S.accounts);
-    $('#loginState').textContent = '已拿到 ' + S.accounts.length + ' 个账号';
+    if (S.accounts.length) lsSet(K_RTS, Date.now());
+    $('#loginState').textContent = 名册状态();
     if (!S.me) renderLogin();
     renderAll();
   } else if (c === 'pins') {
@@ -513,7 +530,13 @@ function pullPending() {
 function hello() {
   const a = accOf(S.me);
   req('hello', { me: S.me, 电脑名: a.电脑名 || '', 产品名: a.产品名 || '', 会话名: a.会话名 || '', 地址: a.地址 || '' }, r => {
-    if (!r) { $('#loginState').textContent = '没有服务端应答'; return; }
+    if (!r) {
+      $('#connText').textContent = '未连上服务端：口令可能不对';
+      $('#loginState').textContent = '服务端没应答：口令可能不对';
+      toast('服务端没应答：检查口令（频道名不是口令）');
+      return;
+    }
+    $('#connText').textContent = '已连接（静默）';
     pullPending();
   });
 }
@@ -540,6 +563,7 @@ function logout() {
 function renderLogin() {
   const q = ($('#accSearch').value || '').trim().toLowerCase();
   const box = $('#accList'); box.innerHTML = '';
+  const st = $('#loginState'); if (st) st.textContent = 名册状态();
   let list = S.accounts.slice();
   const 人类 = list.filter(a => a.key === 'human');
   let 其他 = list.filter(a => a.key !== 'human');
@@ -614,18 +638,23 @@ function renderContacts() {
   const box = $('#contactList'); if (!box) return;
   box.innerHTML = '';
   const bar = el('div', 'toolbar');
-  bar.innerHTML = '<span class="btn" id="btnSync">立刻更新通讯录</span>' +
-    '<span class="hint">服务端每 6 小时自动刷一次</span>';
+  bar.innerHTML = '<span class="btn" id="btnSync">手动喊一声（刷新通讯录）</span>' +
+    '<span class="hint">服务器每 6 小时自动刷一次，平时用缓存</span>';
   box.appendChild(bar);
   const btn = bar.querySelector('#btnSync');
   if (btn) btn.onclick = () => {
     btn.textContent = '正在喊…';
-    req('roster', {}, () => {});
-    req('accounts', { me: S.me }, r => {
-      if (r && r.a) { S.accounts = r.a.accounts || []; lsSet(K_ACC, S.accounts); renderAll(); }
-    });
-    toast('已喊一声，等各家应答（10 秒内到齐）');
-    setTimeout(() => { btn.textContent = '立刻更新通讯录'; }, 11000);
+    req('roster', {}, r => {
+      if (r && r.ok) toast('已喊一声，10 秒内各家应答');
+      else toast('服务端没应答：检查频道口令');
+    }, 20000);
+    setTimeout(() => {
+      req('accounts', { me: S.me }, r => {
+        if (r && r.a && r.a.accounts) { S.accounts = r.a.accounts; lsSet(K_ACC, S.accounts); }
+        renderAll();
+      });
+    }, 12000);
+    setTimeout(() => { btn.textContent = '手动喊一声（刷新通讯录）'; }, 13000);
   };
   const arr = S.accounts.filter(a => a.key !== S.me);
   if (!arr.length) { box.appendChild(el('div', 'empty', '通讯录是空的，点上面「立刻更新通讯录」。')); return; }
@@ -833,11 +862,33 @@ function switchTab(t) {
 }
 
 /* ---------- 事件 ---------- */
-$('#btnRoster').onclick = () => {
-  $('#loginState').textContent = '正在喊全员…';
-  req('roster', {}, r => { if (!r) toast('服务端没应答'); }, 8000);
+/* 喊全员：只有人主动点才喊（服务器每 6 小时自己刷一次，平时吃缓存） */
+function 喊全员(btn) {
+  const st = $('#loginState');
+  if (st) st.textContent = '正在喊全员…';
+  if (btn) { btn.dataset.t = btn.textContent; btn.textContent = '正在喊…'; }
+  let 收到 = false;
+  const 复位 = () => {
+    if (st) st.textContent = 名册状态();
+    if (btn && btn.dataset.t) btn.textContent = btn.dataset.t;
+  };
+  req('roster', {}, r => {
+    收到 = true;
+    if (!r || !r.ok) { toast('服务端没应答：检查频道口令'); 复位(); return; }
+    toast('已喊完，' + (S.accounts || []).length + ' 人在册');
+    复位();
+  }, 20000);
+  setTimeout(() => { if (!收到) { 复位(); toast('20 秒没回音：口令可能不对'); } }, 21000);
+}
+$('#btnRoster').onclick = () => 喊全员($('#btnRoster'));
+$('#btnRefresh').onclick = () => {
+  toast('正在刷新…');
+  req('accounts', { me: S.me }, r => {
+    if (r && r.a && r.a.accounts) { S.accounts = r.a.accounts; lsSet(K_ACC, S.accounts); }
+    renderAll();
+  });
+  reqConvs();
 };
-$('#btnRefresh').onclick = () => { toast('正在刷新账号…'); req('roster', {}, () => {}); reqConvs(); };
 $('#accSearch').oninput = renderLogin;
 $('#btnBack').onclick = closeChat;
 $('#btnSend').onclick = doSend;
@@ -945,19 +996,27 @@ function 用频道(v) {
     clearInterval(iv);
     $('#btnGate').textContent = '连接';
     const 门开 = $('#gateView') && !$('#gateView').classList.contains('hide');
-    const 话 = S.ok ? '线路通了但没人应答：频道号可能不对' : '连不上：检查网络，或频道号不对';
+    const 话 = S.ok
+      ? '线路通了但没服务端应答：口令不对（频道名不是口令），或本机服务端没起'
+      : '连不上：检查网络，或口令不对';
     if (门开) $('#gateBad').textContent = 话; else toast(话);
   }, 400);
 }
 $('#btnGate').onclick = () => {
-  const v = normCh($('#gateCh').value);
-  if (!v) { $('#gateBad').textContent = '请先填频道号'; return; }
+  const 原值 = String($('#gateCh').value || '').trim();
+  const v = normCh(原值);
+  if (!v) { $('#gateBad').textContent = '请先填频道口令'; return; }
+  // 常见误填：把「频道名」当口令。口令是总管给的那一串，不是 TRAECLIcmd / FOXCHATxxx 这种频道名
+  if (/^TRAECLI/i.test(原值) || /^FOXCHAT/i.test(原值) || /^TRAECLI/i.test(v)) {
+    $('#gateBad').textContent = '「' + 原值 + '」是频道名，不是口令：口令是总管给你的那一串（结尾通常带 @）';
+    return;
+  }
   用频道(v);
 };
 $('#gateCh').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); $('#btnGate').click(); }
 });
-$('#btnChannel').onclick = () => showGate(S.ch ? ('当前：' + 频道打码(S.ch) + '　输入新的频道号') : '');
+$('#btnChannel').onclick = () => showGate(S.ch ? ('当前：' + 频道打码(S.ch) + '　输入新的口令') : '');
 
 /* ---------- 启动 ---------- */
 (function boot() {
@@ -966,8 +1025,19 @@ $('#btnChannel').onclick = () => showGate(S.ch ? ('当前：' + 频道打码(S.c
   renderLogin();
   // 频道口令：本机服务端注入 > 本机上次手输 > 都没有就弹输入（绝不写死在代码里）
   const inj = (typeof window.FOX_CHANNEL === 'string') ? window.FOX_CHANNEL : '';
+  const 注入 = !!normCh(inj);
   S.ch = normCh(inj) || lsGet(K_CH, '');
-  if (S.ch) connect(); else showGate('');
+  if (S.ch) {
+    connect();
+    // 握手探活：只问本机服务端一句（不喊全员、不打扰别的机器），同时验证口令
+    setTimeout(() => { if (S.ok && !S.gotWelcome) req('hello', {}, () => {}); }, 2500);
+    // 12 秒还没有任何回帧 → 口令填错 / 服务端没起，别让人一直卡在「等应答」
+    setTimeout(() => {
+      if (S.gotWelcome) return;
+      if (注入) { toast('本机聊天服务端没起来，稍后自动重试'); return; }
+      showGate('这个口令连不上服务端：检查是不是把「频道名」当口令填了（口令结尾带 @）');
+    }, 12000);
+  } else showGate('');
   const me = lsGet(K_ME, '');
   if (me && S.accounts.some(a => a.key === me)) setTimeout(() => login(me), 300);
   else if (me) { /* 账号表还没回来，等 accounts 帧 */ }
