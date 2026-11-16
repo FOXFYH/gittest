@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.49';
+  const APP_VERSION = 'v1.51';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -92,19 +92,22 @@
     };
   }
 
-  function 元信息块(查看时间, 编辑时间, 上滑参数) {
+  function 元信息块(查看时间, 编辑时间, 上滑参数, 卷时间参数) {
     const o = {
       '版本': 1,
       '最后一次查看时间': 查看时间 || '',
       '最后一次编辑时间': 编辑时间 || ''
     };
     if (上滑参数 && typeof 上滑参数 === 'object') o['自动上滑参数'] = 上滑参数;
+    // v1.63 卷内时间参数：跟着参考答案一起留在小尾巴里，保存时原样保留
+    if (卷时间参数 && typeof 卷时间参数 === 'object') o['时间参数'] = 卷时间参数;
     return META_BEGIN + JSON.stringify(o) + META_END;
   }
 
-  function 拼正文元信息(payload, 查看时间, 编辑时间, 上滑参数) {
+  function 拼正文元信息(payload, 查看时间, 编辑时间, 上滑参数, 卷时间参数) {
     const body = String(payload || '');
-    const block = 元信息块(查看时间, 编辑时间, 上滑参数 === undefined ? 当前上滑参数() : 上滑参数);
+    const block = 元信息块(查看时间, 编辑时间, 上滑参数 === undefined ? 当前上滑参数() : 上滑参数,
+      卷时间参数 === undefined ? 时间参数 : 卷时间参数);
     return body ? (body + '\n' + block) : block;
   }
 
@@ -203,6 +206,7 @@
   // ===================== 运行状态 =====================
   let settings = loadSettings();
   let 上滑参数来自文件 = false;   // 当前文件的小尾巴自带上滑参数
+  let 时间参数 = null;            // v1.63 卷内出卷时间参数（选择题 3 字/秒 / 书写题 1 字/秒）
   let 上滑参数用户改过 = false;   // 用户在本文件内手动改过
   const editor = $('editor');
 
@@ -1096,6 +1100,7 @@
     setEditorContent(拆.payload);
     applyFont();
     套用文件上滑参数(拆.meta && 拆.meta['自动上滑参数']);
+    套用文件时间参数(拆.meta && 拆.meta['时间参数']);
     updateHeader();
     writeDocCache();
     updateTitle();
@@ -1264,6 +1269,41 @@
     }
     上滑参数用户改过 = false;
     刷新上滑UI();
+  }
+
+  // v1.63 卷内时间参数：优先于旧「自动上滑参数」和上次手动值
+  function 套用文件时间参数(tp) {
+    时间参数 = (tp && typeof tp === 'object') ? tp : null;
+    if (时间参数) {
+      const 每秒 = Number(时间参数['每秒字数']);
+      if (isFinite(每秒) && 每秒 > 0) {
+        settings.scrollMode = 'char';
+        settings.secPerChar = clamp(1 / 每秒, 0.1, 60);
+        上滑参数来自文件 = true;
+        上滑参数用户改过 = false;
+        刷新上滑UI();
+      }
+    }
+    刷新数据行();
+  }
+
+  // 顶部数据行：小字号、不随正文字号缩放、随正文一起翻走（用 ::before 渲染，不进正文、不会被保存）
+  function 刷新数据行() {
+    if (!editor) return;
+    const 有卷 = !!(时间参数 && 时间参数['题型']);
+    if (!有卷) {
+      editor.removeAttribute('data-bar');
+      return;
+    }
+    片 = [String(时间参数['题型'])];
+    const 每秒 = Number(时间参数['每秒字数']);
+    if (isFinite(每秒) && 每秒 > 0) {
+      片.push(每秒 + ' 字/秒 · 卷内规定');
+    } else {
+      片.push(settings.secPerChar + ' 字/秒 · 上次手动');
+    }
+    片.push(((editor.textContent || '').replace(/\s/g, '').length) + ' 字');
+    editor.setAttribute('data-bar', 片.join('    ·    '));
   }
 
   function 标记上滑用户修改() {
@@ -1938,7 +1978,7 @@
     const payload = serializeEditor();
     const 查看时间 = doc.viewTime || fmtDateTime();
     const 编辑时间 = doc.editTime || '';
-    const content = 拼正文元信息(payload, 查看时间, 编辑时间, 当前上滑参数());
+    const content = 拼正文元信息(payload, 查看时间, 编辑时间, 当前上滑参数(), 时间参数);
     doc.rawContent = content;
     const S = Number(doc.s || 0);
     const E = S + 1;
@@ -2012,7 +2052,7 @@
     const 有实际修改 = 新稿 ? !!payload : (正文字号 !== (doc.baseSig || ''));
     const 查看时间 = 现在;
     const 编辑时间 = 有实际修改 ? 现在 : (doc.editTime || '');
-    const content = 拼正文元信息(payload, 查看时间, 编辑时间, 当前上滑参数());
+    const content = 拼正文元信息(payload, 查看时间, 编辑时间, 当前上滑参数(), 时间参数);
     doc.rawContent = content;
     doc.viewTime = 查看时间;
     doc.editTime = 编辑时间;
