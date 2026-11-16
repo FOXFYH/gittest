@@ -240,7 +240,7 @@
    仿微信聊天工具 · 网页端 1.00
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.05';
+const VER = '1.06';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
   urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
@@ -414,10 +414,13 @@ function req(c, a, cb, ms) {
 function onFrame(d) {
   if (!d || d.t !== 'chat') return;
   const c = d.c, a = d.a || {};
+  const 我的 = !!(d.id && S.pend[d.id]);
   if (c) S.gotWelcome = true;        // 收到任何一条 chat 帧＝服务端确实在这个频道
   if (d.id && S.pend[d.id]) {
     clearTimeout(S.pend[d.id].t); const cb = S.pend[d.id].cb; delete S.pend[d.id]; cb && cb(d);
   }
+  // 带 id 的应答只有请求方能认；否则是同一频道里别人家的应答，不能当广播用
+  if (d.id && !我的) return;
   if (c === 'welcome') {
     S.accounts = a.accounts || S.accounts;
     S.online = a.online || S.online;
@@ -449,6 +452,15 @@ function onFrame(d) {
   } else if (c === 'mstatus') {
     if (a && a.mid) setMsgStatus(a.mid, a.文案 || a.state || '', /已落盘/.test(String(a.文案 || a.state || '')));
     if (S.peer === a.sid) renderMsgs();
+  } else if (c === 'pull') {
+    // 别人上线要补拉：我这儿如果有「我发给他、他还没落盘」的，重发一遍（他落盘后会回执）
+    if (a.me && a.me !== S.me && S.me) {
+      const all = msgsAll();
+      (all[a.me] || []).forEach(m => {
+        if (m.from === S.me && m.送达 === 0)
+          send({ t: 'chat', c: 'msg', a: { mid: m.mid, from: m.from, to: m.to, text: m.text, ts: m.ts } });
+      });
+    }
   } else if (c === 'pending') {
     // 对方上线来取：把「我发出但对方还没落盘」的补给我 —— 我落盘、回执
     (a.msgs || []).forEach(m => {
