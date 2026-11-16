@@ -113,6 +113,18 @@
   .sendbtn{background:var(--green);color:#fff;border:0;border-radius:6px;padding:9px 14px;font-size:15px;cursor:pointer}
   .sendbtn:disabled{background:#c6e9d4}
   .conn{font-size:11px;color:#b26a00;background:#fff4e5;padding:4px 10px;text-align:center}
+  /* ---------- 首次：频道号 ---------- */
+  #gateView{background:var(--white)}
+  .gate{padding:54px 24px 20px}
+  .gate h2{font-size:18px;margin:0 0 10px;text-align:center}
+  .gate p.tip{margin:0 0 18px;color:var(--sub);font-size:12.5px;line-height:1.7;text-align:center}
+  .gate .fld{background:#f2f2f2;border-radius:8px;padding:11px 12px;display:flex;align-items:center;gap:8px}
+  .gate .fld input{border:0;background:transparent;outline:none;flex:1;font-size:16px;letter-spacing:.5px;font-family:inherit}
+  .gate .go{margin-top:14px;width:100%;background:var(--green);color:#fff;border:0;border-radius:8px;
+    padding:12px;font-size:16px;font-weight:500;cursor:pointer}
+  .gate .go:active{background:var(--green2)}
+  .gate .bad{margin-top:12px;color:#c33;font-size:12.5px;text-align:center;min-height:18px}
+  .gate .warn2{margin-top:20px;color:#aaa;font-size:11.5px;line-height:1.7;text-align:center}
   /* ---------- 底部标签 ---------- */
   .tabs{flex:0 0 auto;display:flex;background:var(--bar);border-top:1px solid var(--line);
     padding-bottom:env(safe-area-inset-bottom)}
@@ -140,6 +152,19 @@
 </head>
 <body>
 <div id="app">
+
+  <!-- ========== 频道号（首次 / 更换） ========== -->
+  <div class="view hide" id="gateView">
+    <div class="gate">
+      <div class="logo" style="background:#2d2d2d;box-shadow:0 6px 16px rgba(0,0,0,.25)">🔑</div>
+      <h2>输入频道号</h2>
+      <p class="tip">首次打开要填一次频道号（找总管要）。<br>只存在这台设备，不上传、不写进网页代码。</p>
+      <div class="fld"><span>#</span><input id="gateCh" placeholder="粘贴频道号" autocomplete="off" spellcheck="false"></div>
+      <button class="go" id="btnGate">连接</button>
+      <div class="bad" id="gateBad"></div>
+      <div class="warn2">频道号是内部口令，勿转发、勿截图、勿贴群里。</div>
+    </div>
+  </div>
 
   <!-- ========== 登录 ========== -->
   <div class="view" id="loginView">
@@ -176,6 +201,7 @@
       <div class="group">
         <div class="item"><span>网页版版本</span><span class="v" id="verText">1.00</span></div>
         <div class="item"><span>连接状态</span><span class="v" id="connText">连接中…</span></div>
+        <div class="item" id="btnChannel"><span>通信频道</span><span class="v" id="chText">—</span></div>
         <div class="item"><span>消息提醒</span><span class="v" id="notifyText">未开启</span></div>
       </div>
       <div class="group">
@@ -214,20 +240,24 @@
    仿微信聊天工具 · 网页端 1.00
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.03';
+const VER = '1.04';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
-  key: '31415926fF@',         // 建网期共用口令
   urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
   urlB: 'wss://s20307.nyc1.piesocket.com/v3/%s?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL'
 };
-const K_ME = 'fc_me', K_ACC = 'fc_acc', K_MSG = 'fc_msg_';
+/* 频道口令【绝不写死在网页里】：
+   ① 电脑版/本机浏览器 → 由本地服务端注入 window.FOX_CHANNEL（自动，免手输）
+   ② 公网网页 / 手机 → 首次打开手输一次，只存本机 localStorage
+   ③ 「我」页可随时更换；口令只在本机，不上传任何地方 */
+const K_ME = 'fc_me', K_ACC = 'fc_acc', K_MSG = 'fc_msg_', K_CH = 'fc_ch';
 
 const S = {
   me: '', name: '',   // 当前账号
+  ch: '',             // 频道口令（不写代码、不进仓库）
   accounts: [], online: [], convs: [],
   peer: '', msgs: [], 
-  ws: null, ok: false, line: 0, retry: 0, reqId: 0, pend: {},
+  ws: null, ok: false, line: 0, retry: 0, reqId: 0, pend: {}, reTimer: 0, gotWelcome: false,
   notifOn: false, unreadTotal: 0
 };
 
@@ -336,13 +366,15 @@ window.FoxChat = {
 
 /* ---------- WS ---------- */
 function wsUrl() {
-  const ch = CFG.prefix + CFG.key;
+  const ch = CFG.prefix + S.ch;
   return (S.line === 0 ? CFG.urlA : CFG.urlB).replace('%s', ch);
 }
 function connect() {
-  try { S.ws && S.ws.close(); } catch (e) {}
+  if (!S.ch) { showGate(''); return; }   // 没有频道号：不连，先让人填
+  if (S.reTimer) { clearTimeout(S.reTimer); S.reTimer = 0; }   // 取消排队中的重连，别把新连接顶掉
+  try { if (S.ws) { S.ws.onclose = null; S.ws.close(); } } catch (e) {}
   let ws;
-  try { ws = new WebSocket(wsUrl()); } catch (e) { setTimeout(connect, 4000); return; }
+  try { ws = new WebSocket(wsUrl()); } catch (e) { S.reTimer = setTimeout(connect, 4000); return; }
   S.ws = ws;
   ws.onopen = () => {
     S.ok = true; S.retry = 0;
@@ -353,12 +385,13 @@ function connect() {
   };
   ws.onmessage = ev => { let d; try { d = JSON.parse(ev.data); } catch (e) { return; } onFrame(d); };
   ws.onclose = () => {
+    if (S.ws !== ws) return;            // 旧连接的迟到回调，不许干扰新连接
     S.ok = false;
     $('#connText').textContent = '已断开，重连中…';
     if (S.peer) $('#connTip').classList.remove('hide');
     S.retry++;
     if (S.retry % 2 === 0) S.line = S.line === 0 ? 1 : 0;
-    setTimeout(connect, Math.min(30000, 1500 * S.retry));
+    S.reTimer = setTimeout(connect, Math.min(30000, 1500 * S.retry));
   };
   ws.onerror = () => {};
 }
@@ -381,6 +414,7 @@ function req(c, a, cb, ms) {
 function onFrame(d) {
   if (!d || d.t !== 'chat') return;
   const c = d.c, a = d.a || {};
+  if (c) S.gotWelcome = true;        // 收到任何一条 chat 帧＝服务端确实在这个频道
   if (d.id && S.pend[d.id]) {
     clearTimeout(S.pend[d.id].t); const cb = S.pend[d.id].cb; delete S.pend[d.id]; cb && cb(d);
   }
@@ -660,6 +694,7 @@ function renderMe() {
   $('#meAcc').textContent = accLine(a) || S.me;
   $('#verText').textContent = VER;
   $('#connText').textContent = S.ok ? '已连接（静默）' : '连接中…';
+  $('#chText').textContent = S.ch ? (频道打码(S.ch) + ' ›') : '未设置 ›';
   $('#notifyText').textContent = (window.Notification && Notification.permission === 'granted') ? '已开启' : '未开启（点开此页授权）';
   setTitleBadge(S.unreadTotal || 0);
 }
@@ -816,12 +851,86 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+/* ---------- 频道号（首次手输 / 我 页可换） ---------- */
+function normCh(s) {
+  let v = String(s == null ? '' : s).trim().replace(/^#+/, '').trim();
+  if (v.toUpperCase().startsWith(CFG.prefix)) v = v.slice(CFG.prefix.length);  // 整串粘贴也认
+  return v.replace(/\s+/g, '');
+}
+function 频道打码(ch) {
+  const s = String(ch || '');
+  if (!s) return '';
+  return s.length <= 2 ? '••' : ('••••' + s.slice(-2));
+}
+function showGate(msg) {
+  const g = $('#gateView'); if (!g) return;
+  $('#loginView').classList.add('hide');
+  $('#mainView').classList.add('hide');
+  $('#chatView').classList.add('hide');
+  g.classList.remove('hide');
+  const inp = $('#gateCh');
+  if (inp && !inp.value && S.ch) inp.value = S.ch;
+  if (msg) $('#gateBad').textContent = msg;
+  $('#btnGate').textContent = '连接';
+  // 已有频道号时才给「返回」，免得不小心改成死号
+  const gate = g.querySelector('.gate');
+  let cb = g.querySelector('#gateCancel');
+  if (S.ch && !cb && gate) {
+    cb = el('div', 'link', '返回（不改）');
+    cb.id = 'gateCancel';
+    cb.style.cssText = 'text-align:center;margin-top:14px;font-size:13.5px';
+    cb.onclick = () => { hideGate(); if (S.ch) connect(); renderAll(); };
+    gate.insertBefore(cb, gate.querySelector('.warn2'));
+  }
+  if (!S.ch && cb) cb.remove();
+  try { setTimeout(() => inp && inp.focus(), 80); } catch (e) {}
+}
+function hideGate() {
+  const g = $('#gateView'); if (g) g.classList.add('hide');
+  $('#mainView').classList.toggle('hide', !S.me);
+  $('#loginView').classList.toggle('hide', !!S.me);
+  if (S.me) renderAll();
+}
+function 用频道(v) {
+  S.ch = v; lsSet(K_CH, v); S.gotWelcome = false;
+  $('#gateBad').textContent = '';
+  $('#btnGate').textContent = '连接中…';
+  S.retry = 0; connect();
+  const t0 = Date.now();
+  const iv = setInterval(() => {
+    if (S.gotWelcome) {                        // 收到服务端回帧＝口令对、服务端在
+      clearInterval(iv);
+      $('#btnGate').textContent = '连接';
+      hideGate(); hello(); req('accounts', {}, () => {}); reqConvs(); renderAll();
+      return;
+    }
+    if (Date.now() - t0 < 9000) return;
+    clearInterval(iv);
+    $('#btnGate').textContent = '连接';
+    const 门开 = $('#gateView') && !$('#gateView').classList.contains('hide');
+    const 话 = S.ok ? '线路通了但没人应答：频道号可能不对' : '连不上：检查网络，或频道号不对';
+    if (门开) $('#gateBad').textContent = 话; else toast(话);
+  }, 400);
+}
+$('#btnGate').onclick = () => {
+  const v = normCh($('#gateCh').value);
+  if (!v) { $('#gateBad').textContent = '请先填频道号'; return; }
+  用频道(v);
+};
+$('#gateCh').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('#btnGate').click(); }
+});
+$('#btnChannel').onclick = () => showGate(S.ch ? ('当前：' + 频道打码(S.ch) + '　输入新的频道号') : '');
+
 /* ---------- 启动 ---------- */
 (function boot() {
   $('#verText').textContent = VER;
   S.accounts = lsGet(K_ACC, []);
   renderLogin();
-  connect();
+  // 频道口令：本机服务端注入 > 本机上次手输 > 都没有就弹输入（绝不写死在代码里）
+  const inj = (typeof window.FOX_CHANNEL === 'string') ? window.FOX_CHANNEL : '';
+  S.ch = normCh(inj) || lsGet(K_CH, '');
+  if (S.ch) connect(); else showGate('');
   const me = lsGet(K_ME, '');
   if (me && S.accounts.some(a => a.key === me)) setTimeout(() => login(me), 300);
   else if (me) { /* 账号表还没回来，等 accounts 帧 */ }
