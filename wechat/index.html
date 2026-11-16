@@ -424,6 +424,8 @@ function connect() {
     $('#connTip').classList.add('hide');
     if (S.me) hello();
     else if (名册该刷新()) req('accounts', {}, () => {});   // 6 小时内的缓存直接用，不多问
+    // 每次连上都让服务器报个到（60 秒内只问一次，防重连风暴），管理页才有东西看
+    if (!S.报时 || Date.now() - S.报时 > 60000) { S.报时 = Date.now(); req('srvsay', {}, () => {}); }
   };
   ws.onmessage = ev => { let d; try { d = JSON.parse(ev.data); } catch (e) { return; } onFrame(d); };
   ws.onclose = () => {
@@ -1070,7 +1072,7 @@ function hideGate() {
   if (S.me) renderAll();
 }
 function 用频道(v) {
-  S.ch = v; lsSet(K_CH, v); S.gotWelcome = false;
+  S.ch = v; lsSet(K_CH, v); S.gotWelcome = false; S.报时 = 0;
   $('#gateBad').textContent = '';
   $('#btnGate').textContent = '连接中…';
   S.retry = 0; connect();
