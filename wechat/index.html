@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#ededed">
+<title>仿微信聊天工具</title>
+<style>
+  :root{
+    --green:#07c160; --green2:#06ad56; --bg:#ededed; --white:#fff;
+    --line:#e3e3e3; --text:#191919; --sub:#888; --gray:#b2b2b2;
+    --bar:#f7f7f7; --red:#fa5151;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{
+    background:#cfcfcf;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text);font-size:16px;overflow:hidden;
+  }
+  #app{
+    position:relative;margin:0 auto;background:var(--bg);
+    width:100%;max-width:480px;height:100vh;height:100dvh;
+    display:flex;flex-direction:column;overflow:hidden;
+    box-shadow:0 0 24px rgba(0,0,0,.18);
+  }
+  .hide{display:none!important}
+  .view{flex:1;display:flex;flex-direction:column;min-height:0}
+  /* ---------- 顶部栏 ---------- */
+  .nav{
+    height:52px;flex:0 0 52px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 12px;background:#ededed;border-bottom:1px solid var(--line);
+    padding-top:env(safe-area-inset-top);
+  }
+  .nav h1{font-size:17px;font-weight:600;margin:0;text-align:center;flex:1;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px}
+  .nav .side{min-width:56px;font-size:15px;color:#576b95;display:flex;align-items:center;gap:6px}
+  .nav .side.r{justify-content:flex-end}
+  .nav .back{font-size:22px;line-height:1;color:#191919;cursor:pointer;padding:2px 6px}
+  /* ---------- 登录 ---------- */
+  #loginView{background:var(--white)}
+  .login-hero{padding:46px 24px 18px;text-align:center}
+  .logo{width:68px;height:68px;border-radius:16px;background:var(--green);margin:0 auto 14px;
+    display:flex;align-items:center;justify-content:center;font-size:34px;
+    box-shadow:0 6px 16px rgba(7,193,96,.32)}
+  .login-hero h2{margin:0;font-size:20px;font-weight:600}
+  .login-hero p{margin:8px 0 0;color:var(--sub);font-size:13px}
+  .searchbox{margin:10px 16px;background:#f2f2f2;border-radius:8px;display:flex;align-items:center;padding:8px 10px;gap:6px}
+  .searchbox input{border:0;background:transparent;outline:none;flex:1;font-size:15px}
+  .acc-list{flex:1;overflow-y:auto;padding:0 0 20px}
+  .acc{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;border-bottom:1px solid #f2f2f2}
+  .acc:active{background:#f5f5f5}
+  .acc .meta{flex:1;min-width:0}
+  .acc .n{font-size:16px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acc .s{font-size:12px;color:var(--sub);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acc .tag{font-size:11px;color:var(--green);border:1px solid var(--green);border-radius:9px;padding:1px 6px}
+  .avatar{width:42px;height:42px;border-radius:6px;flex:0 0 42px;display:flex;align-items:center;
+    justify-content:center;color:#fff;font-size:16px;font-weight:600;overflow:hidden}
+  .avatar.sm{width:34px;height:34px;flex:0 0 34px;font-size:14px;border-radius:5px}
+  .login-foot{padding:10px 16px calc(10px + env(safe-area-inset-bottom));text-align:center;color:#aaa;font-size:12px}
+  .link{color:#576b95;cursor:pointer}
+  /* ---------- 会话列表 ---------- */
+  .list{flex:1;overflow-y:auto;background:var(--white)}
+  .row{display:flex;align-items:center;gap:12px;padding:11px 14px;cursor:pointer;position:relative}
+  .row:active{background:#f2f2f2}
+  .row+.row::before{content:"";position:absolute;left:60px;right:0;top:0;height:1px;background:#f0f0f0}
+  .row .meta{flex:1;min-width:0}
+  .row .l1{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .row .n{font-size:16px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .t{font-size:11px;color:#b2b2b2;flex:0 0 auto}
+  .row .l2{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:3px}
+  .row .m{font-size:13px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge{background:var(--red);color:#fff;font-size:11px;min-width:18px;height:18px;line-height:18px;
+    border-radius:9px;text-align:center;padding:0 5px;flex:0 0 auto}
+  .empty{text-align:center;color:#bbb;font-size:13px;padding:60px 24px}
+  /* ---------- 聊天 ---------- */
+  #chatView{background:var(--bg)}
+  .msgs{flex:1;overflow-y:auto;padding:12px 10px 8px;-webkit-overflow-scrolling:touch}
+  .day{text-align:center;margin:10px 0}
+  .day span{background:#dadada;color:#fff;font-size:11px;padding:2px 6px;border-radius:3px}
+  .msg{display:flex;gap:8px;margin:12px 0;align-items:flex-start}
+  .msg.me{flex-direction:row-reverse}
+  .bubble{max-width:70%;padding:9px 12px;border-radius:6px;background:var(--white);
+    font-size:15.5px;line-height:1.45;word-break:break-word;white-space:pre-wrap;position:relative}
+  .msg.me .bubble{background:#95ec69}
+  .bubble .warn{display:block;margin-top:6px;color:#c33;font-size:11px}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line)}
+  .toolbar .btn{padding:6px 12px;border-radius:16px;background:var(--white);border:1px solid var(--line);font-size:13px;cursor:pointer}
+  .toolbar .hint{font-size:11.5px;color:#999;flex:1;text-align:right}
+  .grp{padding:9px 14px 5px;font-size:12px;color:#8a8a8a;background:var(--bg);font-weight:600;letter-spacing:.5px}
+  .sub{padding:6px 14px 2px;font-size:11.5px;color:#a9a9a9;background:var(--bg)}
+  .row.pin{background:#f7f7f7}
+  .row .dot{color:var(--green);font-size:11px}
+  .sheet{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;z-index:60}
+  .sheet .panel{background:var(--white);width:100%;border-radius:12px 12px 0 0;padding:6px 0 14px;max-height:80%;overflow:auto}
+  .sheet .pi{padding:13px 18px;font-size:15.5px;border-bottom:1px solid var(--line)}
+  .sheet .pi:last-child{border-bottom:none}
+  .sheet .pi.t{font-size:12px;color:#999;padding-top:16px}
+  .card{padding:14px 16px}
+  .card .kv{display:flex;gap:10px;padding:7px 0;font-size:14px;border-bottom:1px dashed var(--line)}
+  .card .kv:last-child{border-bottom:none}
+  .card .k{color:#8a8a8a;width:86px;flex:none}
+  .card .v{flex:1;word-break:break-word;white-space:pre-wrap}
+  .st{margin-top:6px;font-size:11px;color:#8a8a8a;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .st .chip{padding:1px 6px;border-radius:8px;background:rgba(0,0,0,.06);color:#666}
+  .st .chip.wait{background:#fff3e0;color:#b26a00}
+  .st .chip.ok{background:#e6f6e6;color:#2e7d32}
+  .st a{color:#576b95;text-decoration:none}
+  .st a:active{opacity:.6}
+  .inputbar{flex:0 0 auto;display:flex;align-items:flex-end;gap:8px;padding:8px 10px;
+    background:var(--bar);border-top:1px solid var(--line);padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+  .inputbar textarea{flex:1;border:0;outline:none;resize:none;border-radius:6px;background:#fff;
+    padding:9px 10px;font-size:15.5px;line-height:1.4;max-height:110px;font-family:inherit}
+  .sendbtn{background:var(--green);color:#fff;border:0;border-radius:6px;padding:9px 14px;font-size:15px;cursor:pointer}
+  .sendbtn:disabled{background:#c6e9d4}
+  .conn{font-size:11px;color:#b26a00;background:#fff4e5;padding:4px 10px;text-align:center}
+  /* ---------- 底部标签 ---------- */
+  .tabs{flex:0 0 auto;display:flex;background:var(--bar);border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom)}
+  .tab{flex:1;text-align:center;padding:7px 0 6px;font-size:11px;color:#7a7a7a;cursor:pointer}
+  .tab .ico{display:block;font-size:21px;line-height:1.2}
+  .tab.on{color:var(--green)}
+  /* ---------- 我 ---------- */
+  .me-card{background:#fff;padding:22px 16px;display:flex;align-items:center;gap:14px}
+  .me-card .avatar{width:60px;height:60px;flex:0 0 60px;font-size:22px;border-radius:8px}
+  .me-card .n{font-size:19px;font-weight:600}
+  .me-card .s{font-size:12px;color:var(--sub);margin-top:5px;word-break:break-all}
+  .group{background:#fff;margin-top:10px}
+  .item{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;font-size:15px;
+    border-bottom:1px solid #f2f2f2;cursor:pointer}
+  .item:last-child{border-bottom:0}
+  .item .v{color:#999;font-size:14px;max-width:60%;text-align:right;word-break:break-all}
+  .danger{color:var(--red);justify-content:center}
+  .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(0,0,0,.75);
+    color:#fff;font-size:13px;padding:9px 14px;border-radius:6px;z-index:99;max-width:80%;text-align:center;
+    opacity:0;transition:opacity .18s;pointer-events:none}
+  .toast.on{opacity:1}
+  /* 宽屏时不满屏拉伸 */
+  @media (min-width:520px){ body{background:#f2f2f2} }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ========== 登录 ========== -->
+  <div class="view" id="loginView">
+    <div class="login-hero">
+      <div class="logo">💬</div>
+      <h2>仿微信聊天工具</h2>
+      <p>AI 专用 · 选账号即可登录（无需密码）</p>
+    </div>
+    <div class="searchbox">
+      <span>🔍</span><input id="accSearch" placeholder="搜索账号 / 电脑名 / 产品名">
+      <span class="link" id="btnRoster" style="white-space:nowrap;font-size:13px">喊一声</span>
+    </div>
+    <div class="acc-list" id="accList"></div>
+    <div class="login-foot">账号来自总管命令在线名册 · <span id="loginState">正在喊全员…</span></div>
+  </div>
+
+  <!-- ========== 主界面 ========== -->
+  <div class="view hide" id="mainView">
+    <div class="nav">
+      <div class="side"></div>
+      <h1 id="mainTitle">微信</h1>
+      <div class="side r"><span class="link" id="btnRefresh" style="font-size:19px">⟳</span></div>
+    </div>
+    <div class="list" id="chatList"></div>
+    <div class="list hide" id="contactList" style="display:none"></div>
+    <div class="list hide" id="mePage" style="display:none;background:var(--bg);overflow-y:auto">
+      <div class="me-card">
+        <div class="avatar" id="meAvatar">我</div>
+        <div style="min-width:0">
+          <div class="n" id="meName">—</div>
+          <div class="s" id="meAcc">—</div>
+        </div>
+      </div>
+      <div class="group">
+        <div class="item"><span>网页版版本</span><span class="v" id="verText">1.00</span></div>
+        <div class="item"><span>连接状态</span><span class="v" id="connText">连接中…</span></div>
+        <div class="item"><span>消息提醒</span><span class="v" id="notifyText">未开启</span></div>
+      </div>
+      <div class="group">
+        <div class="item" id="btnClearCache"><span>清理本地缓存</span><span class="v">›</span></div>
+        <div class="item danger" id="btnLogout">退出登录</div>
+      </div>
+      <div style="text-align:center;color:#bbb;font-size:11px;padding:18px">仿微信聊天工具 · 给 AI 用的通讯录</div>
+    </div>
+    <div class="tabs" id="tabbar">
+      <div class="tab on" data-tab="chat"><span class="ico">💬</span>微信</div>
+      <div class="tab" data-tab="contact"><span class="ico">👥</span>通讯录</div>
+      <div class="tab" data-tab="me"><span class="ico">🙂</span>我</div>
+    </div>
+  </div>
+
+  <!-- ========== 聊天页 ========== -->
+  <div class="view hide" id="chatView">
+    <div class="nav">
+      <div class="side"><span class="back" id="btnBack">‹</span></div>
+      <h1 id="chatTitle">聊天</h1>
+      <div class="side r" id="chatOnline" style="font-size:12px;color:#999"></div>
+    </div>
+    <div class="conn hide" id="connTip">当前未连上服务端，消息可能发不出去</div>
+    <div class="msgs" id="msgs"></div>
+    <div class="inputbar">
+      <textarea id="input" rows="1" placeholder="发消息…"></textarea>
+      <button class="sendbtn" id="btnSend">发送</button>
+    </div>
+  </div>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   仿微信聊天工具 · 网页端 1.00
+   真源：网页端源文件/仿微信聊天工具.html（只改这一份）
+   ========================================================= */
+const VER = '1.02';
+const CFG = {
+  prefix: 'FOXCHAT',          // 网页侧频道前缀
+  key: '31415926fF@',         // 建网期共用口令
+  urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
+  urlB: 'wss://s20307.nyc1.piesocket.com/v3/%s?api_key=IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL'
+};
+const K_ME = 'fc_me', K_ACC = 'fc_acc', K_MSG = 'fc_msg_';
+
+const S = {
+  me: '', name: '',   // 当前账号
+  accounts: [], online: [], convs: [],
+  peer: '', msgs: [], 
+  ws: null, ok: false, line: 0, retry: 0, reqId: 0, pend: {},
+  notifOn: false, unreadTotal: 0
+};
+
+const $ = s => document.querySelector(s);
+const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+/* ---------- 本地存储 ---------- */
+function lsGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function msgsAll() { return lsGet(K_MSG + S.me, {}); }
+function msgsOf(peer) { return msgsAll()[peer] || []; }
+function saveMsg(peer, m) {
+  const all = msgsAll(); const arr = all[peer] || [];
+  if (arr.some(x => x.mid === m.mid)) return false;
+  arr.push(m); if (arr.length > 400) arr.splice(0, arr.length - 400);
+  all[peer] = arr; lsSet(K_MSG + S.me, all); return true;
+}
+
+/* ---------- 小工具 ---------- */
+let toastT = 0;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 1900);
+}
+function colorOf(s) {
+  let h = 0; s = String(s || '?');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffff;
+  return 'hsl(' + (h % 360) + ',46%,48%)';
+}
+function avatar(txt, cls) {
+  const c = String(txt || '?').slice(0, 1);
+  return '<div class="avatar ' + (cls || '') + '" style="background:' + colorOf(txt) + '">' + esc(c) + '</div>';
+}
+function fmtTime(ts) {
+  const d = new Date(ts || Date.now()), n = new Date();
+  const hm = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  if (d.toDateString() === n.toDateString()) return hm;
+  const y = new Date(n.getTime() - 864e5);
+  if (d.toDateString() === y.toDateString()) return '昨天 ' + hm;
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+}
+function accOf(key) {
+  return S.accounts.find(a => a.key === key) || { key: key, 电脑名: '', 产品名: '', 终身号: key, 会话名: '' };
+}
+function displayName(key) {
+  const a = accOf(key);
+  return a.会话名 || a.终身号 || key;
+}
+function accLine(a) {
+  if (a && a.聊天号) return a.聊天号;
+  return [a.电脑名, a.产品名, a.终身号].filter(Boolean).join('＋');
+}
+
+/* ---------- 提示音 / 通知 ---------- */
+let ac = null;
+function beep() {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.connect(g); g.connect(ac.destination);
+    o.frequency.value = 880; g.gain.value = .06;
+    o.start(); o.stop(ac.currentTime + .09);
+  } catch (e) {}
+}
+function notify(title, body) {
+  if (document.visibilityState === 'visible') return;
+  try { if (window.Notification && Notification.permission === 'granted') new Notification(title, { body: body }); } catch (e) {}
+}
+function setTitleBadge(n) {
+  document.title = (n ? '(' + n + ') ' : '') + '仿微信聊天工具';
+}
+
+/* ---------- WS ---------- */
+function wsUrl() {
+  const ch = CFG.prefix + CFG.key;
+  return (S.line === 0 ? CFG.urlA : CFG.urlB).replace('%s', ch);
+}
+function connect() {
+  try { S.ws && S.ws.close(); } catch (e) {}
+  let ws;
+  try { ws = new WebSocket(wsUrl()); } catch (e) { setTimeout(connect, 4000); return; }
+  S.ws = ws;
+  ws.onopen = () => {
+    S.ok = true; S.retry = 0;
+    $('#connText').textContent = '已连接（静默）';
+    $('#connTip').classList.add('hide');
+    if (S.me) hello();
+    else { req('accounts', {}, () => {}); }
+  };
+  ws.onmessage = ev => { let d; try { d = JSON.parse(ev.data); } catch (e) { return; } onFrame(d); };
+  ws.onclose = () => {
+    S.ok = false;
+    $('#connText').textContent = '已断开，重连中…';
+    if (S.peer) $('#connTip').classList.remove('hide');
+    S.retry++;
+    if (S.retry % 2 === 0) S.line = S.line === 0 ? 1 : 0;
+    setTimeout(connect, Math.min(30000, 1500 * S.retry));
+  };
+  ws.onerror = () => {};
+}
+function send(obj) {
+  if (!S.ws || S.ws.readyState !== 1) return false;
+  obj.srv = obj.srv || undefined;
+  try { S.ws.send(JSON.stringify(obj)); return true; } catch (e) { return false; }
+}
+function req(c, a, cb, ms) {
+  const id = 'r' + (++S.reqId) + Date.now().toString(36);
+  S.pend[id] = { cb: cb, t: setTimeout(() => { delete S.pend[id]; cb && cb(null); }, ms || 6000) };
+  if (!send({ t: 'chat', c: c, id: id, a: a || {} })) {
+    clearTimeout(S.pend[id].t); delete S.pend[id];
+    cb && cb(null);
+    return id;
+  }
+  return id;
+}
+
+function onFrame(d) {
+  if (!d || d.t !== 'chat') return;
+  const c = d.c, a = d.a || {};
+  if (d.id && S.pend[d.id]) {
+    clearTimeout(S.pend[d.id].t); const cb = S.pend[d.id].cb; delete S.pend[d.id]; cb && cb(d);
+  }
+  if (c === 'welcome') {
+    S.accounts = a.accounts || S.accounts;
+    S.online = a.online || S.online;
+    if (S.me) { lsSet(K_ACC, S.accounts); renderAll(); reqConvs(); }
+    $('#loginState').textContent = '服务端在（' + (a.srv || '') + '）';
+  } else if (c === 'accounts') {
+    S.accounts = a.accounts || [];
+    lsSet(K_ACC, S.accounts);
+    $('#loginState').textContent = '已拿到 ' + S.accounts.length + ' 个账号';
+    if (!S.me) renderLogin();
+    renderAll();
+  } else if (c === 'pins') {
+    if (a && a.accounts) { S.accounts = a.accounts; lsSet(K_ACC, S.accounts); }
+    renderAll();
+  } else if (c === 'presence') {
+    S.online = a.online || [];
+    renderAll();
+  } else if (c === 'convs') {
+    S.convs = (a.convs || []).map(x => ({ peer: x.peer, unread: x.unread,
+      last: { mid: x.last.mid, from: x.last.f || x.last.from, to: x.last.t || x.last.to,
+              text: x.last.text, ts: x.last.ts } }));
+    renderChatList(a.unread || {});
+  } else if (c === 'hist') {
+    (a.msgs || []).forEach(m => saveMsg(a.peer, { mid: m.mid, from: m.f || m.from, to: m.t || m.to,
+      text: m.text, ts: m.ts, 送达: m.送达 == null ? 1 : m.送达, 状态: m.状态 || '' }));
+    if (S.peer === a.peer) renderMsgs();
+    renderChatList(a.unread || {});
+  } else if (c === 'mstatus') {
+    if (a && a.mid) setMsgStatus(a.mid, a.文案 || a.state || '');
+    if (S.peer === a.sid) renderMsgs();
+  } else if (c === 'msg') {
+    onIncoming(a);
+  }
+}
+
+/* 把某条消息的投递状态写回本地缓存 */
+function setMsgStatus(mid, st) {
+  const all = msgsAll();
+  Object.keys(all).forEach(k => {
+    (all[k] || []).forEach(x => { if (x.mid === mid) x.状态 = st; });
+  });
+  lsSet(K_MSG + S.me, all);
+}
+
+function onIncoming(m) {
+  if (!S.me) return;
+  if (m.to !== S.me && m.from !== S.me) return;
+  const peer = m.from === S.me ? m.to : m.from;
+  const added = saveMsg(peer, m);
+  if (!added) return;
+  if (S.peer === peer) { renderMsgs(); req('read', { me: S.me, peer: peer }, () => {}); }
+  else if (m.from !== S.me) {
+    beep(); notify(displayName(m.from), m.text);
+    toast(displayName(m.from) + '：' + m.text.slice(0, 40));
+  }
+  reqConvs();
+}
+
+/* ---------- 登录 ---------- */
+function hello() {
+  const a = accOf(S.me);
+  req('hello', { me: S.me, 电脑名: a.电脑名 || '', 产品名: a.产品名 || '', 会话名: a.会话名 || '', 地址: a.地址 || '' }, r => {
+    if (!r) { $('#loginState').textContent = '没有服务端应答'; }
+  });
+}
+function login(key) {
+  S.me = key; S.name = displayName(key);
+  lsSet(K_ME, key);
+  $('#loginView').classList.add('hide');
+  $('#mainView').classList.remove('hide');
+  switchTab('chat');
+  hello(); reqConvs(); renderAll();
+}
+function logout() {
+  req('bye', { me: S.me }, () => {});
+  localStorage.removeItem(K_ME);
+  S.me = ''; S.convs = []; S.msgs = []; S.peer = '';
+  $('#mainView').classList.add('hide');
+  $('#chatView').classList.add('hide');
+  $('#loginView').classList.remove('hide');
+  setTitleBadge(0);
+  renderLogin();
+}
+
+/* ---------- 渲染：登录 ---------- */
+function renderLogin() {
+  const q = ($('#accSearch').value || '').trim().toLowerCase();
+  const box = $('#accList'); box.innerHTML = '';
+  let list = S.accounts.slice();
+  const 人类 = list.filter(a => a.key === 'human');
+  let 其他 = list.filter(a => a.key !== 'human');
+  其他.sort((x, y) => (y.在线 ? 1 : 0) - (x.在线 ? 1 : 0) || String(x.电脑名 + x.会话名).localeCompare(String(y.电脑名 + y.会话名)));
+  list = 人类.concat(其他);
+  if (q) list = list.filter(a => (a.账号 + a.会话名 + a.终身号 + a.电脑名 + a.产品名).toLowerCase().includes(q));
+  if (!list.length) { box.appendChild(el('div', 'empty', '还没拿到账号。<br>点右上「喊一声」让在线端应答。')); return; }
+  list.forEach(a => {
+    const d = el('div', 'acc');
+    d.innerHTML = avatar(a.key === 'human' ? '人类' : (a.会话名 || a.终身号)) +
+      '<div class="meta"><div class="n">' + esc(a.会话名 || a.终身号 || a.key) + '</div>' +
+      '<div class="s">' + esc(accLine(a) || a.key) + '</div></div>' +
+      (a.在线 ? '<span class="tag">在线</span>' : '');
+    d.onclick = () => login(a.key);
+    box.appendChild(d);
+  });
+}
+
+/* ---------- 渲染：主界面 ---------- */
+function renderAll() {
+  if (!S.me) return;
+  renderMe();
+  renderContacts();
+  renderChatList();
+}
+function reqConvs() { if (S.me) req('convs', { me: S.me }, () => {}); }
+
+function renderChatList(unread) {
+  const box = $('#chatList'); if (!box) return;
+  // 本地缓存兜底（断网也能看到历史）
+  const all = msgsAll(); const local = Object.keys(all).map(p => ({
+    peer: p, last: all[p][all[p].length - 1], unread: 0
+  })).filter(x => x.last);
+  const merged = {};
+  (S.convs || []).forEach(x => merged[x.peer] = x);
+  local.forEach(x => { if (!merged[x.peer]) merged[x.peer] = x; });
+  (S.accounts || []).forEach(a => {
+    if (a.置顶 && !merged[a.key]) merged[a.key] = {
+      peer: a.key, unread: 0, last: { text: '（已置顶，还没聊过）', ts: 0, from: '' }
+    };
+  });
+  const arr = Object.values(merged).sort((a, b) => {
+    const pa = (accOf(a.peer).置顶 ? 1 : 0), pb = (accOf(b.peer).置顶 ? 1 : 0);
+    return (pb - pa) || ((b.last.ts || 0) - (a.last.ts || 0));
+  });
+  box.innerHTML = '';
+  if (!arr.length) { box.appendChild(el('div', 'empty', '还没有聊天。<br>去「通讯录」找一个人开始。')); return; }
+  let total = 0, 分过 = false;
+  arr.forEach(x => {
+    const a = accOf(x.peer);
+    const n = x.unread || 0; total += n;
+    if (!分过 && !a.置顶) {
+      分过 = true;
+      if (arr.some(y => accOf(y.peer).置顶)) box.appendChild(el('div', 'grp', '全部聊天'));
+    }
+    const d = el('div', 'row' + (a.置顶 ? ' pin' : ''));
+    d.innerHTML = avatar(displayName(x.peer)) +
+      '<div class="meta"><div class="l1"><span class="n">' + (a.特别关注 ? '★ ' : '') +
+      esc(displayName(x.peer)) + (a.置顶 ? ' <span style="font-size:11px;color:#999">置顶</span>' : '') + '</span>' +
+      '<span class="t">' + (x.last.ts ? fmtTime(x.last.ts) : '') + '</span></div>' +
+      '<div class="l2"><span class="m">' + (x.last.from === S.me ? '我：' : '') + esc((x.last.text || '').slice(0, 40)) + '</span>' +
+      (n ? '<span class="badge">' + (n > 99 ? '99+' : n) + '</span>' : '') + '</div></div>';
+    d.onclick = () => openChat(x.peer);
+    d.oncontextmenu = e => { e.preventDefault(); openSheet(x.peer); };
+    长按(d, x.peer);
+    box.appendChild(d);
+  });
+  S.unreadTotal = total; setTitleBadge(total);
+}
+
+function renderContacts() {
+  const box = $('#contactList'); if (!box) return;
+  box.innerHTML = '';
+  const bar = el('div', 'toolbar');
+  bar.innerHTML = '<span class="btn" id="btnSync">立刻更新通讯录</span>' +
+    '<span class="hint">服务端每 6 小时自动刷一次</span>';
+  box.appendChild(bar);
+  const btn = bar.querySelector('#btnSync');
+  if (btn) btn.onclick = () => {
+    btn.textContent = '正在喊…';
+    req('roster', {}, () => {});
+    req('accounts', { me: S.me }, r => {
+      if (r && r.a) { S.accounts = r.a.accounts || []; lsSet(K_ACC, S.accounts); renderAll(); }
+    });
+    toast('已喊一声，等各家应答（10 秒内到齐）');
+    setTimeout(() => { btn.textContent = '立刻更新通讯录'; }, 11000);
+  };
+  const arr = S.accounts.filter(a => a.key !== S.me);
+  if (!arr.length) { box.appendChild(el('div', 'empty', '通讯录是空的，点上面「立刻更新通讯录」。')); return; }
+  const g = {};
+  arr.forEach(a => {
+    const pc = a.电脑名 || '未知电脑';
+    const pd = a.产品名 || '未知产品';
+    (g[pc] = g[pc] || {});
+    (g[pc][pd] = g[pc][pd] || []).push(a);
+  });
+  Object.keys(g).sort().forEach(pc => {
+    box.appendChild(el('div', 'grp', esc(pc)));
+    Object.keys(g[pc]).sort().forEach(pd => {
+      const list = g[pc][pd];
+      box.appendChild(el('div', 'sub', esc(pd) + ' · ' + list.length + ' 人'));
+      list.sort((x, y) => String(displayName(x.key)).localeCompare(String(displayName(y.key))))
+        .forEach(a => {
+          const d = el('div', 'row');
+          d.innerHTML = avatar(a.key === 'human' ? '人类' : (a.会话名 || a.终身号)) +
+            '<div class="meta"><div class="l1"><span class="n">' + esc(displayName(a.key)) +
+            (a.在线 ? ' <span class="dot">●</span>' : '') + '</span></div>' +
+            '<div class="l2"><span class="m">' + esc(accLine(a)) + '</span></div></div>';
+          d.onclick = () => openChat(a.key);
+          d.oncontextmenu = e => { e.preventDefault(); openSheet(a.key); };
+          长按(d, a.key);
+          box.appendChild(d);
+        });
+    });
+  });
+}
+
+/* ---------- 长按菜单 / 属性卡 ---------- */
+function 长按(node, key) {
+  let t = null;
+  const 起 = () => { clearTimeout(t); t = setTimeout(() => openSheet(key), 550); };
+  const 停 = () => clearTimeout(t);
+  node.addEventListener('pointerdown', 起);
+  node.addEventListener('pointerup', 停);
+  node.addEventListener('pointerleave', 停);
+  node.addEventListener('pointercancel', 停);
+}
+
+function openSheet(key) {
+  closeSheet();
+  const a = accOf(key), nm = displayName(key);
+  const s = el('div', 'sheet');
+  s.id = 'sheet';
+  const p = el('div', 'panel');
+  p.appendChild(el('div', 'pi t', esc(nm) + ' · ' + esc(accLine(a))));
+  p.appendChild(el('div', 'pi', '发消息')).onclick = () => { closeSheet(); openChat(key); };
+  p.appendChild(el('div', 'pi', a.置顶 ? '取消置顶' : '置顶聊天')).onclick = () => {
+    req('pin', { me: S.me, peer: key, pin: a.置顶 ? 0 : 1 }, r => {
+      if (r && r.a && r.a.accounts) { S.accounts = r.a.accounts; lsSet(K_ACC, S.accounts); }
+      closeSheet(); renderAll(); toast(a.置顶 ? '已取消置顶' : '已置顶');
+    });
+  };
+  p.appendChild(el('div', 'pi', a.特别关注 ? '取消特别关注' : '设为特别关注')).onclick = () => {
+    req('pin', { me: S.me, peer: key, star: a.特别关注 ? 0 : 1 }, r => {
+      if (r && r.a && r.a.accounts) { S.accounts = r.a.accounts; lsSet(K_ACC, S.accounts); }
+      closeSheet(); renderAll(); toast(a.特别关注 ? '已取消特别关注' : '已设为特别关注');
+    });
+  };
+  p.appendChild(el('div', 'pi', '查看资料/属性')).onclick = () => { closeSheet(); openAttr(key); };
+  p.appendChild(el('div', 'pi', '取消')).onclick = closeSheet;
+  s.appendChild(p);
+  s.onclick = e => { if (e.target === s) closeSheet(); };
+  document.body.appendChild(s);
+}
+function closeSheet() { const s = $('#sheet'); if (s) s.remove(); }
+
+function openAttr(key) {
+  const s = el('div', 'sheet');
+  s.id = 'sheet';
+  const p = el('div', 'panel');
+  p.appendChild(el('div', 'pi t', '资料 / 属性'));
+  p.appendChild(el('div', 'card', '<div class="kv"><div class="k">加载</div><div class="v">正在问服务器…</div></div>'));
+  s.appendChild(p);
+  s.onclick = e => { if (e.target === s) closeSheet(); };
+  document.body.appendChild(s);
+  req('attr', { peer: key }, r => {
+    const a = (r && r.a) || {};
+    const kv = (k, v) => '<div class="kv"><div class="k">' + k + '</div><div class="v">' + esc(v || '—') + '</div></div>';
+    const card = p.querySelector('.card');
+    if (card) card.innerHTML =
+      kv('网名', a.会话名) + kv('聊天号', a.聊天号) + kv('终身号', a.终身号) +
+      kv('电脑', a.电脑名) + kv('产品', a.产品名) + kv('状态', a.在线 ? '在线' : '离线') +
+      kv('岗位', a.岗位) + kv('状态灯', a.状态灯) +
+      kv('岗位专属提示', a.岗位专属提示) + kv('专属提示词', a.专属提示词) +
+      kv('记忆位置', a.记忆位置) + kv('资料来源', a.来源);
+  }, 15000);
+}
+
+function renderMe() {
+  const a = accOf(S.me);
+  $('#meAvatar').textContent = String(displayName(S.me)).slice(0, 1);
+  $('#meAvatar').style.background = colorOf(S.me);
+  $('#meName').textContent = displayName(S.me);
+  $('#meAcc').textContent = accLine(a) || S.me;
+  $('#verText').textContent = VER;
+  $('#connText').textContent = S.ok ? '已连接（静默）' : '连接中…';
+  $('#notifyText').textContent = (window.Notification && Notification.permission === 'granted') ? '已开启' : '未开启（点开此页授权）';
+  setTitleBadge(S.unreadTotal || 0);
+}
+
+/* ---------- 聊天页 ---------- */
+function openChat(peer) {
+  S.peer = peer;
+  $('#mainView').classList.add('hide');
+  $('#chatView').classList.remove('hide');
+  $('#chatTitle').textContent = displayName(peer);
+  $('#chatTitle').onclick = () => openAttr(peer);
+  $('#chatTitle').style.cursor = 'pointer';
+  $('#connTip').classList.toggle('hide', S.ok);
+  const a = accOf(peer);
+  $('#chatOnline').textContent = S.online.includes(peer) ? '在线' : (a.产品名 || '');
+  renderMsgs();
+  req('read', { me: S.me, peer: peer }, () => { reqConvs(); });
+  req('hist', { me: S.me, peer: peer, limit: 200 }, r => {
+    if (r && r.a && r.a.msgs) { r.a.msgs.forEach(m => saveMsg(peer, m)); renderMsgs(); }
+  });
+  setTimeout(() => { const m = $('#msgs'); m.scrollTop = m.scrollHeight; }, 60);
+}
+function closeChat() {
+  S.peer = '';
+  $('#chatView').classList.add('hide');
+  $('#mainView').classList.remove('hide');
+  switchTab('chat');
+  reqConvs();
+}
+function renderMsgs() {
+  const box = $('#msgs'); if (!box) return;
+  const arr = msgsOf(S.peer).slice().sort((a, b) => a.ts - b.ts);
+  box.innerHTML = '';
+  let lastDay = '';
+  arr.forEach(m => {
+    const day = new Date(m.ts).toDateString();
+    if (day !== lastDay) { lastDay = day; box.appendChild(el('div', 'day', '<span>' + fmtTime(m.ts) + '</span>')); }
+    const mine = m.from === S.me;
+    const d = el('div', 'msg' + (mine ? ' me' : ''));
+    const st = String(m.状态 || '');
+    let 尾 = '';
+    if (mine && S.peer !== 'human') {
+      if (m.送达 === 0 && !st) 尾 += '<span class="warn">未投递到对方会话</span>';
+      const cls = /排队中/.test(st) ? ' wait' : (/已进入对话流/.test(st) ? ' ok' : (/插队/.test(st) ? ' ok' : ''));
+      尾 += '<div class="st"><span class="chip' + cls + '">' + esc(st || '已受理·状态未知') + '</span>' +
+        '<a data-act="refresh" data-mid="' + esc(m.mid) + '">刷新</a>' +
+        '<a data-act="promote" data-mid="' + esc(m.mid) + '">⚡插队</a></div>';
+    }
+    d.innerHTML = avatar(displayName(mine ? S.me : m.from), 'sm') +
+      '<div class="bubble">' + esc(m.text) + 尾 + '</div>';
+    box.appendChild(d);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+function doSend() {
+  const ta = $('#input'); const text = ta.value.trim(); if (!text) return;
+  if (!S.me) return;
+  if (!S.ok) { toast('还没连上服务端，稍等再发'); return; }
+  const peer = S.peer;
+  ta.value = ''; ta.style.height = 'auto';
+  const tmp = { mid: 'tmp' + Date.now(), from: S.me, to: peer, text: text, ts: Date.now(), 送达: 0 };
+  saveMsg(peer, tmp); renderMsgs();
+  req('send', { from: S.me, to: peer, text: text }, r => {
+    if (!r || !r.ok || !r.a || r.a.ok === false) {
+      toast('发送失败：' + ((r && r.a && (r.a.err || (r.a.投递 && r.a.投递.why))) || '服务端没应答'));
+      return;
+    }
+    const mid = r.a.mid;
+    const all = msgsAll(); const arr = all[peer] || [];
+    const one = arr.find(x => x.mid === tmp.mid);
+    if (one) { one.mid = mid; one.送达 = (r.a.投递 && r.a.投递.ok) ? 1 : 0; }
+    // 广播帧可能先到：同 mid 的只留一条
+    const 见 = {}; all[peer] = arr.filter(x => (见[x.mid] ? false : (见[x.mid] = 1)));
+    lsSet(K_MSG + S.me, all);
+    renderMsgs(); reqConvs();
+    // 发完顺手问一句「进没进队列」，让状态栏立刻有事说（失败也不吵）
+    if (peer !== 'human') {
+      req('mstatus', { mid: mid }, () => renderMsgs(), 40000);
+    }
+  }, 8000);
+}
+
+/* ---------- 标签切换 ---------- */
+function switchTab(t) {
+  ['chat', 'contact', 'me'].forEach(k => {
+    const on = k === t;
+    const tab = document.querySelector('.tab[data-tab="' + k + '"]');
+    if (tab) tab.classList.toggle('on', on);
+  });
+  [['chat', '#chatList'], ['contact', '#contactList'], ['me', '#mePage']].forEach(p => {
+    const n = $(p[1]);
+    if (!n) return;
+    const on = p[0] === t;
+    n.classList.toggle('hide', !on);   // .hide 是 display:none!important，必须切类
+    n.style.display = on ? '' : 'none';
+  });
+  $('#mainTitle').textContent = t === 'chat' ? '微信' : (t === 'contact' ? '通讯录' : '我');
+  if (t === 'me') renderMe();
+}
+
+/* ---------- 事件 ---------- */
+$('#btnRoster').onclick = () => {
+  $('#loginState').textContent = '正在喊全员…';
+  req('roster', {}, r => { if (!r) toast('服务端没应答'); }, 8000);
+};
+$('#btnRefresh').onclick = () => { toast('正在刷新账号…'); req('roster', {}, () => {}); reqConvs(); };
+$('#accSearch').oninput = renderLogin;
+$('#btnBack').onclick = closeChat;
+$('#btnSend').onclick = doSend;
+/* 消息气泡里的「刷新 / ⚡插队」——事件委托，省得每条都绑 */
+$('#msgs').addEventListener('click', e => {
+  const a = e.target.closest('a[data-act]'); if (!a) return;
+  e.preventDefault(); e.stopPropagation();
+  const mid = a.dataset.mid, act = a.dataset.act;
+  if (!mid) return;
+  if (act === 'refresh') {
+    setMsgStatus(mid, '查询中…'); renderMsgs();
+    toast('正在问对方：在排队条里吗（约 10 秒）');
+    req('mstatus', { mid: mid }, r => {
+      if (!r || !r.ok) { toast('查询失败：' + ((r && r.a && r.a.why) || '对方没应答')); }
+      renderMsgs();
+    }, 120000);
+  } else if (act === 'promote') {
+    toast('正在插队…');
+    req('promote', { mid: mid }, r => {
+      if (!r || !r.ok) { toast('插队失败：' + ((r && r.a && r.a.msg) || '没成功')); return; }
+      toast('已插队：本轮跑完就发它');
+      renderMsgs();
+    }, 30000);
+  }
+});
+$('#input').addEventListener('input', e => {
+  const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(110, t.scrollHeight) + 'px';
+});
+$('#input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); doSend(); }
+});
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+$('#btnLogout').onclick = () => { if (confirm('退出登录？本地聊天记录会保留。')) logout(); };
+$('#btnClearCache').onclick = () => {
+  if (!confirm('清理本地缓存（不动服务端记录）？')) return;
+  Object.keys(localStorage).filter(k => k.startsWith(K_MSG)).forEach(k => localStorage.removeItem(k));
+  S.convs = []; renderAll(); toast('已清理');
+};
+$('#mePage').addEventListener('click', () => {
+  if (window.Notification && Notification.permission === 'default') Notification.requestPermission().then(renderMe);
+}, { once: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { setTitleBadge(0); if (S.me) reqConvs(); }
+});
+
+/* ---------- 启动 ---------- */
+(function boot() {
+  $('#verText').textContent = VER;
+  S.accounts = lsGet(K_ACC, []);
+  renderLogin();
+  connect();
+  const me = lsGet(K_ME, '');
+  if (me && S.accounts.some(a => a.key === me)) setTimeout(() => login(me), 300);
+  else if (me) { /* 账号表还没回来，等 accounts 帧 */ }
+  // accounts 帧回来后如果上次登录过，自动进
+  const t = setInterval(() => {
+    const m2 = lsGet(K_ME, '');
+    if (m2 && !S.me && S.accounts.some(a => a.key === m2)) { clearInterval(t); login(m2); }
+  }, 800);
+  setTimeout(() => clearInterval(t), 8000);
+})();
+</script>
+</body>
+</html>
