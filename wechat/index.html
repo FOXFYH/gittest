@@ -1080,6 +1080,7 @@ function 用频道(v) {
       clearInterval(iv);
       $('#btnGate').textContent = '连接';
       hideGate(); hello(); req('accounts', {}, () => {}); reqConvs(); renderAll();
+      req('srvsay', {}, () => {});          // 让服务器报个到，管理页立刻能看到谁在线
       return;
     }
     if (Date.now() - t0 < 9000) return;
