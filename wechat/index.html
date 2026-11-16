@@ -424,7 +424,8 @@ function onFrame(d) {
     if (S.me) { lsSet(K_ACC, S.accounts); renderAll(); reqConvs(); }
     $('#loginState').textContent = '服务端在（' + (a.srv || '') + '）';
   } else if (c === 'accounts') {
-    S.accounts = a.accounts || [];
+    const 新 = a.accounts || [];
+    if (新.length || !S.accounts.length) S.accounts = 新;   // 防「空应答」把名单刷空
     lsSet(K_ACC, S.accounts);
     $('#loginState').textContent = '已拿到 ' + S.accounts.length + ' 个账号';
     if (!S.me) renderLogin();
