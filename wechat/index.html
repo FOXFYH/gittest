@@ -214,7 +214,7 @@
    仿微信聊天工具 · 网页端 1.00
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.02';
+const VER = '1.03';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
   key: '31415926fF@',         // 建网期共用口令
@@ -294,12 +294,45 @@ function beep() {
   } catch (e) {}
 }
 function notify(title, body) {
+  // ① 先交给壳（安卓 WebView / 电脑壳）：壳在后台也能弹系统通知
+  try {
+    if (window.FoxShell && typeof window.FoxShell.notify === 'function') {
+      window.FoxShell.notify(String(title || ''), String(body || ''));
+    }
+  } catch (e) {}
+  // ② 纯网页：页面被切走时用浏览器通知
   if (document.visibilityState === 'visible') return;
   try { if (window.Notification && Notification.permission === 'granted') new Notification(title, { body: body }); } catch (e) {}
 }
 function setTitleBadge(n) {
   document.title = (n ? '(' + n + ') ' : '') + '仿微信聊天工具';
 }
+
+/* ---------- 壳接口（安卓 WebView / 电脑壳用；纯网页不影响） ----------
+   FoxShell.notify(title, body)   ← 页面主动调壳（壳可选提供）
+   FoxChat.state()                → {ver,me,unread,online,peer}
+   FoxChat.go(终身号)              → 直接进某人的聊天页
+   FoxChat.refresh()              → 立刻拉一次会话/账号
+   FoxChat.enableNotify()         → 申请浏览器通知权限（网页版用）
+   壳里注入 JS 后可用 window.FoxChat 判断是否已登录、有几条未读。 */
+window.FoxChat = {
+  ver: VER,
+  state: function () {
+    return { ver: VER, me: S.me || '', unread: Number(S.unreadTotal || 0),
+      online: !!S.ok, peer: S.peer || '', accounts: (S.accounts || []).length };
+  },
+  go: function (key) { try { if (key) openChat(String(key)); } catch (e) {} },
+  refresh: function () {
+    try { reqConvs(); req('accounts', {}, function () {}); } catch (e) {}
+  },
+  enableNotify: function () {
+    try {
+      if (window.Notification && Notification.permission === 'default') {
+        Notification.requestPermission().then(function () { try { renderMe(); } catch (e) {} });
+      }
+    } catch (e) {}
+  }
+};
 
 /* ---------- WS ---------- */
 function wsUrl() {
@@ -401,10 +434,12 @@ function onIncoming(m) {
   const peer = m.from === S.me ? m.to : m.from;
   const added = saveMsg(peer, m);
   if (!added) return;
-  if (S.peer === peer) { renderMsgs(); req('read', { me: S.me, peer: peer }, () => {}); }
-  else if (m.from !== S.me) {
+  // 「正看着这个人」＝聊天页打开且页面在前台；此时直接显示、不打扰
+  const 看着 = (S.peer === peer) && document.visibilityState === 'visible';
+  if (看着) { renderMsgs(); req('read', { me: S.me, peer: peer }, () => {}); }
+  if (m.from !== S.me && !看着) {
     beep(); notify(displayName(m.from), m.text);
-    toast(displayName(m.from) + '：' + m.text.slice(0, 40));
+    if (S.peer !== peer) toast(displayName(m.from) + '：' + m.text.slice(0, 40));
   }
   reqConvs();
 }
@@ -773,7 +808,12 @@ $('#mePage').addEventListener('click', () => {
   if (window.Notification && Notification.permission === 'default') Notification.requestPermission().then(renderMe);
 }, { once: true });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { setTitleBadge(0); if (S.me) reqConvs(); }
+  if (document.visibilityState === 'visible') {
+    // 手机壳/网页从后台回来：WS 可能已被系统掐断（onclose 不一定触发）→ 本地自愈
+    if (!S.ws || S.ws.readyState !== 1) { try { connect(); } catch (e) {} }
+    if (S.me) { reqConvs(); req('accounts', {}, () => {}); }
+    renderAll();
+  }
 });
 
 /* ---------- 启动 ---------- */
@@ -791,6 +831,10 @@ document.addEventListener('visibilitychange', () => {
     if (m2 && !S.me && S.accounts.some(a => a.key === m2)) { clearInterval(t); login(m2); }
   }, 800);
   setTimeout(() => clearInterval(t), 8000);
+  // 看门狗：只查本地 readyState（不发任何报文 → 静默待命 0 流量），断了才重连
+  setInterval(() => {
+    if (!S.ws || S.ws.readyState > 1) { try { connect(); } catch (e) {} }
+  }, 20000);
 })();
 </script>
 </body>
