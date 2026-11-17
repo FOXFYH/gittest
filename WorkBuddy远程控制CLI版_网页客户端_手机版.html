@@ -2888,6 +2888,10 @@ function onRes(id, k, v){
     S.thinkHistOpen[sk] = 1;
     renderAll();
   }
+  else if (k === 'recon'){                       /* 2.58：握手对账回包（只含缺的那几条） */
+    reconApply((rq && rq.conv) || v.conv || '', v);
+    return;
+  }
   else if (k === 'turncast'){                    /* 2.10b：登录/换会话现取回包 */
     if (v.tc && rq && rq.conv === S.histConv) onTurncast(v.tc);
     return;
@@ -3076,6 +3080,86 @@ async function prepaintFromIDB(){
     S.prepFinish = rec.finish || null;
     renderAll();
   }catch(e){}
+}
+/* 2.58（老板 2026-11-17：「小账本和大账本核对一致的时候，也不用拿完整的内容去
+   核对，直接按它们掌握的这些对话每个都有号码，核对一下就行了；缺了就补过来」）：
+   **握手对账**——两边只比序号（msgs[5]＝该条在服务端全量数组里的绝对下标）。
+   时机都是「人类又要开始用了」的时刻，刻意不频繁：
+     · 首次连上 / 手动刷新（hello 后）
+     · 切换会话（applySwitch 铺预备帧时）
+     · 掉线重连成功（hello 后同一处）
+     · 从后台回前台（visibilitychange / pageshow）
+   同会话 20 秒内只对一次（切换/连上这类"重大切换"放宽到 5 秒），在途不重发。
+   回包只含「服务端有我这儿没有」的那几条；按号并入，已有的绝不覆盖。 */
+const RECON_GAP = 20000;
+let _reconTs = {}, _reconIn = {};
+function reconSid(){
+  try{
+    return curConvId() || String((S.snap && S.snap.title) || '')
+        || String(S.histConv || '');
+  }catch(e){ return ''; }
+}
+function reconSeqs(sid){
+  const out = [];
+  const push = arr => {
+    if (!Array.isArray(arr)) return;
+    arr.forEach(m => { const q = m && m[5]; if (typeof q === 'number') out.push(q); });
+  };
+  const rec = S.snapCache && S.snapCache[sid];
+  if (rec) push(rec.msgs);
+  if (S.prepMsgs && String(S.prepSid || '') === String(sid)) push(S.prepMsgs);
+  if (S.snap && S.snap._hasMsgs && String(S.snap.title || '') === String(sid))
+    push(S.snap.msgs);
+  return Array.from(new Set(out)).sort((a, b) => a - b);
+}
+function reconAsk(why, force, sid){
+  try{
+    if (!S.onLine || !S.cur) return;
+    const sidX = sid || reconSid();
+    if (!sidX) return;
+    const now = Date.now();
+    if (now - (_reconTs[sidX] || 0) < (force ? 5000 : RECON_GAP)) return;
+    if (_reconIn[sidX]) return;                      /* 在途不重发 */
+    const have = reconSeqs(sidX);
+    if (!have.length) return;                        /* 本地一条账都没有，无从对起 */
+    _reconTs[sidX] = now; _reconIn[sidX] = 1;
+    const id = ++reqSeq;
+    S_reqs[id] = {conv: sidX, ts: now, sk: 'recon'};
+    sendJson({t: 'req', id: id, c: 'recon', conv: sidX, have: have});
+    setTimeout(() => { delete _reconIn[sidX]; }, 8000);  /* 回包丢了也别永远堵着 */
+  }catch(e){}
+}
+function reconApply(sid, v){
+  if (!sid || !v) return;
+  delete _reconIn[sid];
+  const add = v.msgs || [];
+  if (!add.length) return;                 /* 序号全对上了：屏幕零动作 */
+  const rec = (S.snapCache && S.snapCache[sid]) || null;
+  const map = {};
+  ((rec && rec.msgs) || []).forEach(m => {
+    const q = m && m[5]; if (typeof q === 'number') map[q] = m;
+  });
+  let got = 0;
+  add.forEach(m => {
+    const q = (m && typeof m[5] === 'number') ? m[5] : null;
+    if (q === null) return;
+    if (!map[q]){ map[q] = m; got++; }     /* 只补缺的，已有的不覆盖 */
+  });
+  if (!got) return;
+  const all = Object.keys(map).map(k => map[k]).sort((a, b) => (a[5] | 0) - (b[5] | 0));
+  const keep = all.slice(-Math.max(_snapN(), 8));
+  const rec2 = {msgs: keep, idle: rec ? (rec.idle !== false) : true,
+                finish: rec ? (rec.finish || null) : null, ts: Date.now()};
+  if (!S.snapCache) S.snapCache = {};
+  S.snapCache[sid] = rec2;
+  idbSaveSnap(sid, rec2);
+  /* 当前会话、且直播正文还没到 → 把补好的账铺上屏；真帧已到就别抢 */
+  if (sid === reconSid() && !(S.snap && S.snap._hasMsgs)){
+    S.prepMsgs = keep; S.prepSid = sid;
+    S.prepIdle = rec2.idle; S.prepFinish = rec2.finish;
+    renderAll();
+  }
+  diagLog('账本对账：补了 ' + got + ' 条', 'ok');
 }
 /* 2.50：snapTrimDisk() 已删除。老板新口径＝每个会话都保存，只限每个会话的条数；
    条数在 snapCacheTouch() 写入时就按 _snapN() 裁好，所以盘上不需要再按会话数裁。 */
@@ -4601,6 +4685,9 @@ function turnsSwitchTo(sid){
   S.curTurn = null; S.turnWait = {};
   S.turns = [];
   resetPaging();
+  /* 2.58：切会话＝一次「重大切换」——预备帧铺完后跟大账本对一次号（只比序号，
+     缺的补过来）。400ms 后再发：先让本端把缓存/IDB 的路走完，别自相打架。 */
+  setTimeout(() => { try { reconAsk('切会话', true, sid); } catch(e){} }, 400);
 }
 function pendSwitchSet(title, disp, local){
   title = title || '';
@@ -5896,7 +5983,24 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.57';
+const VER = '2.58';
+                      /* 2.58（2026-11-17，老板原话：「小账本和大账本，在某些特殊情况下应该去核对
+                         它们是否一致呀…核对一致的时候也不用拿完整的内容去核对，直接按照它们
+                         掌握的这些对话每个都有号码，核对一下就行了，缺了就补过来呗」）：
+                         **握手对账**——本地小账本（IDB 快照账）↔ 服务端大账本（官方 jsonl）
+                         只比**序号**（msgs[5]＝该条在全量数组里的绝对下标），不搬正文：
+                           · 请求 {t:'req', c:'recon', conv, have:[本地已有 seq…]}
+                           · 服务端只回「我有你没有」的那几条（空洞 + 尾部，封顶 60 条）；
+                             序号全对上就回 msgs:[]，屏幕零动作、流量零浪费。
+                         对账契机（老板点名、也补齐了掉线/回前台两种）：
+                           ① 首次连上 / 手动刷新（onHello 后 600ms）
+                           ② 切换会话（applySwitch 铺完预备帧后 400ms）
+                           ③ 掉线重连成功（重连后 hello 走同一处①）
+                           ④ 从后台回前台 / bfcache 返回（visibilitychange / pageshow）
+                         反频繁：同会话 20 秒只对一次（切换/连上这类重大切换放宽到 5 秒），
+                         在途不重发，回包 8 秒没收着就自动解堵。
+                         补到的账：按 seq 并入小账本（已有的绝不覆盖），当前会话若还没有直播
+                         正文就顺手铺上屏；等真帧到了照旧整屏换。 */
                       /* 2.57（2026-11-17，接 2.56）：「有内容 ↔ 纯白」还剩一闪。
                          2.56 上线后线上 CDP 复测（headless Edge + GitHub Pages + 真频道 HMWB）：
                            冷重载 0.30s 已用盘上小账本铺出 5 条（2.55 是 3.65s 才有），
@@ -6424,9 +6528,12 @@ document.addEventListener('visibilitychange', () => {
     cliActAway(); return;
   }
   cliResume();
+  /* 2.58：回前台＝人类又要用了——顺手跟大账本对一次号（20 秒节流） */
+  setTimeout(() => { try { reconAsk('回前台'); } catch(e){} }, 800);
 });
 window.addEventListener('pageshow', () => {  // 从浏览器缓存(bfcache)返回
   if (!document.hidden) cliResume();
+  setTimeout(() => { try { reconAsk('pageshow'); } catch(e){} }, 800);
 });
 /* 触摸/按键/点击/滚动都算在线 */
 ['touchstart', 'keydown', 'mousedown', 'scroll'].forEach(ev =>
@@ -7461,6 +7568,9 @@ function onHello(d){
   if (d.box !== S.box){ applySwitch(d.box, port); }
   else if (port !== S.port){ S.port = port; }
   if (d.conn) onEv('connected', S.port);
+  /* 2.58：连上 / 手动刷新 / 掉线重连成功 —— 都是一次「重大切换」，
+     跟大账本对一次号（只比序号，缺的补过来；全对上就零动作）。 */
+  setTimeout(() => { try { reconAsk('连上', true); } catch(e){} }, 600);
 }
 
 function applySwitch(box, port, keepSnap){
