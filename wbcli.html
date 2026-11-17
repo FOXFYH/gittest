@@ -1248,6 +1248,11 @@ const S = {
      prep*=正在显示的预备帧（prepSid=它属于哪个会话）；snapCache=内存快照账。 */
   prepMsgs: null, prepSid: '', prepIdle: true, prepFinish: null,
   snapCache: {},
+  /* 3.20（网页 2.66）：快照省流配套——plans 全文只在变化时下发，平时只带
+     plans_fp；这里记着「最近一份全文」{sid, fp, segs}，指纹对上就沿用，
+     对不上（刚刷新/落后太多）走 c=='plans_cur' 现取一次补齐。 */
+  plansCache: null,
+  plansWaitAt: 0,                    /* 3.20：plans_cur 现取的 10 秒节流 */
   qopen: {},                         /* 1.67：托管排队条「展开全文」态（键=条目 id） */
   pend_head: 100,                    /* 1.23 遗留：确认匹配字数（1.63 起已不再用于比对，
                                        仅保留字段兼容 hello/pendcfg 握手） */
@@ -2958,6 +2963,17 @@ function onRes(id, k, v){
   }
   else if (k === 'recon'){                       /* 2.58：握手对账回包（只含缺的那几条） */
     reconApply((rq && rq.conv) || v.conv || '', v);
+    return;
+  }
+  else if (k === 'plans_cur'){                   /* 3.20：本轮思维流现取（省流补齐） */
+    const sid = String(v.sid || (rq && rq.conv) || '');
+    const segs = Array.isArray(v.segs) ? v.segs : [];
+    if (sid) S.plansCache = {sid: sid, fp: String(v.fp || ''), segs: segs};
+    if (S.snap && String(S.snap.title || '') === sid){
+      S.snap.plans = segs;
+      S.plansWaitAt = 0;
+      renderAll();
+    }
     return;
   }
   else if (k === 'turncast'){                    /* 2.10b：登录/换会话现取回包 */
@@ -6143,7 +6159,7 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.65';
+const VER = '2.66';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -6766,6 +6782,46 @@ function sendHello(){
     }, 3000);
 }
 
+/* 3.20（网页 2.66）：快照省流配套——服务端 plans 全文只在「指纹变了」时下发，
+   平时只带 plans_fp（末段变长时带 plans_tail 增量）。这里把它拼回 v.plans：
+     ① 带 plans 全文 → 直接记账；
+     ② 带 plans_tail 且本地同会话同前缀 → 追加到末段；
+     ③ 指纹与本地那份相同 → 沿用本地全文；
+     ④ 都对不上（刚刷新/落后太多）→ 走 c=='plans_cur' 现取一次（10 秒节流）。
+   拼不上且取不到时，渲染层的老键兜底（snap.plan 单块）照常生效，不会白屏。 */
+function _plansMerge(v){
+  if (!v || typeof v !== 'object') return;
+  const sid = String(v.title || '');
+  const fp = String(v.plans_fp || '');
+  if (Array.isArray(v.plans)){
+    S.plansCache = {sid: sid, fp: fp, segs: v.plans};
+    return;
+  }
+  if (!fp) return;                    /* 老服务端：没有省流字段，走老键 */
+  const pc = S.plansCache;
+  if (v.plans_tail && pc && pc.segs && pc.sid === sid){
+    const segs = pc.segs.slice();
+    const last = segs.length ? segs[segs.length - 1] : null;
+    if (last) last.x = String(last.x || '') + String(v.plans_tail);
+    else segs.push({id: '', x: String(v.plans_tail), t: 0});
+    v.plans = segs;
+    S.plansCache = {sid: sid, fp: fp, segs: segs};
+    return;
+  }
+  if (pc && pc.segs && pc.sid === sid && pc.fp === fp){
+    v.plans = pc.segs;
+    return;
+  }
+  const now = Date.now();
+  if (sid && sid === String(S.histConv || curConvId() || '')
+      && now - (S.plansWaitAt || 0) > 10000){
+    S.plansWaitAt = now;
+    const id = srvOpNewId();
+    S_reqs[id] = {conv: sid, sk: 'plans_cur'};
+    sendCmd('plans_cur', sid, {id: id});
+  }
+}
+
 function onMsg(msg){
   statsAdd(msg.length, 0, 1, 0);
   const r = FoxIn.feed(msg);
@@ -7175,6 +7231,9 @@ function onEv(kind, v){
           && String(v.title || '') !== String(S.prepSid || '')){
         S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
       }
+      /* 3.20（省流配套）：服务端 plans 全文只在变化时下发——先把缺的正文按
+         指纹/增量拼回 v.plans，再落 S.snap（保证这一拍渲染用的就是完整思维流） */
+      try { _plansMerge(v); } catch(e){}
       S.snap = v;
       /* 2.62：拿真快照对锚——服务端不是锚定会话就自动补切一次（本次连接一次） */
       try { anchorFollow(v); } catch(e){}
