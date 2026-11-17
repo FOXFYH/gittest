@@ -21,11 +21,6 @@ el.netreconn.onclick = () => {
   connect();
 };
 el.nettest.onclick = diagTest;
-/* 1.xx：被动查询最大化/全屏——前端发起，服务端即时检测回投一次结果 */
-el.check_fulls.onclick = () => {
-  el.lbl_fulls.textContent = '查询中…';
-  srvOpSend('check_fulls', null, '查询全屏');   // 2.109：②＋rcpt ③④（fullscreen_warn 另回填）
-};
 el.netclear.onclick = () => { DIAG.log.length = 0; diagRender(); };
 /* 1.58：一键复制诊断信息（直接粘给 AI 排查，省得截图） */
 el.diagcopy.onclick = () => {
