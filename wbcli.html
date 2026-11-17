@@ -3489,10 +3489,15 @@ function scheduleRenderAll(){
        （放在 renderAll 之后，避免被 renderState 立刻盖掉） */
     if (S._swFail){
       const f = S._swFail; S._swFail = null;
-      const cv = (S.snap.convs || []);
-      const act = cv.find(r => r[0] === 'c' && r[2]);
-      if (!act || act[1] !== f.title)
-        flash('⚠ 切换未完成，会话可能已不存在', 'var(--orange)');
+      if (f.keepAnchor){
+        /* 2.65：超时判失败 ≠ 会话不存在。屏上仍钉在目标的小账本上，只说「没切成功」 */
+        flash('⚠ 切换未完成，仍停在「' + (f.disp || '目标会话') + '」', 'var(--orange)');
+      } else {
+        const cv = (S.snap.convs || []);
+        const act = cv.find(r => r[0] === 'c' && r[2]);
+        if (!act || act[1] !== f.title)
+          flash('⚠ 切换未完成，会话可能已不存在', 'var(--orange)');
+      }
     }
   });
 }
@@ -3911,13 +3916,28 @@ function renderConvs(rows, conv_unread){
       d.addEventListener('touchcancel', stopLP);
       d.onclick = () => {
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
-        if (!flag){
-          pendSwitchSet(title, disp, true); /* 1.82：本地发起（分档 + 10s补发/60s超时）
-                                               1.32：传展示名，提示不再显示原始 sid */
-          /* 2.14：切换同样走统一四级（②等待回应→③开始执行→④切换成功） */
-          srvOpSend('switch', title, '切换会话');   /* 1.29：传 sid(即 title) 根治索引错位 */
+        /* 2.65：服务端当前就在这一行（flag 亮），可本机屏上未必是它——上一轮切失败、
+           锚定还钉在别的会话。这时点它＝**本地归位**：立刻按手里的真快照重画，并把
+           锚定改成它。不这样，切失败之后用户点「服务端正在的那个会话」会得到零反应，
+           看着像点不动。 */
+        if (flag){
+          const an = anchorGet();
+          const anSid = (an && an.sid) ? String(an.sid) : '';
+          const showing = String(S.prepSid || curConvId() || '');
+          if (anSid !== String(title) || showing !== String(title)){
+            anchorSet(title, (disp && disp !== title) ? disp : '');
+            S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
+            S.anchor_hold = false; S.convs_key = null; S.msgs_key = null;
+            renderAll();
+          }
           drawerClose();
+          return;
         }
+        pendSwitchSet(title, disp, true); /* 1.82：本地发起（分档 + 10s补发/60s超时）
+                                             1.32：传展示名，提示不再显示原始 sid */
+        /* 2.14：切换同样走统一四级（②等待回应→③开始执行→④切换成功） */
+        srvOpSend('switch', title, '切换会话');   /* 1.29：传 sid(即 title) 根治索引错位 */
+        drawerClose();
       };
       frag.appendChild(d);
       idx++;
@@ -4703,6 +4723,10 @@ function switchArm(p){
     p.phase = 'fail';
     switchDisarm();
     srvOpDone('switch');       /* 2.14：切换失败即收口在途，免 65s 后又被「待确认」盖掉 */
+    /* 2.65（老板：「切换失败也不会退到之前的会话，就锚定当前这个」）：
+       判失败也**不撤锚定**——屏上继续钉在目标会话的小账本上，只把「没切成功」
+       这件事说清楚；重连成功时 anchorFollow 还会自动再补一次。 */
+    S._swFail = {title: p.title, disp: p.disp || '', keepAnchor: true};
     renderAll();
     _swFailT = setTimeout(() => { if (S.switch_pend === p) switchEnd(); }, 4000);
   };
@@ -6119,7 +6143,19 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.64';
+const VER = '2.65';
+                      /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
+                         这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
+                         聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
+                         切换，那是后话，切换失败也不会退到之前的会话，就锚定当前这个」）：
+                           ① 点会话＝**同步**铺该会话的小账本（内存 S.snapCache 优先，其次
+                              IDB snaps），不等服务端；屏上立刻是它的正文 + 「正在切换」条；
+                           ② 判「切换失败」也不撤锚定、不清预备帧——服务端后来推的**别的
+                              会话**常规快照一律不许把锚定会话的账清掉（旧版 60 秒一收就
+                              悄悄退回上一个会话）；
+                           ③ 失败文案改成「切换未完成，仍停在「X」」，不误导成会话不存在；
+                           ④ 服务端当前就在某行（flag 亮）而本机屏上不是它（上轮切失败）
+                              → 点它＝本地归位：立刻按真快照重画、锚定改成它（否则零反应）。 */
                       /* 2.64（2026-11-17，接 2.63）：选中行永远只亮一个——锚定就在本列表里
                          时只认锚定（否则服务端 flag 与锚定会同时亮两行）；锚定不在本列表
                          （换了台电脑）才退回认服务端 flag。 */
@@ -7127,7 +7163,15 @@ function onEv(kind, v){
          仍会推**上一个会话**的常规快照——那不是"目标已到"，却把刚铺好的目标
          预备帧当场清掉，于是切换那几秒只剩空屏。切换在途一律留着预备帧，
          等 switched 之后目标自己的帧（title 对上 prepSid）再接班。 */
-      if (hasMsgs && S.prepMsgs && !S.switch_pend && !S.anchor_hold
+      /* 2.65（2026-11-17 老板原话：「服务器那边也确认切换了会话，但是客户端这边要做足
+         工作……切换失败也不会退到之前的会话，就锚定当前这个」）：
+         预备帧若是**锚定会话**的账，别的会话（服务端还没切过来的那个）推来的快照
+         一律不许把它清掉——否则切失败 60 秒后开关一收，屏上就悄悄退回旧会话。
+         只有「锚定会话自己的真帧到了」才由 _liveOn 正常接班。 */
+      const _anHold = anchorGet();
+      const _anHoldSid = (_anHold && _anHold.sid) ? String(_anHold.sid) : '';
+      const _keepPrep = !!(_anHoldSid && String(S.prepSid || '') === _anHoldSid);
+      if (hasMsgs && S.prepMsgs && !S.switch_pend && !S.anchor_hold && !_keepPrep
           && String(v.title || '') !== String(S.prepSid || '')){
         S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
       }
