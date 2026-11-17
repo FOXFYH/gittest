@@ -274,6 +274,7 @@ function log(msg) {
 // ================= 状态 =================
 let ws = null;
 let connected = false;
+let wsRetry = 0;   // v1.07：重连次数，指数退避 3→30 秒，连上即归零
 let mySenderId = myId();
 let devices = {};          // 设备ID -> {name, t}（v1.05：按 ID 识别，昵称仅显示）
 let selectedDevice = null; // 当前选中的设备ID
@@ -549,17 +550,20 @@ function connect() {
   }
   ws.onopen = () => {
     connected = true;
+    wsRetry = 0;
     dot.className = "dot on";
     st.textContent = "已连接 · " + channelName();
     log("WS 已连接（频道 " + channelName() + "）");
-    askDevices(); // 上线立即问"谁在？"，设备秒回，避免干等 30 秒周期广播
+    askDevices(); // 上线立即问"谁在？"，设备被动应答
   };
   ws.onclose = () => {
     connected = false;
     dot.className = "dot off";
     st.textContent = "已断开，重连中…";
-    log("WS 断开，5 秒后重连");
-    setTimeout(connect, 5000);
+    wsRetry++;
+    const wait = Math.min(30000, 3000 * Math.pow(2, Math.min(wsRetry - 1, 4)));  // v1.07：3/6/12/24/30 秒
+    log("WS 断开，" + Math.round(wait / 1000) + " 秒后重连（第 " + wsRetry + " 次）");
+    setTimeout(connect, wait);
   };
   ws.onerror = () => { /* onclose 会触发重连 */ };
   ws.onmessage = ev => handleRaw(ev.data);
@@ -724,9 +728,9 @@ setInterval(() => {                     // 豁免窗口内每 5 秒：静默刷�
     askDevices();
   }
 }, 5000);
-setInterval(() => {                     // 面板是唯一客户端：平时每 15 分钟问一次"谁在线"（窗口内由上面高频补）
-  if (connected) askDevices();
-}, 900000);
+setInterval(() => {                     // v1.07：每 90 秒问一次"谁在线"（设备端 90 秒内只答一次；
+  if (connected) askDevices();          //        在线窗口 3 分钟，避免列表中途闪成离线）
+}, 90000);
 setInterval(() => { renderDevices(); }, 5000);
 // v1.15：☁WPS云同步 随应用区在 renderApps()/appendWpsCard() 内创建并接线
 connect();
