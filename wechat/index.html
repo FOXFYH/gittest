@@ -268,7 +268,7 @@
    仿微信聊天工具 · 网页端 1.003
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.003';
+const VER = '1.004';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
   urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
@@ -422,7 +422,10 @@ function connect() {
   try { ws = new WebSocket(wsUrl()); } catch (e) { S.reTimer = setTimeout(connect, 4000); return; }
   S.ws = ws;
   ws.onopen = () => {
-    S.ok = true; S.retry = 0; S.upAt = Date.now();
+    S.ok = true; S.upAt = Date.now();
+    // v1.004 修：原来一连上就 S.retry=0，遇到「连上就被踢」会无限空转（11-16 两小时 1520 次）。
+    // 现在只有这条连接活够 60 秒才算真连上、才清零重试；短命连接照样累加。
+    setTimeout(() => { if (S.ws === ws && S.ok && Date.now() - S.upAt >= 60000) S.retry = 0; }, 60000);
     $('#connText').textContent = '已连接（静默）';
     $('#connTip').classList.add('hide');
     if (S.me) hello();
@@ -437,6 +440,11 @@ function connect() {
     $('#connText').textContent = '已断开，重连中…';
     if (S.peer) $('#connTip').classList.remove('hide');
     S.retry++;
+    if (S.retry > 8) {                  // v1.004：连不上就停手，别无限刷（管理页「重连」可手动再来）
+      $('#connText').textContent = '连不上，已停止自动重连';
+      if (S.peer) $('#connTip').classList.remove('hide');
+      return;
+    }
     if (S.retry % 2 === 0) S.line = S.line === 0 ? 1 : 0;
     S.reTimer = setTimeout(connect, Math.min(30000, 1500 * S.retry));
   };
@@ -1177,6 +1185,7 @@ $('#adminSrvRefresh').onclick = () => {
   setTimeout(() => clearInterval(t), 8000);
   // 看门狗：只查本地 readyState（不发任何报文 → 静默待命 0 流量），断了才重连
   setInterval(() => {
+    if (S.retry > 8) return;          // 已判死等人工（管理页「重连」），看门狗不许偷偷复活
     if (!S.ws || S.ws.readyState > 1) { try { connect(); } catch (e) {} }
   }, 20000);
 })();
