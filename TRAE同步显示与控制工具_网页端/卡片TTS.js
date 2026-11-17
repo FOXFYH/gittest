@@ -211,8 +211,19 @@ const FAI_ANY = /\(@fox-ai1\s*\)([\s\S]*?)(?:\(@fox-ai2\s*\)|$)/g;
 const FPLAY_ANY = /\(@fox-play\d?\s*\)/g;
 const FASK_ANY  = /\(@fox-ask\d?\s*\)/g;
 const FH_ANY    = /\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g;
+/* 2.168（老板 2026-11-17）：「自报家门」头两行——凡总管命令投递都会强制带上，
+   回填输入框/复制时必须剥掉，绝不让它跑到老板眼前。
+   只认行首固定标记，避免误伤正文里自己写的【来自…】。 */
+function _stripFromHead(txt){
+  let t = String(txt == null ? '' : txt);
+  if (!/^\s*【来自(?:·仿微信)?】/.test(t)) return t;
+  t = t.replace(/^\s*【来自(?:·仿微信)?】[^\n]*\n/, '');
+  t = t.replace(/^\s*【回信用】[^\n]*\n?/, '');
+  t = t.replace(/^\s*\n/, '');
+  return t;
+}
 function foxStripTail(txt){
-  let s = String(txt == null ? '' : txt);
+  let s = String(_stripFromHead(txt) == null ? '' : _stripFromHead(txt));
   if (s.indexOf('(@fox-') < 0) return s;
   const raw = s;
   s = s.replace(FPLAY_ANY, '').replace(FASK_ANY, '');
