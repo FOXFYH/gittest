@@ -6046,7 +6046,23 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.60';
+const VER = '2.61';
+                      /* 2.61（2026-11-17 老板原话：「网页版切换到一个新会话以后会突然变成
+                         纯白色的聊天记录，啥也没有，还得手动点刷新才能解决」）：
+                         CDP 实测复现（headless Edge + 线上 2.58~2.60 + 真频道 CLI/7001）：
+                           点会话 → 0.0s 切起（预备帧 4 条铺上）→ 1.2s 预备帧被**上一个会话**
+                           的常规快照清掉 → 9.2s 目标正文帧到达 → 9.27s **第二帧 switched**
+                           → applySwitch(keepSnap=false) 把刚到手的目标 S.snap 清成 {}
+                           → 10.4s「（暂无消息…）」→ 之后服务端指纹没变、一帧不再发 →
+                           永久空白，只有手动刷新能回来。
+                         两处根因（都在本页）：
+                           ① 切换在途时 onEv('snap') 的「非预备帧会话 → 预备帧退场」把目标
+                              预备帧提前清掉；现在 switch_pend 在途一律留着；
+                           ② 同一次切换的重复 switched（本端 10s 补发 + 服务端「已在该会话」
+                              再广播）走后把目标正文清空；现在 10 秒内、无在途切换、手里已有
+                              在线正文 → 判重复帧，只重画不换账。
+                         服务端配套：host.py 3.19 —— 「已在该会话」那条 switched 之前也补一次
+                         refresh_snap()，任何原因清空了账，下一帧就能把正文推回来。 */
                       /* 2.59（2026-11-17，接 2.58）：**误判重连阈值 20s → 45s**——老板原话
                          「那个 20 秒放宽到 45」。计时口径：页面发出任何 cmd/req 起算，
                          收到服务端任何一帧即清零；每 3s 由 renderLink 判一次。副B 拉一份
@@ -7011,8 +7027,12 @@ function onEv(kind, v){
           v.msgs = _prevSnap.msgs;
       }
       /* 2.56：直播帧已带正文、且不是预备帧那条会话 → 预备帧当场退场。
-         不这样，冷启动预铺的「上次画面」会顶在别的会话名下来回换，看着像闪。 */
-      if (hasMsgs && S.prepMsgs
+         不这样，冷启动预铺的「上次画面」会顶在别的会话名下来回换，看着像闪。
+         ★2.61（2026-11-17 CDP 实测复现）：切换在途时（switch_pend 还在），服务端
+         仍会推**上一个会话**的常规快照——那不是"目标已到"，却把刚铺好的目标
+         预备帧当场清掉，于是切换那几秒只剩空屏。切换在途一律留着预备帧，
+         等 switched 之后目标自己的帧（title 对上 prepSid）再接班。 */
+      if (hasMsgs && S.prepMsgs && !S.switch_pend
           && String(v.title || '') !== String(S.prepSid || '')){
         S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
       }
@@ -7494,11 +7514,26 @@ function onEv(kind, v){
         && (Date.now() - S.new_conv_pends[0] < 8000)
         && !!(S.snap && S.snap._port === v[1] && S.snap.online);
       if (!swT && S.new_conv_pends.length) S.new_conv_pends.shift();  /* 2.13：一帧认领一个 */
+      /* ★2.61（2026-11-17 CDP 实测复现）：同一次切换会收到**两帧 switched**——
+         本端 10 秒补发又把 switch 发了一遍，服务端「已在该会话」再广播一次。
+         第一帧已把 pending 消费掉，第二帧 hadPend=false → 照旧走
+         applySwitch(..., keepSnap=false)，把**刚到手的目标正文 S.snap 清成 {}**；
+         服务端指纹没变不会再补发那一拍 → 整片空白，只能手动刷新才回来。
+         判据：10 秒内收尾过切换、当前没有在途切换、手里已有在线正文 → 只重画不换账。 */
+      const _dupSw = !hadPend && !freshNew
+        && (Date.now() - (S.sw_done_at || 0) < 10000)
+        && !!(S.snap && S.snap.online);
+      if (_dupSw){
+        S.msgs_key = null;
+        scheduleRenderAll();
+        break;
+      }
       applySwitch(v[0], v[1], hasTarget || freshNew);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now(), disp: swD} : null;
       if (hadPend) switchOk(swD || swT);   /* 1.82：闪现「切换成功」2s 后交回状态灯 */
       if (!hadPend && freshNew) switchOk('', true);  /* 2.13：本端新建 → 状态栏闪「新会话」 */
+      S.sw_done_at = Date.now();       /* 2.61：记下本次切换收尾时刻（重复帧判据） */
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
       scheduleRenderAll();
       break;
