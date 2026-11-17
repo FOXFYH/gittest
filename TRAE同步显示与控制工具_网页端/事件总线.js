@@ -116,12 +116,23 @@ function onEv(kind, v){
       const _penOwner = String(v.pend_sid || v.selSid || '');
       const _curSidNow = String((typeof curSid === 'function' ? curSid() : '') || '');
       /* 2.132：有排队条但归属不明 ⇒ 当「不是本会话」，宁可不画也不留残影 */
-      const _penMine = (!_penArr.length)
-          ? true
-          : ((!_penOwner || !_curSidNow) ? false
-             : (_penOwner === _curSidNow
-                || (typeof 稳定键 === 'function'
-                    && 稳定键(_penOwner, '') === 稳定键(_curSidNow, ''))));
+      /* 2.167（硬伤4）：归属不明（pend_sid 缺失/无锚定）时**按 DID 认领**——
+         排队条里任一条的首行 DID 命中本人待销卡的 did ⇒ 就算本人的，允许扫它销卡；
+         DID 也对不上才排除（仍防残影）。旧写法直接 false，整条排队条渠道被跳过，
+         忙时消息进了排队条、卡却永远不撤。 */
+      let _penMine;
+      if (!_penArr.length){
+        _penMine = true;
+      } else if (!_penOwner || !_curSidNow){
+        _penMine = _penArr.some(it => {
+          const _pd = pendDidOf(it && it.t);
+          return !!(_pd && (S.pending || []).some(p => p && p.did === _pd));
+        });
+      } else {
+        _penMine = (_penOwner === _curSidNow
+                    || (typeof 稳定键 === 'function'
+                        && 稳定键(_penOwner, '') === 稳定键(_curSidNow, '')));
+      }
       if (_penArr.length && !_penMine) v.pend = [];
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
@@ -167,7 +178,10 @@ function onEv(kind, v){
       const _ct = curTitle();
       (v.msgs || []).forEach(m => {          /* ① 只扫人类发言 */
         if (!m || m[0] !== 'u') return;
-        const _d = firstLineDid(m[1]);
+        /* 2.167（硬伤1）：改用 pendDidOf——TRAE 会把首行 DID 后的换行折叠成空格，
+           firstLineDid 只认「首行纯 14 位」⇒ 折叠形态永远取不到 DID、卡不撤。
+           pendDidOf 取开头 14 位（其后非数字），两种形态都认；与 ③ 排队条同一口径。 */
+        const _d = pendDidOf(m[1]);
         if (_d) pendClearByDid(_d, _ct);
       });
       if (_penMine) (v.pend || []).forEach(it => {   /* ③ 官方排队条（限本会话） */
