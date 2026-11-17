@@ -1882,8 +1882,23 @@ function stripHintMarks(txt){
 const FPLAY_ANY = /\(@fox-play\d?\s*\)/g;
 const FASK_ANY  = /\(@fox-ask\d?\s*\)/g;
 const FH_ANY    = /\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g;
+/* 2.60（老板 2026-11-17）：总管命令投递的「自报家门头」两行——回填输入框/复制时必须剥掉。
+   与 TRAE 侧 卡片TTS.js `_stripFromHead` 同口径：只认行首固定标记，**连剥到不是这两行为止**
+   （多层投递会叠多组）；剥完只剩空白 → 返回空串（调用方保持空输入框）。 */
+function _stripFromHead(txt){
+  let t = String(txt == null ? '' : txt);
+  for (let i = 0; i < 6; i++){
+    const before = t;
+    t = t.replace(/^\s*【来自(?:·仿微信)?】[^\n]*\n?/, '');
+    t = t.replace(/^\s*【回信用】[^\n]*\n?/, '');
+    t = t.replace(/^\s*\n/, '');
+    if (t === before) break;
+  }
+  return t;
+}
 function foxStripTail(txt){
-  let s = String(txt == null ? '' : txt);
+  const _s0 = _stripFromHead(txt);
+  let s = String(_s0 == null ? '' : _s0);
   if (s.indexOf('(@fox-') < 0) return s;
   const raw = s;
   s = s.replace(FPLAY_ANY, '').replace(FASK_ANY, '');
@@ -6031,7 +6046,7 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.59';
+const VER = '2.60';
                       /* 2.59（2026-11-17，接 2.58）：**误判重连阈值 20s → 45s**——老板原话
                          「那个 20 秒放宽到 45」。计时口径：页面发出任何 cmd/req 起算，
                          收到服务端任何一帧即清零；每 3s 由 renderLink 判一次。副B 拉一份
