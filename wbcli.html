@@ -1279,6 +1279,9 @@ const S = {
      anchor_hold=冷启动先按锚定会话铺了盘上账，等首帧快照对账后再放开，
      防上一会话的常规快照把锚定会话的预备帧清掉。 */
   anchor_tried: false, anchor_hold: false,
+  /* 3.20 补切熔断：anchorSet() 会清 anchor_tried，故另立独立计数——
+     anchor_fix_n=本次连接已自动补切次数（上限 1）；anchor_fix_last=上次自动补切毫秒（间隔≥60s）。 */
+  anchor_fix_n: 0, anchor_fix_last: 0,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts,seen}）+ 当前操控的服务端名（localStorage 记忆）
      1.43：seen=最后出现毫秒（落盘 LS_SRVS）*/
@@ -4843,6 +4846,25 @@ function sendConvId(){
 }
 /* 首帧真快照到达后对锚：服务端当前会话不是锚定会话 → 本次连接自动补发一次 switch。
    成功走原有 switched；失败由 switchArm 的 10s 补发 / 60s 判失败收口，锚定不撤。 */
+/* 3.20：补切熔断后的唯一提示——顶部横幅，8 秒自动收，不挡操作。 */
+function anchorOccupyBanner(){
+  try{
+    let bx = document.getElementById('anchor_occupy');
+    if (!bx){
+      bx = document.createElement('div');
+      bx.id = 'anchor_occupy';
+      bx.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
+        + 'background:#b26a00;color:#fff;font-size:13px;line-height:20px;'
+        + 'padding:6px 10px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.25);';
+      (document.body || document.documentElement).appendChild(bx);
+    }
+    bx.textContent = '⚠ 会话被另一端占用，已停止自动切回（点会话可手动切换）';
+    bx.style.display = 'block';
+    clearTimeout(bx._hideT);
+    bx._hideT = setTimeout(function(){ bx.style.display = 'none'; }, 8000);
+  }catch(e){}
+}
+
 function anchorFollow(v){
   const an = anchorGet();
   if (!an || !an.sid) return;
@@ -4857,7 +4879,18 @@ function anchorFollow(v){
     return;
   }
   if (S.switch_pend) return;            /* 已有在途切换，别叠加 */
-  if (S.anchor_tried) return;           /* 本次连接只自动补一次 */
+  /* 3.20（2026-11-18 切换战争）：老闸门 anchor_tried 会被 anchorSet() 当场清成
+     false（pendSwitchSet(local=true)→anchorSet），形同虚设——两台客户端锚不同
+     会话就 1Hz 互切（实测 3 分钟 102 次）。改用不受 anchorSet 影响的独立计数：
+     同一 WS 连接最多 1 次；且距上次自动补切 ≥60 秒；超限只出横幅，不再自动切。 */
+  const _afNow = Date.now();
+  if ((S.anchor_fix_n || 0) >= 1 || (_afNow - (S.anchor_fix_last || 0) < 60000)){
+    anchorOccupyBanner();
+    S.anchor_hold = false;
+    return;
+  }
+  S.anchor_fix_n = (S.anchor_fix_n || 0) + 1;
+  S.anchor_fix_last = _afNow;
   S.anchor_tried = true;
   S.anchor_hold = false;
   pendSwitchSet(String(an.sid), an.disp || '', true);
@@ -7937,6 +7970,7 @@ function setOnLine(b){
     }
     /* 2.62：重连成功 → 再给一次「回到锚定会话」的机会（首帧快照到了就补切） */
     S.anchor_tried = false;
+    S.anchor_fix_n = 0;      /* 3.20：新连接重新给 1 次，但 60 秒间隔照旧 */
     setTimeout(() => {
       try { if (S.onLine && S.snap && S.snap.online) anchorFollow(S.snap); } catch(e){}
     }, 1200);
