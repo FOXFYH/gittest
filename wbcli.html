@@ -5896,7 +5896,17 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.56';
+const VER = '2.57';
+                      /* 2.57（2026-11-17，接 2.56）：「有内容 ↔ 纯白」还剩一闪。
+                         2.56 上线后线上 CDP 复测（headless Edge + GitHub Pages + 真频道 HMWB）：
+                           冷重载 0.30s 已用盘上小账本铺出 5 条（2.55 是 3.65s 才有），
+                           但 **0.91s 又掉回 b=0**、屏上一行「正在连接 HMWB …」，1.11s 才重画回 5 条。
+                         真因：重载后 S.box 是 '(未连接)'，hello 回来带 box/port 走 applySwitch，
+                         那一行 `el.msgs.innerHTML = '正在连接…'` 把已经铺好的预备帧整屏冲掉，
+                         下一拍 renderAll 才拿预备帧重画 ⇒ 老板看到「闪一下白」。
+                         修法：applySwitch 里若手里已有预备帧（S.prepMsgs 非空）且不是
+                         keepSnap（内容已是新目标）情形，就不写占位，直接 renderAll 用预备帧顶住；
+                         真快照（_hasMsgs）到达照旧整屏换。 */
                       /* 2.56（2026-11-17，老板原话：「聊天记录有内容与无内容，无内容就是纯白色，
                          这样的交互闪烁…我要求聊天记录总是能显示，哪怕直播画面还没来…任何情况都
                          不应该出现白色，除非它从来没有缓存前端的一些记录」）：
@@ -7473,8 +7483,16 @@ function applySwitch(box, port, keepSnap){
   /* 2.45：**绝不清空会话列表**。换目标（box/端口变动）时旧列表原样留着，
      等新目标的快照到达由 renderConvs 原子整张换掉——老板 2026-11-14：
      「会话列表是基础设施，未经同意不要变白；更新来之前旧的必须一直可用」。 */
-  el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
-                     + ' …）</div>';
+  /* 2.57：手里有预备帧就别写「正在连接」——CDP 实测 2.56 重载后 0.30s 已用
+     小账本铺出 5 条，0.91s 这一步会把整屏冲成「正在连接 HMWB …」再重画，
+     老板看到的就是「有内容 ↔ 纯白」闪一下。现在有预备帧就直接交给 renderAll
+     顶住，等真快照（S.snap._hasMsgs）到达再整屏换。 */
+  if (S.prepMsgs && S.prepMsgs.length && !keepSnap){
+    renderAll();
+  } else {
+    el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
+                       + ' …）</div>';
+  }
   renderAttach([]);
   el.model.value = '';
   renderVer(box);
