@@ -6059,10 +6059,12 @@ const VER = '2.61';
                            ① 切换在途时 onEv('snap') 的「非预备帧会话 → 预备帧退场」把目标
                               预备帧提前清掉；现在 switch_pend 在途一律留着；
                            ② 同一次切换的重复 switched（本端 10s 补发 + 服务端「已在该会话」
-                              再广播）走后把目标正文清空；现在 10 秒内、无在途切换、手里已有
-                              在线正文 → 判重复帧，只重画不换账。
-                         服务端配套：host.py 3.19 —— 「已在该会话」那条 switched 之前也补一次
-                         refresh_snap()，任何原因清空了账，下一帧就能把正文推回来。 */
+                              再广播）走后把目标正文清空；现在的判据＝「手里这份快照正是屏上
+                              正在显示、且有正文」→ 这一帧只重画不换账（跨机切换、迟到的重复帧
+                              同理受保护），彻底不擦屏。
+                        服务端配套（3.19）：cmd_router.py 的 cmd_switch「已在该会话」两条分支
+                        （sid 命中 / 索引命中）在广播 switched 前也补一次 refresh_snap()，
+                        任何原因把账清空了，下一帧就能把正文推回来。 */
                       /* 2.59（2026-11-17，接 2.58）：**误判重连阈值 20s → 45s**——老板原话
                          「那个 20 秒放宽到 45」。计时口径：页面发出任何 cmd/req 起算，
                          收到服务端任何一帧即清零；每 3s 由 renderLink 判一次。副B 拉一份
@@ -7514,15 +7516,19 @@ function onEv(kind, v){
         && (Date.now() - S.new_conv_pends[0] < 8000)
         && !!(S.snap && S.snap._port === v[1] && S.snap.online);
       if (!swT && S.new_conv_pends.length) S.new_conv_pends.shift();  /* 2.13：一帧认领一个 */
-      /* ★2.61（2026-11-17 CDP 实测复现）：同一次切换会收到**两帧 switched**——
+      /* ★2.61（2026-11-17 CDP 实测复现）：一次切换会收到**两帧 switched**——
          本端 10 秒补发又把 switch 发了一遍，服务端「已在该会话」再广播一次。
          第一帧已把 pending 消费掉，第二帧 hadPend=false → 照旧走
-         applySwitch(..., keepSnap=false)，把**刚到手的目标正文 S.snap 清成 {}**；
-         服务端指纹没变不会再补发那一拍 → 整片空白，只能手动刷新才回来。
-         判据：10 秒内收尾过切换、当前没有在途切换、手里已有在线正文 → 只重画不换账。 */
-      const _dupSw = !hadPend && !freshNew
-        && (Date.now() - (S.sw_done_at || 0) < 10000)
-        && !!(S.snap && S.snap.online);
+         applySwitch(..., keepSnap=false)，把**刚到手、已经画在屏上的目标正文
+         S.snap 清成 {}**；服务端指纹没变不会再补发那一拍 → 整片空白，
+         只能手动刷新才回来（老板原话：「切换到一个新会话…纯白色…还得手动点刷新」）。
+         判据：没有在途切换、也没有新建要认领，而手里这份快照**正是屏幕上正在显示的
+         那个会话且有正文** → 这一帧 switched 只会把屏擦白，直接忽略（只重画）。
+         跨机切换同样受保护：新目标快照先到、switched 后到（swT 为空）时不再被擦。 */
+      const _onScreen = !!(S.snap && S.snap.online && S.paintSid
+        && Array.isArray(S.snap.msgs) && S.snap.msgs.length
+        && String(S.snap.title || '') === String(S.paintSid));
+      const _dupSw = !hadPend && !freshNew && _onScreen;
       if (_dupSw){
         S.msgs_key = null;
         scheduleRenderAll();
@@ -7533,7 +7539,6 @@ function onEv(kind, v){
         ? {title: swT, ts: Date.now(), disp: swD} : null;
       if (hadPend) switchOk(swD || swT);   /* 1.82：闪现「切换成功」2s 后交回状态灯 */
       if (!hadPend && freshNew) switchOk('', true);  /* 2.13：本端新建 → 状态栏闪「新会话」 */
-      S.sw_done_at = Date.now();       /* 2.61：记下本次切换收尾时刻（重复帧判据） */
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
       scheduleRenderAll();
       break;
