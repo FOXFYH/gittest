@@ -3822,8 +3822,9 @@ function renderConvs(rows, conv_unread){
   const frag = document.createDocumentFragment();
   let inFolder = false, idx = 0;
   /* 2.62：选中标志认「本机会话锚定」——点下去立刻打勾，不等服务端确认；
-     服务端真切过去后 flag 也会亮，两者取或。 */
+     锚定就在本列表里时只认锚定（保证永远只有一个选中行），不在（换了台电脑）才认服务端 flag。 */
   const _anRow = anchorGet(), _anSid = _anRow ? String(_anRow.sid || '') : '';
+  const _useAnchor = !!_anSid && rows.some(r => r && r[0] === 'c' && String(r[1]) === _anSid);
   /* 1.31：按位取值（兼容旧 4 元组）——r[4]=状态灯 run/done/fail/stop/'' */
   for (const r of rows){
     /* 2.40：单行容错——某一行数据畸形只跳过这一行，绝不让整张列表建到一半就停住。
@@ -3862,7 +3863,7 @@ function renderConvs(rows, conv_unread){
     } else {
       const d = document.createElement('div');
       d.className = 'convo item'
-        + ((flag || (_anSid && String(title) === _anSid)) ? ' act' : '');
+        + ((_useAnchor ? (String(title) === _anSid) : !!flag) ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       /* 1.31：对齐原版状态灯口径——只在这几种显示灯：
          run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且该会话在 conv_unread
@@ -6118,7 +6119,10 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.63';
+const VER = '2.64';
+                      /* 2.64（2026-11-17，接 2.63）：选中行永远只亮一个——锚定就在本列表里
+                         时只认锚定（否则服务端 flag 与锚定会同时亮两行）；锚定不在本列表
+                         （换了台电脑）才退回认服务端 flag。 */
                       /* 2.63（2026-11-17，接 2.62）：锚定补一道「同一台电脑」闸门——
                          多服务端名册下，快照带 convs 却找不到锚定 sid（＝那台电脑上没有
                          这个会话）时，不补切、也不撤锚定；换回原电脑仍可继续回锚定。 */
