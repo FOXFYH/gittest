@@ -2946,17 +2946,30 @@ function srvKey(){
   return k || 'local';
 }
 function idbKey(sid){ return srvKey() + '|' + sid; }
+/* 2.56：库版本 2→3。真因（2026-11-17 CDP 实测）：线上某些用户的 `wbcli_turns`
+   已经是 v2、但**两个 object store 一个都没建出来**（openNoVer 实测
+   `{ver:2, stores:[]}`）——此后再 open(2) 不再触发 upgrade，`snaps` 永远不存在，
+   `idbSaveSnap` 每次 transaction('snaps') 抛 NotFoundError 被静默吞掉 ⇒
+   「小账本」从来没写进盘、前端缓存永远为空，页面一重开就只剩白屏等直播。
+   升到 3 强制再走一次 onupgradeneeded（里面按 contains 补建），并给连接挂
+   onversionchange 自动关，免得旧连接把升级卡成 blocked。 */
+const IDB_VER = 3;
 function idbOpen(){
   return new Promise(res => {
     try{
-      const rq = indexedDB.open('wbcli_turns', 2);
+      const rq = indexedDB.open('wbcli_turns', IDB_VER);
       rq.onupgradeneeded = () => {
         const db = rq.result;
         if (!db.objectStoreNames.contains('conv')) db.createObjectStore('conv');
         if (!db.objectStoreNames.contains('snaps')) db.createObjectStore('snaps');
       };
-      rq.onsuccess = () => res(rq.result);
+      rq.onsuccess = () => {
+        const db = rq.result;
+        try{ db.onversionchange = () => { try{ db.close(); }catch(e){} }; }catch(e){}
+        res(db);
+      };
       rq.onerror = () => res(null);
+      rq.onblocked = () => res(null);
     }catch(e){ res(null); }
   });
 }
@@ -3022,6 +3035,47 @@ async function idbLoadSnap(sid){
       rq.onerror = () => res(null);
     }catch(e){ res(null); }
   });
+}
+/* 2.56（老板 2026-11-17：「我要求的就是聊天记录总是能显示啊，哪怕直播画面还没来。
+   那也会有前端的记录优先展示，它任何情况都不应该出现白色」）：
+   冷启动/换台预铺——页面被系统回收后重开、或刚换服务器时，直播快照还在路上，
+   先把盘上小账本里**最近一次**的正文画出来，绝不空屏；直播真帧一到自动换掉。 */
+async function idbLoadLatestSnap(){
+  const db = await idbOpen();
+  if (!db) return null;
+  return new Promise(res => {
+    try{
+      const rq = db.transaction('snaps').objectStore('snaps').openCursor();
+      let best = null;
+      rq.onsuccess = () => {
+        const c = rq.result;
+        if (!c){ res(best); return; }
+        const v = c.value || {};
+        if (Array.isArray(v.msgs) && v.msgs.length
+            && (!best || (v.ts || 0) > (best.ts || 0))){
+          best = {msgs: v.msgs, idle: v.idle, finish: v.finish || null,
+                  ts: v.ts || 0, sid: String(c.key).split('|').pop()};
+        }
+        c.continue();
+      };
+      rq.onerror = () => res(best);
+    }catch(e){ res(null); }
+  });
+}
+async function prepaintFromIDB(){
+  try{
+    if (document.body.classList.contains('fmsg')) return;   /* 历史全屏时不抢 */
+    if (S.snap && S.snap._hasMsgs) return;                 /* 直播已到 */
+    if (S.prepMsgs && S.prepMsgs.length) return;           /* 已有预备帧 */
+    const rec = await idbLoadLatestSnap();
+    if (!rec || !rec.msgs || !rec.msgs.length) return;
+    if (S.snap && S.snap._hasMsgs) return;                 /* 等盘期间直播到了 */
+    S.prepMsgs = rec.msgs;
+    S.prepSid = String(rec.sid || '');
+    S.prepIdle = (rec.idle !== false);
+    S.prepFinish = rec.finish || null;
+    renderAll();
+  }catch(e){}
 }
 /* 2.50：snapTrimDisk() 已删除。老板新口径＝每个会话都保存，只限每个会话的条数；
    条数在 snapCacheTouch() 写入时就按 _snapN() 裁好，所以盘上不需要再按会话数裁。 */
@@ -4734,7 +4788,9 @@ function renderMsgs(msgs, finish, opts, ask){
       ;
   if (_holdOld){
     if (!S.holdFrom) S.holdFrom = Date.now();
-    if (Date.now() - S.holdFrom < 12000){
+    /* 2.56：兜底 12s → 60s（老板 2026-11-17：「任何情况都不应该出现白色」）。
+       慢网/服务端采集让路时，12 秒一到就清屏＝白；宁可多留一会儿旧屏。 */
+    if (Date.now() - S.holdFrom < 60000){
       let bar = document.getElementById('swhold');
       if (!bar){
         bar = document.createElement('div');
@@ -5840,7 +5896,22 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.55';
+const VER = '2.56';
+                      /* 2.56（2026-11-17，老板原话：「聊天记录有内容与无内容，无内容就是纯白色，
+                         这样的交互闪烁…我要求聊天记录总是能显示，哪怕直播画面还没来…任何情况都
+                         不应该出现白色，除非它从来没有缓存前端的一些记录」）：
+                         CDP 实测（headless Edge + 线上 2.55 + 真频道 HMWB）复现两处白屏：
+                           ① 整页重载：0→1.8s 仍 b=0「暂无消息」，3.6s 才有 3 条 ⇒ 白 3.6 秒；
+                           ② 换台：0.99s 出现 b=0「正在连接 CLI …」。
+                         真因（硬 bug）：`wbcli_turns` 库已是 v2、但两个 object store **一个都没有**
+                         （openNoVer 实测 `{ver:2, stores:[]}`），再 open(2) 不再触发 upgrade ⇒
+                         `snaps` 永远不存在 ⇒ `idbSaveSnap` 每次 transaction('snaps') 抛
+                         NotFoundError 被静默吞掉 ⇒ 小账本从来没落盘、「前端缓存」永远是空的。
+                         修法：①`IDB_VER=3` 强制再走一次 upgrade 补建 store，连接挂 onversionchange
+                         自动关（防旧连接 blocked）；②新增 `idbLoadLatestSnap()/prepaintFromIDB()`：
+                         冷启动、选台、换台都先用盘上最近一条小账本上屏，直播真帧到达自动换；
+                         ③直播帧属于**别的**会话时预备帧当场退场（不张冠李戴）；④切会话留旧屏
+                         兜底 12s→60s。 */
                       /* 2.53（2026-11-15，老板原话：「我现在跟你的这个会话显示空闲，然后是全空白的？
                          我们这边不是有小账本吗？优先会拿小账本顶上。刚才我好像看到小账本顶了一会，
                          最后切着换成功的时候，这里显示空闲，然后什么聊天记录都没有，怎么会这样？」
@@ -6533,6 +6604,8 @@ function enterCur(){
   /* 2.51：选中的是哪台，就铺哪台的会话档——自动接管/名册剔旧换台时
      同样不许把上一台的会话名留着（老板「分开分别建档」）。 */
   try { convArchiveLoad(S.cur); } catch(e){}
+  /* 2.56：选台立刻用盘上小账本prepaint，别等 hello/首帧（实测冷启动白屏 1.8~3.6 秒） */
+  setTimeout(prepaintFromIDB, 120);
   sendJson({t: 'hello'});                    // 拉即时全量
   helloWatch();                              // 1.14：快照看门狗
 }
@@ -6572,6 +6645,8 @@ function switchSrv(nm){
   cacheKey = cacheKeyNow();
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  /* 2.56：换台也先铺「这台上次的小账本」，等它的首帧到达再换（老板：任何情况不许白） */
+  setTimeout(prepaintFromIDB, 120);
   S.pending = []; switchEnd(); S._swFail = null;   /* 1.82：连带清在途定时器 */
   S.recall = null; renderEditRow();   /* 1.53：换服务端，取回修改态作废 */
   /* 2.52：换台时框里若还挂着上一台取回的文本，就地净化（只剥尾巴、不清他打的字） */
@@ -6748,6 +6823,12 @@ function onEv(kind, v){
         else if (hasMsgsKey && _sameConv && Array.isArray(_prevSnap.msgs)
                  && _prevSnap.msgs.length)
           v.msgs = _prevSnap.msgs;
+      }
+      /* 2.56：直播帧已带正文、且不是预备帧那条会话 → 预备帧当场退场。
+         不这样，冷启动预铺的「上次画面」会顶在别的会话名下来回换，看着像闪。 */
+      if (hasMsgs && S.prepMsgs
+          && String(v.title || '') !== String(S.prepSid || '')){
+        S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
       }
       S.snap = v;
       if (hasMsgs) snapCacheTouch(v);   /* 2.37：最新轮次赶紧记录（内存 + 盘） */
@@ -8292,6 +8373,7 @@ renderVer();
    顶在这台名下（老板 11-15「你得锚定服务器……分开分别建档」）。 */
 loadSrvs();                                      /* 1.43：先恢复落盘的多电脑名册（离线也显） */
 pickCur();                                       /* 1.48：打开即选中上次那台 */
+setTimeout(prepaintFromIDB, 150);                /* 2.56：冷启动先铺盘上小账本，不空屏 */
 renderAcct();                                    /* 1.33：账号行首显 — */
 renderSrvList(); renderTop();
 try { S.srvVer = srvVerGet(srvTagNow()); } catch(e){ S.srvVer = '0'; }
