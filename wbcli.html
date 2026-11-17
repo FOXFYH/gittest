@@ -1163,7 +1163,8 @@ function sendCmd(c, a, extra){
   /* 1.60 纯 ID 双寻址·会话层：发消息带上目标会话 sid（convs 行 r[1]，
      显示名会变、sid 不变），服务端据此投递，不再只信它自己记的 current。 */
   if (c === 'send' && !d.conv){
-    const cid = curConvId();
+    /* 2.62：优先按「本机会话锚定」投递——断网/切换未达成时也不会落回旧会话 */
+    const cid = sendConvId();
     if (cid) d.conv = cid;
   }
   return sendJson(d);
@@ -1269,6 +1270,10 @@ const S = {
   /* F7：切换失败观察——超时兜底重拉 hello 后，下一拍仍未激活目标
      会话时轻提示「切换未完成」（一次性，消费即清） */
   _swFail: null,
+  /* 2.62 会话锚定：anchor_tried=本次连接已自动补切过一次（连上/重连时重置）；
+     anchor_hold=冷启动先按锚定会话铺了盘上账，等首帧快照对账后再放开，
+     防上一会话的常规快照把锚定会话的预备帧清掉。 */
+  anchor_tried: false, anchor_hold: false,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts,seen}）+ 当前操控的服务端名（localStorage 记忆）
      1.43：seen=最后出现毫秒（落盘 LS_SRVS）*/
@@ -1453,8 +1458,8 @@ function srvOpSend(c, a, label, extra, ms){
   if (extra && typeof extra === 'object') for (const k in extra) ex[k] = extra[k];
   const d = {t: 'cmd', c: c, a: a};
   for (const k in ex) d[k] = ex[k];
-  if (c === 'send' && !d.conv){          /* 与 sendCmd 同规则：带目标会话 sid */
-    const cid = curConvId();
+  if (c === 'send' && !d.conv){          /* 与 sendCmd 同规则：带目标会话 sid（2.62 认锚定） */
+    const cid = sendConvId();
     if (cid) d.conv = cid;
   }
   if (!S.onLine || !foxReady()){
@@ -3134,11 +3139,15 @@ async function prepaintFromIDB(){
     if (document.body.classList.contains('fmsg')) return;   /* 历史全屏时不抢 */
     if (S.snap && S.snap._hasMsgs) return;                 /* 直播已到 */
     if (S.prepMsgs && S.prepMsgs.length) return;           /* 已有预备帧 */
-    const rec = await idbLoadLatestSnap();
+    /* 2.62：有会话锚定就先铺它自己的账——重启手机/刷新后第一屏就是它 */
+    const an = anchorGet();
+    const rec = (an && an.sid) ? await idbLoadSnap(String(an.sid))
+                               : await idbLoadLatestSnap();
     if (!rec || !rec.msgs || !rec.msgs.length) return;
     if (S.snap && S.snap._hasMsgs) return;                 /* 等盘期间直播到了 */
     S.prepMsgs = rec.msgs;
-    S.prepSid = String(rec.sid || '');
+    S.prepSid = (an && an.sid) ? String(an.sid) : String(rec.sid || '');
+    if (an && an.sid) S.anchor_hold = true;   /* 锚定会话的预备帧，等首帧快照对锚 */
     S.prepIdle = (rec.idle !== false);
     S.prepFinish = rec.finish || null;
     renderAll();
@@ -3783,7 +3792,8 @@ function renderConvs(rows, conv_unread){
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
     + '#sc:' + Array.from(schedSids).sort().join('|')
-    + '#nt:' + noteKey;
+    + '#nt:' + noteKey
+    + '#an:' + (function(){ const a = anchorGet(); return a ? String(a.sid || '') : ''; })();
   /* 2026-11-13 老板「优先显示会话名」：随手把 sid→显示名 增量记进 LS_NAMES。
      换服务器 / 断网 / 骨架缓存被清掉时，轮播账查看器仍能显示会话名而不是一串 sid。 */
   try{
@@ -3811,6 +3821,9 @@ function renderConvs(rows, conv_unread){
   const _oldTop = el.convs ? el.convs.scrollTop : 0;
   const frag = document.createDocumentFragment();
   let inFolder = false, idx = 0;
+  /* 2.62：选中标志认「本机会话锚定」——点下去立刻打勾，不等服务端确认；
+     服务端真切过去后 flag 也会亮，两者取或。 */
+  const _anRow = anchorGet(), _anSid = _anRow ? String(_anRow.sid || '') : '';
   /* 1.31：按位取值（兼容旧 4 元组）——r[4]=状态灯 run/done/fail/stop/'' */
   for (const r of rows){
     /* 2.40：单行容错——某一行数据畸形只跳过这一行，绝不让整张列表建到一半就停住。
@@ -3848,7 +3861,8 @@ function renderConvs(rows, conv_unread){
       inFolder = true;
     } else {
       const d = document.createElement('div');
-      d.className = 'convo item' + (flag ? ' act' : '');
+      d.className = 'convo item'
+        + ((flag || (_anSid && String(title) === _anSid)) ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       /* 1.31：对齐原版状态灯口径——只在这几种显示灯：
          run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且该会话在 conv_unread
@@ -4752,6 +4766,55 @@ function turnsSwitchTo(sid){
      缺的补过来）。400ms 后再发：先让本端把缓存/IDB 的路走完，别自相打架。 */
   setTimeout(() => { try { reconAsk('切会话', true, sid); } catch(e){} }, 400);
 }
+/* 2.62：会话锚定——本机最后一次在会话列表里点选的会话。
+   老板 2026-11-17 定：点下去就算锚定，不管服务端切没切成功；刷新、重启手机、
+   断网恢复后都先回到这个会话。只存本机 localStorage，不写服务端、不影响别的设备。 */
+const LS_ANCHOR = 'wb_cli_anchor';
+function anchorGet(){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_ANCHOR) || 'null');
+    if (o && o.sid) return o;
+  } catch(e){}
+  return null;
+}
+function anchorSet(sid, disp){
+  sid = String(sid || '');
+  if (!sid) return;
+  try {
+    const old = anchorGet();
+    const nm = String(disp || (old && old.sid === sid ? old.disp : '') || '');
+    localStorage.setItem(LS_ANCHOR, JSON.stringify({sid: sid, disp: nm, ts: Date.now()}));
+  } catch(e){}
+  S.anchor_tried = false;      /* 又点了一次 → 允许按新目标再对一次 */
+  S.anchor_hold = false;
+  S.convs_key = null;          /* 选中标志立刻换行（不等服务端快照） */
+}
+function anchorClear(){
+  try { localStorage.removeItem(LS_ANCHOR); } catch(e){}
+  S.convs_key = null;
+}
+/* 发送目标：锚定会话还没切过去（或断网中）时，消息就投给它——服务端 cmd_send
+   支持 conv 一步直达。锚定为空/已达成则照旧用服务端当前会话。 */
+function sendConvId(){
+  const an = anchorGet();
+  if (an && an.sid && String(an.sid) !== String(curConvId() || '')) return String(an.sid);
+  return curConvId();
+}
+/* 首帧真快照到达后对锚：服务端当前会话不是锚定会话 → 本次连接自动补发一次 switch。
+   成功走原有 switched；失败由 switchArm 的 10s 补发 / 60s 判失败收口，锚定不撤。 */
+function anchorFollow(v){
+  const an = anchorGet();
+  if (!an || !an.sid) return;
+  const cur = String((v && v.title) || '');
+  if (!cur) return;
+  if (cur === String(an.sid)){ S.anchor_hold = false; return; }
+  if (S.switch_pend) return;            /* 已有在途切换，别叠加 */
+  if (S.anchor_tried) return;           /* 本次连接只自动补一次 */
+  S.anchor_tried = true;
+  S.anchor_hold = false;
+  pendSwitchSet(String(an.sid), an.disp || '', true);
+  srvOpSend('switch', String(an.sid), '回到上次会话');
+}
 function pendSwitchSet(title, disp, local){
   title = title || '';
   disp = disp || '';
@@ -4765,6 +4828,8 @@ function pendSwitchSet(title, disp, local){
     if (row) disp = row[3] || '';
   }
   const view = (disp && disp !== title) ? disp : '新会话';
+  /* 2.62：本机点的会话 = 立即锚定（不等服务端回执；断网/失败/刷新都不撤） */
+  if (local && title) anchorSet(title, (disp && disp !== title) ? disp : '');
   /* 1.82：本地发起 → 按「连上没」定首档（connecting/waiting）；
      他端（PC 面板）广播来的 → 服务端已在切，直接 switching，不补发 */
   const phase0 = local ? ((S.onLine && foxReady()) ? 'waiting' : 'connecting')
@@ -6046,7 +6111,21 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.61';
+const VER = '2.62';
+                      /* 2.62（2026-11-17 老板原话：「只要我在会话列表执行的切换，不管最终
+                         切换成功还是失败，手机网页版就记好了，我们已经切换到这个会话了…
+                         哪怕切换失败…拼命刷新、拼命重启手机，下次也是直接进入这个会话」）：
+                         **会话锚定（本地选中标志）**——
+                           ① 点会话行＝立刻把 sid 写进 localStorage（wb_cli_anchor），不等
+                              服务端回执；断网/超时/切换失败都不撤销；
+                           ② 冷启动/刷新/重启手机：先按锚定会话铺盘上小账本（prepaint），
+                              连上后若服务端当前会话 ≠ 锚定会话，自动补发一次 switch（走原有
+                              10s 补发 / 60s 判失败链路）；
+                           ③ 掉线重连成功同样补一次（老板：「突然间恢复网络了，也锚定这个会话」）；
+                           ④ 断网时发消息按锚定会话投递（send 的 conv 用锚定 sid，服务端
+                              cmd_send 支持一步直达），不再带服务端旧会话；
+                           ⑤ 只有服务端明确回「目标会话不存在」才清锚定（防死循环）；
+                              新建对话成功后由新会话 sid 覆盖锚定。 */
                       /* 2.61（2026-11-17 老板原话：「网页版切换到一个新会话以后会突然变成
                          纯白色的聊天记录，啥也没有，还得手动点刷新才能解决」）：
                          CDP 实测复现（headless Edge + 线上 2.58~2.60 + 真频道 CLI/7001）：
@@ -7034,11 +7113,13 @@ function onEv(kind, v){
          仍会推**上一个会话**的常规快照——那不是"目标已到"，却把刚铺好的目标
          预备帧当场清掉，于是切换那几秒只剩空屏。切换在途一律留着预备帧，
          等 switched 之后目标自己的帧（title 对上 prepSid）再接班。 */
-      if (hasMsgs && S.prepMsgs && !S.switch_pend
+      if (hasMsgs && S.prepMsgs && !S.switch_pend && !S.anchor_hold
           && String(v.title || '') !== String(S.prepSid || '')){
         S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
       }
       S.snap = v;
+      /* 2.62：拿真快照对锚——服务端不是锚定会话就自动补切一次（本次连接一次） */
+      try { anchorFollow(v); } catch(e){}
       if (hasMsgs) snapCacheTouch(v);   /* 2.37：最新轮次赶紧记录（内存 + 盘） */
       srvOpSnapDone();       /* 2.14：快照刷新＝业务成功信号 → 静默收口在途动作 */
       /* 分页窗口元数据随快照更新：游标（翻页基准）、窗口前的「我」条数
@@ -7539,6 +7620,8 @@ function onEv(kind, v){
         ? {title: swT, ts: Date.now(), disp: swD} : null;
       if (hadPend) switchOk(swD || swT);   /* 1.82：闪现「切换成功」2s 后交回状态灯 */
       if (!hadPend && freshNew) switchOk('', true);  /* 2.13：本端新建 → 状态栏闪「新会话」 */
+      /* 2.62：新建成功 → 这个新会话就是新的锚定（下次打开直接进它） */
+      if (freshNew && S.snap && S.snap.title) anchorSet(String(S.snap.title), '');
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
       scheduleRenderAll();
       break;
@@ -7591,6 +7674,13 @@ function onEv(kind, v){
       if (S.switch_pend || S.loadingConv){
         switchEnd(); S.loadingConv = null;      /* 1.82：连同在途定时器一起清 */
         S.switch_target = null; renderAll();
+      }
+      /* 2.62：只有服务端明确说「目标会话不存在」才撤锚定——否则每次打开都补切，
+         永远切不进去、死循环。其它失败（超时/断网/忙）一律保留锚定。 */
+      if (/目标会话不存在/.test(emsg)){
+        anchorClear(); S.anchor_hold = false;
+        S.prepMsgs = null; S.prepSid = '';
+        try { sendJson({t: 'hello'}); } catch(e){}
       }
       document.querySelectorAll('.optbtn.picked').forEach(b => {
         b.disabled = false;
@@ -7728,6 +7818,11 @@ function setOnLine(b){
       sendCmd('switch', S.switch_pend.title);
       renderAll();
     }
+    /* 2.62：重连成功 → 再给一次「回到锚定会话」的机会（首帧快照到了就补切） */
+    S.anchor_tried = false;
+    setTimeout(() => {
+      try { if (S.onLine && S.snap && S.snap.online) anchorFollow(S.snap); } catch(e){}
+    }, 1200);
   }
   /* 1.69：网络恢复 → 自动把「掉线时撞顶没拉成」的历史补回来，
      省得用户先看到「请刷新网络」还得自己再滑一次。 */
