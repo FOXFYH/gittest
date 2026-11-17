@@ -188,10 +188,12 @@ function pendClearByDid(did, conv){
   let changed = false;
   const keep = [];
   S.pending.forEach(p => {
-    if (p.did && p.did === did){
-      if (conv && p.conv && p.conv !== conv){ keep.push(p); return; }
-      changed = true; return;                                 /* 命中即撤 */
-    }
+    /* 2.167（硬伤3）：DID 命中＝就是本人这一条，**会话名不再当否决条件**。
+       旧写法 `p.conv !== conv` 直接留着卡：首条消息发进一个全新会话时 TRAE
+       随后会自动改会话名，名字一变，即便 DID 已命中也不撤（老板最在意的现象）。
+       conv 参数保留只为兼容旧调用点；「DID 没命中、靠会话名兜底」的路径在
+       pendReconcile（本函数只负责 DID 命中即撤）。 */
+    if (p.did && p.did === did){ changed = true; return; }    /* 命中即撤 */
     keep.push(p);
   });
   if (changed) S.pending = keep;
