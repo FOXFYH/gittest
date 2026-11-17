@@ -4808,6 +4808,13 @@ function anchorFollow(v){
   const cur = String((v && v.title) || '');
   if (!cur) return;
   if (cur === String(an.sid)){ S.anchor_hold = false; return; }
+  /* 锚定必须在本机的会话表里（防着「换到另一台电脑」时拿上一台的 sid 去瞎切）：
+     快照带了 convs 却找不到这个 sid → 不补切、也不撤锚定（回原电脑还能接着用）。 */
+  const rows = Array.isArray(v && v.convs) ? v.convs : [];
+  if (rows.length && !rows.some(x => x && x[0] === 'c' && String(x[1]) === String(an.sid))){
+    S.anchor_hold = false;
+    return;
+  }
   if (S.switch_pend) return;            /* 已有在途切换，别叠加 */
   if (S.anchor_tried) return;           /* 本次连接只自动补一次 */
   S.anchor_tried = true;
@@ -6111,7 +6118,10 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.62';
+const VER = '2.63';
+                      /* 2.63（2026-11-17，接 2.62）：锚定补一道「同一台电脑」闸门——
+                         多服务端名册下，快照带 convs 却找不到锚定 sid（＝那台电脑上没有
+                         这个会话）时，不补切、也不撤锚定；换回原电脑仍可继续回锚定。 */
                       /* 2.62（2026-11-17 老板原话：「只要我在会话列表执行的切换，不管最终
                          切换成功还是失败，手机网页版就记好了，我们已经切换到这个会话了…
                          哪怕切换失败…拼命刷新、拼命重启手机，下次也是直接进入这个会话」）：
