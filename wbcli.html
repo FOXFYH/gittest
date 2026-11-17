@@ -956,7 +956,55 @@ function ttsChannelUrl(){
 const KA_SEC = 0;      /* 老板 2026-10-25：本 WS 免 ping，纯保活 ping 一律不要；
                           非 ping 不可也最多 30 分钟一条。0＝不发原始 ping，仅靠断线重连。 */
 const RECONNECT = 3;    // 断线重连间隔（秒）
-const SRV_IDLE_MS = 20000;      // ≤20s 有消息 = 正常
+/* 2.59：等回音超时 20s → 45s，并**改成设置页可手改**（老板令：要有地方体现、支持手动修改）。
+   口径：发出任何 cmd/req 起算，收到服务端**一整条**回应即清零；每 3s 判一次。
+   存储：本机 localStorage（跟着这台手机的浏览器走，不写服务端、不影响别的设备）。
+   范围：10~180 秒，越界自动钳到边界（不弹错、不拦流程）；默认 45。 */
+const SRV_IDLE_KEY = 'wb_srv_idle_s';
+let SRV_IDLE_MS = (function(){
+  let v = 45;
+  try { v = parseInt(localStorage.getItem(SRV_IDLE_KEY), 10); } catch(e){}
+  if (!isFinite(v) || v <= 0) v = 45;
+  if (v < 10) v = 10;
+  if (v > 180) v = 180;
+  return v * 1000;
+})();
+function srvIdleSec(){ return Math.round(SRV_IDLE_MS / 1000); }
+function srvIdleSet(sec){
+  let n = parseInt(sec, 10);
+  if (!isFinite(n) || n <= 0) n = 45;
+  if (n < 10) n = 10;
+  if (n > 180) n = 180;
+  SRV_IDLE_MS = n * 1000;
+  try { localStorage.setItem(SRV_IDLE_KEY, String(n)); } catch(e){}
+  return n;
+}
+function srvIdleMount(){
+  const host = document.getElementById('page_net');
+  if (!host || document.getElementById('in_wait_s')) return;
+  const box = document.createElement('fieldset');
+  box.id = 'fs_wait';
+  box.innerHTML = '<legend>连接容错</legend>'
+    + '<div class="row"><label>等回音超时</label>'
+    + '<input id="in_wait_s" type="number" min="10" max="180" step="5" style="width:80px;">'
+    + '<span class="hint">秒（10–180）</span></div>'
+    + '<div class="row"><span class="hint">发出动作后多久没收到「一整条」回应，'
+    + '就判服务器失联并重连。副B 慢链路建议 45~60 秒；改完立即生效，只存本机。</span></div>';
+  const body = host.querySelector('.nbody');
+  const ref = body ? body.querySelectorAll('fieldset')[1] : null;
+  if (ref && ref.parentNode) ref.parentNode.insertBefore(box, ref);
+  else if (body) body.appendChild(box);
+  const inp = box.querySelector('#in_wait_s');
+  if (!inp) return;
+  inp.value = srvIdleSec();
+  inp.addEventListener('change', () => {
+    const n = srvIdleSet(inp.value);
+    inp.value = n;
+    try { flash('✅ 等回音超时已设为 ' + n + ' 秒（立即生效）', 'var(--green)'); } catch(e){}
+    try { renderLink(); } catch(e){}
+  });
+}
+try { srvIdleMount(); } catch(e){}
 const SRV_DEAD_MS = 60000;      // ≥60s 无消息 = 报「服务器无响应」
 const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 150s 无心跳判下线
 const IDLE_MS = 5 * 60 * 1000;  // 闲置超 5 分钟才退出登录（1.25 起唯一的下线条件）
@@ -5983,7 +6031,13 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.58';
+const VER = '2.59';
+                      /* 2.59（2026-11-17，接 2.58）：**误判重连阈值 20s → 45s**——老板原话
+                         「那个 20 秒放宽到 45」。计时口径：页面发出任何 cmd/req 起算，
+                         收到服务端任何一帧即清零；每 3s 由 renderLink 判一次。副B 拉一份
+                         快照要 16s+，旧的 20s 会在第一帧到达前就判死 → connect() 重开 →
+                         在途分段全废（＝老板看到的「缺一段」）。改完副B 不再自断。
+                         阈值活在页面 JS 里，各端必须重新加载页面才生效。 */
                       /* 2.58（2026-11-17，老板原话：「小账本和大账本，在某些特殊情况下应该去核对
                          它们是否一致呀…核对一致的时候也不用拿完整的内容去核对，直接按照它们
                          掌握的这些对话每个都有号码，核对一下就行了，缺了就补过来呗」）：
