@@ -268,7 +268,7 @@
    仿微信聊天工具 · 网页端 1.003
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.005';
+const VER = '1.006';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
   urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
@@ -285,7 +285,7 @@ const S = {
   ch: '',             // 频道口令（不写代码、不进仓库）
   accounts: [], online: [], convs: [],
   peer: '', msgs: [], 
-  ws: null, ok: false, line: 0, retry: 0, reqId: 0, pend: {}, reTimer: 0, gotWelcome: false,
+  ws: null, ok: false, line: 1, retry: 0, reqId: 0, pend: {}, reTimer: 0, gotWelcome: false,
   notifOn: false, unreadTotal: 0,
   servers: {},        // 见过自报的服务器：srv → {电脑名,ver,ts}
   upAt: 0             // 本次连接建立的时刻
