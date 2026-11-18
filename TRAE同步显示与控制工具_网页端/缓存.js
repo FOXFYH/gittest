@@ -4,6 +4,33 @@ const LS_HIST = 'trae_webm_hist';        /* 历史消息缓存（按会话） */
 let cacheKey = null, reqSeq = 0, skelLastSave = 0;
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
+/* 2.174（固态化失效根因修复·老板 23:1x 实测打脸）：cacheKeyNow 含 S.srvVer——
+   在线时 hello 带真实服务端版本（如 '2.173|3.66'）落盘；断网冷开 hello 不来
+   ⇒ S.srvVer 保持 '0' ⇒ key='2.173|0' 与落盘必不匹配 ⇒ skel/solid/hist
+   【全部读不出】＝「完全没固态化」的真凶。修复三板斧：
+   ①srvVer 持久化（写侧 onHello 存、boot 恢复）——让冷开 key 尽量对上；
+   ②读取端宽松化（本函数三个读口）——键存在且 JSON 可解析即读，字段级容错
+     本就有（solidBoot/skels 各段 try）；防旧格式毒化职责保留在【写侧】：
+     在线时 checkVerBump 照常清旧缓存重写（格式永远新鲜），断网则宽松读旧
+     （保证打开即活）。多服务端切换无串显风险：三键本就只存最后在线那台的
+     快照级数据，在线切换照常覆盖。 */
+const LS_SRVVER = 'trae_webm_srvver';      /* 上次在线时的服务端版本号（冷开 key 恢复用） */
+function srvVerRestore(){
+  try {
+    const v = localStorage.getItem(LS_SRVVER);
+    if (v && !S.srvVer || S.srvVer === '0'){ S.srvVer = v; }
+  } catch(e){}
+}
+function srvVerPersist(){
+  try { localStorage.setItem(LS_SRVVER, String(S.srvVer || '0')); } catch(e){}
+}
+function skelCacheLoad(){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SKEL) || 'null');
+    if (!o) return null;                    /* 2.174：宽松读（断网冷开 key 对不上也要活） */
+    return o;
+  } catch(e){ return null; }
+}
 function checkVerBump(){
   /* 首次定键 / 版本变化 → 清空本地骨架与历史缓存（改版重下）。
      本专项 B1：换代同时清 IndexedDB 快照表，并清掉 LS 里明确属快照类的键
@@ -54,13 +81,7 @@ function skelCacheSave(snap){
     localStorage.setItem(LS_SKEL, JSON.stringify(o));
   } catch(e){}
 }
-function skelCacheLoad(){
-  try {
-    const o = JSON.parse(localStorage.getItem(LS_SKEL) || 'null');
-    if (!o || o.key !== cacheKeyNow()) return null;
-    return o;
-  } catch(e){ return null; }
-}
+/* （2.174：旧严格版 skelCacheLoad 已并入文件头部的宽松版——key 校验移除） */
 /* —— 固态兜底（2.173「打开即活」，老板 2026-11-18 亲批最核心灵魂）——
    盘点结论：会话列表（LS_SKEL）/对话内容（IDB snap_conv 预读秒显）/多电脑名册
    （loadSrvs）已固态；但【备注/定时消息/模型列表/沙盒分身下拉/登录账号/排队条】
@@ -90,7 +111,7 @@ function solidSave(){
 function solidLoad(){
   try {
     const o = JSON.parse(localStorage.getItem(LS_SOLID) || 'null');
-    if (!o || o.key !== cacheKeyNow()) return null;
+    if (!o) return null;                    /* 2.174：宽松读（同 skelCacheLoad 口径） */
     return o;
   } catch(e){ return null; }
 }
@@ -154,7 +175,8 @@ function solidBoot(){
 function histCacheRead(conv){
   try {
     const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
-    if (!o || o.key !== cacheKeyNow()) return null;
+    /* 2.174：key 校验放宽（断网冷开也要能读上次在线的历史缓存） */
+    if (!o) return null;
     const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
     if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
     return e;
