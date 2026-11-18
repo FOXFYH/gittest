@@ -198,6 +198,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
           S.pinBottom = true;
           foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
           sendCmd('switch', sid || i);
+          /* 账本V1.0（C3/I1）：切换请求携全模块版本编码——与 switch 同拍发出，
+             vack stage:1/2 两阶段回执由 账本核对.js 接（悬浮提示三阶段）。 */
+          try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', sid || ''); } catch(e){}
           drawerClose();
         }
       };
