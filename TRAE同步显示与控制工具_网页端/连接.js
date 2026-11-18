@@ -357,7 +357,7 @@ function handleBody(body){
      旧服务端不下发这两类帧 ⇒ 以下分支永不触发，旧协议通路零影响。 */
   if (d.t === 'vack'){ if (window.ledgerVack) ledgerVack(d); return; }
   if (d.t === 'mod'){ if (window.ledgerMod) ledgerMod(d); return; }
-  if (d.t === 'think_int_ack'){ if (window.lbThinkIntAck) lbThinkIntAck(d); return; }   /* 账本V1.0：set_think_int 回执（小账本页.js） */
+  if (d.t === 'think_int_ack'){ if (window.lbThinkIntAck) lbThinkIntAck(d); return; }   /* 账本V1.0：set_think_int 回执（账本核对.js） */
   if (d.t === 'poll_set') return;                     // 1.35：档位已移除，忽略回执
 }
 
