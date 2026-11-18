@@ -246,7 +246,8 @@ function onEv(kind, v){
           switchFail(sp.title);              /* 目标已不在列表 → 失败 */
           switchClear();
         }
-        /* 2.67：超时不再在此按指钟判——由 switchReArm 的 60s 定时器负责 */
+        /* 2.67：超时不再在此按指钟判——由 switchReArm 的 90s 定时器负责
+           （2.176 老板令：口径 60s→90s） */
       }
       /* 2.100（老板 2026-10-20 12:16）：刷新/重连后「继续锚定当前会话，继续向服务器
          提要求」——首拍若发现服务端选中行≠本地持久化锚定，补发一次 switch（只发一次）。 */
@@ -513,7 +514,8 @@ function onEv(kind, v){
     case 'switch_ack':           /* 2.67 切换过程状态机：服务端已收到命令回执
                                     → 从「等待服务器回应」转「正在切换中」；2.81：收到
                                     回执即【静默等待】，停掉补发定时器、不再 re-arm 补发，
-                                    只保留 60s 超时兜底（服务器已接收就不再打扰） */
+                                    只保留 90s 超时兜底（服务器已接收就不再打扰；
+                                    2.176 老板令：口径 60s→90s） */
       if (S.switch_pend && _swMatch(S.switch_pend, v)){
         if (S.switch_pend.phase !== 'ok'){
           S.switch_pend.phase = 'switching';
