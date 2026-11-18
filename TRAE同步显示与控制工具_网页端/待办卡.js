@@ -63,6 +63,9 @@ function pendStat(p){
   /* 2.90（老板夜间令 B10/C7）：接服务端 rcpt 的 ④ 终态——done 完成 / fail 失败
      （失败如实显示服务端 msg；配对按真 DID，见 事件总线.js onRcpt）。 */
   if (p.state === 'done')    return ['✅ 服务器已完成，等待聊天记录浮现…', 'ok'];
+  /* 2.178 Y26：done 超 15s 正文还没浮现 → 灰态降级（不再让人对着「已完成」
+     干等；卡还在＝销卡三渠道都没命中，允许手动丢弃/重发）。 */
+  if (p.state === 'stale')   return ['已送达（未同步显示），可丢弃或重发', 'gray'];
   if (p.state === 'fail')    return ['⚠ 服务器执行失败：'
                                     + (p.failMsg || '未知原因'), 'bad'];
   /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
@@ -181,6 +184,11 @@ function renderPending(){
    到期仍未销卡才转「⚠ 可能未送达」（卡片绝不早撤）。 */
 const PEND_DID_TMO = 24 * 3600 * 1000;
 
+/* 2.178 Y26（连发占位滞留）：rcpt done 超 15s 正文仍未浮现 → 降级灰态
+   stale「已送达（未同步显示）」，允许手动清除；真消息入流（DID 命中）时
+   pendLandingScan 照常销卡，灰态只是降级显示、不改销卡判据。 */
+const PEND_DONE_STALE_MS = 15000;
+
 /* v2.82：按 DID 撤卡——命中本卡 did 即撤（可选按会话名 conv 收紧，防跨会话
    误销）。返回 true 表示有变化需重画。 */
 function pendClearByDid(did, conv){
@@ -220,6 +228,54 @@ function pendLandingScan(msgs, pendArr){
   return ch;
 }
 
+/* ============ 2.178 Y24：锚定不一致对账提示（前端侧·与 S1 联动） ============
+   快照帧每拍回报「服务端桌面当前选中会话」（v.selSid / v.pend_sid → liveKey，
+   与 S.anchorSid 同为稳定键口径）。与本地锚定不一致【持续 10s】→ 底部出
+   可点击胶囊「点此对齐」；点击复用 switch 链路（pendSwitchSet）以服务端
+   选中为准重锚（服务端本就在那，switch 幂等，快照落地后自然一致并撤条）。
+   切换在途（S.switch_pend）豁免——那是我们自己正在切，不是错位。 */
+const ANCH_MIS_TMO = 10000;
+let _anchMis = {key: '', t0: 0};
+(function(){   /* 胶囊样式一次注入（swhint 在顶部，本条放底部避开） */
+  const s = document.createElement('style');
+  s.textContent = '#anchint{position:fixed;left:50%;bottom:calc(64px + env(safe-area-inset-bottom));'
+    + 'transform:translateX(-50%);z-index:99997;background:rgba(243,156,18,.95);color:#fff;'
+    + 'font-size:13px;padding:8px 14px;border-radius:999px;box-shadow:0 2px 10px rgba(0,0,0,.25);'
+    + 'cursor:pointer;max-width:86%;text-align:center;display:none;}';
+  document.head.appendChild(s);
+})();
+function anchorMismatchTick(liveKey, srvTitle, srvSid){
+  const _mis = !!(liveKey && S.anchorSid
+                  && liveKey !== S.anchorSid && !S.switch_pend);
+  if (!_mis){
+    _anchMis = {key: '', t0: 0};
+    const _old = document.getElementById('anchint');
+    if (_old) _old.style.display = 'none';
+    return;
+  }
+  if (_anchMis.key !== liveKey) _anchMis = {key: liveKey, t0: Date.now()};
+  if (Date.now() - _anchMis.t0 < ANCH_MIS_TMO) return;   /* 不满 10s 先忍着 */
+  let d = document.getElementById('anchint');
+  if (!d){   /* 首次出错位才建（脚本加载时 body 未必就绪，不抢在 IIFE 里建） */
+    d = document.createElement('div');
+    d.id = 'anchint';
+    d.onclick = function(){
+      const _v = S.snap || {};
+      const _sid = (typeof selSidOf === 'function' ? selSidOf(_v) : '') || srvSid || '';
+      const _tt = (typeof selTitleOf === 'function' ? selTitleOf(_v) : '') || srvTitle || '';
+      if (!_sid && !_tt) return;
+      _anchMis = {key: '', t0: 0};
+      d.style.display = 'none';
+      pendSwitchSet(_tt, _sid, _sid, {lockTarget: true});   /* 复用 switch 链路重锚 */
+      flash('正在对齐：以服务器选中的会话为准…', 'var(--blue)');
+    };
+    document.body.appendChild(d);
+  }
+  d.style.display = 'block';
+  d.textContent = '⚠ 页面选中与服务器选中（' + (srvTitle || '未知会话')
+                + '）不一致，点此对齐';
+}
+
 /* 占位卡生命周期检查（快照到达/定时巡检调用）。
    v2.82：销卡**不再走 did_ack**（该回执整条作废）——销卡只认 ①本会话快照
    抓到首行 DID ②服务端 did_pool 池子（见 事件总线.js）。本函数只剩两件事：
@@ -240,6 +296,12 @@ function pendReconcile(_msgs){
     const _age = now - (p.ts || now);
     if (p.state !== 'timeout' && _age > PEND_DID_TMO){
       p.state = 'timeout';
+      changed = true;
+    }
+    /* 2.178 Y26：done 超 15s 未落地 → 转灰态 stale（主路在 事件总线.js
+       onRcpt 的 setTimeout；这里兜底——后台定时器被节流/丢卡重挂时也能转）。 */
+    if (p.state === 'done' && p.doneAt && now - p.doneAt > PEND_DONE_STALE_MS){
+      p.state = 'stale';
       changed = true;
     }
     /* 本专项 C3/R7：卡所属对话已不存在 → 卡片不消失，只弹一次提醒
