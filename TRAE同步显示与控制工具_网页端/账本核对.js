@@ -29,7 +29,8 @@
      全量保留，新旧并行，联调期互为兜底）。 */
 const LS_LBVER = 'trae_webm_lbver';          /* 版本底账落盘（按服务端隔离） */
 let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
-          frozen: false, frozenT: null};     /* frozen＝切换期间核对冻结（追加单 2026-11-18，取代 20s 叠加） */
+          frozen: false, frozenT: null,      /* frozen＝切换期间核对冻结（追加单 2026-11-18，取代 20s 叠加） */
+          lbHave: new Set()};                /* V2 验收 Y11：本地【真存】会话集合——ledger 上报只认它，收帧记下的版本不算存 */
 let lbLastAct = Date.now();                  /* 离线倒计时锚点（任意操作重置） */
 let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默认关，追加单 2026-11-18） */
 
@@ -45,6 +46,24 @@ function lbVerLoad(){
     const o = JSON.parse(localStorage.getItem(LS_LBVER) || '{}') || {};
     LB.mods = o[lbSrvKey()] || {};
   } catch(e){ LB.mods = {}; }
+  if (!LB.mods.ledger) LB.mods.ledger = {};
+  LB.lbHave = new Set();                     /* 换服务端/重登：真存集按当前服务端重算 */
+  lbHaveLoad();
+}
+/* V2 验收 Y11（2026-11-18）：开机异步预载 IDB ledger_conv → LB.lbHave。
+   「版本底账（LB.mods.ledger，服务端下发过什么）」与「本地真存（IDB 里
+   实际留着谁）」是两本账：mod ledger 收帧只记版本、可能没落盘成功；清理
+   （lbCleanGone/14 天过期）删了盘但版本底账还在。上报若只看版本底账，
+   就会替已经不存在的本地账本申报版本（only1 判定被污染）。 */
+function lbHaveLoad(){
+  try {
+    _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
+      (rows || []).forEach(rec => {
+        if (rec && rec.srv === lbSrvKey() && rec.sid != null)
+          LB.lbHave.add(String(rec.sid));
+      });
+    }).catch(() => {});
+  } catch(e){}
 }
 function lbVerSave(){
   try {
@@ -72,6 +91,13 @@ function ledgerVcheckBuild(act, sid){
   });
   const led = {};
   Object.keys(b.ledger || {}).forEach(k => { led[k] = b.ledger[k]; });
+  /* V2 验收 Y11（2026-11-18）：ledger 上报只认【本地真存】（LB.lbHave）——
+     版本底账里记了但 IDB 已不存在（清理/落盘失败）的会话绝不代报，防
+     only1 判定被污染；真存有而版本底账缺（快照路攒下的轮次）补报 '0'
+     让服务端决定是否补发。 */
+  const _have = (LB.lbHave instanceof Set) ? LB.lbHave : new Set();
+  Object.keys(led).forEach(k => { if (!_have.has(String(k))) delete led[k]; });
+  _have.forEach(k => { if (!(k in led)) led[k] = '0'; });
   mods.ledger = led;                       /* ledger 按「本地留有的会话」逐会话上报 */
   const d = {t: 'vcheck', act: act, mods: mods, req_seq: ++LB.reqSeq};
   if (sid) d.sid = String(sid);
@@ -239,7 +265,10 @@ function ledgerMod(d){
       ledgerStoreApply(d.sid, body, v);
       break;
     case 'think':                          /* 思维流快照＋排队条（TRAE 专属，E2/N1） */
-      ledgerThinkApply(d.sid, body);
+      /* V2 验收 Y9（2026-11-18）：think 帧归属按 d.sel 优先——服务端 think
+         模块按「桌面当前选中」下发并在 sel 带归属 sid，d.sid 只是收帧通道
+         语义；优先 sel 才不会把别会话的思维流错挂到当前锚定。 */
+      ledgerThinkApply(d.sel || d.sid, body);
       break;
   }
 }
@@ -260,6 +289,8 @@ function ledgerThinkApply(sid, body){
     S.snap.pend = mine;
     S.snap.pend_sid = String(b.pend_sid || sid || '');
     S.convs_key = null;
+    /* Y5：排队条到达即扫销卡（渠道③）——消息一进官方队列就算已发出 */
+    if (typeof pendLandingScan === 'function') pendLandingScan(null, mine);
     if (typeof _liveLockOn !== 'function' || !_liveLockOn()) renderAll();
   }
   /* 整屏快照上屏判定（S1 裁定·2026-11-18）：模块化模式下服务端【不再有】
@@ -313,6 +344,9 @@ function lbRoundsFromMsgs(msgs){
 function ledgerStorePut(sid, title, rounds, opt){
   try {
     opt = opt || {};
+    /* Y11：真存记账收口在此单点——ledgerStoreApply（mod ledger 收帧）与
+       ledgerOnSnap（快照路落盘）两条路都经这里，Set 重复 add 无害。 */
+    if (sid != null) LB.lbHave.add(String(sid));
     const sk = lbKey(sid), now = Date.now();
     const rs = (rounds || []).slice(-lbRounds());          /* H1：只留最新 N 轮 */
     _idbReq('ledger_conv', 'readonly', st => st.get(sk)).then(rec => {
@@ -392,8 +426,10 @@ function lbCleanGone(){
   _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
     (rows || []).forEach(rec => {
       if (!rec || rec.srv !== lbSrvKey()) return;
-      if (!keep.has(String(rec.sid)) && !keep.has(String(rec.title || '')))
+      if (!keep.has(String(rec.sid)) && !keep.has(String(rec.title || ''))){
+        LB.lbHave.delete(String(rec.sid));   /* Y11：盘删了真存集同步减，绝不代报 */
         _idbReq('ledger_conv', 'readwrite', st => st.delete(rec.sk)).catch(() => {});
+      }
     });
   }).catch(() => {});
 }
@@ -404,8 +440,10 @@ function lbCleanStale(){
   _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
     (rows || []).forEach(rec => {
       if (!rec || rec.srv !== lbSrvKey()) return;
-      if ((rec.lastView || 0) && rec.lastView < cut)
+      if ((rec.lastView || 0) && rec.lastView < cut){
+        LB.lbHave.delete(String(rec.sid));   /* Y11：过期清盘同步减真存集 */
         _idbReq('ledger_conv', 'readwrite', st => st.delete(rec.sk)).catch(() => {});
+      }
     });
   }).catch(() => {});
 }
@@ -421,7 +459,11 @@ setInterval(() => {
     if (!LB.timerAt) LB.timerAt = now + lbPeriodMs();
     if (now >= LB.timerAt){
       LB.timerAt = now + lbPeriodMs();
-      ledgerVcheckSend('timer');           /* 本质＝自动化强核对（同一构造函数） */
+      /* V2 验收 Y9（2026-11-18）：timer 核对也带锚定 sid——服务端按 sid
+         定位「网页端正在看哪个会话」，缺 sid 时服务端只能猜（拿桌面当前
+         选中顶上），锚定≠桌面选中时会核错对象。 */
+      ledgerVcheckSend('timer', S.anchorFull
+        || (typeof curSid === 'function' ? curSid() : '') || '');
       setTimeout(() => { LB.checking = false; }, 5000);   /* 防旧服务端无回帧卡旗标 */
     }
   } catch(e){ LB.checking = false; }
