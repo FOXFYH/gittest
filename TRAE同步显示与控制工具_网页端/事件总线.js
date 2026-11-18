@@ -123,6 +123,12 @@ function onEv(kind, v){
       let _penMine;
       if (!_penArr.length){
         _penMine = true;
+      } else if (_penArr.some(it => it && typeof it === 'object' && it.sid != null)){
+        /* 账本V1.0（N4 根治串显）：项级 sid 为准——逐条过滤，只留当前锚定
+           会话的条目；顶层 pend_sid 仅兜底。pendItemMine（账本核对.js）
+           true=本会话 / false=别会话 / null=无项级 sid（宁可不画不留残影）。 */
+        v.pend = _penArr.filter(it => pendItemMine(it) === true);
+        _penMine = v.pend.length > 0;
       } else if (!_penOwner || !_curSidNow){
         _penMine = _penArr.some(it => {
           const _pd = pendDidOf(it && it.t);
@@ -185,7 +191,9 @@ function onEv(kind, v){
         if (_d) pendClearByDid(_d, _ct);
       });
       if (_penMine) (v.pend || []).forEach(it => {   /* ③ 官方排队条（限本会话） */
-        const _d = pendDidOf(it && it.t);
+        /* 账本V1.0（N3）：新格式条目身份标识在 id 字段（界面隐藏不展示），
+           旧格式仍从文本首行取 DID——两形态都进销卡渠道③。 */
+        const _d = pendDidOf(it && it.t) || (it && it.id) || '';
         if (_d) pendClearByDid(_d, _ct);
       });
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
@@ -252,9 +260,14 @@ function onEv(kind, v){
                           {lockTarget: true, deferRender: true});
             snapIdbShow(S.anchorSid, S.anchorTitle || '');
             sendCmd('switch', S.anchorFull);
+            /* 账本V1.0：刷新/重开＝自己切自己，同样走 switch 强核对（I1） */
+            if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull);
           } catch(e){}
         } else if (S.anchorFull && S.anchorSid && _aSel && _aSel !== S.anchorSid){
-          try { sendCmd('switch', S.anchorFull); } catch(e){}
+          try {
+            sendCmd('switch', S.anchorFull);
+            if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull);
+          } catch(e){}
         }
         /* 3.03（老板 2026-11-05 23:49「一直显示已提交排队中」）：这里只【静默】
            向服务端要一次全额帧——绝不再走 paneRefreshNow（它挂 srvOp 用户提示，
@@ -265,6 +278,9 @@ function onEv(kind, v){
       /* 2.98（标准§二之一「不是等刻度」）：新快照到达即触发一次落盘检查——
          距上次落盘已满 10 秒就立刻落（不必等 10 秒轮询那一拍）。 */
       if (typeof snapIdbTick === 'function') snapIdbTick();
+      /* 账本V1.0（H1/H8）：本地账本落盘（只留最新 N 轮）+ 触碰 lastView；
+         真快照正文到手 → 历史补发折叠面板退场（账本核对.js）。 */
+      try { if (window.ledgerOnSnap) ledgerOnSnap(); } catch(e){}
       break;
     }
     case 'profiles': {
