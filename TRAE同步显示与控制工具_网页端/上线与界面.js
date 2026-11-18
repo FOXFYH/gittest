@@ -30,6 +30,8 @@ function onHello(d){
     }
   }
   S.alive = new Set(d.alive || []);
+  /* 2.173：hello 帧带来的 boxes/acct 已落 S → 固态兜底写回（断网冷开也显） */
+  try { if (typeof solidSave === 'function') solidSave(); } catch(e){}
   if (d.points && d.points !== '—'){
     S.points = d.points;
     el.points.textContent = '积分 ' + d.points;
