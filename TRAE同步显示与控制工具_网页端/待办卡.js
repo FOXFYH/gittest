@@ -297,10 +297,23 @@ function anchorCheck(){
     d.style.display = 'none';
   };
   d.style.display = 'block';
-  d.textContent = itMis
-    ? ('⚠ 末次点击「' + (itv.title || '目标会话') + '」未生效（服务器还停在 '
-       + (S.anchorTitle || _anchSrv.title || '原会话') + '），点此重试')
-    : ('⚠ 页面选中与服务器选中（' + (_anchSrv.title || '未知会话') + '）不一致，点此对齐');
+  if (itMis){
+    d.textContent = '⚠ 末次点击「' + (itv.title || '目标会话') + '」未生效（服务器还停在 '
+                  + (S.anchorTitle || _anchSrv.title || '原会话') + '），点此重试';
+  } else {
+    /* 2.180 Y33（低优·只改文案不动逻辑）：srv 路触发但末次点击意图仍新鲜
+       （<60s）且≠服务端选中 → 按 ST 报告§八口径改说「末次点击未生效」
+       （用户视角：刚点完的会话没跟上）；无新鲜意图才用原「页面选中与服务器
+       选中不一致」。点击行为维持不变（srv 路仍以服务端选中为准重锚）。 */
+    const itv0 = S.pendIntent;
+    const itFresh = !!(itv0 && itv0.key && itv0.key !== _anchSrv.key
+                       && now - itv0.t < 60000);
+    d.textContent = itFresh
+      ? ('⚠ 末次点击「' + (itv0.title || '目标会话') + '」未生效（服务器还停在 '
+         + (_anchSrv.title || '原会话') + '），点此重试')
+      : ('⚠ 页面选中与服务器选中（' + (_anchSrv.title || '未知会话')
+         + '）不一致，点此对齐');
+  }
 }
 setInterval(anchorCheck, 2000);
 
@@ -521,14 +534,30 @@ function pendSwitchSet(title, sid, ref, opt){
     S.switch_pend.ts = Date.now();
     S.switch_pend.sid = sid || S.switch_pend.sid;
     if (ref !== undefined) S.switch_pend.ref = ref;
+    /* 2.180 Y31（次因）：同目标复用旧 sp——只有本端主动动作（opt.lockTarget：
+       点击会话行/开机锚定）才算「新一轮意图」，重置 ts0 重排 90s 死线；
+       服务端广播回显（事件总线.js 调用不带 lockTarget）绝不刷 ts0，否则
+       绝对死线防续命设计被架空（15s 补发只要持续回显就能永活）。 */
+    if (opt && opt.lockTarget){
+      S.switch_pend.ts0 = Date.now();
+    }
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
-    switchReArm();                      /* v2.67：重置补发/超时 */
+    switchReArm();                      /* v2.67：重置补发/超时（ts0 只重排，绝不延长） */
     return;
   }
   /* 2.89（老板 2026-10-20）：网页端自己点会话切换时带 opt——
        lockTarget=true：切换过渡期锁死目标（正文一律以目标帧为准，见 缓存.js
                         _liveLockOn / 事件总线.js）；
        prevAnchor/prevMsgs：切换前的锚定与正文，失败时回退用（见 switchClear）。 */
+  /* 2.180 Y31（高危·ST 实测第二/三次切换 49.21s/12.75s 误收口）：换目标把
+     S.switch_pend 整体替换前，必须先清旧 sp 的三只定时器——旧 90s 死线
+     timer 存活到点后，switchTimeout 读的是【当前】S.switch_pend（新 pend）
+     ⇒ 把新一轮切换误杀。与 switchAbort（:499-507）同款收口。 */
+  if (S.switch_pend){
+    clearTimeout(S.switch_pend._resendT);
+    clearTimeout(S.switch_pend._tmoT);
+    clearTimeout(S.switch_pend._okT);
+  }
   S.switch_pend = {title: title, sid: sid,
                    ref: (ref !== undefined ? ref : (sid || 0)),
                    ts: Date.now(), fp0: msgsFp(S.snap.msgs),
