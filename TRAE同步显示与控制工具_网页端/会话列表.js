@@ -52,6 +52,16 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
      （真实信号；列表标题在指纹里，改名必致 key 变化 → 必到这里）。 */
   renameScanRows(rows);
   el.convs.innerHTML = '';
+  /* 2.174（B5-b 空落盘最小骨架）：列表为空时给出空态行——不白屏不死等，
+     抽屉/设置页/输入框照常可操作，连上服务器后快照到达自动覆盖。 */
+  if (!rows.length){
+    const d = document.createElement('div');
+    d.className = 'convo';
+    d.style.cssText = 'color:var(--gray,#8a98a6);font-size:13px;text-align:center;padding:18px 10px;';
+    d.textContent = '（暂无本地缓存会话——连上服务器后自动载入）';
+    el.convs.appendChild(d);
+    return;
+  }
   let inFolder = false, idx = 0;
   /* 1.31：按位取值（兼容旧 3 元组）——r[3]=状态灯 run/done/fail/stop/''
      v1.95：r[4]=会话稳定 ID（缺失则回退标题锚定） */
