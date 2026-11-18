@@ -121,6 +121,16 @@ function ensureConnect(){
   clearTimeout(reconnectTimer);
   connect();
 }
+/* 2.181 Y32a：系统网络恢复事件 → 立即重连。Y25 时代把它当「在线判据」不可靠，
+   但当【恢复触发】低风险高收益：真恢复立连；假信号最多白连一次，败绩照旧退避重建。
+   顺序讲究：先清 failStreak 再 ensureConnect——否则连败停摆态（streak>=MAX）
+   会被 ensureConnect 的上限卫兵早退，恢复信号白来。 */
+addEventListener('online', function(){
+  try { diagLog('系统网络恢复事件 → 立即尝试重连', 'dim'); } catch(e){}
+  S.failStreak = 0;                      /* 连败停摆是断网期攒的，恢复信号到达即清；网络仍坏会重新攒 */
+  clearTimeout(reconnectTimer); reconnectTimer = null;
+  ensureConnect();
+});
 
 function sendHello(){
   /* 握手重试：浏览器 WS 握手完成瞬间立即发的第一条消息可能落在
