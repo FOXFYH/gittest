@@ -13,7 +13,7 @@ function checkVerBump(){
   if (bumped){
     try { localStorage.removeItem(LS_SKEL);
           localStorage.removeItem(LS_HIST); } catch(e){}
-    try { snapIdbClearAll(); } catch(e){}
+    try { snapIdbClearList(); } catch(e){}   /* 2.17：只清列表骨架，预备画面保留 */
     _lsPurgeSnapKeys();
     S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histPrevRaw = [];
     /* 2.130：换代 → 内存存帧一并作废，再按新键重新全量预读 */
@@ -26,7 +26,7 @@ function checkVerBump(){
   cacheKey = k;
   /* 2.130：缓存键定了（首次 hello 带 srvVer）→ 全部会话存帧预读进内存 */
   try {
-    if (bumped) snapIdbClearAll().then(() => snapIdbPrewarm(k));
+    if (bumped) snapIdbClearList().then(() => snapIdbPrewarm(k));
     else snapIdbPrewarm(k);
   } catch(e){}
 }
@@ -60,6 +60,91 @@ function skelCacheLoad(){
     if (!o || o.key !== cacheKeyNow()) return null;
     return o;
   } catch(e){ return null; }
+}
+/* —— 固态兜底（2.173「打开即活」，老板 2026-11-18 亲批最核心灵魂）——
+   盘点结论：会话列表（LS_SKEL）/对话内容（IDB snap_conv 预读秒显）/多电脑名册
+   （loadSrvs）已固态；但【备注/定时消息/模型列表/沙盒分身下拉/登录账号/排队条】
+   六类打开时是空的，全等服务端帧才渲染（软塌塌启动）。本层把最后已知值落盘，
+   打开瞬间同步恢复上屏，后台对账到达后照常覆盖——错后报：基于过期数据操作
+   照走既有服务端权威对账，绝不加启动期校验拖延可用时间。 */
+const LS_SOLID = 'trae_webm_solid';        /* 固态兜底（六模块最后已知值） */
+let solidLastSave = 0;
+function solidSave(){
+  /* 从 S 全量提取，幂等；2 秒节流。调用点＝renderAll 末尾 + onHello + models 帧。 */
+  const now = Date.now();
+  if (now - solidLastSave < 2000) return;
+  solidLastSave = now;
+  try {
+    const o = {key: cacheKeyNow(), ts: now,
+               备注: S.备注 || {},
+               定时: S.定时 || [],
+               models_full: S.models_full || [],
+               boxes: S.boxes || [],
+               acct: S.acct || '',
+               model: (S.snap && S.snap.model) || '',
+               pend: (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend : [],
+               pend_sid: (S.snap && S.snap.pend_sid) || ''};
+    localStorage.setItem(LS_SOLID, JSON.stringify(o));
+  } catch(e){}
+}
+function solidLoad(){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SOLID) || 'null');
+    if (!o || o.key !== cacheKeyNow()) return null;
+    return o;
+  } catch(e){ return null; }
+}
+function solidBoot(){
+  /* 打开瞬间同步恢复（零等待）：S 全局状态 + 各下拉/账号行；排队条恢复进
+     S.snap.pend（条目项级 sid 过滤与 N4 归属判定天然生效，非本会话条不显示）。
+     之后任何服务端帧到达照常覆盖（对账），恢复值绝不拦截任何操作（错后报）。 */
+  const d = solidLoad();
+  if (!d) return;
+  try { S.备注 = (d.备注 && typeof d.备注 === 'object') ? d.备注 : {}; } catch(e){}
+  try { if (Array.isArray(d.定时)) S.定时 = d.定时; } catch(e){}
+  try {
+    if (Array.isArray(d.models_full) && d.models_full.length){
+      S.models_full = d.models_full;
+      if (typeof rebuildModelOptions === 'function') rebuildModelOptions();
+      if (typeof checkFavInvalid === 'function') checkFavInvalid();
+    }
+  } catch(e){}
+  try {
+    if (Array.isArray(d.boxes) && d.boxes.length && !S.boxes.length){
+      S.boxes = d.boxes.filter(Boolean);
+      el.box.innerHTML = '';
+      S.boxes.forEach(b => {
+        const o = document.createElement('option');
+        o.value = b; o.textContent = b;
+        el.box.appendChild(o);
+      });
+    }
+  } catch(e){}
+  try { if (d.acct){ S.acct = String(d.acct); renderAcct(); } } catch(e){}
+  try { if (d.model && typeof syncModel === 'function') syncModel(d.model); } catch(e){}
+  try {
+    if (Array.isArray(d.pend) && d.pend.length){
+      if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+      if (!S.snap.pend) { S.snap.pend = d.pend; S.snap.pend_sid = d.pend_sid || ''; }
+    }
+    /* 2.173：最后已知模型值灌进 S.snap.model——否则 renderState 读
+       snap.model 空 → syncModel('') 插「（模型未知）」占位盖掉恢复值。 */
+    if (d.model && (!S.snap.model)) S.snap.model = d.model;
+  } catch(e){}
+  /* 骨架灌入 S.snap：冷开 S.snap={} 时 renderAll→renderConvs([]) 会把
+     boot 已铺的骨架列表清空（断网等不到快照一直空）——把 LS_SKEL 的
+     convs/未读灌入，保证「打开即活」列表常驻（快照到达后照常覆盖）。 */
+  try {
+    const sk = (typeof skelCacheLoad === 'function') ? skelCacheLoad() : null;
+    if (sk && Array.isArray(sk.convs) && sk.convs.length){
+      if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+      if (!Array.isArray(S.snap.convs) || !S.snap.convs.length){
+        S.snap.convs = sk.convs;
+        S.snap.conv_unread = sk.conv_unread || [];
+        S.snap.conv_unread_ids = sk.conv_unread_ids || [];
+      }
+    }
+  } catch(e){}
 }
 /* 2.59 的「只留最近 3 轮」口径已于 2.126 全部删除（老板 2026-10-23）。 */
 /* 2.126（老板 2026-10-23 08:22「三轮给我删掉，只保留一份最新、完整、只进不退」）：
@@ -169,8 +254,8 @@ function applyHist(conv, v){
   }
   S.histHave = S.histRaw.length
     ? S.histRaw[S.histRaw.length - 1].seq : 0;
-  /* 2.126：整段原样保留，不再裁 3 轮。 */
-  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
+  /* 2.126：整段原样保留，不再裁 3 轮。
+     3.00：不再写本地账本副本（LS_HIST 已废）。 */
   renderAll();
 }
 function prependHist(conv, older, end){
@@ -194,7 +279,7 @@ function prependHist(conv, older, end){
   const _addP = older.filter(r => !_haveP.has(r.seq));
   S.histPrevRaw = _addP.concat(S.histPrevRaw);
   S.histMsgs = S.histRaw.map(ledToArr);
-  histCacheWrite(conv, S.histVer, S.histHave, S.histRaw);
+  /* 3.00：不再写本地账本副本（LS_HIST 已废） */
   renderAll();
   /* 2.85：按「增量」还原阅读位置。旧写法 `scrollTop = 新height - 旧height`：
      ①用户在中间读（t0>0）时被硬拽回相对顶部（新-旧往往很小甚至为 0）；
@@ -213,14 +298,11 @@ function ensureHist(){
   S.histMsgs = null; S.histRaw = []; S.histPrevRaw = []; S.histVer = 0; S.histHave = 0;
   S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;   /* 2.49：换会话重置到底标记/游标 */
-  const c = histCacheRead(title);
-  if (c){                                       /* 本地秒显历史 */
-    S.histRaw = c.msgs.slice();
-    S.histMsgs = c.msgs.map(ledToArr);
-    S.histVer = c.ver | 0; S.histHave = c.have_seq | 0;
-  }
-  renderAll();                                  /* 秒显（快照未到达前） */
-  reqHist(title, S.histHave, S.histVer);        /* 游标增量补新/重建 */
+  /* 3.00（老板 2026-11-05 23:10）：正文只认「快照 + 预备画面」——
+     不再读本地账本副本（LS_HIST 已废），也不再拿账本秒显。
+     这里只发一次 hist 请求取「账本游标(seq)」，供用户上顶时翻更早页。
+     （不发渲染、不落盘；快照到位前由预备画面顶住。） */
+  reqHist(title, 0, 0);
 }
 /* 2.112（X2-2/X2-4）：正式 mid＝十六进制串（前 8 位＝Unix 秒）；`temp-agent-…`
    这类非 hex 一律视为「生成期临时号」，不得当正式身份参与去重/对齐/排序。 */
@@ -321,100 +403,34 @@ function _swSnapIsTargetNow(sp){
       && !sameConvBody(sm, sp.prevMsgs));
 }
 function curMsgs(){
-  /* 2.106（A4·老板 17:29「切走即弃旧」）：切换在途、目标正文尚未到达 ⇒ 一律不再以
-     旧会话 S.snap.msgs／本地账本为骨架拼正文（切断对「要离开的会话 A」的回落）；
-     正文改由 renderAll 的「目标落地快照」分支顶出（无则留白）。livePend/切换在途皆属此列。 */
+  /* 3.00（老板 2026-11-05 23:10）：正文唯一来源＝
+     ① 服务端真快照（S.snap.msgs，内存，不落盘）；
+     ② 用户上顶翻出来的更早一页（S.histPrevRaw，账本给的历史）。
+     本地账本副本（S.histMsgs / LS_HIST）彻底退出屏幕，不再抢位置、不再补尾。 */
   const _sp = S.switch_pend;
   if ((S.livePend || (_sp && _sp.lockTarget && !_sp.arrived))
       && !_swSnapIsTargetNow(_sp)) return [];
-  /* 2.54：快照为权威尾部，账本只补更早。原实现（2.49）在账本比快照长时以账本为骨架，
-     账本里的重复/乱序行会让「连续多条 AI 回答而无对应问句」上屏（无头回复）。
-     改为：在账本里从后往前找与快照首行同键的位置 cut，账本 [0,cut) 视为更早历史拼在
-     快照之前；找不到或就在开头则只用快照（宁缺不乱）。 */
-  const snapMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null;
-  const led = (S.histMsgs && S.histMsgs.length) ? S.histMsgs : null;
-  /* 2.112（X2-1/X2-3）：任何返回路径都必须走同一条「严格全序」排序，
-     绝不让「没有账本」或「只有账本」的会话按出现顺序乱插。 */
-  if (!led) return orderMsgs(snapMsgs || []);
-  if (!snapMsgs || !snapMsgs.length) return orderMsgs(led);
-  /* 2.89（老板 2026-10-20 紧急）：账本「补尾」收紧为**只补不删**——旧 2.88 在
-     账本尾部时间更晚时直接 `return led.slice()`，会把快照里存在、账本里缺失的行
-     （尤其 AI 行——账本只记终答、常缺 AI 行）整段抹掉 ⇒ 页面「AI 行突然消失」。
-     现一律以快照为骨架：账本只 **补更早**（与快照首行对齐点之前的行）＋ **补缺失的
-     新行**（快照尾部之后、账本里有而快照没有的），绝不删除快照已有的行。两边时间
-     取各自末行：快照行第 6 位（index 5）、账本行第 3 位（index 2）。 */
-  const k0 = _msgKey(snapMsgs[0]);
-  let cut = -1;
-  for (let i = led.length - 1; i >= 0; i--){
-    if (_msgKey(led[i]) === k0){ cut = i; break; }
-  }
-  /* 账本与快照首行对齐点之前的行＝更早历史，拼在快照之前；对齐不上（或就在
-     开头）则只用快照（宁缺不乱）。 */
-  /* 2.104（老板 2026-10-20 13:37「**最新的人问与 AI 答确实传到网页版了，但没传到正确位置**；
-     你赋予了手机网页版自由，它自己拼贴老消息去抢位置」）：**取消"账本更早段前置拼贴"**——
-     正文**一律以快照（＝本地/权威帧，也就是原版人眼可见的那几条）为准**，账本**只在
-     "快照尾部之后有新行"时追加**（不前置、不抢位置）；位置最终由 2.103 的「按 mid 时间升序」兜底。 */
-  /* 2.112（X2-2）：两源先去重前统一「临时号 → 正式 mid」——否则同一行（快照里还是
-     `temp-agent-…`、账本里已是正式 mid）会因身份不同而被当成两条重复追加。 */
-  _midCollect(snapMsgs); _midCollect(led);
-  const snapP = _midPromote(snapMsgs.slice());
-  const ledP  = _midPromote(led.slice());
-  let out = snapP.slice();
-  /* 2.129（老板 2026-10-24「上顶加载历史现在不通」）：把用户显式翻出来的更早页
-     前置到正文顶部。2.104 取消的是「普通 hist 增量把账本更早段抢着拼进来」，
-     不包括用户主动上顶取回的分页——那一页必须上屏，否则请求成功也看不到。
-     只按 mid／身份指纹与已有正文去重，绝不重复、不覆盖快照。 */
+  const snapMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs.slice() : [];
   const prevRaw = (S.histPrevRaw && S.histPrevRaw.length) ? S.histPrevRaw : [];
-  if (prevRaw.length){
-    const prevArr = prevRaw.map(ledToArr);
-    _midCollect(prevArr);
-    const prevP = _midPromote(prevArr);
-    const haveMid = new Set(), haveKey = new Set();
-    for (const m of out){
-      const id = String((m && m[6]) || '');
-      if (id) haveMid.add(id);
-      haveKey.add(_msgKey(m));
-    }
-    const pre = [];
-    for (const m of prevP){
-      const id = String((m && m[6]) || '');
-      if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
-      if (id) haveMid.add(id);
-      haveKey.add(_msgKey(m));
-      pre.push(m);
-    }
-    if (pre.length) out = pre.concat(out);
+  if (!prevRaw.length) return orderMsgs(snapMsgs);
+  const prevArr = prevRaw.map(ledToArr);
+  _midCollect(snapMsgs); _midCollect(prevArr);
+  const outP = _midPromote(snapMsgs), prevP = _midPromote(prevArr);
+  const haveMid = new Set(), haveKey = new Set();
+  for (const m of outP){
+    const id = String((m && m[6]) || '');
+    if (id) haveMid.add(id);
+    haveKey.add(_msgKey(m));
   }
-  /* 补缺失的新行：账本尾部时间晚于快照尾部时，只【追加】快照里没有的账本行
-     （2.105 起按 mid 优先去重），不覆盖、不删除快照已有的行。 */
-  const snapTail = String((snapP[snapP.length - 1] || [])[5] || '');
-  const ledTail  = String((ledP[ledP.length - 1] || [])[2] || '');
-  if (snapTail && ledTail && ledTail > snapTail){
-    /* 2.105（②·老板 2026-10-20：A 组 0001 网页端比原版多 1 行）：「角色+正文指纹(前24字)」
-       在正文被截断/微改时对不上 ⇒ 同一 AI 终答被重复追加。改为【按 mid（index6）优先去重、
-       _msgKey 兜底】——mid 是消息唯一身份，命中即视为已有（绝不产生重复行）；仍只【追加】、
-       绝不删除/覆盖快照已有行；追加过程中同批账本行也据同一集合互相去重。 */
-    const haveMid = new Set(), haveKey = new Set();
-    for (const m of out){
-      const id = String((m && m[6]) || '');
-      if (id) haveMid.add(id);
-      haveKey.add(_msgKey(m));
-    }
-    const add = [];
-    for (const m of ledP){
-      if (!(String(m[2] || '') > snapTail)) continue;
-      const id = String((m && m[6]) || '');
-      if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
-      if (id) haveMid.add(id);
-      haveKey.add(_msgKey(m));
-      add.push(m);
-    }
-    if (add.length) out = out.concat(add);
+  const pre = [];
+  for (const m of prevP){
+    const id = String((m && m[6]) || '');
+    if ((id && haveMid.has(id)) || haveKey.has(_msgKey(m))) continue;
+    if (id) haveMid.add(id);
+    haveKey.add(_msgKey(m));
+    pre.push(m);
   }
-  /* 2.103（老板 2026-10-20 13:36）：网页端不得自行决定顺序——一律按系统 ID（mid）
-     的时间升序排。2.112（X2-1/X2-3）：改为**严格全序**——无 mid 的行统一置顶并标
-     「时间未知」（见 orderMsgs），绝不让它抢「最新」的位置。仍只【追加】、不删行。 */
-  return orderMsgs(out);
+  return orderMsgs(pre.length ? pre.concat(outP) : outP);
 }
 
 /* ========== 1.90：文本转语音小卡片 ========== */
@@ -431,7 +447,7 @@ function curMsgs(){
    长期固定项与账本历史 LS_HIST（快照绝不进 localStorage）。
    秒显：点会话直接从内存取本地最新完整存帧立刻整屏铺上（2.130 起不再出任何
    等待提示条）；IDB 打不开则静默降级，绝不阻断主流程。 */
-const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
+const IDB_NAME = 'trae_webm_idb', IDB_VER = 2;   /* 账本V1.0：升 2 增 ledger_conv 表（本地账本，账本核对.js） */
 const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
 /* 2.126：WEB_ROUNDS_KEEP 已删除（三轮口径作废，快照与账本一律整帧原样）。 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
@@ -445,10 +461,10 @@ const _idbLastAtBy = {}, _idbLastFpBy = {};
    2.130：新增标题索引 _frameMemByTitle（键＝cacheKey|标题）——存帧里 sid 与点击时的
    稳定键对不上（改名/非数字 SID）时仍能同步命中；并在打开页面时全量预读进内存。 */
 const _frameMem = {}, _frameMemByTitle = {};
-function _frameMemKey(sid){ return cacheKeyNow() + '|' + sid; }
+function _frameMemKey(sid){ return frameKey() + '|' + sid; }
 function _frameTitleKey(title){
   const t = String(title || '').trim();
-  return t ? cacheKeyNow() + '|' + t : '';
+  return t ? frameKey() + '|' + t : '';
 }
 function idbOpen(){
   if (_idbP) return _idbP;
@@ -465,6 +481,8 @@ function idbOpen(){
         db.createObjectStore('snap_list', {keyPath: 'sk'});
       if (!db.objectStoreNames.contains('snap_pend'))
         db.createObjectStore('snap_pend', {keyPath: 'did'});  /* 占位卡持久化（C1） */
+      if (!db.objectStoreNames.contains('ledger_conv'))
+        db.createObjectStore('ledger_conv', {keyPath: 'sk'}); /* 账本V1.0：本地账本（账本核对.js） */
     };
     rq.onsuccess = () => res(rq.result);
     rq.onerror = () => rej(rq.error || new Error('IndexedDB 打开失败'));
@@ -481,10 +499,67 @@ function _idbReq(store, mode, fn){
     tx.onabort = () => rej(tx.error);
   })).catch(e => { throw e; });
 }
+/* 2.16（老板 2026-11-05 20:53）：预备账册＝「最近 N 条」（默认 4）——
+   ① 只收【人类发言】与【有终极回复的 AI 行】（第 8 位；思维流一律不落盘）；
+   ② 按时间（tm，缺则 mid 前 8 位）排序，只留最新 N 条；
+   ③ N 存 localStorage（手机缓存查看器里可直接改，默认 4）。
+   不再写「碎片」：最新一轮.js 已停用。 */
+const FRAME_KEEP_KEY = 'trae_webm_frame_n';
+/* 2.17（老板 2026-11-05 21:51）：预备画面【不再跟版本号走】——钥匙固定为 'frame'。
+   老板原意：版本升级清缓存可以，但预备画面现在有「最近 N 条」自动管理，不必再靠
+   版本号一刀清；升级也不该把已有预备画面变成「旧版本」或删掉。 */
+const FRAME_KEY = 'frame';
+function frameKey(){ return FRAME_KEY; }
+function _frameKeepN(){
+  try{
+    const v = parseInt(localStorage.getItem(FRAME_KEEP_KEY) || '4', 10);
+    return (v >= 2 && v <= 50) ? v : 4;
+  }catch(e){ return 4; }
+}
+function _msgOrd(m, i){
+  const t = (typeof _timeSec === 'function') ? _timeSec(String((m && m[2]) || '')) : NaN;
+  if (isFinite(t)) return t * 1000 + (i % 1000);
+  const s = String((m && m[6]) || '');
+  if (/^[0-9a-fA-F]{8}/.test(s)) return parseInt(s.slice(0, 8), 16) * 1000 + (i % 1000);
+  return i;
+}
+function _frameMsgs(msgs, idle){
+  if (!Array.isArray(msgs)) return [];
+  const rows = [];
+  msgs.forEach(function(m, i){
+    if (!Array.isArray(m)) return;
+    if (m[0] === 'u'){ rows.push({m: m, o: _msgOrd(m, i)}); return; }
+    if (m[0] === 'a'){
+      /* 3.05（老板 2026-11-06 03:02「连续 4 条全是人类」）：3.04 把「无第 8 位的
+         AI 行」整行丢弃，导致 DOM 未给完成卡摘要的 AI 行全没了、只剩人类。
+         现改为三分支：
+           ① 有终答（第 8 位非空）→ 正文＝终答；
+           ② 生成中（idle===false）且无终答 → 思维流，整行不存；
+           ③ 已结束/未知（idle true 或未传）但无终答字段 → **原文兜底**（此时原文
+             已是最终版，绝不再把 AI 行丢掉）。 */
+      const r = m.slice();
+      const fin = (m.length > 7) ? String(m[7] || '').trim() : '';
+      if (fin){
+        r[1] = fin;
+      } else {
+        /* 3.06（老板 2026-11-06 03:05「有时又变回全是人类」）：不再用 sendIdle 判丢
+           （快照没带空闲标记时会把 AI 行全部丢掉）。改为【只按思维流关键词】判：
+           正文开头/前段命中「思考过程 / 已深度思考 / 正在思考」才视为思维流、不落盘；
+           其余 AI 行一律保留原文（宁可留着真实回答，也绝不只剩人类发言）。 */
+        const _t = String(r[1] || '');
+        if (/^(思考过程|思考中|正在思考|已深度思考)/.test(_t.trim().slice(0, 40))
+            || /思考过程|已深度思考|正在思考/.test(_t.slice(0, 200))) return;
+      }
+      rows.push({m: r, o: _msgOrd(m, i)});
+    }
+  });
+  rows.sort(function(a, b){ return a.o - b.o; });
+  return rows.slice(-_frameKeepN()).map(function(x){ return x.m; });
+}
 function _idbFrame(){
   const s = S.snap || {};
   return {online: !!s.online, login: s.login,
-          msgs: (Array.isArray(s.msgs) ? s.msgs.slice() : []),   /* 2.126：整帧原样 */
+          msgs: _frameMsgs(Array.isArray(s.msgs) ? s.msgs.slice() : [], !!s.sendIdle),  /* 3.05 */
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
           ask: s.ask || null, pend: [], attach: s.attach || [],
@@ -571,7 +646,7 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
    磁盘里同一会话有多条时按「只进不退」取最新那条（同 ts 取条数多的）。 */
 let _prewarmKey = '';
 function snapIdbPrewarm(key){
-  const k = key || cacheKeyNow();
+  const k = key || frameKey();
   if (_prewarmKey === k) return Promise.resolve(0);
   _prewarmKey = k;
   return _idbReq('snap_conv', 'readonly', st => {
@@ -581,7 +656,8 @@ function snapIdbPrewarm(key){
       const c = rq.result;
       if (!c){ return; }
       const v = c.value || {};
-      if (v.key === k && v.sid && v.frame
+      if ((!v.key || v.key === k || v.key === FRAME_KEY || v.key.indexOf('|') > 0)
+          && v.sid && v.frame
           && Array.isArray(v.frame.msgs) && v.frame.msgs.length) out.push(v);
       c.continue();
     };
@@ -634,7 +710,7 @@ function snapIdbTick(force){
   const frame = _idbFrame();
   const _fp = msgsFp(frame.msgs);
   if (force !== true && !_first && _fp === _idbLastFpBy[_sk]) return;   /* 有更新才落盘 */
-  const key = cacheKeyNow();
+  const key = frameKey();      /* 2.17：预备画面钥匙固定，升级不再失效 */
   /* 2.126（老板 2026-10-23「只保留一份最新、完整、只进不退」）：走统一闸——
      旧帧／空帧／碎片帧直接拒收（不写内存、不写 IDB）；节流记账与"首份"标记
      只在真正放行后更新，避免"被拒也算已落"导致后续不再落盘。
@@ -646,7 +722,7 @@ function snapIdbTick(force){
       if (_first) S.idbFirstFull = 0;
     }, force === true || _first);
   _idbReq('snap_list', 'readwrite', st => st.put(
-    {sk: key, key: key, ts: now, convs: s.convs,
+    {sk: cacheKeyNow(), key: cacheKeyNow(), ts: now, convs: s.convs,
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
   )).catch(() => {});
 }
@@ -674,7 +750,7 @@ function snapIdbGet(sid, title){
      最新存帧（同会话覆盖，天然只留一份）；取不到再按 title 反查兜底。
      只有确属目标会话才返回；否则 ⇒ null（调用方留白等待，绝不回填旧会话）。 */
   if (!sid) return Promise.reject(new Error('无 sid'));
-  const key = cacheKeyNow();
+  const key = frameKey();
   const t = String(title || '').trim();
   return _idbReq('snap_conv', 'readonly', st => st.get(key + '|' + sid))
     .then(rec => {
@@ -685,6 +761,10 @@ function snapIdbGet(sid, title){
 }
 function snapIdbListGet(){
   return _idbReq('snap_list', 'readonly', st => st.get(cacheKeyNow()));
+}
+/* 2.17：版本换代只清「会话列表骨架」，预备画面（snap_conv）不再清 */
+function snapIdbClearList(){
+  return _idbReq('snap_list', 'readwrite', st => st.clear()).catch(() => {});
 }
 /* 剪枝①：超 10 天的记录按主键逐个删（绝不整库清空），单轮上限 IDB_PRUNE_MAX */
 function snapIdbPrune(){
@@ -768,8 +848,16 @@ function liveOverlay(snap){
   return Object.assign({}, snap, {
     msgs: (f.msgs || []), finish: f.finish || null, tail: f.tail || '',
     sendIdle: !!f.sendIdle, inputText: f.inputText || '',
-    opts: f.opts || [], ask: f.ask || null, pend: [],
-    attach: f.attach || [], model: f.model || ''
+    opts: f.opts || [], ask: f.ask || null,
+    /* 2.173（固态化「打开即活」）：pend 不再硬清空——原 [] 是 2.57B 时代唯一
+       防串显手段；现 N4 项级 sid 过滤（_pendOwnerOk/pendItemMine）已根治归属
+       串显，透出快照排队条交由渲染层逐条判归属。否则断网冷开「打开即活」
+       时排队条会被这里的 [] 永久盖掉（等不到真帧回落）。 */
+    pend: (snap.pend || []),
+    attach: f.attach || [],
+    /* 2.173：model 同 pend 口径——存帧 model 为空（旧存帧无此值）时回落
+       snap.model，避免 renderState 读到 '' 插「（模型未知）」占位盖掉固态恢复值 */
+    model: f.model || snap.model || ''
   });
 }
 /* 2.130（老板 2026-10-24）：直播帧等待小条「正在获取直播帧…」整条删除——
@@ -799,7 +887,8 @@ function snapIdbShow(sid, title){
     /* 2.126：IDB 回读校正内存帧同样守「只进不退」——旧帧不得回盖内存里的新帧 */
     if (rec && rec.frame && (!_mem || _frameNewerOrEqual(rec.frame, _mem)))
       _frameMem[_mk] = rec.frame;
-    if (S.liveGot) return;                      /* 直播帧已到，别用旧帧盖真画面 */
+    if (S.liveGot && Array.isArray((S.snap || {}).msgs)
+        && S.snap.msgs.length) return;           /* 2.15：真画面确有正文才不复盖；空则继续用缓存 */
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
     if (S.livePrefetch) return;                 /* 2.67：服务端已预取该会话正文帧，别用本地存帧覆盖 */
     if (_mem) return;                           /* 2.112：内存帧已上屏（且更新），不拿 IDB 旧帧回盖 */
@@ -819,10 +908,10 @@ function paneFrameStore(sid, title, v){
   try{
     if (!sid || !v || !Array.isArray(v.msgs)) return false;
     const _sid = 稳定键(sid, title || '') || String(sid);
-    const _sk = _frameMemKey(_sid), key = cacheKeyNow(), now = Date.now();
+    const _sk = _frameMemKey(_sid), key = frameKey(), now = Date.now();
     const frame = {online: !!(S.snap && S.snap.online),
                    login: (S.snap && S.snap.login),
-                   msgs: v.msgs.slice(),   /* 2.126：整帧原样 */
+                   msgs: _frameMsgs(v.msgs.slice(), true),   /* 3.05：pane 帧按已结束处理 */
                    finish: v.finish || null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
                    attach: [], model: ''};
@@ -835,8 +924,16 @@ function paneFrameStore(sid, title, v){
 }
 /* 直播帧到达（专属于当前锚定会话）→ 停用本地帧，回落真快照 */
 function liveClear(){
+  /* 2.15（老板 2026-11-05 20:41「33 个都有缓存，签哪个都不该白屏」）：
+     只有【真快照确有正文】才撤本地存帧覆盖；框架帧/空帧/正文未到的这一拍
+     一律保留 S.liveFrame 继续顶住，绝不给白屏。 */
+  if (!(S.snap && Array.isArray(S.snap.msgs) && S.snap.msgs.length)
+      && S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length){
+    return;
+  }
   S.livePend = ''; S.liveGot = true; S.liveFrame = null;   /* 2.57B：真帧到手撤存帧 */
   S.livePrefetch = false;                                  /* 2.67：预取标记一并清 */
+  S.lb_foldRounds = 0;     /* 账本V1.0：真画面到手 → 历史补发折叠面板退场（账本核对.js） */
   snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
 }
 /* 2.98（标准《快照缓存策略》附录A「刷新/首屏也应立刻顶出最新缓存」）：首屏/刷新在
@@ -853,7 +950,13 @@ function snapIdbBoot(sk){
       if (!sel) sel = r;
       if (r[2]){ sel = r; break; }
     }
-    if (!sel || !sel[4]) return;
+    if (!sel || !sel[4]){
+      /* 3.01（老板 2026-11-05 23:25「刷新/刚打开一直白屏」）：没有会话列表
+         （刚升级清空骨架、或首拍还没到）时，直接用【本地持久化锚定】顶出
+         预备画面——刷新/登录＝切换，绝不留白。 */
+      if (S.anchorSid) snapIdbShow(S.anchorSid, S.anchorTitle || '');
+      return;
+    }
     const key = 稳定键(sel[4], sel[1]);
     if (!key) return;
     /* 首屏无锚定：先锚定到上次看的会话（跨刷新续锚，与「网页版锚定自己选的会话」同源） */
@@ -864,4 +967,6 @@ function snapIdbBoot(sk){
   }catch(e){}
 }
 setInterval(() => snapIdbTick(), 10000);                       /* 2.98：10 秒节流（原 5 秒） */
-setInterval(() => { snapIdbPrune(); snapIdbPruneMissing(); }, 10 * 60 * 1000);
+/* 2.17（老板 2026-11-05 21:53）：两处自动剪枝停用——预备画面改由「最近 N 条」
+   自行管理删除，绝不再因「不在当前列表/超天数」误删。 */
+/* setInterval(() => { snapIdbPrune(); snapIdbPruneMissing(); }, 10 * 60 * 1000); */
