@@ -149,6 +149,10 @@ function onEv(kind, v){
       if (_penArr.length && !_penMine) v.pend = [];
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
+      /* 2.178 Y24：服务端选中≠本地锚定持续 10s → 底部出「点此对齐」可点击
+         提示（切换在途豁免；点击复用 switch 链路以服务端为准重锚）。 */
+      if (typeof anchorMismatchTick === 'function')
+        anchorMismatchTick(liveKey, selTitleOf(v), liveSid);
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
       /* 2.131：走到这里的 pend 已确认属于本会话（别人的上面已先剥，锚定冻结
          留用的也是本会话旧帧）⇒ 回写 pend_sid，供 消息渲染.js 2.131 复验。
@@ -686,7 +690,21 @@ function onRcpt(d){
     if (p){
       if (stage === 'accepted')      p.state = 'accepted';   /* ③ 服务器已受理 */
       else if (stage === 'running')  p.state = 'typed';      /* ③ 服务器开始执行 */
-      else if (stage === 'done')     p.state = 'done';       /* ④ 完成 */
+      else if (stage === 'done'){
+        p.state = 'done';                                     /* ④ 完成 */
+        /* 2.178 Y26（连发占位滞留）：done 打上时间戳，15s 内正文还没浮现
+           （快照/账本 DID 扫描都没命中销卡）→ 降级灰态 stale「已送达（未
+           同步显示）」，允许手动清除，不再让人对着「✅ 已完成」干等。
+           定时器为主、pendReconcile 5s 巡检兜底（后台节流时也能转灰）。 */
+        p.doneAt = Date.now();
+        setTimeout(function(){
+          const q = (S.pending || []).find(x => x.id === p.id);
+          if (q && q.state === 'done' && q.doneAt
+              && Date.now() - q.doneAt > PEND_DONE_STALE_MS - 500){
+            q.state = 'stale'; renderAll();
+          }
+        }, PEND_DONE_STALE_MS);
+      }
       else if (stage === 'fail'){    p.state = 'fail';       /* ④ 失败（如实带 msg） */
         p.failMsg = msg; }
       renderAll();
