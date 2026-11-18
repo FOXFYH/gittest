@@ -382,6 +382,22 @@ function pendDidOf(text){
   const m = /^(\d{14})(?!\d)/.exec(s);
   return m ? m[1] : '';
 }
+/* V2 第三轮 Y4（2026-11-19）：排队条剥词（总规范 §十二-5「内容传输优化」：
+   排队条在传输与展示时必须剥离所有附加的提示词、后缀内容，仅保留用户发送的
+   原始文本）。实测尾巴含「你的会话名：…」「你的终身号：…」「本会话专属记忆
+   位置：…」「【全局记忆】…」等注入段（3143 字）——按锚点【最早出现】处整段
+   吞到文末（B 类起吞）；锚点占开头（A 类整行即尾巴）则整条作废返回空串。
+   首行 DID 在开头、不受影响（销卡渠道③仍可取）。foxStripTail 剥 FOX 标记，
+   本函数剥提示词尾巴，两者串联互不替代。 */
+function stripPendTail(t){
+  let s = String(t == null ? '' : t);
+  const _anchors = ['你的会话名', '你的终身号', '本会话专属记忆位置', '【全局记忆】'];
+  let idx = -1;
+  _anchors.forEach(a => { const i = s.indexOf(a); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
+  if (idx === 0) return '';
+  if (idx > 0) s = s.slice(0, idx);
+  return s.replace(/\n{3,}/g, '\n\n').trim();
+}
 function resolveTimes(msgs){
   /* 2.99（老板 2026-10-20 11:43「最近几条对话的时间，居然都是一样的……明明我记得
      这些都是更早之前的老对话，全部一起被打上了最新时间」）——时间【取源】整改。
