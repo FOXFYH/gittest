@@ -491,6 +491,7 @@ function onEv(kind, v){
       S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
       rebuildModelOptions();
       checkFavInvalid();
+      try { if (typeof solidSave === 'function') solidSave(); } catch(e){}   /* 2.173：模型列表固态兜底 */
       break;
     case 'model_set':
       S.model_busy = false;
