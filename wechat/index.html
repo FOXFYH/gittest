@@ -268,7 +268,7 @@
    仿微信聊天工具 · 网页端 1.003
    真源：网页端源文件/仿微信聊天工具.html（只改这一份）
    ========================================================= */
-const VER = '1.008';
+const VER = '1.009';
 const CFG = {
   prefix: 'FOXCHAT',          // 网页侧频道前缀
   urlA: 'wss://free.blr2.piesocket.com/v3/%s?api_key=ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug',
@@ -468,6 +468,14 @@ function req(c, a, cb, ms) {
 
 function onFrame(d) {
   if (!d || d.t !== 'chat') return;
+  // 免费簇会把历史帧重放给新连接（实测同一帧重播几百次）：同 id 60 秒内只认头一次
+  if (d.id) {
+    const 今 = Date.now(); S.帧记 = S.帧记 || {};
+    if (今 - (S.帧记[d.id] || 0) < 60000) return;
+    S.帧记[d.id] = 今;
+    const ks = Object.keys(S.帧记);
+    if (ks.length > 400) ks.slice(0, ks.length - 200).forEach(k => { delete S.帧记[k]; });
+  }
   const c = d.c, a = d.a || {};
   const 我的 = !!(d.id && S.pend[d.id]);
   if (c) S.gotWelcome = true;        // 收到任何一条 chat 帧＝服务端确实在这个频道
@@ -923,9 +931,11 @@ function doSend() {
   if (!S.ok) { toast('还没连上服务端，稍等再发'); return; }
   const peer = S.peer;
   ta.value = ''; ta.style.height = 'auto';
-  const tmp = { mid: 'tmp' + Date.now(), from: S.me, to: peer, text: text, ts: Date.now(), 送达: 0 };
+  // 自带 mid：服务端沿用，广播回来同 mid 就不再叠第二条；重发也幂等（一条变两条的根治）
+  const cmid = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const tmp = { mid: cmid, from: S.me, to: peer, text: text, ts: Date.now(), 送达: 0 };
   saveMsg(peer, tmp); renderMsgs();
-  req('send', { from: S.me, to: peer, text: text }, r => {
+  req('send', { from: S.me, to: peer, text: text, mid: cmid }, r => {
     if (!r || !r.ok || !r.a || r.a.ok === false) {
       toast('发送失败：' + ((r && r.a && (r.a.err || (r.a.投递 && r.a.投递.why))) || '服务端没应答'));
       return;
