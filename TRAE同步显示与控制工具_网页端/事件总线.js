@@ -87,6 +87,13 @@ function onEv(kind, v){
       if (S.livePend && (S.livePend === psid || S.livePend === S.anchorSid)) liveClear();
       else { try { snapIdbTick(true); } catch(e){} }
       try { if (typeof paneReqDone === 'function') paneReqDone(psid); } catch(e){}
+      /* V2 验收 Y5（2026-11-18）：撤卡渠道①③收口——账本V1.0 后正文多走
+         snap_pane／mod think 帧，本帧属锚定会话时同样扫「人类发言首行 DID
+         ＋官方排队条」销卡（排队条已由 ledgerThinkApply 按本会话过滤）。
+         渠道②（didp/did_pool）与全量 snap 分支原逻辑不动。 */
+      if (typeof pendLandingScan === 'function')
+        pendLandingScan(_inc.msgs,
+          (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend : []);
       renderAll();
       break;
     }
