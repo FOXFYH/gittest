@@ -50,6 +50,7 @@
         var t = nm(sp.title || '');
         if (ph === 'connecting') show('正在连接 WS…' + (t ? '（目标「' + t + '」）' : ''), 'busy');
         else if (ph === 'waiting') show('等待服务器回应…' + (t ? '（目标「' + t + '」）' : ''), 'busy');
+        else if (ph === 'ledger_check') show('已变更选中会话，等待账本核对中' + (t ? '（「' + t + '」）' : ''), 'busy');   /* 账本V1.0（C2 三阶段之二：vack stage:1，账本核对.js 置相） */
         else if (ph === 'ok'){
           if (lastPhase !== 'ok'){ okUntil = now + 2200; }
           if (now < okUntil) show('✓ 切换成功' + (t ? ' · ' + t : ''), 'ok', Math.max(200, okUntil - now));
