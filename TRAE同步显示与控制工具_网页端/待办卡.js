@@ -378,6 +378,8 @@ function switchClear(){
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
   S.swHold = false;         /* 2.97：切换收口 → 松开持屏，回落真快照 */
+  /* V2 第三轮 Y22：切换出终态 ⇒ 即时解冻主动核对（不等 90s 兜底） */
+  if (typeof lbUnfreeze === 'function') { try { lbUnfreeze(); } catch(e){} }
   /* 2.98（老板 2026-10-20 10:01「失败也继续锚定目标」·与本文相反）：切换【失败】
      不再回退到切换前的旧会话 A——锚定保持在本目标会话，页面继续显示目标会话的
      本地存帧（保留目标锁，见下方 livePend 分支），直至目标真直播帧到达才收口。
@@ -409,10 +411,17 @@ function switchAbort(){
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
   S.swHold = false;         /* 2.97：一并松开持屏 */
+  /* V2 第三轮 Y22：异常收口同样解冻（换服务端/命令报错路径） */
+  if (typeof lbUnfreeze === 'function') { try { lbUnfreeze(); } catch(e){} }
   return true;
 }
 function pendSwitchSet(title, sid, ref, opt){
   title = title || ''; sid = sid || '';
+  /* V2 第三轮 Y22（2026-11-19）：点会话落笔即冻结主动核对——不等 vcheck 真发。
+     WS 未连时 ledgerVcheckSend('switch') 早退，旧实现 frozen 从未置位 ⇒ 断链
+     切换期间 timer 照发（ST 实抓 60.76s 窗漏 1 条）。终态（vack stage:2 /
+     90s 兜底 / switchClear）由 lbUnfreeze 解冻。 */
+  if (typeof lbFreezeOnSwitch === 'function') lbFreezeOnSwitch();
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
      不重复渲染）；v1.95：有稳定 ID 时按 ID 判同目标（改名也算同一目标） */
   const same = S.switch_pend && (sid && S.switch_pend.sid
