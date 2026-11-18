@@ -684,10 +684,17 @@ function onRcpt(d){
   const did   = (d.did == null) ? '' : String(d.did);
   const id    = (d.id  == null) ? '' : String(d.id);
   const msg   = (d.msg == null) ? '' : String(d.msg);
-  /* ② 占位卡（发送/插话）——按真 DID 配对 */
-  if (did){
-    const p = S.pending.find(x => x.did === did);
-    if (p){
+  /* ② 占位卡（发送/插话）——按真 DID 配对。2.179 Y26 兜底：ST 实测服务端
+     route_send 终态回执可能漏带 did 字段（v6_wsmon 实证只回 id=did 回退值，
+     前端 did 分支永配不上 → doneAt 永不打上 → 15s/巡检两条灰卡路全断）。
+     故 did 配不上且 id 恰为 14 位纯数字（DID 格式；动作 id 恒为 'a'+base36-seq
+     形如 a1m3xk2-3，绝不与 14 位数字撞）时用 id 试配。根修仍在服务端
+     （回执带全 did），本兜底只防「两条路全断」。 */
+  const _didHit = (did ? S.pending.find(x => x.did === did) : null)
+                || (/^\d{14}$/.test(id) ? S.pending.find(x => x.did === id) : null);
+  if (_didHit){
+    {
+      const p = _didHit;
       if (stage === 'accepted')      p.state = 'accepted';   /* ③ 服务器已受理 */
       else if (stage === 'running')  p.state = 'typed';      /* ③ 服务器开始执行 */
       else if (stage === 'done'){
