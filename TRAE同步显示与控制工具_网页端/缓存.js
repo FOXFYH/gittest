@@ -61,6 +61,91 @@ function skelCacheLoad(){
     return o;
   } catch(e){ return null; }
 }
+/* —— 固态兜底（2.173「打开即活」，老板 2026-11-18 亲批最核心灵魂）——
+   盘点结论：会话列表（LS_SKEL）/对话内容（IDB snap_conv 预读秒显）/多电脑名册
+   （loadSrvs）已固态；但【备注/定时消息/模型列表/沙盒分身下拉/登录账号/排队条】
+   六类打开时是空的，全等服务端帧才渲染（软塌塌启动）。本层把最后已知值落盘，
+   打开瞬间同步恢复上屏，后台对账到达后照常覆盖——错后报：基于过期数据操作
+   照走既有服务端权威对账，绝不加启动期校验拖延可用时间。 */
+const LS_SOLID = 'trae_webm_solid';        /* 固态兜底（六模块最后已知值） */
+let solidLastSave = 0;
+function solidSave(){
+  /* 从 S 全量提取，幂等；2 秒节流。调用点＝renderAll 末尾 + onHello + models 帧。 */
+  const now = Date.now();
+  if (now - solidLastSave < 2000) return;
+  solidLastSave = now;
+  try {
+    const o = {key: cacheKeyNow(), ts: now,
+               备注: S.备注 || {},
+               定时: S.定时 || [],
+               models_full: S.models_full || [],
+               boxes: S.boxes || [],
+               acct: S.acct || '',
+               model: (S.snap && S.snap.model) || '',
+               pend: (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend : [],
+               pend_sid: (S.snap && S.snap.pend_sid) || ''};
+    localStorage.setItem(LS_SOLID, JSON.stringify(o));
+  } catch(e){}
+}
+function solidLoad(){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SOLID) || 'null');
+    if (!o || o.key !== cacheKeyNow()) return null;
+    return o;
+  } catch(e){ return null; }
+}
+function solidBoot(){
+  /* 打开瞬间同步恢复（零等待）：S 全局状态 + 各下拉/账号行；排队条恢复进
+     S.snap.pend（条目项级 sid 过滤与 N4 归属判定天然生效，非本会话条不显示）。
+     之后任何服务端帧到达照常覆盖（对账），恢复值绝不拦截任何操作（错后报）。 */
+  const d = solidLoad();
+  if (!d) return;
+  try { S.备注 = (d.备注 && typeof d.备注 === 'object') ? d.备注 : {}; } catch(e){}
+  try { if (Array.isArray(d.定时)) S.定时 = d.定时; } catch(e){}
+  try {
+    if (Array.isArray(d.models_full) && d.models_full.length){
+      S.models_full = d.models_full;
+      if (typeof rebuildModelOptions === 'function') rebuildModelOptions();
+      if (typeof checkFavInvalid === 'function') checkFavInvalid();
+    }
+  } catch(e){}
+  try {
+    if (Array.isArray(d.boxes) && d.boxes.length && !S.boxes.length){
+      S.boxes = d.boxes.filter(Boolean);
+      el.box.innerHTML = '';
+      S.boxes.forEach(b => {
+        const o = document.createElement('option');
+        o.value = b; o.textContent = b;
+        el.box.appendChild(o);
+      });
+    }
+  } catch(e){}
+  try { if (d.acct){ S.acct = String(d.acct); renderAcct(); } } catch(e){}
+  try { if (d.model && typeof syncModel === 'function') syncModel(d.model); } catch(e){}
+  try {
+    if (Array.isArray(d.pend) && d.pend.length){
+      if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+      if (!S.snap.pend) { S.snap.pend = d.pend; S.snap.pend_sid = d.pend_sid || ''; }
+    }
+    /* 2.173：最后已知模型值灌进 S.snap.model——否则 renderState 读
+       snap.model 空 → syncModel('') 插「（模型未知）」占位盖掉恢复值。 */
+    if (d.model && (!S.snap.model)) S.snap.model = d.model;
+  } catch(e){}
+  /* 骨架灌入 S.snap：冷开 S.snap={} 时 renderAll→renderConvs([]) 会把
+     boot 已铺的骨架列表清空（断网等不到快照一直空）——把 LS_SKEL 的
+     convs/未读灌入，保证「打开即活」列表常驻（快照到达后照常覆盖）。 */
+  try {
+    const sk = (typeof skelCacheLoad === 'function') ? skelCacheLoad() : null;
+    if (sk && Array.isArray(sk.convs) && sk.convs.length){
+      if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+      if (!Array.isArray(S.snap.convs) || !S.snap.convs.length){
+        S.snap.convs = sk.convs;
+        S.snap.conv_unread = sk.conv_unread || [];
+        S.snap.conv_unread_ids = sk.conv_unread_ids || [];
+      }
+    }
+  } catch(e){}
+}
 /* 2.59 的「只留最近 3 轮」口径已于 2.126 全部删除（老板 2026-10-23）。 */
 /* 2.126（老板 2026-10-23 08:22「三轮给我删掉，只保留一份最新、完整、只进不退」）：
    删除「只留最近 3 轮」的全部逻辑（原 2.59／用户 2026-10-07 口径作废）——
@@ -763,8 +848,16 @@ function liveOverlay(snap){
   return Object.assign({}, snap, {
     msgs: (f.msgs || []), finish: f.finish || null, tail: f.tail || '',
     sendIdle: !!f.sendIdle, inputText: f.inputText || '',
-    opts: f.opts || [], ask: f.ask || null, pend: [],
-    attach: f.attach || [], model: f.model || ''
+    opts: f.opts || [], ask: f.ask || null,
+    /* 2.173（固态化「打开即活」）：pend 不再硬清空——原 [] 是 2.57B 时代唯一
+       防串显手段；现 N4 项级 sid 过滤（_pendOwnerOk/pendItemMine）已根治归属
+       串显，透出快照排队条交由渲染层逐条判归属。否则断网冷开「打开即活」
+       时排队条会被这里的 [] 永久盖掉（等不到真帧回落）。 */
+    pend: (snap.pend || []),
+    attach: f.attach || [],
+    /* 2.173：model 同 pend 口径——存帧 model 为空（旧存帧无此值）时回落
+       snap.model，避免 renderState 读到 '' 插「（模型未知）」占位盖掉固态恢复值 */
+    model: f.model || snap.model || ''
   });
 }
 /* 2.130（老板 2026-10-24）：直播帧等待小条「正在获取直播帧…」整条删除——
