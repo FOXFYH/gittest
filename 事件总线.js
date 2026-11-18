@@ -1,6 +1,14 @@
 'use strict';
-/* 事件总线.js（网页端）  版本 2.131  日期 2026-10-24
+/* 事件总线.js（网页端）  版本 2.132  日期 2026-11-05
    【维护记录】
+   2.132  2026-11-05  附件 R2 直传事件接入（老板 2026-11-05 令「附件上传改走 R2，
+                     与对话流彻底无关」）：`onEv` 新增 `case 'attach_r2_open'`
+                     （服务端回预签名 PUT 清单 v={task,uploads:[{n,key,url}],id?}
+                     → 调 任务与输入.js attachR2FromReceipt 开传）与
+                     `case 'attach_r2_done'`（服务端取件回音 v={task,ok,saved_dir,
+                     msg} → attachR2DoneEcho 绿/红 flash）；`onRcpt` 兜底兼容
+                     open 回执 done 直接携带 {task,uploads} 载荷的形态
+                     （rcpt/ev 二选一都能接住）。2.131→2.132。
    2.131  2026-10-24  官方排队条「串台」（老板原话：「排队条一定要核实清楚属于
                      哪个会话，不能乱显示，是谁的就显示在谁那边」）：`case 'snap'`
                      收到快照后先按 `pend_sid`（旧服务端回退 `v.selSid`）比当前
@@ -71,6 +79,7 @@ function onEv(kind, v){
       /* 切换在途：目标正文真到 ⇒ 立即收口（解锁持屏，交给 renderAll 正常让位） */
       const _spv = S.switch_pend;
       if (_spv && _spv.lockTarget && !_spv.arrived
+          && Array.isArray(_inc.msgs) && _inc.msgs.length
           && (_spv.sid ? String(_spv.sid) === psid
                        : (S.anchorSid && 稳定键(psid, pv.title || '') === S.anchorSid)))
         _spv.arrived = true;
@@ -107,12 +116,29 @@ function onEv(kind, v){
       const _penOwner = String(v.pend_sid || v.selSid || '');
       const _curSidNow = String((typeof curSid === 'function' ? curSid() : '') || '');
       /* 2.132：有排队条但归属不明 ⇒ 当「不是本会话」，宁可不画也不留残影 */
-      const _penMine = (!_penArr.length)
-          ? true
-          : ((!_penOwner || !_curSidNow) ? false
-             : (_penOwner === _curSidNow
-                || (typeof 稳定键 === 'function'
-                    && 稳定键(_penOwner, '') === 稳定键(_curSidNow, ''))));
+      /* 2.167（硬伤4）：归属不明（pend_sid 缺失/无锚定）时**按 DID 认领**——
+         排队条里任一条的首行 DID 命中本人待销卡的 did ⇒ 就算本人的，允许扫它销卡；
+         DID 也对不上才排除（仍防残影）。旧写法直接 false，整条排队条渠道被跳过，
+         忙时消息进了排队条、卡却永远不撤。 */
+      let _penMine;
+      if (!_penArr.length){
+        _penMine = true;
+      } else if (_penArr.some(it => it && typeof it === 'object' && it.sid != null)){
+        /* 账本V1.0（N4 根治串显）：项级 sid 为准——逐条过滤，只留当前锚定
+           会话的条目；顶层 pend_sid 仅兜底。pendItemMine（账本核对.js）
+           true=本会话 / false=别会话 / null=无项级 sid（宁可不画不留残影）。 */
+        v.pend = _penArr.filter(it => pendItemMine(it) === true);
+        _penMine = v.pend.length > 0;
+      } else if (!_penOwner || !_curSidNow){
+        _penMine = _penArr.some(it => {
+          const _pd = pendDidOf(it && it.t);
+          return !!(_pd && (S.pending || []).some(p => p && p.did === _pd));
+        });
+      } else {
+        _penMine = (_penOwner === _curSidNow
+                    || (typeof 稳定键 === 'function'
+                        && 稳定键(_penOwner, '') === 稳定键(_curSidNow, '')));
+      }
       if (_penArr.length && !_penMine) v.pend = [];
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
@@ -138,7 +164,8 @@ function onEv(kind, v){
       if (_stillOld){
         /* 过渡期：锁死目标（正文取 B 的帧），快照里 A 的正文不上屏 */
       } else if (S.livePend && liveKey && liveKey === S.anchorSid){
-        if (_sp0 && _sp0.lockTarget) _sp0.arrived = true;   /* 目标正文已到 → 收口 */
+        if (_sp0 && _sp0.lockTarget && Array.isArray(v.msgs)
+            && v.msgs.length) _sp0.arrived = true;   /* 2.15：空帧不算到达 */
         liveClear();
       }
       /* 2.40：网页端专享字段落全局——备注字典 + 定时自我激活任务列表，
@@ -157,11 +184,16 @@ function onEv(kind, v){
       const _ct = curTitle();
       (v.msgs || []).forEach(m => {          /* ① 只扫人类发言 */
         if (!m || m[0] !== 'u') return;
-        const _d = firstLineDid(m[1]);
+        /* 2.167（硬伤1）：改用 pendDidOf——TRAE 会把首行 DID 后的换行折叠成空格，
+           firstLineDid 只认「首行纯 14 位」⇒ 折叠形态永远取不到 DID、卡不撤。
+           pendDidOf 取开头 14 位（其后非数字），两种形态都认；与 ③ 排队条同一口径。 */
+        const _d = pendDidOf(m[1]);
         if (_d) pendClearByDid(_d, _ct);
       });
       if (_penMine) (v.pend || []).forEach(it => {   /* ③ 官方排队条（限本会话） */
-        const _d = pendDidOf(it && it.t);
+        /* 账本V1.0（N3）：新格式条目身份标识在 id 字段（界面隐藏不展示），
+           旧格式仍从文本首行取 DID——两形态都进销卡渠道③。 */
+        const _d = pendDidOf(it && it.t) || (it && it.id) || '';
         if (_d) pendClearByDid(_d, _ct);
       });
       pendReconcile(v.msgs || []);           // 1.09：撤下已落地的占位
@@ -171,7 +203,9 @@ function onEv(kind, v){
         S.qedit = null;
         const t = (v.inputText || '').trim();
         if (t){
-          el.ent.value = t;
+          /* 2.164：快照路与 pend_edit_out 事件路口径统一——都走 copyPlain(true)，
+             剥 DID＋四段＋FOX 标记（旧实现此处裸写，TR-07 漏尾） */
+          el.ent.value = copyPlain(t, true);
           refreshSendBtn();
           try { el.ent.focus(); } catch(e2){}
           flash('已取出排队消息，可修改后重新发送', 'var(--blue)');
@@ -209,17 +243,44 @@ function onEv(kind, v){
       }
       /* 2.100（老板 2026-10-20 12:16）：刷新/重连后「继续锚定当前会话，继续向服务器
          提要求」——首拍若发现服务端选中行≠本地持久化锚定，补发一次 switch（只发一次）。 */
-      if (S.anchor_reask){
-        S.anchor_reask = 0;
+      if (S.anchor_reask || S.bootSwitch){
+        const _boot = !!S.bootSwitch;
+        S.anchor_reask = 0; S.bootSwitch = 0;
         const _aSel = 稳定键(selSidOf(v), selTitleOf(v));
-        if (S.anchorFull && S.anchorSid && _aSel && _aSel !== S.anchorSid){
-          try { sendCmd('switch', S.anchorFull); } catch(e){}
+        /* 3.02（老板 2026-11-05 23:30）：刷新/重新打开＝自己切自己。
+           目标＝本地持久化锚定（点选会话那一刻就落盘，绝不等成功信号）。
+           走与「点击会话」完全同一条流程：锁目标 + 顶出预备画面 + 发 switch
+           （悬浮提示/超时补发/切换成功提示全部同源）。 */
+        /* 3.04（老板 2026-11-06 01:55）：**无条件**执行完整切换——即便服务端选中行
+           已经是该会话，也照样走 pendSwitchSet＋switch，与手指点击会话一字不差
+           （老板实测：以前只在"选中行不同"时才切，导致刷新后拿不到最新终答）。 */
+        if (_boot && S.anchorSid && S.anchorFull){
+          try {
+            pendSwitchSet(S.anchorTitle || '', S.anchorFull, S.anchorFull,
+                          {lockTarget: true, deferRender: true});
+            snapIdbShow(S.anchorSid, S.anchorTitle || '');
+            sendCmd('switch', S.anchorFull);
+            /* 账本V1.0：刷新/重开＝自己切自己，同样走 switch 强核对（I1） */
+            if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull);
+          } catch(e){}
+        } else if (S.anchorFull && S.anchorSid && _aSel && _aSel !== S.anchorSid){
+          try {
+            sendCmd('switch', S.anchorFull);
+            if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull);
+          } catch(e){}
         }
+        /* 3.03（老板 2026-11-05 23:49「一直显示已提交排队中」）：这里只【静默】
+           向服务端要一次全额帧——绝不再走 paneRefreshNow（它挂 srvOp 用户提示，
+           刷新/重连场景属误报，会一直挂在「已提交 / 待确认」）。 */
+        try { if (S.anchorFull) sendJson({t: 'pane_req', sid: S.anchorFull}); } catch(e){}
       }
       renderAll();
       /* 2.98（标准§二之一「不是等刻度」）：新快照到达即触发一次落盘检查——
          距上次落盘已满 10 秒就立刻落（不必等 10 秒轮询那一拍）。 */
       if (typeof snapIdbTick === 'function') snapIdbTick();
+      /* 账本V1.0（H1/H8）：本地账本落盘（只留最新 N 轮）+ 触碰 lastView；
+         真快照正文到手 → 历史补发折叠面板退场（账本核对.js）。 */
+      try { if (window.ledgerOnSnap) ledgerOnSnap(); } catch(e){}
       break;
     }
     case 'profiles': {
@@ -430,6 +491,7 @@ function onEv(kind, v){
       S.models_full = v || [];   // 1.15：缓存官方列表供收藏比对/管理页
       rebuildModelOptions();
       checkFavInvalid();
+      try { if (typeof solidSave === 'function') solidSave(); } catch(e){}   /* 2.173：模型列表固态兜底 */
       break;
     case 'model_set':
       S.model_busy = false;
@@ -502,6 +564,14 @@ function onEv(kind, v){
       renderAttach(S.snap.attach || []);
       flash('已移除附件', '#888');
       break;
+    case 'attach_r2_open':          /* 2.151 附件 R2 直传：服务端回预签名 PUT 清单
+                                       v={task, uploads:[{n,key,url}], id?} → 开传 */
+      if (typeof attachR2FromReceipt === 'function') attachR2FromReceipt(v || {});
+      break;
+    case 'attach_r2_done':          /* 2.151 附件 R2 直传：服务端取件回音
+                                       v={task, ok, saved_dir, msg} → 绿/红 flash */
+      if (typeof attachR2DoneEcho === 'function') attachR2DoneEcho(v || {});
+      break;
     case 'ports':
       S.alive = new Set(v || []);
       break;
@@ -541,7 +611,8 @@ function onEv(kind, v){
         try {
           const t = ((S.snap && S.snap.inputText) || '').trim();
           if (t){
-            el.ent.value = t;
+            /* 2.164：即时回填也要剥（旧实现裸写 S.snap.inputText，DID＋四段原样进框 → TR-04） */
+            el.ent.value = copyPlain(t, true);
             refreshSendBtn();
             try { el.ent.focus(); } catch(e2){}
             S.revertPend = 0;
@@ -597,6 +668,16 @@ function onRcpt(d){
   }
   /* ① 通用操作——按动作 id 匹配在途登记表（③④ 收口） */
   if (id) srvOpAck(id, stage, msg);
+  /* 2.151 附件 R2 直传：attach_r2_open 的终态回执若直接携带
+     {task, uploads:[…]} 载荷（服务端可走 rcpt done 或 ev 二选一），在此兜底接住。 */
+  try {
+    if (stage === 'done' && typeof attachR2FromReceipt === 'function'){
+      const rv = (d.v && d.v.task && d.v.uploads) ? d.v
+               : (d.data && d.data.task && d.data.uploads) ? d.data
+               : (d.task && d.uploads) ? d : null;
+      if (rv) attachR2FromReceipt(rv);
+    }
+  } catch(e){}
 }
 
 /* ============ 2.113：按需单会话（snap_pane）与「刷新当前会话」 ============
