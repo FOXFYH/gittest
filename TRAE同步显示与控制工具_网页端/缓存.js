@@ -362,7 +362,7 @@ function curMsgs(){
    长期固定项与账本历史 LS_HIST（快照绝不进 localStorage）。
    秒显：点会话直接从内存取本地最新完整存帧立刻整屏铺上（2.130 起不再出任何
    等待提示条）；IDB 打不开则静默降级，绝不阻断主流程。 */
-const IDB_NAME = 'trae_webm_idb', IDB_VER = 1;
+const IDB_NAME = 'trae_webm_idb', IDB_VER = 2;   /* 账本V1.0：升 2 增 ledger_conv 表（本地账本，账本核对.js） */
 const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
 /* 2.126：WEB_ROUNDS_KEEP 已删除（三轮口径作废，快照与账本一律整帧原样）。 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
@@ -396,6 +396,8 @@ function idbOpen(){
         db.createObjectStore('snap_list', {keyPath: 'sk'});
       if (!db.objectStoreNames.contains('snap_pend'))
         db.createObjectStore('snap_pend', {keyPath: 'did'});  /* 占位卡持久化（C1） */
+      if (!db.objectStoreNames.contains('ledger_conv'))
+        db.createObjectStore('ledger_conv', {keyPath: 'sk'}); /* 账本V1.0：本地账本（账本核对.js） */
     };
     rq.onsuccess = () => res(rq.result);
     rq.onerror = () => rej(rq.error || new Error('IndexedDB 打开失败'));
@@ -838,6 +840,7 @@ function liveClear(){
   }
   S.livePend = ''; S.liveGot = true; S.liveFrame = null;   /* 2.57B：真帧到手撤存帧 */
   S.livePrefetch = false;                                  /* 2.67：预取标记一并清 */
+  S.lb_foldRounds = 0;     /* 账本V1.0：真画面到手 → 历史补发折叠面板退场（账本核对.js） */
   snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
 }
 /* 2.98（标准《快照缓存策略》附录A「刷新/首屏也应立刻顶出最新缓存」）：首屏/刷新在
