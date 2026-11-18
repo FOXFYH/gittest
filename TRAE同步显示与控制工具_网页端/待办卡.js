@@ -295,13 +295,13 @@ function sameConvBody(msgs, prevMsgs){
    · waiting   ：命令已发出，未收到服务器 switch_ack → 「等待服务器回应…」
    · switching ：已收 switch_ack → 「正在切换中…」
    · ok        ：已收 switch_ok（或兜底判到达）→ 「切换成功」，2s 后交回状态灯
-   · fail      ：switch_fail 或满 60s 无 ok → 「切换失败」
-   期间 waiting 阶段保留一次兜底补发（服务端同目标幂等），满 60s 判失败。
+   · fail      ：switch_fail 或满 90s 无 ok → 「切换失败」
+   期间 waiting 阶段保留一次兜底补发（服务端同目标幂等），满 90s 判失败。
    2.81：收到服务端 switch_ack（服务器已收到）后即【静默等待】，不再每 10s 补发——
    服务端切换实测要 15~30s，ack→ok 间隙 > 10s，旧逻辑会重复补发 4~5 条
    （点 1 次变 5 条且重复执行）。现仅在 waiting（尚未收到 ack）时兜底补发。 */
 const SWITCH_RESEND_MS  = 15000;   /* 仅 waiting 阶段兜底补发间隔（2.81 放宽，原 10s） */
-const SWITCH_TIMEOUT_MS = 60000;   /* 满 60s 未成功 → 判失败 */
+const SWITCH_TIMEOUT_MS = 90000;   /* 满 90s 未成功 → 判失败（2.176 老板令：60s→90s 口径） */
 const SWITCH_OK_SHOW_MS = 2000;    /* 「切换成功」闪现时长，随后交回状态灯 */
 const SWITCH_HANG_MS = SWITCH_TIMEOUT_MS;   /* 兼容旧引用（原 24s 墙钟兜底） */
 
@@ -319,13 +319,14 @@ function _swMatch(sp, v){
   if (sp.title && v.title) return sp.title === v.title;
   return true;
 }
-/* 重置「补发 + 60s 超时」两只定时器（进入 waiting 或收到回执时调）。
+/* 重置「补发 + 90s 超时」两只定时器（进入 waiting 或收到回执时调）。
    2.81：补发只在 waiting 阶段武装；进入 switching（已收 ack）不再补发，
-   仅保留 60s 超时兜底——实现「知道服务器已接收就安静等待」。
-   V2 验收 Y2（2026-11-18）：60s 死线改为【绝对时刻】sp.ts0（本轮切换
+   仅保留 90s 超时兜底——实现「知道服务器已接收就安静等待」。
+   V2 验收 Y2（2026-11-18）：死线改为【绝对时刻】sp.ts0（本轮切换
    起点算一次）——旧写法每次重 arm 都重设满 60s，只要 15s 补发一直续命
-   就永不触发超时（规范§三「60 秒全链路唯一口径」被架空）。现改为
-   ts0+60s 到点必出终态，补发只重置补发间隔、绝不延长死线。 */
+   就永不触发超时（规范§三「60 秒全链路唯一口径」被架空；2.176 起该
+   口径更新为 90 秒）。现改为 ts0+90s 到点必出终态，补发只重置补发
+   间隔、绝不延长死线。 */
 function switchReArm(){
   const sp = S.switch_pend; if (!sp) return;
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
@@ -344,7 +345,7 @@ function switchResend(){
 }
 function switchTimeout(){
   const sp = S.switch_pend; if (!sp || sp.phase === 'ok') return;
-  switchFail(sp.title);                 /* 满 60s 未成功 → 宣布失败 */
+  switchFail(sp.title);                 /* 满 90s 未成功 → 宣布失败 */
   switchClear();
   /* 2.98（老板 2026-10-20 10:01「失败也继续锚定目标」）：超时＝失败，也【不】撤
      「直播帧覆盖」——保留目标会话本地存帧显示（收口在 switchClear，见下）。 */
