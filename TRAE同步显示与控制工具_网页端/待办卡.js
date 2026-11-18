@@ -228,14 +228,15 @@ function pendLandingScan(msgs, pendArr){
   return ch;
 }
 
-/* ============ 2.178 Y24：锚定不一致对账提示（前端侧·与 S1 联动） ============
-   快照帧每拍回报「服务端桌面当前选中会话」（v.selSid / v.pend_sid → liveKey，
-   与 S.anchorSid 同为稳定键口径）。与本地锚定不一致【持续 10s】→ 底部出
-   可点击胶囊「点此对齐」；点击复用 switch 链路（pendSwitchSet）以服务端
-   选中为准重锚（服务端本就在那，switch 幂等，快照落地后自然一致并撤条）。
+/* ============ 2.178 Y24 / 2.179 Y24：锚定不一致对账提示（前端侧·与 S1 联动） ============
+   两路错位都管（2s 巡检统一出胶囊，各自满 10s 才出）：
+   ① 服务端选中路：快照每拍回报桌面当前选中（v.selSid → liveKey，与 S.anchorSid
+      同稳定键口径），≠本地锚持续 10s → 胶囊「点此对齐」（以服务端为准重锚）；
+   ② 末次点击意图路（2.179 新增）：会话列表点击记 S.pendIntent，若 10s 后实际锚
+      仍停在意图之外（切换被吞/被归还）→ 胶囊「点此重试」（以末次点击为准重发）。
    切换在途（S.switch_pend）豁免——那是我们自己正在切，不是错位。 */
 const ANCH_MIS_TMO = 10000;
-let _anchMis = {key: '', t0: 0};
+let _anchSrv = {key: '', t0: 0, title: '', sid: ''};
 (function(){   /* 胶囊样式一次注入（swhint 在顶部，本条放底部避开） */
   const s = document.createElement('style');
   s.textContent = '#anchint{position:fixed;left:50%;bottom:calc(64px + env(safe-area-inset-bottom));'
@@ -244,37 +245,64 @@ let _anchMis = {key: '', t0: 0};
     + 'cursor:pointer;max-width:86%;text-align:center;display:none;}';
   document.head.appendChild(s);
 })();
+/* 快照到达（事件总线.js 快照分支调）：只记服务端选中键，胶囊判断统一交给 anchorCheck */
 function anchorMismatchTick(liveKey, srvTitle, srvSid){
-  const _mis = !!(liveKey && S.anchorSid
+  const mis = !!(liveKey && S.anchorSid
                   && liveKey !== S.anchorSid && !S.switch_pend);
-  if (!_mis){
-    _anchMis = {key: '', t0: 0};
+  if (!mis){
+    if (_anchSrv.key) _anchSrv = {key: '', t0: 0, title: '', sid: ''};
+    return;
+  }
+  if (_anchSrv.key !== liveKey)
+    _anchSrv = {key: liveKey, t0: Date.now(), title: srvTitle || '', sid: srvSid || ''};
+}
+function anchorCheck(){
+  const now = Date.now();
+  const itv = S.pendIntent;
+  const itMis = !!(itv && itv.key && S.anchorSid
+                   && itv.key !== S.anchorSid
+                   && (now - itv.t) < 60000 && !S.switch_pend);
+  const srvMis = !!(_anchSrv.key && S.anchorSid
+                    && _anchSrv.key !== S.anchorSid && !S.switch_pend);
+  if (!itMis && !srvMis){
     const _old = document.getElementById('anchint');
     if (_old) _old.style.display = 'none';
     return;
   }
-  if (_anchMis.key !== liveKey) _anchMis = {key: liveKey, t0: Date.now()};
-  if (Date.now() - _anchMis.t0 < ANCH_MIS_TMO) return;   /* 不满 10s 先忍着 */
+  if (itMis && now - itv.t < ANCH_MIS_TMO) return;                 /* 意图未满 10s 先忍 */
+  if (!itMis && srvMis && now - _anchSrv.t0 < ANCH_MIS_TMO) return; /* 服务端错位未满 10s */
   let d = document.getElementById('anchint');
   if (!d){   /* 首次出错位才建（脚本加载时 body 未必就绪，不抢在 IIFE 里建） */
     d = document.createElement('div');
     d.id = 'anchint';
-    d.onclick = function(){
-      const _v = S.snap || {};
-      const _sid = (typeof selSidOf === 'function' ? selSidOf(_v) : '') || srvSid || '';
-      const _tt = (typeof selTitleOf === 'function' ? selTitleOf(_v) : '') || srvTitle || '';
-      if (!_sid && !_tt) return;
-      _anchMis = {key: '', t0: 0};
-      d.style.display = 'none';
-      pendSwitchSet(_tt, _sid, _sid, {lockTarget: true});   /* 复用 switch 链路重锚 */
-      flash('正在对齐：以服务器选中的会话为准…', 'var(--blue)');
-    };
     document.body.appendChild(d);
   }
+  d.onclick = function(){
+    const iv = S.pendIntent;
+    const iMis = !!(iv && iv.key && S.anchorSid
+                    && iv.key !== S.anchorSid && !S.switch_pend);
+    if (iMis){   /* 意图错位 → 以末次点击为准重试 */
+      pendSwitchSet(iv.title, iv.sid, iv.sid, {lockTarget: true});
+      flash('正在重试切换到「' + (iv.title || '目标会话') + '」…', 'var(--blue)');
+    } else {     /* 服务端错位 → 以服务端选中为准重锚 */
+      const _v = S.snap || {};
+      const _sid = (typeof selSidOf === 'function' ? selSidOf(_v) : '') || _anchSrv.sid || '';
+      const _tt = (typeof selTitleOf === 'function' ? selTitleOf(_v) : '') || _anchSrv.title || '';
+      if (!_sid && !_tt) return;
+      pendSwitchSet(_tt, _sid, _sid, {lockTarget: true});
+      flash('正在对齐：以服务器选中的会话为准…', 'var(--blue)');
+    }
+    S.pendIntent = null;
+    _anchSrv = {key: '', t0: 0, title: '', sid: ''};
+    d.style.display = 'none';
+  };
   d.style.display = 'block';
-  d.textContent = '⚠ 页面选中与服务器选中（' + (srvTitle || '未知会话')
-                + '）不一致，点此对齐';
+  d.textContent = itMis
+    ? ('⚠ 末次点击「' + (itv.title || '目标会话') + '」未生效（服务器还停在 '
+       + (S.anchorTitle || _anchSrv.title || '原会话') + '），点此重试')
+    : ('⚠ 页面选中与服务器选中（' + (_anchSrv.title || '未知会话') + '）不一致，点此对齐');
 }
+setInterval(anchorCheck, 2000);
 
 /* 占位卡生命周期检查（快照到达/定时巡检调用）。
    v2.82：销卡**不再走 did_ack**（该回执整条作废）——销卡只认 ①本会话快照
