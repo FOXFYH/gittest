@@ -739,10 +739,20 @@ function adoptSnap(v){
 /* ================= 渲染 ================= */
 
 function renderAll(){
+  /* 2.164（老板 11-15）：「手机重新展示到输入框的时候，小尾巴都要剥离掉」——
+     每次刷新画面顺手把关一次输入框（换会话/换服务器/回退脏值残留都绕不过这里）；
+     框里没有 '(@fox-' 就一个字不动（foxStripTail 首行 indexOf 早退）。 */
+  try {
+    if (el && el.ent && el.ent.value && el.ent.value.indexOf('(@fox-') >= 0){
+      const _bv = foxStripTail(el.ent.value);
+      if (_bv !== el.ent.value){ el.ent.value = _bv; refreshSendBtn(); }
+    }
+  } catch(e){}
   /* 2.57B：切换在途 → 用「目标会话本地存帧（或空）」覆盖正文类字段，绝不再
      显示旧会话 A 的内容（用户 2026-10-07；见 缓存.js liveOverlay）。 */
   const snap = liveOverlay(S.snap);
   skelCacheSave(snap);                 /* 2.20：骨架缓存写回（秒开列表） */
+  try { if (typeof solidSave === 'function') solidSave(); } catch(e){}   /* 2.173：固态兜底写回（备注/定时/模型/分身/账号/排队条最后已知值，2s 节流） */
   ensureHist();                        /* 2.20：本地历史秒开+请求式增量 */
   renderConvs(snap.convs || [], snap.conv_unread, snap.conv_unread_ids);
   /* 1.24：过滤「安装 TRAE Code」类安装引导按钮（误点无意义；
@@ -766,8 +776,11 @@ function renderAll(){
      用于防中间态闪回（保 2.89 防交叉闪现）。见下方分支。 */
   const _locked = _liveLockOn();
   const _lf = S.liveFrame;
-  const _storeMsgs = (_locked && _lf && Array.isArray(_lf.msgs) && _lf.msgs.length)
-      ? _lf.msgs : null;
+  /* 2.15（老板 2026-11-05 20:41）：真快照正文为空（框架帧/切会话空档）时，
+     即便不在切换锁态也用本地存帧兜底——有缓存就绝不白屏。 */
+  const _snapEmpty = !(Array.isArray((S.snap || {}).msgs) && S.snap.msgs.length);
+  const _storeMsgs = (_lf && Array.isArray(_lf.msgs) && _lf.msgs.length
+      && (_locked || _snapEmpty)) ? _lf.msgs : null;
   /* 2.100（老板 2026-10-20 12:14 硬原则）：持屏闸只在「尚无新内容」时生效——一旦
      锚定会话【自己的快照正文】已比存帧更新（非切换前旧正文、尾部更靠后），立即让位，
      绝不拿旧存帧顶掉已到的新内容。 */
@@ -817,6 +830,8 @@ function renderAll(){
     if (_cur.length){                      /* (b) 目标当前全量最新帧上屏 → 松开持屏 */
       renderMsgs(_cur, snap.finish, opts0, snap.ask || null, snap.pend || []);
       S.swHold = false;
+    } else if (_storeMsgs){                /* 2.15：真正文为空 → 用本地存帧兜底 */
+      renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
     } else if (S.swHold && S.swPPainted
                && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
       /* 2.106：仅「已上屏目标快照之后」才原样重放（防闪回）；此前一律不重放旧会话 */
