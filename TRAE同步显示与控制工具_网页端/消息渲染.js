@@ -133,6 +133,13 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   /* 2.97：记下本次实参——切换「持屏」期（通用工具.js renderAll）原样重放，
      保证不出现「空帧/中间态」等额外面孔（同一 key 会被本函数上方指纹直接跳过）。 */
   S.msgs_last = [msgs, finish, opts, ask, pend];
+  /* V2 第三轮 Y5（2026-11-19）：真消息渲染成功即撤同 DID 占位卡。renderMsgs
+     是全部正文上屏的唯一收口（全量 snap / snap_pane / ledger 顶屏 / 中间态重放
+     都走这里）——ST 复测：00:27:02 占位卡在 00:27:21/22 真消息+AI 回复渲染后
+     仍不撤。在此扫「人类发言首行 DID＋官方排队条」命中即销（pendLandingScan，
+     渠道①③同口径）；撤卡后本函数末尾 renderPending() 只画存活的卡，无需
+     额外重画。空态（empty）在下方早退前不扫（无正文可对）。 */
+  try { if (typeof pendLandingScan === 'function') pendLandingScan(msgs, pend || []); } catch(e){}
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
      与 opts（选项卡答完即销毁）；2.112（X2-1）：纳入「时间未知」标记 m[7]
      （无 mid 行置顶并标注，标记变化必须重画）。 */
@@ -454,7 +461,10 @@ function renderMsgs(msgs, finish, opts, ask, pend){
          （首行 DID→id 字段底层携带、提示词/后缀已剥），界面只显示原文，
          不再走专属词折叠卡管线；旧格式维持 DID/三段剥净不变。 */
       const _new = (p.text != null);
-      const _raw = _new ? String(p.text) : stripHeadDid(p.t || '');
+      /* V2 第三轮 Y4（2026-11-19）：渲染兜底剥尾——存储层（账本核对/事件总线）
+         已剥，此处对两形态再收口一次防漏网；§十二-5「排队条界面只展示原文」。
+         排队条 _qk 用 p.id/p.t 原文做键，剥尾不影响展开态与命令对位。 */
+      const _raw = stripPendTail(_new ? String(p.text) : stripHeadDid(p.t || ''));
       const _hz = [];
       const _head = _new ? _raw : foxHintCards(_raw, _hz);
       const _hasH = _new ? false : _hz.length > 0;
