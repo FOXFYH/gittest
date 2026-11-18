@@ -1,8 +1,16 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.15  日期 2026-11-05
+/* 手机缓存查看器.js（网页端）  版本 2.16  日期 2026-11-18
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
    两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
+
+   2.16（整改单·老板 2026-11-18 亲批）：本查看器即《账本系统 V1.0》规范§十
+     写死的「小账本」本体——禁止另造页面。新增第三个标签页「③ 账本调控」：
+     收纳账本系统全部七项调控（自动清理/离线倒计时/核对周期/保留轮数/
+     思维流帧间隔/闲置下线/切后台下线）+「核对 Ns · 离线 Ns」每秒递减
+     倒计时展示（撤销原 #lbhud 左下角悬浮条，倒计时逻辑仍在 账本核对.js）。
+     本地账本查看走现有「② 全部缓存」页（IDB ledger_conv 全量可展开），
+     现有展示样式一概不动。
 
    2.10（老板 2026-11-05 20:17）：
      · 预备画面列表改「两行一张卡片」的网格——第 1 行会话名，第 2 行时间/条数/是否当前生效；
@@ -11,7 +19,7 @@
        服务端追加的专属词前后缀（(@fox-sys1)… 等）自动折叠成「系统/自定/人定/岗位」小按钮，
        与主界面显示一字一致。 */
 (function(){
-  var CV_VER = '2.15';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
+  var CV_VER = '2.16';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -62,7 +70,14 @@
       '.cv_msg.u{background:#eef4fb}.cv_msg.a{background:#fff;border:1px solid #eef1f4}' +
       '.cv_msg .who{font-size:11px;color:#8a98a6;margin-bottom:3px}' +
       '.cv_msg .body{font-size:13px;line-height:1.55}' +
-      '.cv_msg .body p{margin:0 0 6px}.cv_msg .body p:last-child{margin-bottom:0}';
+      '.cv_msg .body p{margin:0 0 6px}.cv_msg .body p:last-child{margin-bottom:0}' +
+      /* 2.16：③ 账本调控区（跟随查看器既有风格，不新造组件形态） */
+      '.cv_lbrow{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid #f1f4f7;font-size:13px}' +
+      '.cv_lbrow:last-child{border-bottom:0}' +
+      '.cv_lbrow label{flex:1;min-width:0}' +
+      '.cv_lbrow input[type=number]{width:70px;padding:6px 8px;font-size:13px;border:1px solid #d5dbe1;border-radius:6px}' +
+      '.cv_lbhint{padding:8px 14px;font-size:11px;color:#8a98a6;line-height:1.6}' +
+      '#cv_lb_hud{padding:10px 14px;font-size:14px;font-weight:600;color:#337ab7;letter-spacing:1px}';
     document.head.appendChild(st);
   }
   function fmtSize(n){
@@ -348,29 +363,96 @@
     });
   }
 
+  /* ---------- ③ 账本调控（整改单 2026-11-18：原「小账本页.js」调控区并入此处） ----------
+     规范§九-4：倒计时以「每秒递减的数字」展示在本区（#cv_lb_hud），不做悬浮窗；
+     任意操作会重置倒计时 → 人操作时数字不降属正常设计。数值来源＝账本核对.js
+     的 window.lbHudText()（每秒由下方 interval 刷新，仅本 tab 可见时更新）。 */
+  function renderLedgerCtl(host){
+    host.innerHTML = '';
+    var hud = document.createElement('div');
+    hud.className = 'cv_sec';
+    hud.innerHTML = '<h3>核对与离线倒计时 <span class="n">每秒递减；任意操作即重置回配置值</span></h3>' +
+      '<div id="cv_lb_hud">—</div>';
+    host.appendChild(hud);
+    var fs = document.createElement('div');
+    fs.className = 'cv_sec';
+    fs.innerHTML = '<h3>账本调控 <span class="n">改值立即生效并保存</span></h3>' +
+      '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_clean"> 自动清理无用小账本（14 天未查看自动删）</label></div>' +
+      '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_hud"> 悬浮倒计时条（左下角，默认关；勾选即悬浮走字）</label></div>' +
+      '<div class="cv_lbrow"><label>离线倒计时（秒）</label><input type="number" id="lb_in_offline" min="15" max="3600"></div>' +
+      '<div class="cv_lbrow"><label>主动核对周期（秒）</label><input type="number" id="lb_in_period" min="15" max="3600"></div>' +
+      '<div class="cv_lbrow"><label>本地账本保留轮数</label><input type="number" id="lb_in_rounds" min="1" max="50"></div>' +
+      '<div class="cv_lbrow"><label>思维流直播帧间隔（秒，0＝不限频一变即发）</label><input type="number" id="lb_in_think" min="0" max="120"></div>' +
+      '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_idleout"> 离线倒计时启用（走完发下线信号）</label></div>' +
+      '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_bgout"> 切后台/切网页自动下线</label></div>' +
+      '<div class="cv_lbhint">以上为账本系统 V1.0 全部调控项（唯一集中入口）。本地账本内容查看：切到「② 全部缓存」展开 IndexedDB · trae_webm_idb · ledger_conv。</div>';
+    host.appendChild(fs);
+    var q = function(id){ return fs.querySelector('#' + id); };
+    var save = function(){ try { if (typeof cfgSave === 'function') cfgSave(); } catch(e){} };
+    q('lb_ck_clean').checked = !!(typeof CFG !== 'undefined' && CFG.lb_autoclean);
+    q('lb_ck_hud').checked = !!(typeof CFG !== 'undefined' && CFG.lb_hud);
+    q('lb_ck_idleout').checked = !!(typeof CFG !== 'undefined' && CFG.lb_idleout);
+    q('lb_ck_bgout').checked = !!(typeof CFG !== 'undefined' && CFG.lb_bgout);
+    q('lb_in_offline').value = (typeof lbOfflineSecs === 'function') ? lbOfflineSecs() : 120;
+    q('lb_in_period').value = (typeof CFG !== 'undefined' && parseInt(CFG.lb_period)) || 60;
+    q('lb_in_rounds').value = (typeof lbRounds === 'function') ? lbRounds() : 5;
+    q('lb_in_think').value = (typeof CFG !== 'undefined' && CFG.lb_think !== undefined) ? CFG.lb_think : 5;
+    q('lb_ck_clean').onchange = function(){ CFG.lb_autoclean = this.checked ? 1 : 0; save(); try { if (typeof lbCleanStale === 'function') lbCleanStale(); } catch(e){} };
+    q('lb_ck_hud').onchange = function(){
+      CFG.lb_hud = this.checked ? 1 : 0; save();
+      try { if (typeof lbHud === 'function') lbHud(); } catch(e){}   /* 开→立刻建条走字；关→立刻撤 */
+    };
+    q('lb_ck_idleout').onchange = function(){ CFG.lb_idleout = this.checked ? 1 : 0; save(); try { if (typeof lbLastAct !== 'undefined') lbLastAct = Date.now(); } catch(e){} };
+    q('lb_ck_bgout').onchange = function(){ CFG.lb_bgout = this.checked ? 1 : 0; save(); };
+    q('lb_in_offline').onchange = function(){ CFG.lb_offline = Math.max(15, parseInt(this.value, 10) || 120); this.value = CFG.lb_offline; save(); try { if (typeof lbLastAct !== 'undefined') lbLastAct = Date.now(); } catch(e){} };
+    q('lb_in_period').onchange = function(){ CFG.lb_period = Math.max(15, parseInt(this.value, 10) || 60); this.value = CFG.lb_period; save(); };
+    q('lb_in_rounds').onchange = function(){ CFG.lb_rounds = Math.min(50, Math.max(1, parseInt(this.value, 10) || 5)); this.value = CFG.lb_rounds; save(); };
+    q('lb_in_think').onchange = function(){
+      CFG.lb_think = Math.max(0, parseInt(this.value, 10) || 0);
+      this.value = CFG.lb_think; save();
+      /* 规范五：只管思维流模块的推送频率。v 用整数秒下发（S1 裁定：v>0 开限频
+         夹 1~600、v<=0 关限频，免重启生效），回执 think_int_ack 由 账本核对.js 处理 */
+      try { if (typeof sendJson === 'function') sendJson({t: 'set_think_int', v: CFG.lb_think | 0}); } catch(e){}
+    };
+    if (!renderLedgerCtl._tick){
+      renderLedgerCtl._tick = setInterval(function(){
+        var el2 = document.getElementById('cv_lb_hud');
+        if (!el2) return;
+        var txt = '—';
+        try { txt = (typeof window.lbHudText === 'function') ? (window.lbHudText() || '—') : '—'; } catch(e){}
+        el2.textContent = txt;
+      }, 1000);
+    }
+  }
+
   function build(){
     if (built) return; built = true;
     injectStyle();
     var pg = document.createElement('div'); pg.id = 'cv_page';
     pg.innerHTML = '<div id="cv_hd"><button id="cv_back">‹ 返回</button><div class="t">手机缓存查看器 v' + CV_VER + '</div>' +
       '<button id="cv_reload">刷新</button></div>' +
-      '<div id="cv_tabs"><button id="cv_t1" class="on">① 会话预备画面</button><button id="cv_t2">② 全部缓存</button></div>' +
+      '<div id="cv_tabs"><button id="cv_t1" class="on">① 会话预备画面</button><button id="cv_t2">② 全部缓存</button><button id="cv_t3">③ 账本调控</button></div>' +
       '<div id="cv_bd"></div>';
     document.body.appendChild(pg);
     var bd = pg.querySelector('#cv_bd');
     pg.querySelector('#cv_back').onclick = function(){ pg.classList.remove('on'); };
     function draw(){
-      if (tab === 'preview') renderPreview(bd); else renderAllCache(bd);
+      if (tab === 'preview') renderPreview(bd); else if (tab === 'ledger') renderLedgerCtl(bd); else renderAllCache(bd);
     }
     pg.querySelector('#cv_reload').onclick = function(){ view = 'list'; detailItem = null; draw(); };
     pg.querySelector('#cv_t1').onclick = function(){
       tab = 'preview'; view = 'list'; detailItem = null;
-      this.classList.add('on'); pg.querySelector('#cv_t2').classList.remove('on'); draw();
+      this.classList.add('on'); pg.querySelector('#cv_t2').classList.remove('on'); pg.querySelector('#cv_t3').classList.remove('on'); draw();
     };
     pg.querySelector('#cv_t2').onclick = function(){
       tab = 'all';
-      this.classList.add('on'); pg.querySelector('#cv_t1').classList.remove('on'); draw();
+      this.classList.add('on'); pg.querySelector('#cv_t1').classList.remove('on'); pg.querySelector('#cv_t3').classList.remove('on'); draw();
     };
+    pg.querySelector('#cv_t3').onclick = function(){
+      tab = 'ledger';
+      this.classList.add('on'); pg.querySelector('#cv_t1').classList.remove('on'); pg.querySelector('#cv_t2').classList.remove('on'); draw();
+    };
+    /* 整改单：设置页「小账本」按钮唯一入口——打开入口走顶层 cvEnsure */
     window.cvOpen = function(){ pg.classList.add('on'); draw(); };
   }
   function bind(){
@@ -384,4 +466,7 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
+  /* 整改单（2026-11-18）：设置页「小账本」按钮唯一入口——顶层暴露，未 build 过
+     也先补 build（build 内部自防重复），保证任何入口点开即可用。 */
+  window.cvEnsure = function(){ build(); };
 })();
