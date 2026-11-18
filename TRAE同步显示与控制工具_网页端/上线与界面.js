@@ -4,6 +4,9 @@ function onHello(d){
   diagLog('收到服务器 hello 回应 ✓', 'ok');
   /* 2.20 新架构：服务端版本号 → 双版本号缓存键，任一变化清本地缓存 */
   if (d.ver !== undefined){ S.srvVer = String(d.ver || '0'); checkVerBump(); }
+  /* 账本V1.0（协议定稿 3.1）：hello 增量携带 mods＝服务端当前全模块 ver，
+     客户端登录首轮即有比对底账（账本核对.js 存底，按服务端隔离）。 */
+  if (d.mods && typeof d.mods === 'object' && window.lbModsSet) lbModsSet(d.mods);
   if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;
   /* 1.27：登录账号名（hello 同步；服务端读积分时刷新） */
   if (d.acct !== undefined){ S.acct = String(d.acct || ''); renderAcct(); }
@@ -33,7 +36,11 @@ function onHello(d){
   }
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
-  if (d.box !== S.box){ applySwitch(d.box, port); }
+  if (d.box !== S.box){
+    applySwitch(d.box, port);
+    /* 账本V1.0（I1）：切换服务器＝强核对场景之一（同一构造函数）；切后先换底账 */
+    try { lbVerLoad(); if (window.ledgerVcheckSend) ledgerVcheckSend('svr'); } catch(e){}
+  }
   else if (port !== S.port){ S.port = port; }
   if (d.conn) onEv('connected', S.port);
 }
