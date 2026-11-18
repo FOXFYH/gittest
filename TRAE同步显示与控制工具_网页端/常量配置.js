@@ -68,13 +68,15 @@ function cfgGet(){
 function cfgSave(){ localStorage.setItem(LS_CFG, JSON.stringify(CFG)); }
 let CFG = cfgGet();
 if (!CFG.stats_keep) CFG.stats_keep = 10;
-/* 账本系统 V1.0（2026-11-18）：全部调控项集中在小账本页（小账本页.js），
+/* 账本系统 V1.0（2026-11-18）：全部调控项集中在缓存查看器「③ 账本调控」tab
+   （手机缓存查看器.js，设置页「小账本」按钮唯一入口），
    此处只定默认值；改值立即生效并落盘（cfgSave）。 */
 if (CFG.lb_period === undefined) CFG.lb_period = 60;     /* 主动核对周期（秒），默认 1 分钟 */
 if (CFG.lb_offline === undefined) CFG.lb_offline = 120;  /* 本地离线倒计时（秒） */
 if (CFG.lb_rounds === undefined) CFG.lb_rounds = 5;      /* 本地账本保留轮数（N） */
 if (CFG.lb_think === undefined) CFG.lb_think = 5;        /* 思维流直播帧间隔（秒，只管 think 模块） */
 if (CFG.lb_autoclean === undefined) CFG.lb_autoclean = 1; /* 自动清理无用小账本（14 天未查看）默认勾选 */
+if (CFG.lb_hud === undefined) CFG.lb_hud = 0;            /* 悬浮倒计时条（追加单 2026-11-18）默认关，开关在缓存查看器「③ 账本调控」区 */
 if (CFG.lb_idleout === undefined) CFG.lb_idleout = 1;    /* 离线倒计时启用（走完发下线信号）默认开 */
 if (CFG.lb_bgout === undefined) CFG.lb_bgout = 0;        /* 切后台/切网页下线（保留场景新增开关，默认关＝现状） */
 /* 2.02：语音播报音色/语速（设置页「语音播报」可改）。默认女声晓晓——
