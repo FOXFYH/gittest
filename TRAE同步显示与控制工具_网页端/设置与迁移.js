@@ -365,6 +365,30 @@ function buildIdCard(){
   };
 }
 buildIdCard();
+/* 整改单（老板 2026-11-18 亲批）：设置页加「小账本」按钮＝唯一入口，
+   点击即打开现成缓存查看器（规范§十：小账本＝缓存查看器，禁止新造页面）。 */
+function buildLedgerEntry(){
+  if (!el.netpage || document.getElementById('lb_entry_fs')) return;
+  const body = el.netpage.querySelector('.nbody') || el.netpage;
+  const fs = document.createElement('fieldset');
+  fs.id = 'lb_entry_fs';
+  fs.innerHTML =
+    '<legend>小账本</legend>'
+    + '<div class="row"><button id="btn_lbopen" style="width:100%;">📒 打开小账本（账本查看与调控）</button></div>'
+    + '<div class="row"><span class="hint">＝缓存查看器「③ 账本调控」页；本地账本查看在「② 全部缓存」展开 ledger_conv</span></div>';
+  const idc = document.getElementById('idcard_fs');
+  if (idc && idc.parentNode === body) body.insertBefore(fs, idc.nextSibling);
+  else body.insertBefore(fs, body.firstChild);
+  const btn = document.getElementById('btn_lbopen');
+  if (btn) btn.onclick = () => {
+    try {
+      if (typeof window.cvEnsure === 'function') window.cvEnsure();
+      if (typeof window.cvOpen === 'function') window.cvOpen();
+      el.netpage.classList.remove('on');
+    } catch(e){}
+  };
+}
+buildLedgerEntry();
 function renderToday(){
   const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
   el.today.textContent = '今日  收 ' + fmtBytes(b.rx) + '·' + (b.rxn||0)
