@@ -752,6 +752,7 @@ function renderAll(){
      显示旧会话 A 的内容（用户 2026-10-07；见 缓存.js liveOverlay）。 */
   const snap = liveOverlay(S.snap);
   skelCacheSave(snap);                 /* 2.20：骨架缓存写回（秒开列表） */
+  try { if (typeof solidSave === 'function') solidSave(); } catch(e){}   /* 2.173：固态兜底写回（备注/定时/模型/分身/账号/排队条最后已知值，2s 节流） */
   ensureHist();                        /* 2.20：本地历史秒开+请求式增量 */
   renderConvs(snap.convs || [], snap.conv_unread, snap.conv_unread_ids);
   /* 1.24：过滤「安装 TRAE Code」类安装引导按钮（误点无意义；
