@@ -7,6 +7,10 @@
      目标是本地持久化的「我想操作的会话」（LS_ANCHOR，唯一一套）。
      首拍快照到达时走与点击会话完全相同的切换流程（见 事件总线.js）。 */
   if (anchorRestore()){ S.anchor_reask = 1; S.bootSwitch = 1; }
+  /* 2.174（固态化失效根因修复）：先恢复上次在线时的服务端版本号——
+     否则 cacheKeyNow()='VER|0' 与落盘的 'VER|真实srvVer' 必不匹配，
+     skel/solid/hist 全部读不出（老板实测「完全没固态化」真凶）。 */
+  try { if (typeof srvVerRestore === 'function') srvVerRestore(); } catch(e){}
   /* 2.173（固态化「打开即活」）：骨架渲染【之前】同步恢复六模块最后已知值
      （备注/定时/模型列表/沙盒下拉/登录账号/排队条）——localStorage 同步读，
      零等待；会话列表备注后缀/定时角标随骨架一并上屏。后台对账帧到达后照常
@@ -15,6 +19,11 @@
   const sk = skelCacheLoad();
   if (sk && sk.convs && sk.convs.length)
     renderConvs(sk.convs, sk.conv_unread, sk.conv_unread_ids);
+  /* 2.174（B5-b 空落盘最小骨架）：无任何落盘时也渲一次空态行——
+     「（暂无本地缓存会话）」，不白屏不死等；否则 boot 链路无人调
+     renderConvs，列表容器一直空白，连「等待」的说法都没有。 */
+  if (!(sk && sk.convs && sk.convs.length))
+    try { renderConvs([]); } catch(e){}
   /* 2.98（标准附录A）：首屏/刷新立刻顶出「当前会话」的 IDB 最新存帧，
      替代更旧的账本残行（无存帧则留白，保 2.57B）。 */
   /* 3.01（老板 2026-11-05 23:25）：刷新/刚打开＝切换会话——
