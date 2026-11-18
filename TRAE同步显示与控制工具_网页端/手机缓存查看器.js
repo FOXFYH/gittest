@@ -455,17 +455,8 @@
     /* 整改单：设置页「小账本」按钮唯一入口——打开入口走顶层 cvEnsure */
     window.cvOpen = function(){ pg.classList.add('on'); draw(); };
   }
-  function bind(){
-    var btn = document.getElementById('btn_cacheview');
-    if (!btn) return;
-    btn.onclick = function(){
-      build();
-      if (typeof drawerClose === 'function') drawerClose();
-      window.cvOpen();
-    };
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
-  else bind();
+  /* V2 验收 Y14（2026-11-18）：#btn_cacheview 重复入口已撤（html 不再有该
+     按钮），旧 bind() 死代码一并摘除——设置页「小账本」按钮为唯一入口。 */
   /* 整改单（2026-11-18）：设置页「小账本」按钮唯一入口——顶层暴露，未 build 过
      也先补 build（build 内部自防重复），保证任何入口点开即可用。 */
   window.cvEnsure = function(){ build(); };
