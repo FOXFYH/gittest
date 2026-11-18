@@ -158,6 +158,9 @@ function cliLogin(reason){
   S.idbFirstFull = 1;
   S.anchor_reask = 1;
   sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
+  /* 账本V1.0（I1/I2）：登录＝强核对场景之一，与 switch/svr/timer 共用
+     ledgerVcheckSend 同一构造函数（账本核对.js）。 */
+  try { if (window.ledgerVcheckSend) ledgerVcheckSend('login'); } catch(e){}
   lastBeatOk = Date.now();
   clearInterval(hbTimer);
   hbTimer = setInterval(cliBeat, HB_SEC * 1000);
@@ -350,6 +353,11 @@ function handleBody(body){
     return;
   }
   if (d.t === 'hello') onHello(d);
+  /* 账本系统 V1.0（账本核对.js）：vack 两阶段核对回执 / mod 单模块实体帧。
+     旧服务端不下发这两类帧 ⇒ 以下分支永不触发，旧协议通路零影响。 */
+  if (d.t === 'vack'){ if (window.ledgerVack) ledgerVack(d); return; }
+  if (d.t === 'mod'){ if (window.ledgerMod) ledgerMod(d); return; }
+  if (d.t === 'think_int_ack'){ if (window.lbThinkIntAck) lbThinkIntAck(d); return; }   /* 账本V1.0：set_think_int 回执（小账本页.js） */
   if (d.t === 'poll_set') return;                     // 1.35：档位已移除，忽略回执
 }
 
