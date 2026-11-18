@@ -200,6 +200,26 @@ function pendClearByDid(did, conv){
   return changed;
 }
 
+/* V2 验收 Y5（2026-11-18）：撤卡渠道①③收口成函数——旧实现只在事件总线
+   全量 snap 分支内联扫描；账本V1.0 模块化模式正文改走 snap_pane／mod think
+   帧，那条路不扫 DID ⇒ 「✅ 服务器已完成，等待聊天记录浮现…」的卡永远
+   撤不掉（只剩 24h 兜底）。本函数＝①本帧对话记录人类发言首行 DID ＋
+   ③官方排队条（调用方保证已过滤为本会话）两渠道，命中即销卡。
+   返回 true 表示有销卡，调用方负责 renderAll。 */
+function pendLandingScan(msgs, pendArr){
+  let ch = false;
+  (msgs || []).forEach(m => {                /* ① 只扫人类发言（role=u） */
+    if (!m || m[0] !== 'u') return;
+    const d = pendDidOf(m[1]);
+    if (d && pendClearByDid(d, '')) ch = true;
+  });
+  (pendArr || []).forEach(it => {            /* ③ 官方排队条 */
+    const d = pendDidOf(it && it.t) || (it && it.id) || '';
+    if (d && pendClearByDid(d, '')) ch = true;
+  });
+  return ch;
+}
+
 /* 占位卡生命周期检查（快照到达/定时巡检调用）。
    v2.82：销卡**不再走 did_ack**（该回执整条作废）——销卡只认 ①本会话快照
    抓到首行 DID ②服务端 did_pool 池子（见 事件总线.js）。本函数只剩两件事：
@@ -301,11 +321,17 @@ function _swMatch(sp, v){
 }
 /* 重置「补发 + 60s 超时」两只定时器（进入 waiting 或收到回执时调）。
    2.81：补发只在 waiting 阶段武装；进入 switching（已收 ack）不再补发，
-   仅保留 60s 超时兜底——实现「知道服务器已接收就安静等待」。 */
+   仅保留 60s 超时兜底——实现「知道服务器已接收就安静等待」。
+   V2 验收 Y2（2026-11-18）：60s 死线改为【绝对时刻】sp.ts0（本轮切换
+   起点算一次）——旧写法每次重 arm 都重设满 60s，只要 15s 补发一直续命
+   就永不触发超时（规范§三「60 秒全链路唯一口径」被架空）。现改为
+   ts0+60s 到点必出终态，补发只重置补发间隔、绝不延长死线。 */
 function switchReArm(){
   const sp = S.switch_pend; if (!sp) return;
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
-  sp._tmoT = setTimeout(switchTimeout, SWITCH_TIMEOUT_MS);
+  if (!sp.ts0) sp.ts0 = Date.now();            /* 死线锚点：新建 sp 时算一次 */
+  const left = sp.ts0 + SWITCH_TIMEOUT_MS - Date.now();
+  sp._tmoT = setTimeout(switchTimeout, Math.max(1, left));
   if (sp.phase === 'waiting')
     sp._resendT = setTimeout(switchResend, SWITCH_RESEND_MS);
 }
