@@ -36,9 +36,12 @@ function regSrv(nm, d){
   if (!s) s = S.servers[nm] = {name: nm, ts: 0, seen: 0, conn: false};
   s.ts = Date.now();
   touchSrvSeen(s);                            /* v1.84：记最后出现时间（落盘） */
-  if (d.sid) s.sid = d.sid;
   if (d.v) s.v = d.v;
   if (d.t === 'hello' || d.t === 'srv'){
+    /* V2 验收 Y1（2026-11-18）：sid 只在 hello/srv 名册帧收——账本V1.0 后
+       事件/mod 帧常带会话级 sid，旧写法每帧吃进 s.sid 会污染发送地址，
+       命令被发去错的会话/目标。 */
+    if (d.sid) s.sid = d.sid;
     if (d.boxes) s.boxes = d.boxes;
     if (d.alive) s.alive = d.alive;
     if (d.conn !== undefined) s.conn = d.conn;
