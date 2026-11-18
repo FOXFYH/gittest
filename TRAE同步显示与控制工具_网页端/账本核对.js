@@ -1,5 +1,5 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.00  日期 2026-11-18
+/* 账本核对.js（网页端）  版本 1.01  日期 2026-11-18
    【依据】《手机网页端账本系统V1.0总规范.md》三/六/九/十章 +
            《账本系统V1.0_TRAE协议定稿.md》（含第十一章统筹批复：
            上行 vcheck 单帧多字段、think 兼带正文、macct 按 boxes）。
@@ -9,24 +9,31 @@
      ② vack 两阶段回执：stage:1 → 悬浮提示「已变更选中会话，等待账本
         核对中」（复用 切换提示.js 胶囊，经 S.switch_pend.phase）；stage:2 →
         正式成功关提示 + 版本底账刷新 + 智能避让 20s 叠加（I3）；
-     ③ mod 单模块实体帧分流（snote/sig/macct/convs/didp/ledger/think）；
-     ④ 主动核对：默认 1 分钟周期（可配）+ 页面倒计时（#lbhud）；
-        智能避让＝每次强核对完成叠加 20s；
+     ③ mod 单模块实体帧分流（snote/sig/macct/convs/didp/ledger/think）
+        ＋ set_think_int 回执 lbThinkIntAck（WS桥 0.27）；
+     ④ 主动核对：默认 1 分钟周期（可配）+ 倒计时文本 lbHudText()（缓存查看器
+        「③ 账本调控」区常显）＋ #lbhud 悬浮条（追加单 2026-11-18 改开关式：
+        CFG.lb_hud 默认关，开关在账本调控区，开才悬浮走字）；
+        智能避让（追加单修订）＝switch 发出即冻结、终态（stage:2 或 60s 失败）
+        解冻重置；login/svr 完成直接按完整周期重置；旧 20s 叠加已删；
      ⑤ 本地离线倒计时：默认 120s 可配，任意用户操作重置，走完发下线
         信号（logout）；保留现有主动下线场景并新增开关（切后台下线）；
      ⑥ 本地账本（IDB ledger_conv 表，按服务端隔离）：只留最新 N 轮
         （默认 5 可配）；改名/删除会话自动清理；「自动清理无用小账本」
         开关默认勾选、14 天未查看自动删；历史按轮渲染+折叠按钮补发
         （ledger_req）。
+     调控界面已并入 手机缓存查看器.js「③ 账本调控」tab（规范§十：
+     小账本＝现成缓存查看器，禁止新造页面；原 小账本页.js 已撤销）。
    【零依赖降级】服务端未升级（无 vack/mod 帧）时：vcheck 发出无人应答
      ⇒ 走既有 switch 60s 超时兜底；本层绝不妨碍现有 snap 通路（旧协议
      全量保留，新旧并行，联调期互为兜底）。 */
 const LS_LBVER = 'trae_webm_lbver';          /* 版本底账落盘（按服务端隔离） */
-let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {}};
+let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
+          frozen: false, frozenT: null};     /* frozen＝切换期间核对冻结（追加单 2026-11-18，取代 20s 叠加） */
 let lbLastAct = Date.now();                  /* 离线倒计时锚点（任意操作重置） */
-let _lbHudEl = null, _lbSnapAt = 0;
+let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默认关，追加单 2026-11-18） */
 
-/* ================= 配置读取（全部可在小账本页调控，见 小账本页.js） ================= */
+/* ================= 配置读取（调控界面在缓存查看器「③ 账本调控」区） ================= */
 function lbPeriodMs(){ const v = parseInt(CFG.lb_period) || 60; return Math.max(15, v) * 1000; }
 function lbOfflineSecs(){ return Math.max(15, parseInt(CFG.lb_offline) || 120); }
 function lbRounds(){ return Math.min(50, Math.max(1, parseInt(CFG.lb_rounds) || 5)); }
@@ -79,8 +86,30 @@ function ledgerVcheckSend(act, sid){
     if (act === 'login' || act === 'svr') lbVerLoad();   /* 换服务端/重登：按当前服务端重载底账，绝不串用旧服务端版本 */
     sendJson(ledgerVcheckBuild(act, sid));
     if (act === 'timer') LB.checking = true;
+    /* 追加单 2026-11-18（规范§三「切换期间的核对冻结」）：switch 一经发出，
+       主动核对倒计时立即重置并冻结，期间绝不发 timer 帧；直到本轮切换出
+       终态（vack stage:2 正式成功，或 60 秒未收终态宣布失败）才解冻并按
+       完整周期重新起算。60 秒＝全链路唯一口径（待办卡.js SWITCH_TIMEOUT_MS）。 */
+    if (act === 'switch'){
+      LB.frozen = true;
+      LB.timerAt = Date.now() + lbPeriodMs();
+      clearTimeout(LB.frozenT);
+      LB.frozenT = setTimeout(() => {
+        /* 60 秒失败兜底：与待办卡.js SWITCH_TIMEOUT_MS 同值同域（§三 单一口径） */
+        lbUnfreeze();
+      }, (typeof SWITCH_TIMEOUT_MS === 'number' && SWITCH_TIMEOUT_MS) || 60000);
+    }
     return true;
   } catch(e){ return false; }
+}
+/* 切换出终态（成功或失败）→ 解冻并按完整周期重新起算（规范§三） */
+function lbUnfreeze(){
+  try {
+    clearTimeout(LB.frozenT);
+    LB.frozenT = null;
+    LB.frozen = false;
+    LB.timerAt = Date.now() + lbPeriodMs();
+  } catch(e){ LB.frozen = false; }
 }
 
 /* ================= ② vack 两阶段回执 ================= */
@@ -102,10 +131,12 @@ function ledgerVack(d){
   /* stage:2 —— 正式成功终态：版本一致（same）或差额补发清单（need） */
   LB.checking = false;
   if (d.mods && typeof d.mods === 'object') lbModsSet(d.mods);   /* 存底，供下轮比对 */
-  /* 智能避让（I3）：任一强核对完成 ⇒ 主动核对推迟，每次强核对叠加 20 秒 */
-  if (d.act === 'login' || d.act === 'switch' || d.act === 'svr'){
-    LB.push += 20000;
-    LB.timerAt = Math.max(LB.timerAt || 0, Date.now() + lbPeriodMs() + LB.push);
+  /* 智能避让（I3 修订版·追加单 2026-11-18）：切换成功＝终态 → 解冻并按完整
+     周期重新起算；login/svr 强核对完成 → 倒计时直接重置为完整周期。
+     旧「20 秒叠加」口径已作废删除（规范§三／协议定稿§五）。 */
+  if (d.act === 'switch') lbUnfreeze();
+  else if (d.act === 'login' || d.act === 'svr'){
+    LB.timerAt = Date.now() + lbPeriodMs();
   }
   const sp = S.switch_pend;
   if (sp && (!d.sid || !sp.sid || String(d.sid) === String(sp.sid))){
@@ -383,12 +414,12 @@ setInterval(() => { try { lbCleanStale(); } catch(e){} }, 10 * 60 * 1000);
 /* ================= ④ 主动核对（1 分钟周期+倒计时）与智能避让 ================= */
 setInterval(() => {
   try {
-    lbHud();
+    lbHud();                               /* 悬浮条开关式：关则即撤、开则走字（含冻结态） */
+    if (LB.frozen) return;                 /* 追加单 2026-11-18：切换期间核对冻结，绝不发 timer */
     if (LB.checking || !S.onLine || !loggedIn || document.hidden) return;
     const now = Date.now();
     if (!LB.timerAt) LB.timerAt = now + lbPeriodMs();
     if (now >= LB.timerAt){
-      LB.push = 0;                         /* 避让已消费：叠加计数清零 */
       LB.timerAt = now + lbPeriodMs();
       ledgerVcheckSend('timer');           /* 本质＝自动化强核对（同一构造函数） */
       setTimeout(() => { LB.checking = false; }, 5000);   /* 防旧服务端无回帧卡旗标 */
@@ -419,9 +450,30 @@ document.addEventListener('visibilitychange', () => {
   } catch(e){}
 });
 
-/* ================= 倒计时 HUD（I2：页面展示对应倒计时） ================= */
+/* ================= 倒计时文本（整改单 2026-11-18：撤销 #lbhud 悬浮条） =================
+   只出数不做界面：缓存查看器「③ 账本调控」区每秒调 window.lbHudText() 刷新展示。
+   规范§九-4：任意操作重置 → 人操作时数字不降属正常设计，静置观察才逐秒下降。 */
+function lbHudText(){
+  try {
+    const now = Date.now();
+    /* 冻结态（切换进行中）：核对倒计时恒显满周期——数字停住＝冻结中，不发送 */
+    const ck = LB.frozen ? (lbPeriodMs() / 1000)
+      : (LB.timerAt ? Math.max(0, Math.ceil((LB.timerAt - now) / 1000)) : 0);
+    const off = CFG.lb_idleout
+      ? Math.max(0, Math.ceil((lbLastAct + lbOfflineSecs() * 1000 - now) / 1000)) : 0;
+    return '核对 ' + ck + 's · 离线 ' + off + 's';
+  } catch(e){ return '—'; }
+}
+if (typeof window !== 'undefined') window.lbHudText = lbHudText;
+
+/* 悬浮倒计时条（追加单 2026-11-18 改开关式：规范§九-4 修订——默认关不悬浮，
+   开关在缓存查看器「③ 账本调控」区 CFG.lb_hud；开才创建并走字，关即撤）。 */
 function lbHud(){
   try {
+    if (!CFG.lb_hud){
+      if (_lbHudEl){ _lbHudEl.remove(); _lbHudEl = null; }
+      return;
+    }
     if (!_lbHudEl){
       const st = document.createElement('style');
       st.textContent = '#lbhud{position:fixed;left:8px;bottom:calc(8px + env(safe-area-inset-bottom));'
@@ -432,11 +484,24 @@ function lbHud(){
       _lbHudEl.id = 'lbhud';
       document.body.appendChild(_lbHudEl);
     }
-    const now = Date.now();
-    const ck = LB.timerAt ? Math.max(0, Math.ceil((LB.timerAt - now) / 1000)) : 0;
-    const off = CFG.lb_idleout
-      ? Math.max(0, Math.ceil((lbLastAct + lbOfflineSecs() * 1000 - now) / 1000)) : 0;
-    _lbHudEl.textContent = '核对 ' + ck + 's · 离线 ' + off + 's';
+    _lbHudEl.textContent = lbHudText();
+  } catch(e){}
+}
+
+/* set_think_int 服务端回执（S1 裁定 WS桥 0.27）：{'t':'think_int_ack','ok','sec','on'}
+   —— 按 on/sec 更新本地 CFG（服务端是限频间隔的最终真值）；调控输入框由
+   缓存查看器「账本调控」区重建 DOM 时按 CFG 回填。 */
+function lbThinkIntAck(d){
+  try {
+    if (!d || typeof d !== 'object') return;
+    const sec = Math.max(0, parseInt(d.sec) || 0);
+    if (d.ok){
+      CFG.lb_think = d.on ? sec : 0;
+      cfgSave();
+      flash(d.on ? ('思维流间隔已生效：' + sec + ' 秒') : '思维流限频已关闭（画面一变即发）', 'var(--blue)');
+    } else {
+      flash('思维流间隔下发未生效（服务端拒绝）', 'var(--red)');
+    }
   } catch(e){}
 }
 
