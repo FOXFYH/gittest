@@ -170,7 +170,12 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       d.addEventListener('touchcancel', stopLP);
       d.onclick = () => {
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
-        if (!flag){
+        /* 2.179 Y24：撤掉「桌面已选中（flag=true）的行不可点」拦截——快照有
+           拍差，连点场景末次点击的行可能恰是旧快照里的 Focused 行 ⇒ 点击被
+           静默吞掉（ST 实测连点 1ST→4ST→5ST→2ST 锚停 5ST、2ST 没反应）。
+           现在用户点谁就切谁：切换链路自己走 vcheck，服务端同目标幂等无副作用；
+           消息落点由锚定优先路由兜底。 */
+        {
           /* 2.62：换会话先退出「历史全屏」。输入界面.js 1.20 注释早就写明
              「退出全屏只有两个途径：点『↓ 回到最新』、切换会话」，但此处
              从来没调 exitFmsg()。后果：用户上翻过历史（body.fmsg）再切会话
@@ -189,6 +194,10 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
              会话，别人在电脑版操作别的会话也不会把网页版带走。 */
           S.anchorSid = sKey || ''; S.anchorTitle = title || '';
           S.anchorFull = sid || '';    /* 完整 sid 兜底（switch/路由/占位卡用真 sid） */
+          /* 2.179 Y24：记「末次点击意图」——若切完实际锚仍停在此目标之外
+             （链路被吞/被归还），待办卡.js anchorCheck 10s 后出「点此重试」胶囊。 */
+          S.pendIntent = {key: sKey || '', title: title || '',
+                          sid: sid || (i + ''), t: Date.now()};
           S.anchor_gone = '';          /* 本专项 A4：换锚点即清「已消失」提醒态 */
           anchorReport();              /* 2.74：T16——用户换锚点即上报（去重+≥300ms 节流） */
           /* 本专项 A7：锚点变化 → 列表选中态立即跟随（不等下一拍快照） */
