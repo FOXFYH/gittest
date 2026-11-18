@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.178</title>
+<title>TRAE远程 v2.179</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
-  <link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.178">
+  <link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.179">
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
 
@@ -278,31 +278,82 @@
     立刻实测=真开无界面 Chrome 读官方用量页，耗时数分钟属正常。</div>
 </div>
 
-<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/账本核对.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.178"></script>
-<script src="TRAE同步显示与控制工具_网页端/手机缓存查看器.js?v=2.178"></script>
+<script>
+/* ===== 2.179 Y6：断网冷开离线壳（零依赖内联兜底）=====
+   ST 实测断网 Page.reload 白屏根因＝外链 js（?v=2.179 带 no-store）断供，
+   S 根本没定义——不是缓存 key 失配。本段内联在所有外链脚本之前：
+   800ms 后若主脚本仍未活（typeof S === 'undefined'），用 localStorage 骨架
+   （trae_webm_skel 会话列表 + trae_webm_solid 账号）直接铺屏并挂黄条提示；
+   主脚本弱网慢加载到位后自动拆壳让位。在线正常打开时本段静默（S 已定义）。 */
+(function(){
+  function _offShell(){
+    if (typeof S !== 'undefined' && S) return;
+    var cv = document.getElementById('convs');
+    try {
+      var sk = JSON.parse(localStorage.getItem('trae_webm_skel') || 'null');
+      if (sk && Array.isArray(sk.convs) && sk.convs.length && cv){
+        cv.innerHTML = '';
+        sk.convs.forEach(function(r){
+          if (!r || r[0] !== 'c') return;
+          var d = document.createElement('div');
+          d.className = 'convo item' + (r[2] ? ' act' : '');
+          d.style.cssText = 'padding:10px 14px;opacity:.8;';
+          d.textContent = r[1] || '（会话）';
+          cv.appendChild(d);
+        });
+      }
+      var so = JSON.parse(localStorage.getItem('trae_webm_solid') || 'null');
+      var ac = document.getElementById('lbl_acct');
+      if (so && so.acct && ac) ac.textContent = String(so.acct);
+    } catch(e){}
+    try {
+      var bar = document.createElement('div');
+      bar.id = 'offbar';
+      bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
+        + 'background:#b26a00;color:#fff;font-size:12px;padding:6px 10px;text-align:center;';
+      bar.textContent = '离线模式：脚本未能加载，以下为上次在线时的数据（正在尝试连接…）';
+      (document.body || document.documentElement).appendChild(bar);
+    } catch(e){}
+    var _p = setInterval(function(){
+      if (typeof S !== 'undefined' && S){
+        clearInterval(_p);
+        var b = document.getElementById('offbar');
+        if (b) b.remove();
+      }
+    }, 1500);
+  }
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(_offShell, 800); });
+  } else {
+    setTimeout(_offShell, 800);
+  }
+})();
+</script>
+<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/账本核对.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.179"></script>
+<script src="TRAE同步显示与控制工具_网页端/手机缓存查看器.js?v=2.179"></script>
 <script src="TRAE同步显示与控制工具_网页端/切换提示.js?v=1.04"></script>
-<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.178"></script>
+<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.179"></script>
 </body>
 </html>
