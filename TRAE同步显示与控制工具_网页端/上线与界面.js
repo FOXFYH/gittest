@@ -190,6 +190,13 @@ function srvWatch(){
     try { diagLog('服务器 ' + Math.round((Date.now() - S.lastSrv) / 1000)
                   + ' 秒无任何帧 → 判失联（等恢复收帧回绿）', 'bad'); } catch(e){}
   }
+  /* 2.181 Y32a（兜底）：失联期间 socket 已死且无重连定时在跑时，把退避链重新
+     拉起来——scheduleReconnect 自带 failStreak>=MAX 拒发卫兵（连接.js:107），
+     停摆态 reconnectTimer 残留旧 id 为真值、判据不成立，不会被反复拉起；
+     只有「定时器为空但 streak 未满」的中间态能被救活，不会连接风暴。 */
+  if (S.srvLost && (!S.ws || S.ws.readyState >= 2) && typeof reconnectTimer !== 'undefined' && !reconnectTimer){
+    try { scheduleReconnect(); } catch(e){}
+  }
   /* 2.180 Y32：失联期间 WS 活着但服务端一直无帧 → srvSeen 永不触发、红屏锁死。
      每 ~10s（3s 巡检 ×3 拍）主动发一针既有心跳帧（与连接.js cliBeat 同款格式，
      服务端必识有回音）——任何回帧都走 srvSeen（:164-172）自动清失联回绿。 */
