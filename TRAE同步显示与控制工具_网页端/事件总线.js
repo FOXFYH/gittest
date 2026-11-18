@@ -151,7 +151,24 @@ function onEv(kind, v){
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
       /* 2.131：走到这里的 pend 已确认属于本会话（别人的上面已先剥，锚定冻结
-         留用的也是本会话旧帧）⇒ 回写 pend_sid，供 消息渲染.js 2.131 复验。 */
+         留用的也是本会话旧帧）⇒ 回写 pend_sid，供 消息渲染.js 2.131 复验。
+         V2 第三轮 Y4+Y18（2026-11-19）：快照路排队条与 think 帧存储层同口径——
+         stripPendTail 剥提示词尾巴（§十二-5）+ 按 id 幂等去重（双路推送只落一条）；
+         剥后全空（整条都是注入）的条目丢弃。 */
+      if (Array.isArray(v.pend) && v.pend.length){
+        const _pv = [];
+        const _seen2 = new Set();
+        v.pend.forEach(it => {
+          if (!it || typeof it !== 'object') return;
+          if (it.t != null) it.t = stripPendTail(it.t);
+          if (!String(it.t || '').trim()) return;
+          const k = String(it.id != null ? it.id : it.t);
+          if (_seen2.has(k)) return;
+          _seen2.add(k);
+          _pv.push(it);
+        });
+        v.pend = _pv;
+      }
       if (Array.isArray(v.pend) && v.pend.length){
         v.pend_sid = String((typeof curSid === 'function' ? curSid() : '')
                             || _penOwner || '');
