@@ -115,19 +115,10 @@ function ledgerVcheckSend(act, sid){
     /* 追加单 2026-11-18（规范§三「切换期间的核对冻结」）：switch 一经发出，
        主动核对倒计时立即重置并冻结，期间绝不发 timer 帧；直到本轮切换出
        终态（vack stage:2 正式成功，或 90 秒未收终态宣布失败）才解冻并按
-       完整周期重新起算。90 秒＝全链路唯一口径（待办卡.js SWITCH_TIMEOUT_MS，
-       2.176 老板令由 60 秒改 90 秒，五处文档口径已由统筹同步）。 */
-    if (act === 'switch'){
-      LB.frozen = true;
-      LB.timerAt = Date.now() + lbPeriodMs();
-      clearTimeout(LB.frozenT);
-      LB.frozenT = setTimeout(() => {
-        /* 90 秒失败兜底：与待办卡.js SWITCH_TIMEOUT_MS 同值同域（§三 单一口径，
-           2.176 起 90 秒；后面的 || 90000 只是 SWITCH_TIMEOUT_MS 缺定义时的
-           同值硬兜底，随口径同步） */
-        lbUnfreeze();
-      }, (typeof SWITCH_TIMEOUT_MS === 'number' && SWITCH_TIMEOUT_MS) || 90000);
-    }
+       完整周期重新起算。90 秒＝全链路唯一口径（待办卡.js SWITCH_TIMEOUT_MS）。
+       V2 第三轮 Y22：冻结改走 lbFreezeOnSwitch（幂等）——WS 未连早退路径
+       不会漏冻结（pendSwitchSet 已先冻结，这里再冻结是幂等空转）。 */
+    if (act === 'switch') lbFreezeOnSwitch();
     return true;
   } catch(e){ return false; }
 }
@@ -139,6 +130,19 @@ function lbUnfreeze(){
     LB.frozen = false;
     LB.timerAt = Date.now() + lbPeriodMs();
   } catch(e){ LB.frozen = false; }
+}
+/* V2 第三轮 Y22（2026-11-19）：冻结与「vcheck 是否真发出」解耦——ST 复测
+   20s 断链切换场景里 LB.frozen 全程 false（ledgerVcheckSend('switch') 因
+   !S.onLine 早退，冻结块从未执行），60.76s 窗内漏进 1 条 timer。现在
+   pendSwitchSet 一落笔就调本函数冻结；终态（vack stage:2 / 90s 兜底 /
+   switchClear）才解冻。幂等：已在冻结中不重启兜底定时（防 90s 被拖长）。 */
+function lbFreezeOnSwitch(){
+  if (LB.frozen) return;
+  LB.frozen = true;
+  LB.timerAt = Date.now() + lbPeriodMs();
+  clearTimeout(LB.frozenT);
+  LB.frozenT = setTimeout(lbUnfreeze,
+    (typeof SWITCH_TIMEOUT_MS === 'number' && SWITCH_TIMEOUT_MS) || 90000);
 }
 
 /* ================= ② vack 两阶段回执 ================= */
@@ -287,7 +291,22 @@ function ledgerThinkApply(sid, body){
   /* 排队条随 think 包（N1，不独立收发）：项级 sid 过滤（N4 根治串显），
      text 服务端已剥净（N2）、id 仅底层携带（N3，渲染层绝不展示）。 */
   if (Array.isArray(b.pend)){
-    const mine = b.pend.filter(it => pendItemMine(it) === true);
+    /* V2 第三轮 Y4+Y18（2026-11-19）：入 S.snap.pend 前统一收口——
+       Y4 剥词（§十二-5）：stripPendTail 从「你的会话名/【全局记忆】」等锚点起
+       整段吞尾，只留原话；剥后全空（整条都是注入）⇒ 丢弃不画空卡。
+       Y18 幂等去重：按 id（缺 id 退回文本）Map 去重，服务端双路推送/重复合并
+       也只落一条。 */
+    const mine = [];
+    const _seen = new Set();
+    b.pend.filter(it => pendItemMine(it) === true).forEach(it => {
+      if (!it || typeof it !== 'object') return;
+      if (it.t != null) it.t = stripPendTail(it.t);
+      if (!String(it.t || '').trim()) return;
+      const k = String(it.id != null ? it.id : it.t);
+      if (_seen.has(k)) return;
+      _seen.add(k);
+      mine.push(it);
+    });
     if (!S.snap || typeof S.snap !== 'object') S.snap = {};
     S.snap.pend = mine;
     S.snap.pend_sid = String(b.pend_sid || sid || '');
@@ -373,21 +392,32 @@ function ledgerStorePut(sid, title, rounds, opt){
 function ledgerStoreApply(sid, body, ver){
   if (!sid || !body || !Array.isArray(body.rounds)) return;
   ledgerStorePut(sid, body.title || '', body.rounds, {touch: true});
-  /* G1：锚定会话且屏幕无内容 ⇒ 用补发轮次顶屏（人类+终极+折叠按钮） */
+  /* G1：锚定会话且屏幕无内容 ⇒ 用补发轮次顶屏（人类+终极+折叠按钮）。
+     V2 第三轮 Y19（2026-11-19）：liveFrame 锁定期收到【更厚】账本也解锁顶屏——
+     ST 实抓：liveFrame 停旧 8 条（≈4 轮），桌面真消息+AI 回复已出，页面 3 分钟
+     不动；根因＝旧条件在锁定期间永不顶屏，而 think 快照又滞后（仍是旧 8 条）。
+     判据＝账本轮数 > liveFrame 现有轮数（本地账本只增不减，更厚即更新）；
+     等厚/更薄不动（防回退旧帧）。 */
   if (typeof _paneIsAnchor === 'function'
-      && _paneIsAnchor(String(sid), body.title || '')
-      && !(S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length)){
-    const rows = [];
-    (body.rounds || []).forEach(r => (r || []).forEach(m => {
-      if (Array.isArray(m)) rows.push(m);
-    }));
-    if (rows.length){
-      S.livePend = S.anchorSid;
-      S.liveFrame = {msgs: rows, finish: null, tail: '', sendIdle: true,
-                     inputText: '', opts: [], ask: null, pend: [],
-                     attach: [], model: ''};
-      S.lb_foldRounds = (body.rounds || []).length;
-      renderAll();
+      && _paneIsAnchor(String(sid), body.title || '')){
+    const _liveN = (S.liveFrame && Array.isArray(S.liveFrame.msgs))
+      ? lbRoundsFromMsgs(S.liveFrame.msgs).length : 0;
+    const _newN = (body.rounds || []).length;
+    if (!(S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length)
+        || _newN > _liveN){
+      if (S.livePend){ S.livePend = ''; S.liveFrame = null; }   /* 解锁旧帧，交账本轮顶屏 */
+      const rows = [];
+      (body.rounds || []).forEach(r => (r || []).forEach(m => {
+        if (Array.isArray(m)) rows.push(m);
+      }));
+      if (rows.length){
+        S.livePend = S.anchorSid;
+        S.liveFrame = {msgs: rows, finish: null, tail: '', sendIdle: true,
+                       inputText: '', opts: [], ask: null, pend: [],
+                       attach: [], model: ''};
+        S.lb_foldRounds = (body.rounds || []).length;
+        renderAll();
+      }
     }
   }
 }
