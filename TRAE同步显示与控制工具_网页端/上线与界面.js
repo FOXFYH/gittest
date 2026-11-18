@@ -3,7 +3,11 @@ function onHello(d){
   gotHello = true;                     // 1.01：应答到达即停握手重试
   diagLog('收到服务器 hello 回应 ✓', 'ok');
   /* 2.20 新架构：服务端版本号 → 双版本号缓存键，任一变化清本地缓存 */
-  if (d.ver !== undefined){ S.srvVer = String(d.ver || '0'); checkVerBump(); }
+  if (d.ver !== undefined){
+    S.srvVer = String(d.ver || '0');
+    checkVerBump();
+    try { if (typeof srvVerPersist === 'function') srvVerPersist(); } catch(e){}   /* 2.174：持久化（断网冷开 key 恢复用） */
+  }
   /* 账本V1.0（协议定稿 3.1）：hello 增量携带 mods＝服务端当前全模块 ver，
      客户端登录首轮即有比对底账（账本核对.js 存底，按服务端隔离）。 */
   if (d.mods && typeof d.mods === 'object' && window.lbModsSet) lbModsSet(d.mods);
