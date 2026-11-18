@@ -279,6 +279,9 @@ body.fmsg #msgs{padding-top:22px;}
 .msg.pend .pstat{font-size:11px; margin-left:6px; padding:1px 7px;
   border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);}
 .msg.pend.ok .pstat{background:rgba(10,125,50,.14); color:var(--green);}
+/* 2.178 Y26：done 超 15s 未落地 → 灰态「已送达（未同步显示）」 */
+.msg.pend.gray{opacity:.62;}
+.msg.pend.gray .pstat{background:rgba(90,107,125,.14); color:var(--gray);}
 .msg.pend.bad{border-color:rgba(198,40,40,.65);}
 .msg.pend.bad .pstat{background:rgba(198,40,40,.14); color:var(--red);}
 .msg.pend .pacts{margin-left:auto; display:flex; gap:4px;}
