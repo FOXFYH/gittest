@@ -186,8 +186,20 @@ function srvWatch(){
   if (S.onLine && S.lastSrv && Date.now() - S.lastSrv > SRV_IDLE_MS){
     S.srvLost = true;
     setOnLine(false);
+    S._hbProbe = 0;                    /* 失联成立 → 探针计数从头起 */
     try { diagLog('服务器 ' + Math.round((Date.now() - S.lastSrv) / 1000)
                   + ' 秒无任何帧 → 判失联（等恢复收帧回绿）', 'bad'); } catch(e){}
+  }
+  /* 2.180 Y32：失联期间 WS 活着但服务端一直无帧 → srvSeen 永不触发、红屏锁死。
+     每 ~10s（3s 巡检 ×3 拍）主动发一针既有心跳帧（与连接.js cliBeat 同款格式，
+     服务端必识有回音）——任何回帧都走 srvSeen（:164-172）自动清失联回绿。 */
+  if (S.srvLost && S.ws && S.ws.readyState === 1){
+    S._hbProbe = (S._hbProbe || 0) + 1;
+    if (S._hbProbe >= 3){
+      S._hbProbe = 0;
+      try { sendJson({t: 'hb', fg: true, nick: nickGet()});
+            try { diagLog('失联探针：已发心跳帧要回音', 'dim'); } catch(e){} } catch(e){}
+    }
   }
 }
 setInterval(srvWatch, 3000);          /* Y25：失联巡检（判据 20s，巡检 3s → 20~23s 内置失联） */
