@@ -114,6 +114,9 @@ function thinkBarHtml(b){
    字段都拿不到（旧服务端/列表中间态）⇒ 不新增丢弃，维持旧行为。 */
 function _pendOwnerOk(pend){
   if (!pend || !pend.length) return true;
+  /* 账本V1.0（N4）：条目自带项级 sid ⇒ 整批放行，归属判定下沉到渲染层
+     逐条做（pendItemMine），不再因顶层 pend_sid 归属不明误杀整批。 */
+  if (pend.some(p => p && typeof p === 'object' && p.sid != null)) return true;
   const ps = String((S.snap && (S.snap.pend_sid || S.snap.selSid)) || '');
   const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
   /* 2.132：归属不明就不画——宁可不显示，也不留残影 */
@@ -151,6 +154,8 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   /* 1.09：待确认占位参与指纹（状态推进/撤下要重画）；
      2.60：切换在途条已删，指纹不再纳入 switch_pend。 */
   key += '#pend:' + pendSig();
+  /* 账本V1.0（G1）：历史补发折叠面板轮数参与指纹（面板进出要重画） */
+  key += '#lbf:' + (S.lb_foldRounds || 0);
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -436,24 +441,31 @@ function renderMsgs(msgs, finish, opts, ask, pend){
        解释，用户嫌叽里呱啦，拍板顶上就写「官方排队条」即可。 */
     let qh = '<div class="qhead">⏳ 官方排队条</div>';
     qopenPrune(pend);        /* 2.08：清掉已不在队列里的「展开」标记 */
+    /* 账本V1.0（N4）：项级 sid 过滤——只渲染当前锚定会话的条目；渲染下标
+       仍取服务端原数组序号（data-qi），命令对位不受过滤影响。 */
+    const _pendShown = [];
     pend.forEach((p, i) => {
-      /* 2.08：左边文字只显示两行（点一下展开全文），右边一个按钮块：
-         ⚡发送 独占上行，✎ / 🗑 在下行并排、宽度＋间隔＝发送按钮宽度。
-         2.123（老板 2026-10-22 19:10「进输入框的文字会被加后缀…正文那边有折叠
-         显示系统，官方排队小卡片这边也做成一样的」）：复用正文同一套
-         `foxHintCards` 摘出 sys/usr/co 三段，左列改为「两行正文 ＋ 同一张
-         专属提示词折叠卡（系统▸/用户▸/公司▸）」，不再把 (@fox-sys1)… 原样露出。 */
-      const _raw = stripHeadDid(p.t || '');
+      const mine = (typeof pendItemMine === 'function') ? pendItemMine(p) : null;
+      if (mine === false) return;
+      _pendShown.push([p, i]);
+    });
+    _pendShown.forEach(([p, i]) => {
+      /* 账本V1.0（N2）：新格式条目（p.text 有值）＝服务端已剥净的用户原文
+         （首行 DID→id 字段底层携带、提示词/后缀已剥），界面只显示原文，
+         不再走专属词折叠卡管线；旧格式维持 DID/三段剥净不变。 */
+      const _new = (p.text != null);
+      const _raw = _new ? String(p.text) : stripHeadDid(p.t || '');
       const _hz = [];
-      const _head = foxHintCards(_raw, _hz);
-      const _hasH = _hz.length > 0;
-      const _txt = _hasH ? _head.replace(/\s*@@FHC\d+@@\s*$/, '') : _raw;
+      const _head = _new ? _raw : foxHintCards(_raw, _hz);
+      const _hasH = _new ? false : _hz.length > 0;
+      const _txt = _hasH ? _head.replace(/\s*@@FHC\d+@@\s*$/, '') : _head;
+      const _qk = _new ? ('\u0001' + (p.id || _raw)) : p.t;
       /* 2.124（老板 2026-10-22 19:38）：排队条默认只显示两行正文，折叠卡（小尾巴）
          只在点开展开后才出现——仍在同一 .qcol 内，紧随 .qtxt 之后，由 CSS 的
          `.qtxt.open + .qfh` 控制显隐，快照重画后随 S.qopen 恢复。 */
       qh += '<div class="qitem">'
          + '<div class="qcol">'
-         + '<div class="qtxt' + (S.qopen[p.t] ? ' open' : '') + '"'
+         + '<div class="qtxt' + (S.qopen[_qk] ? ' open' : '') + '"'
          + ' data-qt="' + i + '" title="点一下展开/收起全文">'
          + esc(_txt) + '</div>'
          + (_hasH ? '<div class="qfh">' + foxHintHtml(_hz[0]) + '</div>' : '')
@@ -472,7 +484,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     qp.querySelectorAll('.qtxt').forEach(t2 => {
       t2.onclick = () => {
         const one = pend[parseInt(t2.dataset.qt)];
-        if (one && one.t) S.qopen[one.t] = !S.qopen[one.t];
+        /* 账本V1.0：新格式条目展开标记键＝\u0001+id（与渲染侧 _qk 同源） */
+        const _k = one ? ((one.text != null) ? ('\u0001' + (one.id || one.text)) : one.t) : '';
+        if (one && _k) S.qopen[_k] = !S.qopen[_k];
         t2.classList.toggle('open');
       };
     });
@@ -503,6 +517,27 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       };
     });
     el.msgs.appendChild(qp);
+  }
+  /* 账本V1.0（G1/G2）：历史补发按轮折叠面板——补发轮次上屏时每轮给一枚
+     折叠按钮，点按发 ledger_req 按需补该轮思维流（真画面到手即整面板退场）。 */
+  if (S.lb_foldRounds && S.livePend){
+    const lbf = document.createElement('div');
+    lbf.className = 'qpanel';
+    let lh = '<div class="qhead">📖 历史思维流（按轮补发）</div>';
+    for (let r = 1; r <= S.lb_foldRounds; r++){
+      lh += '<div class="qitem"><div class="qcol">'
+        + '<div class="qtxt">第 ' + r + ' 轮 · 点右侧按钮补发该轮思维流</div></div>'
+        + '<div class="qbtns"><button class="go" data-lbr="' + r + '">▸ 补发</button></div></div>';
+    }
+    lbf.innerHTML = lh;
+    lbf.querySelectorAll('button[data-lbr]').forEach(b => {
+      b.onclick = () => {
+        const r = parseInt(b.dataset.lbr);
+        b.disabled = true;
+        if (typeof ledgerReqThink === 'function') ledgerReqThink(r);
+      };
+    });
+    el.msgs.appendChild(lbf);
   }
   renderPending();                  // 1.09：占位气泡永远排在末尾
   if (inF && !S.pinBottom){
