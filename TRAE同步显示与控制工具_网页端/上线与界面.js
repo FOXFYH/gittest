@@ -107,11 +107,19 @@ const LINKDOC = {
   '链接频道·重试 N':  '频道没连上/刚断——正在自动重试，通常几秒内恢复',
   '已连接':           '频道通、服务端正常，可以发指令收消息（安静没消息也是正常的）',
   '服务器无响应·重试连接中…': '我刚发了动作、20 秒没回音——正在重连，最多试 3 次',
-  '服务器无响应（已重试 3 次）': '连着重试 3 次都没有回应——电脑上的服务端可能没在跑，去看看'
+  '服务器无响应（已重试 3 次）': '连着重试 3 次都没有回应——电脑上的服务端可能没在跑，去看看',
+  '服务器失联中…':          '2.178 Y25：频道还连着，但 20 秒没听到服务端任何动静——断网/服务端卡了；恢复收帧即回「已连接」'
 };
 function renderLink(){
   let txt, col, doc;
   if (!S.onLine){
+    /* 2.178 Y25：WS 还开着但服务端超 20s 无任何帧 → 失联档（不是频道断了，
+       别误报「链接频道·重试」——频道是通的，是服务端/链路没动静） */
+    if (S.srvLost){
+      txt = '服务器失联中…'; col = 'var(--orange)';
+      doc = '频道还连着，但 ' + Math.round((Date.now() - (S.lastSrv || 0)) / 1000)
+          + ' 秒没听到服务端任何消息——等它恢复，或点重连试试';
+    } else {
     /* 1.65：频道没连上——不论首次/断线/连不上，一律"动词式"显示重试第几次。
        不再用「失联/已断开/连不上」这类静止判定词；N 复用 DIAG.reconn。 */
     const n = DIAG.reconn || 0;
@@ -119,11 +127,15 @@ function renderLink(){
     else if (DIAG.reconnActive){ txt = '链接频道·重试中…'; col = 'var(--gray)'; } // 1.66：本轮首断先显示重试中，不编号
     else { txt = '链接频道…'; col = 'var(--gray)'; }   // 首次，还没断过
     doc = '频道没连上，正在自动重试（第 ' + (n || 1) + ' 次）——通常几秒内恢复';
+    }
   } else {
-    /* 2.162（老板令·完全静默是正常态）：频道通＝「已连接」，**绝不因为一段时间
-       没听到服务端就降级**——服务端本来就是「变了才发」，安静不等于坏。
-       只有「我主动发出动作」后 20 秒仍无回音，才判服务器有毛病，并真的重连
-       （20 秒一次、最多 3 次）；收到任何服务端消息即结清回绿。 */
+    /* 2.162（原「完全静默是正常态」）→ 2.178 Y25 修订：频道通时先亮「已连接」，
+       但**不再永久免疫静默**——最近收到服务端帧超 20s（SRV_IDLE_MS）由
+       srvWatch（本文件底部巡检）置失联（S.srvLost + onLine=false），顶栏转
+       「服务器失联中…」；服务端本是「变了才发」，20s 只算「没动静」，60s
+       （SRV_DEAD_MS）内仍属观察档、绝不真断重连。真正的主动重连仍只有一条路：
+       「我主动发出动作」后 20 秒无回音（waitT 机制，20 秒一次、最多 3 次）。
+       收到任何服务端消息（srvSeen）即清失联回绿。 */
     const wt = S.waitT || 0;
     if (!wt){
       txt = '已连接'; col = 'var(--green)';
@@ -151,11 +163,34 @@ function renderLink(){
 }
 function srvSeen(){                    // 服务端来向消息：判活 + 即时刷新
   S.lastSrv = Date.now();
+  /* 2.178 Y25：失联恢复——之前被判失联（srvWatch 置的），收到任何帧即回绿。
+     WS 还开着（没断过）时 onLine 已被置 false，这里直接拉回 true 免得傻等重连。 */
+  if (S.srvLost){
+    S.srvLost = false;
+    if (!S.onLine) setOnLine(true);
+    renderLink();
+  }
   /* 2.162：只要收到服务端任何动静，本次「等回应」就算结清——立刻回「已连接」 */
   S.waitT = 0; S.waitN = 0; S.waitLast = 0;
   if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;   // 测服务器：收到即成功
   renderLink();
 }
+/* 2.178 Y25（断网假在线治理）：browser 的 online/offline 事件不可靠，改用
+   服务端心跳判据——最近收到服务端任何帧超过 SRV_IDLE_MS(20s) 即置失联：
+   · S.srvLost = true（顶栏/诊断页显示「服务器失联中…」）；
+   · setOnLine(false)：发命令被 srvNeedOnline 拦住（失联期间假 OK 比拦截更糟）。
+   只动显示层+拦命令，**不主动断 WS、不真重连**（频道可能只是慢，真重连仍
+   只走 2.162 主动动作 waitT 那条路）；收帧即由 srvSeen 恢复回绿。
+   复用 srvSeen 记的 S.lastSrv 源，不另设心跳帧。 */
+function srvWatch(){
+  if (S.onLine && S.lastSrv && Date.now() - S.lastSrv > SRV_IDLE_MS){
+    S.srvLost = true;
+    setOnLine(false);
+    try { diagLog('服务器 ' + Math.round((Date.now() - S.lastSrv) / 1000)
+                  + ' 秒无任何帧 → 判失联（等恢复收帧回绿）', 'bad'); } catch(e){}
+  }
+}
+setInterval(srvWatch, 3000);          /* Y25：失联巡检（判据 20s，巡检 3s → 20~23s 内置失联） */
 setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
 
 /* ================= 命令 ================= */
