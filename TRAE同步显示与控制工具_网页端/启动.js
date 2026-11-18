@@ -7,6 +7,11 @@
      目标是本地持久化的「我想操作的会话」（LS_ANCHOR，唯一一套）。
      首拍快照到达时走与点击会话完全相同的切换流程（见 事件总线.js）。 */
   if (anchorRestore()){ S.anchor_reask = 1; S.bootSwitch = 1; }
+  /* 2.173（固态化「打开即活」）：骨架渲染【之前】同步恢复六模块最后已知值
+     （备注/定时/模型列表/沙盒下拉/登录账号/排队条）——localStorage 同步读，
+     零等待；会话列表备注后缀/定时角标随骨架一并上屏。后台对账帧到达后照常
+     覆盖，恢复值不拦截任何操作（错后报）。 */
+  try { if (typeof solidBoot === 'function') solidBoot(); } catch(e){}
   const sk = skelCacheLoad();
   if (sk && sk.convs && sk.convs.length)
     renderConvs(sk.convs, sk.conv_unread, sk.conv_unread_ids);
