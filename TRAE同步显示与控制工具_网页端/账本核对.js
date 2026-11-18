@@ -14,7 +14,7 @@
      ④ 主动核对：默认 1 分钟周期（可配）+ 倒计时文本 lbHudText()（缓存查看器
         「③ 账本调控」区常显）＋ #lbhud 悬浮条（追加单 2026-11-18 改开关式：
         CFG.lb_hud 默认关，开关在账本调控区，开才悬浮走字）；
-        智能避让（追加单修订）＝switch 发出即冻结、终态（stage:2 或 60s 失败）
+        智能避让（追加单修订）＝switch 发出即冻结、终态（stage:2 或 90s 失败）
         解冻重置；login/svr 完成直接按完整周期重置；旧 20s 叠加已删；
      ⑤ 本地离线倒计时：默认 120s 可配，任意用户操作重置，走完发下线
         信号（logout）；保留现有主动下线场景并新增开关（切后台下线）；
@@ -25,7 +25,7 @@
      调控界面已并入 手机缓存查看器.js「③ 账本调控」tab（规范§十：
      小账本＝现成缓存查看器，禁止新造页面；原 小账本页.js 已撤销）。
    【零依赖降级】服务端未升级（无 vack/mod 帧）时：vcheck 发出无人应答
-     ⇒ 走既有 switch 60s 超时兜底；本层绝不妨碍现有 snap 通路（旧协议
+     ⇒ 走既有 switch 90s 超时兜底；本层绝不妨碍现有 snap 通路（旧协议
      全量保留，新旧并行，联调期互为兜底）。 */
 const LS_LBVER = 'trae_webm_lbver';          /* 版本底账落盘（按服务端隔离） */
 let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
@@ -114,16 +114,19 @@ function ledgerVcheckSend(act, sid){
     if (act === 'timer') LB.checking = true;
     /* 追加单 2026-11-18（规范§三「切换期间的核对冻结」）：switch 一经发出，
        主动核对倒计时立即重置并冻结，期间绝不发 timer 帧；直到本轮切换出
-       终态（vack stage:2 正式成功，或 60 秒未收终态宣布失败）才解冻并按
-       完整周期重新起算。60 秒＝全链路唯一口径（待办卡.js SWITCH_TIMEOUT_MS）。 */
+       终态（vack stage:2 正式成功，或 90 秒未收终态宣布失败）才解冻并按
+       完整周期重新起算。90 秒＝全链路唯一口径（待办卡.js SWITCH_TIMEOUT_MS，
+       2.176 老板令由 60 秒改 90 秒，五处文档口径已由统筹同步）。 */
     if (act === 'switch'){
       LB.frozen = true;
       LB.timerAt = Date.now() + lbPeriodMs();
       clearTimeout(LB.frozenT);
       LB.frozenT = setTimeout(() => {
-        /* 60 秒失败兜底：与待办卡.js SWITCH_TIMEOUT_MS 同值同域（§三 单一口径） */
+        /* 90 秒失败兜底：与待办卡.js SWITCH_TIMEOUT_MS 同值同域（§三 单一口径，
+           2.176 起 90 秒；后面的 || 90000 只是 SWITCH_TIMEOUT_MS 缺定义时的
+           同值硬兜底，随口径同步） */
         lbUnfreeze();
-      }, (typeof SWITCH_TIMEOUT_MS === 'number' && SWITCH_TIMEOUT_MS) || 60000);
+      }, (typeof SWITCH_TIMEOUT_MS === 'number' && SWITCH_TIMEOUT_MS) || 90000);
     }
     return true;
   } catch(e){ return false; }
