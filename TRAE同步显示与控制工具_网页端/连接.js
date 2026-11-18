@@ -54,6 +54,10 @@ function connect(){
     S.failStreak = 0;                 // 1.61：连上了就清零
     DIAG.reconn = 0; DIAG.reconnActive = false;   // 1.66：成功连上=一轮结束，重试计数归零
     diagLog('已连上中转服务器', 'ok');
+    /* 2.180 Y32：重连成功即解除失联态——S.srvLost 残留 true 虽因 onLine 优先
+       顶栏回绿，但失联标志挂着语义错（诊断页/后续判定都看它）。connect() 已把
+       lastSrv 清零，srvWatch 不会见陈旧 lastSrv 立刻误置。 */
+    if (S.srvLost){ S.srvLost = false; diagLog('重连成功，解除失联', 'ok'); }
     setOnLine(true);
     /* 2.42：删除链路保活 PING（本软件免 PING，由中继自动保持在线） */
     /* v1.32：登录 → 服务端开始广播；loginWatch 兜底握手首条被中继丢弃 */
