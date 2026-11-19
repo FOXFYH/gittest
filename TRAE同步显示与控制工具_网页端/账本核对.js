@@ -73,9 +73,10 @@ function lbHaveLoad(){
     }).catch(() => {});
   } catch(e){}
 }
-/* 2.204（B4）：坏时间记录回补——只扫最近 1~2 天（rec.ts / lastTs）的本地账本，
-   把「不完整/缺失」的行时间按 timeNormFull 兜底链补成 YYYY-MM-DD HH:MM:SS。
-   幂等：已完整的不动；没有可补值的也不动；写回只在真改过时发生。 */
+/* 2.206（老板最终合并口径）：账本时间回补——只扫最近 1~2 天（rec.ts / lastTs）
+   的本地账本，把每行 m[2] 一律改写成 timeFromMid(mid)（含 22:49 那条空时间）。
+   幂等：m[2] 已等于 mid 推导值的不动；mid 无效（无有效 ID）的行不补值。
+   写回只在真改过时发生。 */
 let _lbTimeFixAt = 0;
 function lbTimeBackfill(days){
   try {
@@ -92,8 +93,9 @@ function lbTimeBackfill(days){
         let changed = false;
         (rec.rounds || []).forEach(r => (r || []).forEach(m => {
           if (!Array.isArray(m)) return;
-          if (typeof timeIsComplete === 'function' && timeIsComplete(m[2])) return;
-          const nv = (typeof timeNormFull === 'function') ? timeNormFull(m, rec.sid || '') : '';
+          /* 2.206：时间唯一来源＝mid 前 8 位；不认 m[2] 旧值（DID/接口时间戳等）。
+             22:49 那条空时间也在这里被补成 2026-11-19 22:49:55。 */
+          const nv = (typeof timeFromMid === 'function') ? timeFromMid(m[6]) : '';
           if (nv && nv !== m[2]){ m[2] = nv; changed = true; }
         }));
         if (changed){
@@ -101,7 +103,24 @@ function lbTimeBackfill(days){
           tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(rec)).catch(() => {}));
         }
       });
-      return Promise.all(tasks).then(() => {
+      /* 2.206：画面缓存 snap_conv 同步回补——只把每行 m[2] 改写成 mid 推导值，
+         不碰 sk/frame 其它字段，幂等可重复。 */
+      const _snapTask = _idbReq('snap_conv', 'readonly', st => st.getAll()).then(srows => {
+        const puts = [];
+        (srows || []).forEach(rec => {
+          const fr = rec && rec.frame;
+          if (!fr || !Array.isArray(fr.msgs)) return;
+          let ch = false;
+          fr.msgs.forEach(m => {
+            if (!Array.isArray(m)) return;
+            const nv = (typeof timeFromMid === 'function') ? timeFromMid(m[6]) : '';
+            if (nv && nv !== m[2]){ m[2] = nv; ch = true; }
+          });
+          if (ch) puts.push(_idbReq('snap_conv', 'readwrite', st => st.put(rec)).catch(() => {}));
+        });
+        return Promise.all(puts).then(() => puts.length);
+      }).catch(() => 0);
+      return Promise.all(tasks.concat([_snapTask])).then(() => {
         if (n) { try { diagLog('账本时间回补 ' + n + ' 本（最近 ' + (Number(days) || 2) + ' 天）', 'ok'); } catch(e){} }
         return n;
       });
@@ -192,13 +211,17 @@ function lbStoreKey(sid, title){
      · 其它不合格数据（例如有 sid 但没名字）仍按 21:51 诊断口口径照建诊断账本，
        绝不扩大化。 */
 function lbRowHasId(m){
+  /* 2.206（老板最终合并口径）：消息 ID 只认 24 位十六进制 mid——空／10 位数字／
+     中文名／带括号等一律视为无有效 ID；14 位 did 不再充当 ID 或时间来源。 */
   if (!Array.isArray(m)) return false;
-  return !!String(m[6] || '').trim() || !!String(m[9] || '').trim();
+  return (typeof midValid === 'function') ? midValid(m[6]) : /^[0-9a-fA-F]{24}$/.test(String(m[6] || '').trim());
 }
 function lbSidValid(sid){
   const s = String(sid || '').trim();
-  if (!s) return false;
+  if (!s) return false;                          /* 空＝假 ID */
   if (/^\d{10}$/.test(s)) return false;          /* 2.204 B5：10 位纯数字＝假账号号源 */
+  if (/[\u4e00-\u9fa5]/.test(s)) return false;   /* 2.206：中文名当 ID＝假 ID */
+  if (/[()（）\[\]【】]/.test(s)) return false;    /* 2.206：带括号＝假 ID */
   return true;
 }
 let _lbNoIdT = 0;
@@ -744,9 +767,10 @@ function lbRoundsFromMsgs(msgs){
          二字当正文）。2.205：mid 与 did 都空＝无消息 ID，不收。 */
       if ((!fin && !patch) || !lbRowHasId(m)) return;
       const _disp = (fin && fin !== '补记') ? fin : (m[1] || '');
-      cur.push([m[0], _disp, m[2] || '', 0, 0, m[5] || '',
+      cur.push([m[0], _disp,
+                (typeof timeFromMid === 'function' ? timeFromMid(m[6]) : ''), 0, 0, '',
                 m[6] || '', fin || (patch ? '补记' : ''), patch ? 'patched' : '',
-                m[9] || '']);                             /* 2.205：保留 did 供 ID 判据 */
+                m[9] || '']);   /* 2.206：时间只由 mid 推导；m[5] 接口时间戳不再保留 */
     }
   });
   if (cur && cur.length) rounds.push(cur);           /* 2.202：半轮也落 */
@@ -979,12 +1003,13 @@ function ledgerStorePut(sid, title, rounds, opt){
     const _uid = _fakeSid ? '' : lbUidPick(opt.uid, _rawSid, _t);
     if (_uid) lbAliasSet(_uid, _t);                       /* 2.204（B3）：写名字→编号映射 */
     const _dialogSid = _fakeSid ? '' : (_rawSid || lbRawSidOf(_uid, _t));
-    /* 2.204（B4）：写账本前统一时间格式 'YYYY-MM-DD HH:MM:SS'，
-       缺失按 mid→DID→会话编号 兜底；仍拿不到才留空（绝不写「时间未知」）。 */
+    /* 2.206（老板最终合并口径）：写账本前把每行 m[2] 一律重算成
+       timeFromMid(mid)（北京时间、精确到秒）。不读任何传进来的时间，
+       无效 mid 的行前面已被 ID 闸剔除，这里不会再出现「时间未知」。 */
     _rs0.forEach(rows => rows.forEach(row => {
       if (!Array.isArray(row)) return;
-      const _tn = (typeof timeNormFull === 'function') ? timeNormFull(row, _rawSid) : '';
-      if (_tn) row[2] = _tn;
+      const _tn = (typeof timeFromMid === 'function') ? timeFromMid(row[6]) : '';
+      row[2] = _tn;
     }));
     const _run = (_effSid) => {
     const _uidEff = String(_effSid || '').trim();          /* 登记主键＝终身号 */
@@ -1128,10 +1153,11 @@ function ledgerStorePut(sid, title, rounds, opt){
      ③ 入账：uid 优先为账本主键，缺 uid 用名称临时键并标 pend:1 待补号；
      2.202 缺名也照建诊断账本（手机网页端＝诊断口，不设拒收闸门）。 */
 function lbHumanRecNorm(rec){
-  const o = {text: '', mid: '', did: '', tm: ''};
+  /* 2.206：人类帧不再读取 rec.time/rec.tm 或 14 位 DID 作为时间——
+     时间一律由消息 ID（mid）前 8 位十六进制推导。 */
+  const o = {text: '', mid: '', did: ''};
   if (Array.isArray(rec)){
     o.text = String(rec[1] == null ? '' : rec[1]);
-    o.tm   = String(rec[2] == null ? '' : rec[2]);
     o.mid  = String(rec[6] == null ? '' : rec[6]);
     o.did  = String(rec[9] == null ? '' : rec[9]);
   } else if (rec && typeof rec === 'object'){
@@ -1141,12 +1167,10 @@ function lbHumanRecNorm(rec){
                     : (rec.msgId != null ? rec.msgId : (rec.id != null ? rec.id : '')));
     o.did  = String(rec.did != null ? rec.did
                     : (rec.sendId != null ? rec.sendId : ''));
-    o.tm   = String(rec.tm != null ? rec.tm
-                    : (rec.time != null ? rec.time : ''));
   }
   const _d = o.did || firstLineDid(o.text) || pendDidOf(o.text);
-  if (!o.tm && _d) o.tm = didToStr(_d);
-  return {text: o.text, mid: o.mid, did: _d, tm: o.tm};
+  return {text: o.text, mid: o.mid, did: _d,
+          tm: (typeof timeFromMid === 'function' ? timeFromMid(o.mid) : '')};
 }
 /* 消息身份键：mid 优先，缺则发送编号，再缺则角色＋正文（只用于去重，不生成新号） */
 function lbMsgIdent(m){
@@ -1192,10 +1216,11 @@ function ledgerHumanApply(sid, title, rec, opt){
   const _r = lbHumanRecNorm(rec);
   if (!String(_r.text || '').trim()) return false;
   const _sid = String(sid || '').trim();
-  /* 2.205（老板新令）：缺会话 ID 或消息 ID（mid/did 都空）的人类帧一律不收。 */
+  /* 2.206（老板最终合并口径）：会话 ID 或消息 ID 无效的人类帧一律不收。
+     消息 ID 只认 24 位十六进制 mid（14 位 did 只是发送编号，不算 ID）。 */
   if (!lbSidValid(_sid)){ _lbNoIdLog('人类帧缺会话ID(sid)', _sid, title); return false; }
-  if (!String(_r.mid || '').trim() && !String(_r.did || '').trim()){
-    _lbNoIdLog('人类帧缺mid/did', _sid, title);
+  if (!(typeof midValid === 'function' ? midValid(_r.mid) : /^[0-9a-fA-F]{24}$/.test(String(_r.mid || '')))){
+    _lbNoIdLog('人类帧缺有效mid(24位hex)', _sid, title);
     return false;
   }
   const _t = String(title || '').trim();
