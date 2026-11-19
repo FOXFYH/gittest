@@ -291,45 +291,17 @@ function setSel(sel){
   try { localStorage.setItem(LS_SEL, sel); } catch(e){}
   chanRender();
 }
-let probeTimer = null;
-function stopProbe(){ if (probeTimer){ clearTimeout(probeTimer); probeTimer = null; } }
-function startProbe(){
-  /* 处于副频道时：等 15 分钟后开始每 15 分钟探测主频道，恢复即自动切回。
-     探测用临时连接，不 login、不心跳，不耗流量配额。
-     （2.44：原「等 60s 后每分钟探测」改为 15 分钟首探 + 15 分钟重试。） */
-  if (curSel() !== 'backup') return;
-  stopProbe();
-  const FIRST_MS = 15 * 60 * 1000, GAP_MS = 15 * 60 * 1000;
-  const tick = () => {
-    if (curSel() !== 'backup'){ stopProbe(); return; }   // 已切回/停用
-    const ch = chanGet('main');
-    if (!ch){ stopProbe(); return; }
-    let p = null;
-    try{
-      p = new WebSocket(wsUrlOf(ch, 'main'));
-      p.onopen = () => {
-        try { p.close(); } catch(e){}
-        stopProbe();
-        setSel('main');
-        flash('主频道已恢复，自动切回 ✓', 'var(--green)');
-        connect();
-      };
-      p.onclose = () => {};
-      p.onerror = () => { try { if (p) p.close(); } catch(e){} };
-    }catch(e){}
-    probeTimer = setTimeout(tick, GAP_MS);
-  };
-  probeTimer = setTimeout(tick, FIRST_MS);
-}
+/* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：原「副频道每 15 分钟
+   new WebSocket 探测主频道、恢复即自动切回」整段删除——它本质是第二个频道
+   短暂在线，且不 login 不心跳，纯浪费帧。现改为纯手动：点「主频道」按钮才切回；
+   相关定时器与清理函数一并删，不留任何探测定时器或临时连接。 */
 function switchChan(sel){
   if (sel === curSel()){ flash((sel === 'backup' ? '已处于副频道' : '已处于主频道')); return; }
   const ch = chanGet(sel);
   if (!ch){ flash('⚠ 未设置频道名'); return; }
   setSel(sel);
   flash((sel === 'backup' ? '已切副频道，重连中…' : '已切回主频道，重连中…'), 'var(--blue)');
-  if (sel === 'backup') startProbe();   // 副频道就位 → 开始探测主频道
-  else stopProbe();
-  connect();                            // 重连到所选频道，自动回连
+  connect();                            // 重连到所选频道（connect 内部先 teardownWs 拆旧，绝不两条并存）
 }
 if (el.btn_chan_main) el.btn_chan_main.onclick = () => switchChan('main');
 if (el.btn_chan_back) el.btn_chan_back.onclick = () => switchChan('backup');
@@ -365,25 +337,11 @@ function buildIdCard(){
   };
 }
 buildIdCard();
-/* 整改单（老板 2026-11-18 亲批）：设置页加「小账本」按钮＝唯一入口，
-   点击即打开现成缓存查看器（规范§十：小账本＝缓存查看器，禁止新造页面）。 */
-function buildLedgerEntry(){
-  if (!el.netpage || document.getElementById('lb_entry_fs')) return;
-  const body = el.netpage.querySelector('.nbody') || el.netpage;
-  const fs = document.createElement('fieldset');
-  fs.id = 'lb_entry_fs';
-  fs.innerHTML =
-    '<legend>小账本</legend>'
-    + '<div class="row"><button id="btn_lbopen" style="width:100%;">📒 打开小账本（账本查看与调控）</button></div>'
-    + '<div class="row"><span class="hint">＝缓存查看器「③ 账本调控」页；本地账本查看在「② 全部缓存」展开 ledger_conv</span></div>';
-  const idc = document.getElementById('idcard_fs');
-  if (idc && idc.parentNode === body) body.insertBefore(fs, idc.nextSibling);
-  else body.insertBefore(fs, body.firstChild);
-  const btn = document.getElementById('btn_lbopen');
-  if (btn) btn.onclick = lbOpenViewer;
-}
-/* 2.183 修3：打开小账本查看器公共出口——设置页副入口（btn_lbopen）与
-   抽屉一级入口（btn_lb_drawer）两处共用，不复制两份逻辑。 */
+/* 2.186（2026-11-19 老板令·V1.0 §十-0）：设置页「小账本」按钮整块撤除——
+   左侧抽屉已有一级入口（比它高一级的地方已经有了，不再往深处放重复入口）。
+   原 buildLedgerEntry（fieldset + btn_lbopen + 说明行）连同调用一并删除，
+   不许留空分组、不许留空标题。 */
+/* 打开小账本查看器公共出口——唯一调用方＝抽屉一级入口（btn_lb_drawer）。 */
 function lbOpenViewer(){
   try {
     if (typeof window.cvEnsure === 'function') window.cvEnsure();
@@ -391,10 +349,9 @@ function lbOpenViewer(){
     el.netpage.classList.remove('on');
   } catch(e){}
 }
-buildLedgerEntry();
 /* 2.183 修3（2026-11-19 老板修订·V1.0 §十-0）：抽屉一级「📒 小账本」入口——
-   主入口提级（原 Y14「唯一入口=设置页」口径作废，设置页按钮保留作副入口）：
-   点按＝关抽屉＋开缓存查看器（与设置页副入口走同一公共出口 lbOpenViewer）。 */
+   2.186 起它是唯一入口（设置页副入口已删）：
+   点按＝关抽屉＋开缓存查看器（公共出口 lbOpenViewer）。 */
 (function(){
   const d = document.getElementById('btn_lb_drawer');
   if (d) d.onclick = () => { drawerClose(); lbOpenViewer(); };
