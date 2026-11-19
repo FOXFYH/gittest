@@ -212,10 +212,54 @@ function lbRowHasId(m){
   if (!Array.isArray(m)) return false;
   return (typeof midValid === 'function') ? midValid(m[6]) : /^[0-9a-fA-F]{24}$/.test(String(m[6] || '').trim());
 }
+/* 2.210（老板 2026-11-20 07:08 令·彻底消灭 1632 假终身号）：
+   服务端实例号＝hello 自报的 srv_sid（本机 1632115233），它和它的任何截断
+   （如 1632）都**不是**会话编号/终身号。会话编号只认：
+     ① 原始会话 sid（≥8 位，如 24 位 hex）的前 4 位数字（真终身号）；
+     ② 服务端下发、来自共享库的 4 位真终身号（且不是实例号截断）；
+     ③ 24 位十六进制会话 sid。
+   命中实例号或其截断 ⇒ 返回空并记 `假终身号 拒建账|来源=<帧型>|原值=<值>`。 */
+function _lbSrvAcctId(){
+  try { return String((typeof S !== 'undefined' && S && S.curSid) || '').trim(); }
+  catch(e){ return ''; }
+}
+function _lbIsSrvAcctLike(v){
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return false;
+  const acct = _lbSrvAcctId();
+  if (acct && s === acct) return true;
+  /* 实例号的任何截断：4~10 位纯数字且确为该实例号前缀 */
+  if (acct && /^\d{4,10}$/.test(s) && acct.indexOf(s) === 0) return true;
+  /* 老板点名的假号 1632（即使当前实例号尚未自报也拒） */
+  return s === '1632';
+}
+let _lbFakeIdT = 0, _lbFakeIdV = '';
+function _lbFakeIdLog(src, val){
+  const now = Date.now(), v = String(val == null ? '' : val).trim();
+  if (now - _lbFakeIdT < 10000 && v === _lbFakeIdV) return;   /* 10 秒同值节流 */
+  _lbFakeIdT = now; _lbFakeIdV = v;
+  try { diagLog('假终身号 拒建账|来源=' + String(src || '未知')
+    + '|原值=' + v, 'bad'); } catch(e){}
+}
+/* 2.210/2.211：假账本判据——服务端实例号派生的账本/预备画面一律视为假桶。 */
+function _lbFakeLedgerRec(rec){
+  if (!rec || typeof rec !== 'object') return false;
+  const uid = String(rec.uid || '').trim();
+  const sid = String(rec.sid || '').trim();
+  /* ① sid 本身是 10 位纯数字＝服务端实例号格式，绝不是会话 sid */
+  if (/^\d{10}$/.test(sid)) return true;
+  /* ② uid 命中实例号或其截断（含 1632）＝假终身号（2.211：不再用 sid 前 4 位
+       做任何豁免——终身号只认权威字段，禁止字符串切片推导） */
+  if (_lbIsSrvAcctLike(uid)) return true;
+  /* ③ uid 为空但 sid 命中实例号 */
+  if (_lbIsSrvAcctLike(sid)) return true;
+  return false;
+}
 function lbSidValid(sid){
   const s = String(sid || '').trim();
   if (!s) return false;                          /* 空＝假 ID */
   if (/^\d{10}$/.test(s)) return false;          /* 2.204 B5：10 位纯数字＝假账号号源 */
+  if (_lbIsSrvAcctLike(s)) return false;         /* 2.210：实例号及其截断（1632）不是会话ID */
   if (/[\u4e00-\u9fa5]/.test(s)) return false;   /* 2.206：中文名当 ID＝假 ID */
   if (/[()（）\[\]【】]/.test(s)) return false;    /* 2.206：带括号＝假 ID */
   return true;
@@ -292,14 +336,16 @@ function lbTagKind(m){
   if (k === 'final' && !String(x[7] || '').trim()) x[7] = '补记';
   return x;
 }
-/* 四字段之一：uid＝终身号（SID 前 4 位数字，取不到即空＝待补号）；sid＝对话ID
-   （原始会话 id，锚定路只有终身号时从会话列表反查）。title＝会话名（必有）。 */
+/* 四字段之一：uid＝终身号（只认权威来源，取不到即空＝未登记）；sid＝对话ID
+   （原始会话 id，锚定路只有终身号时从会话列表反查）。title＝会话名（必有）。
+   2.211（老板 2026-11-20 07:08）：**禁止任何字符串切片推导终身号**——
+   本函数只做「无权威字段即返回空」，绝不再从 sid 截前 4 位。 */
 function lbUidOf(sid){
   const s = String(sid || '').trim();
-  /* 2.204（B5·老板：1623/1632 假账号）：10 位纯数字（服务端 FOX 号/旧假会话号）
-     一律不当会话编号/终身号 ⇒ 无编号，走名称临时键。 */
-  if (/^\d{10}$/.test(s)) return '';
-  return /^\d{4}/.test(s) ? s.slice(0, 4) : '';
+  if (!s) return '';
+  if (/^\d{10}$/.test(s)){ _lbFakeIdLog('会话SID', s); return ''; }
+  if (_lbIsSrvAcctLike(s)){ _lbFakeIdLog('会话SID', s); return ''; }
+  return '';
 }
 /* 2.204（B3·名字→编号别名映射）：只做映射，不改历史记录。同一本服的「会话名→终身号」
    持久化到 localStorage；后续只带名字（无号/假号）的帧按别名回锚，0023 与
@@ -317,11 +363,13 @@ function lbAliasGet(title){
   if (!t) return '';
   const o = lbAliasLoad(), m = o[lbSrvKey()] || {};
   const u = String(m[t] || '');
-  return /^\d{4}$/.test(u) ? u : '';
+  /* 2.210：历史别名里可能存过假号 1632/实例号截断，读到也一律不认 */
+  return (/^\d{4}$/.test(u) && !_lbIsSrvAcctLike(u)) ? u : '';
 }
 function lbAliasSet(uid, title){
   const u = String(uid || '').trim(), t = String(title || '').trim();
-  if (!/^\d{4}$/.test(u) || !t) return;
+  /* 2.210：假号/实例号截断绝不写进别名映射 */
+  if (!/^\d{4}$/.test(u) || !t || _lbIsSrvAcctLike(u)) return;
   const o = lbAliasLoad();
   const k = lbSrvKey();
   const m = o[k] || (o[k] = {});
@@ -335,12 +383,17 @@ function lbAliasSet(uid, title){
    落账走 t:名称 临时键，与无 uid 时同一本账，绝不出现「uid 键 / t:名称 键」两本。 */
 function lbUidPick(serverUid, sid, title){
   const s = String(sid || '').trim();
-  /* 2.204（B5）：10 位纯数字是假账号号源（1623/1632），按无编号处理。 */
-  if (/^\d{10}$/.test(s)) return '';
+  /* 2.210：10 位纯数字＝服务端实例号，按无编号处理并留痕。 */
+  if (/^\d{10}$/.test(s)){ _lbFakeIdLog('会话SID', s); return ''; }
   const u = String(serverUid || '').trim();
-  if (/^\d{4}$/.test(u)) return u;          /* TRAE 标准终身号＝sid 前 4 位数字 */
-  if (u) return '';                         /* 非标准（含「名（临时）」）→ 临时锚 */
-  return lbUidOf(s) || lbAliasGet(title);   /* 2.204：无号时先查「名字→编号」别名 */
+  /* 2.210：服务端下发的 uid 命中实例号或其截断（1632）＝假终身号，拒 */
+  if (_lbIsSrvAcctLike(u)){ _lbFakeIdLog('服务端uid', u); return ''; }
+  if (_lbIsSrvAcctLike(s)){ _lbFakeIdLog('会话SID', s); return ''; }
+  if (/^\d{4}$/.test(u)) return u;          /* 服务端下发的权威 4 位终身号 */
+  if (u) return '';                         /* 非标准（含「名（临时）」）→ 无号 */
+  /* 2.211：无权威 uid 时只查「名字→权威编号」别名（别名写入时已拒假号），
+     绝不再从 sid 切片推导。 */
+  return lbAliasGet(title) || '';
 }
 function lbRawSidOf(uid, title){
   try {
@@ -932,6 +985,9 @@ function lbWriteBackSnap(sid, title, rounds){
       ? (String(稳定键(s, t) || '') || s || t) : (s || t);
     const sk = _frameMemKey(_sid);
     if (!sk) return;
+    /* 2.211：画面记录另存**真实 sid** 与**权威 uid**；键仍走稳定键（无名回退完整 sid），
+       绝不在记录里塞切片假号。 */
+    const _uidAuth = (typeof lbUidPick === 'function') ? lbUidPick(null, s, t) : '';
     const rows = [];
     rounds.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) rows.push(m.slice()); }));
     if (!rows.length) return;
@@ -940,7 +996,7 @@ function lbWriteBackSnap(sid, title, rounds){
                    attach: [], model: ''};
     _frameCommit(sk, frame,
       {key: (typeof frameKey === 'function') ? frameKey() : '',
-       port: S.port, sid: _sid, title: String(title || ''), ts: Date.now()});
+       port: S.port, sid: s, uid: _uidAuth, title: String(title || ''), ts: Date.now()});
   } catch(e){}
 }
 /* 2.184 改2（残留清理）：新键已存在、但同会话还挂着旧 raw 键记录（2.183 及
@@ -955,14 +1011,13 @@ function lbPurgeStray(sk, sid, title){
     /* 2.184 改7：临时账本（尚无 sid）不做残留清理——空 sid 会误匹配所有临时
        账本（'' === ''），照样删光别人。等拿到 sid 走 lbMigrateTitle 归并即可。 */
     if (!s2) return;
-    let k2 = '';
-    try { k2 = (typeof 稳定键 === 'function') ? String(稳定键(s2, String(title || '')) || '') : ''; } catch(e){ k2 = ''; }
     _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
       (all || []).forEach(r => {
         if (!r || lbIsLegacyRec(r) || r.sk === sk) return;
         const rsid = String(r.sid || '');
-        const same = rsid === s2 || (!!k2 && typeof 稳定键 === 'function'
-          && String(稳定键(rsid, String(r.title || '')) || '') === k2);
+        /* 2.211：只按**同一真实 sid** 认残留；稳定键已改为会话名，不再拿名称做全表比对，
+           避免同名不同会话被误删。 */
+        const same = rsid === s2;
         if (same) _idbReq('ledger_conv', 'readwrite', st => st.delete(r.sk)).catch(() => {});
       });
     }).catch(() => {});
@@ -982,11 +1037,11 @@ function lbMigrateTitle(sid, title){
     try {
       const s = String(sid || '').trim(), t = String(title || '').trim();
       if (!s || !t) return res(false);
-      let k = '';
-      try { k = (typeof 稳定键 === 'function') ? String(稳定键(s, t) || '') : ''; } catch(e){ k = ''; }
-      if (!k || k === t) return res(false);          /* 同一把键：没有临时账本可迁 */
-      const skSid = lbStoreKey(lbUidOf(s) || s, t);  /* 2.196：与落账同键（uid 优先） */
+      /* 2.211：正式键只由权威 uid 决定；无权威 uid ⇒ 本来就落名称键，无「临时→正式」可迁。 */
+      const _mu = (typeof lbUidPick === 'function') ? lbUidPick(null, s, t) : '';
       const skTmp = lbStoreKey('', t);               /* 临时键＝L<本服>:t:<名称> */
+      const skSid = lbStoreKey(_mu || '', t);        /* 2.196：与落账同键（权威 uid 优先） */
+      if (skSid === skTmp) return res(false);
       _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
         const rows = all || [];
         const cur = rows.find(r => !lbIsLegacyRec(r) && r.sk === skSid);
@@ -1069,6 +1124,9 @@ function ledgerStorePut(sid, title, rounds, opt){
     const _sidGate = String(sid || '').trim();
     if (!lbSidValid(_sidGate)){
       _lbNoIdLog('账本条目缺会话ID(sid)', _sidGate, _t);
+      /* 2.210：命中服务端实例号/截断（1632）时额外留「假终身号 拒建账」一行 */
+      if (_lbIsSrvAcctLike(_sidGate) || /^\d{10}$/.test(_sidGate))
+        _lbFakeIdLog('账本帧', _sidGate);
       return;
     }
     if (_diag){
@@ -1327,7 +1385,11 @@ function ledgerHumanApply(sid, title, rec, opt){
   const _sid = String(sid || '').trim();
   /* 2.206（老板最终合并口径）：会话 ID 或消息 ID 无效的人类帧一律不收。
      消息 ID 只认 24 位十六进制 mid（14 位 did 只是发送编号，不算 ID）。 */
-  if (!lbSidValid(_sid)){ _lbNoIdLog('人类帧缺会话ID(sid)', _sid, title); return false; }
+  if (!lbSidValid(_sid)){
+    _lbNoIdLog('人类帧缺会话ID(sid)', _sid, title);
+    if (_lbIsSrvAcctLike(_sid) || /^\d{10}$/.test(_sid)) _lbFakeIdLog('人类帧', _sid);
+    return false;
+  }
   if (!(typeof midValid === 'function' ? midValid(_r.mid) : /^[0-9a-fA-F]{24}$/.test(String(_r.mid || '')))){
     _lbNoIdLog('人类帧缺有效mid(24位hex)', _sid, title);
     return false;
@@ -1408,6 +1470,7 @@ function ledgerStoreApply(sid, body, ver){
      有 sid 但缺名仍按诊断口口径照建，边界不扩大。） */
   if (!lbSidValid(_sid)){
     _lbNoIdLog('账本帧缺会话ID(sid)', _sid, body.title || '');
+    if (_lbIsSrvAcctLike(_sid) || /^\d{10}$/.test(_sid)) _lbFakeIdLog('账本帧', _sid);
     return;
   }
   /* 2.204（C）：先识别「本轮终极（补记）」标记，残缺轮照样与人类凑成一轮。
@@ -1531,27 +1594,104 @@ function lbCleanStale(){
 }
 setInterval(() => { try { lbCleanStale(); } catch(e){} }, 10 * 60 * 1000);
 
-/* ============ 2.205（老板新令②）：历史临时账本一次性清理 ============
+/* ============ 2.205/2.211：历史账本一次性清理（假桶只迁不删） ============
    背景：21:51 诊断口口径曾允许「无 sid 也按名称建临时账本（键 t:名称、标待补号）」；
-   23:29 新令后这类账本一律不再产生，历史残留做一次性清理：
-     · 账本（ledger_conv）：uid 与 sid 都为空的记录＝按名称建的临时账本/无名残账，
-       删除并同步减真存集与摘要表；有 sid 或 uid 的正常账本（含 0023 那种
-       名字→编号别名账本）一律保留。
-     · 预备画面（snap_conv，① 小账本卡片）：sid 空或 sid 等于 title 的＝名称键临时
-       画面，同步删除，杜绝「⏳ 待补号」卡片；有真 sid 的一律保留。
-   幂等、可重复跑：判据只看记录本身，清过即无；结果 diagLog 留痕。 */
+   23:29 新令后这类账本一律不再产生。2.211（老板 2026-11-20 07:08 令）：
+     · 假桶（uid/sid 为实例号或其截断 1632 的账本/预备画面）**合并/迁移**到正确键
+       （本服名称键 `L<本服>:t:<会话名>`），迁移前后条数打印对比，**不许直接删数据**；
+       无会话名/空轮次无法迁移的，原样保留并留痕，绝不静默丢弃。
+     · uid 与 sid 都为空的按名称临时账本，沿用 2.205 口径删除（与假桶无关）。
+   幂等、可重复跑：判据只看记录本身，迁过即无；结果 diagLog 留痕。 */
 let _lbTempCleanAt = 0;
 function lbCleanupTempLedgers(force){
   try {
     if (!force && _lbTempCleanAt) return Promise.resolve(0);
     _lbTempCleanAt = Date.now();
     const tasks = [];
-    let nLed = 0, nSnap = 0;
+    let nLed = 0, nSnap = 0, nFake = 0, nFakeSnap = 0, nMigLed = 0, nMigSnap = 0;
+    const fakeNames = [], keepList = [], notes = [];
+    let ledRoundsBefore = 0, ledRoundsMigrated = 0;
+    let snapMsgsBefore = 0, snapMsgsAfter = 0;
+    /* 合并两份预备画面消息：mid 去重，保留原顺序（同 mid 视作同一条）。 */
+    const mergeMsgs = (a, b) => {
+      const A = (a && Array.isArray(a.msgs)) ? a.msgs.slice() : [];
+      const B = (b && Array.isArray(b.msgs)) ? b.msgs.slice() : [];
+      const seen = new Set(A.map(m => String((m && m[6]) || '')));
+      B.forEach(m => {
+        const id = String((m && m[6]) || '');
+        if (id && seen.has(id)) return;
+        if (!id && A.some(x => JSON.stringify(x) === JSON.stringify(m))) return;
+        A.push(m); if (id) seen.add(id);
+      });
+      return A;
+    };
     return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
-      (rows || []).forEach(rec => {
+      const all = rows || [];
+      all.forEach(r => { if (r && !lbIsLegacyRec(r))
+        ledRoundsBefore += ((r.rounds || []).length || 0); });
+      const bySk = new Map();
+      all.forEach(r => { if (r && !lbIsLegacyRec(r)) bySk.set(r.sk, r); });
+      all.forEach(rec => {
         if (!rec) return;
+        /* 2.211：假桶 → 迁移到名称键（只迁不删） */
+        if (_lbFakeLedgerRec(rec)){
+          nFake++;
+          const title = String(rec.title || '').trim();
+          const rounds = (rec.rounds || []).filter(Boolean);
+          fakeNames.push(String(rec.uid || rec.sid || '') + '|' + title + '|' + rounds.length);
+          if (!title || !rounds.length){
+            keepList.push('假桶保留(无可迁移内容)|' + String(rec.uid || rec.sid || '') + '|' + title);
+            return;
+          }
+          try {
+            const nk = lbStoreKey('', title);          /* 正确键：本服 + 名称 */
+            const old = bySk.get(nk);
+            const base = (old && Array.isArray(old.rounds)) ? old.rounds.slice() : [];
+            const seen = new Set(base.map(lbRoundKey));
+            rounds.forEach(r => { const rk = lbRoundKey(r);
+              if (!seen.has(rk)){ seen.add(rk); base.push(r); } });
+            const out = base.slice(-lbRounds());
+            /* 迁移记录尽量补回**真实会话 sid**（按会话名反查会话列表，只读）；查不到留空，
+               键仍用名称键，绝不再写实例号/1632。 */
+            let _rsid = '';
+            try {
+              (S.convs || []).forEach(r => {
+                if (r && String(r[1] || '') === title && r[4]) _rsid = String(r[4]);
+              });
+            } catch(e){}
+            const nrec = {
+              sk: nk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
+              uid: '', sid: _rsid, title: title,
+              ts: Math.max(Number(rec.ts) || 0, Number(old && old.ts) || 0),
+              lastTs: Math.max(Number(rec.lastTs) || 0, Number(old && old.lastTs) || 0),
+              lastView: Math.max(Number(rec.lastView) || 0, Number(old && old.lastView) || 0),
+              pend: 1, diag: 1, rounds: out};
+            bySk.set(nk, nrec);
+            ledRoundsMigrated += out.length;
+            notes.push('账本 ' + String(rec.sk) + ' → ' + nk + '（轮次 ' + rounds.length + '→' + out.length + '）');
+            tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(nrec))
+              .then(() => (rec.sk !== nk)
+                ? _idbReq('ledger_conv', 'readwrite', st => st.delete(rec.sk))
+                : null).catch(() => {}));
+            try { lbSumSet('', title, out); } catch(e){}
+            try { LB.lbHave.delete(String(rec.uid || '')); LB.lbHave.delete(String(rec.sid || '')); } catch(e){}
+            nMigLed++;
+          } catch(e){ keepList.push('假桶迁移异常保留|' + String(rec.sk)); }
+          return;
+        }
         /* 有 sid 或 uid＝正常账本，绝不误删 */
-        if (String(rec.uid || '').trim() || String(rec.sid || '').trim()) return;
+        if (String(rec.uid || '').trim() || String(rec.sid || '').trim()){
+          keepList.push(String(rec.uid || rec.sid) + '|'
+            + String(rec.title || '') + '|' + ((rec.rounds || []).length || 0));
+          return;
+        }
+        /* 2.211：无 sid/uid 但有会话名＝名称键账本（终身号未登记）——规范允许的分桶键，
+           必须保留；只清「无名无内容」的真空壳残账。 */
+        if (String(rec.title || '').trim()){
+          keepList.push('名称键账本保留|' + String(rec.title) + '|'
+            + ((rec.rounds || []).length || 0));
+          return;
+        }
         nLed++;
         LB.lbHave.delete(String(rec.sid || ''));
         lbSumDrop(rec.sid, rec.title);
@@ -1560,10 +1700,49 @@ function lbCleanupTempLedgers(force){
       return _idbReq('snap_conv', 'readonly', st => st.getAll());
     }).then(rows2 => {
       const _fk = (typeof frameKey === 'function') ? frameKey() : '';
-      (rows2 || []).forEach(rec => {
+      const all2 = rows2 || [];
+      all2.forEach(rec => { if (rec && rec.frame && Array.isArray(rec.frame.msgs))
+        snapMsgsBefore += rec.frame.msgs.length; });
+      const bySk2 = new Map();
+      all2.forEach(rec => { if (rec && rec.sk) bySk2.set(rec.sk, rec); });
+      all2.forEach(rec => {
         if (!rec) return;
         const sid = String(rec.sid || '').trim();
         const title = String(rec.title || '').trim();
+        /* 2.211：假预备画面 → 迁移到名称键（只迁不删；同名画面合并消息） */
+        if (_lbFakeLedgerRec({uid: '', sid: sid})){
+          nFakeSnap++;
+          if (!title){
+            keepList.push('假画面保留(无名)|' + sid);
+            return;
+          }
+          try {
+            const nsk = (typeof _frameMemKey === 'function')
+              ? _frameMemKey(title) : ((_fk || '') + '|' + title);
+            const old = bySk2.get(nsk);
+            const recNew = Object.assign({}, rec, {sk: nsk, sid: '', uid: '', title: title});
+            if (old && old.frame && rec.frame){
+              recNew.frame = Object.assign({}, old.frame,
+                {msgs: mergeMsgs(old.frame.msgs, rec.frame.msgs)});
+              recNew.ts = Math.max(Number(old.ts) || 0, Number(rec.ts) || 0);
+            }
+            bySk2.set(nsk, recNew);
+            notes.push('画面 ' + String(rec.sk) + ' → ' + nsk);
+            tasks.push(_idbReq('snap_conv', 'readwrite', st => st.put(recNew))
+              .then(() => (rec.sk !== nsk)
+                ? _idbReq('snap_conv', 'readwrite', st => st.delete(rec.sk))
+                : null).catch(() => {}));
+            try {
+              if (rec.sk && typeof _frameMem === 'object' && _frameMem) delete _frameMem[rec.sk];
+              if (typeof _frameMem === 'object' && _frameMem && recNew.frame)
+                _frameMem[nsk] = recNew.frame;
+              if (title && _fk && typeof _frameMemByTitle === 'object' && _frameMemByTitle && recNew.frame)
+                _frameMemByTitle[_fk + '|' + title] = recNew.frame;
+            } catch(e){}
+            nMigSnap++;
+          } catch(e){ keepList.push('假画面迁移异常保留|' + String(rec.sk)); }
+          return;
+        }
         if (sid && sid !== title) return;     /* 有真 sid：正常预备画面，保留 */
         nSnap++;
         try { if (rec.sk && typeof _frameMem === 'object' && _frameMem) delete _frameMem[rec.sk]; } catch(e){}
@@ -1573,16 +1752,44 @@ function lbCleanupTempLedgers(force){
         } catch(e){}
         tasks.push(_idbReq('snap_conv', 'readwrite', st => st.delete(rec.sk)).catch(() => {}));
       });
-      return Promise.all(tasks).then(() => {
-        try { diagLog('临时账本清理：删除账本 ' + nLed + ' 本、待补号预备画面 ' + nSnap + ' 条', 'ok'); } catch(e){}
+      /* localStorage：清掉别名映射 / 摘要里残留的假号（只清假号键，不动真账） */
+      try {
+        const o = lbAliasLoad();
+        let ch = false;
+        Object.keys(o || {}).forEach(sk => {
+          const m = o[sk];
+          if (!m || typeof m !== 'object') return;
+          Object.keys(m).forEach(t => {
+            const v = String(m[t] || '');
+            if (_lbIsSrvAcctLike(v) || /^\d{10}$/.test(v)){ delete m[t]; ch = true; }
+          });
+        });
+        if (ch) lbAliasSave(o);
+        Object.keys(LB.lbSum || {}).forEach(kk => {
+          if (_lbIsSrvAcctLike(kk) || /^\d{10}$/.test(kk)) delete LB.lbSum[kk];
+        });
+      } catch(e){}
+      return Promise.all(tasks).then(() => _idbReq('snap_conv', 'readonly', st => st.getAll())
+        .catch(() => [])).then(rows3 => {
+        (rows3 || []).forEach(rec => { if (rec && rec.frame && Array.isArray(rec.frame.msgs))
+          snapMsgsAfter += rec.frame.msgs.length; });
+        try { diagLog('假桶迁移：账本 ' + nMigLed + ' 本、画面 ' + nMigSnap + ' 条；账本轮次 '
+          + ledRoundsBefore + ' → ' + ledRoundsMigrated + '（迁移后合计）；画面消息 '
+          + snapMsgsBefore + ' → ' + snapMsgsAfter
+          + (notes.length ? '｜' + notes.join(' ; ') : ''), nMigLed ? 'ok' : 'dim'); } catch(e){}
+        try { diagLog('假桶无法迁移（原样保留）：' + (fakeNames.length ? fakeNames.join(',') : '无')
+          + '｜保留名单=' + (keepList.join(' ; ') || '（空）'), 'dim'); } catch(e){}
+        try { diagLog('临时账本清理：删除无号账本 ' + nLed + ' 本、待补号画面 ' + nSnap + ' 条', 'ok'); } catch(e){}
         try { if (typeof window.cvLbDirty === 'function') window.cvLbDirty(); } catch(e){}
-        return nLed + nSnap;
+        return nLed + nSnap + nMigLed + nMigSnap + nFake + nFakeSnap;
       });
     }).catch(() => 0);
   } catch(e){ return Promise.resolve(0); }
 }
-/* 开机稍后跑一次（等 IDB/服务端标记就绪；幂等，可重复调用） */
+/* 开机稍后跑一次（等 IDB/服务端标记就绪；幂等，可重复调用）。
+   2.211：第二拍等 hello 落下 S.curSid 后再跑一次，确保假桶迁移干净。 */
 try { setTimeout(() => { try { lbCleanupTempLedgers(); } catch(e){} }, 1500); } catch(e){}
+try { setTimeout(() => { try { lbCleanupTempLedgers(true); } catch(e){} }, 8000); } catch(e){}
 
 /* ================= ④ 主动核对（1 分钟周期+倒计时）与智能避让 ================= */
 setInterval(() => {
