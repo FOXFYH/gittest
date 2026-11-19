@@ -2338,7 +2338,9 @@ function ttsFoxSend(obj){
   return true;
 }
 function ttsConnect(){
-  /* 建 TTS 直连（静默：无 ping/无 hello/无 login）。 */
+  /* 建 TTS 直连（静默：无 ping/无 hello/无 login）。2.68：按需连、静置断。 */
+  ttsManualOff = false;
+  ttsTouch();
   if (ttsWs){ try { ttsWs.onopen = ttsWs.onmessage = ttsWs.onclose = ttsWs.onerror = null; ttsWs.close(); } catch(e){} }
   clearTimeout(ttsReconnectTimer); ttsReconnectTimer = null;
   if (!(CFG.channel || '').trim()){ ttsWs = null; return; }   // 无密钥：等填完再连
@@ -2346,6 +2348,7 @@ function ttsConnect(){
   const w = ttsWs;
   w.onopen = () => {
     ttsOnLine = true; ttsFailStreak = 0; ttsDeadline = 0;
+    ttsTouch();                        // 2.68：起算静置 60 秒
     diagLog('TTS 直连频道已就绪（静默待命）', 'ok');
     ttsFlushWait();                    // 连上即把仍在等待的请求改走直连（不再回落）
   };
@@ -2353,6 +2356,7 @@ function ttsConnect(){
   w.onerror = () => { /* 统一交给 onclose 走退避重连 */ };
   w.onclose = () => {
     ttsOnLine = false;
+    if (ttsManualOff) return;          /* 2.68：静置主动断开 → 绝不重连 */
     if (!ttsDeadline) ttsDeadline = Date.now() + TTS_DEADLINE;
     if (ttsFailStreak >= TTS_BACKOFF.length || Date.now() > ttsDeadline){
       diagLog('TTS 直连不可达（重连 ' + ttsFailStreak + ' 次用尽），已停手', 'bad');
@@ -2369,6 +2373,20 @@ function ttsEnsure(){
   ttsConnect();
   return false;
 }
+/* 2.68（老板 2026-11-19 频道规范第 5 条）：TTS 频道「播完静置 60 秒」自动断开，
+   未使用期间该频道 0 帧、0 连接。ttsTouch() 在连接建立与每次收到分片时刷新。 */
+let ttsIdleAt = 0, ttsManualOff = false;
+function ttsTouch(){ ttsIdleAt = Date.now(); }
+function ttsClose(reason){
+  ttsManualOff = true;
+  clearTimeout(ttsReconnectTimer); ttsReconnectTimer = null;
+  if (ttsWs){ try { ttsWs.onopen = ttsWs.onmessage = ttsWs.onclose = ttsWs.onerror = null; ttsWs.close(); } catch(e){} }
+  ttsWs = null; ttsOnLine = false; ttsFailStreak = 0; ttsDeadline = 0; ttsIdleAt = 0;
+  diagLog('TTS 频道已静置断开' + (reason ? '（' + reason + '）' : ''), 'ok');
+}
+setInterval(() => {
+  if (ttsOnLine && ttsIdleAt && Date.now() - ttsIdleAt > 60000) ttsClose('静置60秒');
+}, 20000);
 const FoxInTts = {                       // TTS 通道 FOX 拼装器（60s 残包超时）
   buf: {},
   feed(msg){
@@ -2399,6 +2417,7 @@ function ttsOnMsg(msg){
        被当成"残余段"丢弃 → 服务端 250ms 就回的 recv/conv 一个都收不到，只能硬等
        30 秒看门狗切「服务端中转」。此处兼收两种：FOX 帧照旧；'{' 开头的纯 JSON 直收。 */
   statsAdd(msg.length, 0, 1, 0);
+  ttsTouch();                        /* 2.68：有分片到达＝仍在使用，续命 60 秒 */
   let body = '';
   const r = FoxInTts.feed(msg);
   if (r){
@@ -3310,6 +3329,9 @@ function turnAudit(){
 }
 async function onTurncast(tc){
   if (!tc) return;
+  /* 3.21 防串台兜底：任何入口（snap 内嵌/req 回包/广播）带了 sid 的，
+     必须与当前选中会话一致，否则丢弃——思维卡只属于它自己那一轮。 */
+  if (tc.sid && String(tc.sid) !== String(curConvId())) return;
   /* ① prev（最新历史轮）并入本地账 */
   if (tc.prev && tc.prev.uid){
     let t = findTurn(tc.prev.uid);
@@ -6192,7 +6214,7 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.66';
+const VER = '2.68';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -6729,17 +6751,16 @@ function cliLogout(reason){
   try { sendJson({t: 'logout', r: reason || ''}); } catch(e){}
 }
 function startCliHb(){
-  clearInterval(cliHbTimer);
-  cliHbTimer = setInterval(() => {
-    if (!S.onLine || !cliLoggedIn) return;
-    /* 1.25：后台也照发（保活）——发得出去就发，被系统冻结也无害 */
-    try { sendJson({t: 'hb', fg: !document.hidden, nick: MY_NICK}); cliLastBeat = Date.now(); } catch(e){}
-  }, HB_SEC * 1000);
+  /* 2.68（老板 2026-11-19 频道使用规范第 5 条）：**周期 hb 已删**。
+     进出场只走 login / logout，中间零保活帧；服务端判活同步改为「logout 才摘除」
+     （wb_cli\bridge.py 的 900 秒无 hb 摘人已放宽到 12 小时）。 */
+  clearInterval(cliHbTimer); cliHbTimer = null;
 }
 function cliTouch(){                       // 任意操作 = 在线（续登录）
   cliIdleAt = Date.now();
   if (!cliLoggedIn) doLogin();             // 有操作且未登录 → 自动登录
   cliActPing();                            // 1.64：把「人在操作」告诉服务端
+  try { ctlTouch(); } catch(e){}           // 2.68：同步续上操控租约的 5 分钟窗口
 }
 /* 1.64：人工活动上报——服务端据此判定「你正看着本对话」：本对话跑完也不
    吵你；你离开（无操作超时 / 页面切后台）才亮橙灯提醒。高频事件，故节流
@@ -6768,15 +6789,11 @@ function cliResume(){
     ensureConnect();
     return;
   }
-  const stale = !cliLastBeat || (Date.now() - cliLastBeat > 120000);
-  if (cliLoggedIn && !stale){
-    /* 没断线、心跳也新鲜 → 只补一个心跳，秒续，免重放 */
-    try { sendJson({t: 'hb', fg: true, nick: MY_NICK}); cliLastBeat = Date.now(); } catch(e){}
-  } else {
-    /* 服务端可能已按「150 秒无心跳」把我们判下线 → 重新登录（整包重放） */
-    cliLoggedIn = false;
-    doLogin();
-  }
+  /* 2.68：不再靠心跳「续命」判活——没退登就说明服务端还在推，静默即可；
+     已退登（切后台超 60 秒）才重新 login 并接受一次整包重放。 */
+  if (cliLoggedIn) return;
+  cliLoggedIn = false;
+  doLogin();
 }
 function ensureConnect(){
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
@@ -6785,13 +6802,22 @@ function ensureConnect(){
 }
 /* 1.25：切后台/锁屏不再主动下线；回前台自动续上
    1.64：切后台/锁屏也算「人走了」——上报 away，本对话跑完即可亮橙灯。 */
+/* 2.68（老板 2026-11-19 频道规范第 5 条）：切后台/锁屏超过 60 秒 = 人走了
+   → 主动 logout，服务端停播、该频道零消耗；回前台再 login（一次整包重放）。 */
+let hideLogoutTimer = null;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden){
     /* 2.47：手机切后台/锁屏时定时器会被冻结，这段时间「没收到回应」
        不能算服务器没回——撤销本次等回应，避免回前台瞬间误报。 */
     S.waitT = 0; S.waitN = 0; S.waitLast = 0;
-    cliActAway(); return;
+    cliActAway();
+    clearTimeout(hideLogoutTimer);
+    hideLogoutTimer = setTimeout(() => {
+      if (document.hidden && cliLoggedIn) cliLogout('切后台60秒');
+    }, 60000);
+    return;
   }
+  clearTimeout(hideLogoutTimer); hideLogoutTimer = null;
   cliResume();
   /* 2.58：回前台＝人类又要用了——顺手跟大账本对一次号（20 秒节流） */
   setTimeout(() => { try { reconAsk('回前台'); } catch(e){} }, 800);
@@ -7058,6 +7084,7 @@ function switchSrv(nm){
   if (!S.servers[nm] || nm === S.cur) return;
   /* 1.13：切走前向旧目标显式还锁（ctl_free），不等超时自动释放 */
   if (S.cur && S.onLine) sendJson({t: 'ctl_free'});
+  try { ctlHeld = false; ctlAt = 0; } catch(e){}    /* 2.68：放锁即停 ctl_hb */
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   setCur(nm);
   /* 2.51：换台先按「这台记着的服务端版本号」重算缓存键，再去取它自己的档案——
@@ -7132,8 +7159,20 @@ setInterval(pruneSrv, 5000);
    （服务端默认 60 秒无操作释放；不发心跳即视为离开）
    2.21（老板 2026-10-25 23:46 令）：心跳只允许每分钟一条；服务端锁 60 秒，
    60000 正好卡边界（抖动一下就被判超时），实际取 55000（55 秒）更稳。 */
-setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
-            55000);
+/* 2.68（老板 2026-11-19 频道规范第 5 条）：**ctl_hb 只在真持有操控租约时发**。
+   判据＝最近 5 分钟内有过操控动作（触摸/按键/操控命令 → ctlTouch 刷新）。
+   窗口一过期立即 ctl_free 放锁并停止外发，不再「在线就一路续占」。 */
+let ctlHeld = false, ctlAt = 0;
+function ctlTouch(){ ctlAt = Date.now(); }
+setInterval(() => {
+  if (!S.onLine || !S.cur) return;
+  if (!ctlAt || Date.now() - ctlAt > 300000){
+    if (ctlHeld){ ctlHeld = false; try { sendJson({t: 'ctl_free'}); } catch(e){} }
+    return;
+  }
+  ctlHeld = true;
+  sendJson({t: 'ctl_hb'});
+}, 55000);
 
 function renderTop(){
   const s = S.servers[S.cur];
@@ -7210,6 +7249,10 @@ el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
 function onEv(kind, v){
   switch (kind){
     case 'turncast':                   /* 2.10：轮播轻广播（旧服务端兼容路） */
+      /* 3.21 定向：只认本服务端 + 本会话的思维卡；别台的/别会话的一律丢，
+         防止手机看着 A 会话却把 B 会话的思维卡记进账（多服务端/切换在途会串）。 */
+      if (v && v._port && v._port !== S.port) return;
+      if (v && v.sid && String(v.sid) !== String(curConvId())) return;
       onTurncast(v);
       return;
     case 'pendcfg':                    /* 1.23：确认匹配参数变更即时跟随 */
@@ -8838,7 +8881,7 @@ function channelPrompt(){
     ov.remove();
     flash('频道密钥已保存，正在连接…', 'var(--blue)');
     connect();
-    ttsConnect();                             // 1.83：TTS 直连同步启动
+    /* 2.68：不再顺带启动 TTS 直连——按需（首次播放）才连，规范第 2 条。 */
   };
   $('chanok').onclick = go;
   inp.onkeydown = e => {
@@ -8870,7 +8913,10 @@ checkVerBump();
 pendRestore();
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
-if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
+/* 2.68（老板 2026-11-19 频道规范第 2 条）：TTS 频道**按需连接**——启动不再
+   连（原来 connect() 后紧跟 ttsConnect()，手机同时在线两个频道）。
+   首次点播放时由 ttsEnsure() 拉起，播完静置 60 秒自动断开。 */
+if (wsOV || CFG.channel){ connect(); } else channelPrompt();
 
 /* ======== 小账本查看器（原「轮播账查看器」；2.49 起改读快照账 snaps） ======== */
 (function(){
