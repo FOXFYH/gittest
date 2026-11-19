@@ -390,6 +390,11 @@ function ledgerVcheckBuild(act, sid){
   mods.lb_rounds = lbRounds();             /* 规范§七：目标缓存轮数参数（统一按轮） */
   const d = {t: 'vcheck', act: act, mods: mods, req_seq: ++LB.reqSeq};
   if (sid) d.sid = String(sid);
+  /* 2.207（V1.0 §五-6）：对账上报本端掌握的全部消息编号——**其中包含思维流编号
+     （含版本）**；服务端缺号或版本落后即补发当前最新版。卡片本身绝不进 ledger
+     口径（不进 need、不参与轮次统计）。 */
+  const _th = (typeof thinkCardsReport === 'function') ? thinkCardsReport() : null;
+  if (_th && Object.keys(_th).length) d.thinks = _th;
   return d;
 }
 function ledgerVcheckSend(act, sid){
@@ -669,6 +674,11 @@ function ledgerThinkApply(sid, body){
      既有通道上屏（锚定会话上屏 / 非锚定存为该会话内存存帧，零打扰）。
      字符串形态（纯画面文本）暂不上屏——TRAE 网页端思维流画面本就随正文行
      呈现，不做卡片化改造（E2）。 */
+  /* 2.207（V1.0 §五-2/12）：先落「本会话最新一版」思维流卡——新版覆盖旧版、
+     按服务端隔离，只作展示绝不入账；非 1 号也照存（显示侧再拦）。 */
+  if (b.thinkId || b.anchorMid){
+    if (thinkCardSet(b, sid)) renderAll();
+  }
   const f = b.frame;
   /* 2.203（老板 2026-11-19 22:02 令）：思维流只为 1 号网页用户提供。非 1 号（2/3 号）
      不消费本帧画面（不推思维流），该区域改由 消息渲染.js 按思维灯显示「您不是 1 号
@@ -684,6 +694,109 @@ function ledgerThinkApply(sid, body){
     S.lb_foldRounds = 0;                   /* 真画面到手 → 归零（2.183 修2：补发面板已撤§十二-2，状态位保留防渲染 key 漂移） */
   }
 }
+
+/* ===== 2.207 思维流展示卡（V1.0 §五「思维流独立编号与分发」，文档现文为准）=====
+   服务端 WS桥 0.48 帧字段：sel/sid、uid、title、time、thinkId（含六位版本）、
+   thinkVer、anchorMid、frame{msgs,finish,tail}。
+   客户端口径：
+     · 每会话只留「最新一版」，新版到即覆盖旧版（不存历史版本）；
+     · 按服务端隔离（键含 lbSrvTag），换服绝不串；
+     · 只作展示，**绝不入账**（不进 ledger_conv、不参与轮次统计、绝不当终极）。 */
+let THINK_CARDS = {};          /* 'L<本服>|<稳定键>' → 最新一版（每会话一条） */
+
+function _thinkCardKey(sid, title){
+  let k = '';
+  try {
+    k = (typeof 稳定键 === 'function')
+        ? String(稳定键(String(sid || ''), String(title || '')) || '') : '';
+  } catch(e){ k = ''; }
+  return 'L' + (typeof lbSrvTag === 'function' ? lbSrvTag() : '')
+       + '|' + (k || String(sid || ''));
+}
+function _thinkTitleEq(a, b){
+  return String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim();
+}
+/* 收帧落「最新一版」：版本旧的迟到帧不回退；返回 true＝有变化（需要重画）。 */
+function thinkCardSet(body, sidHint){
+  const b = body || {};
+  const sid = String(b.sel || sidHint || '');
+  const tid = String(b.thinkId || '');
+  if (!sid || !tid) return false;            /* 旧服务端无编号：不建卡（不伪造） */
+  const ver = parseInt(b.thinkVer, 10) || 0;
+  const key = _thinkCardKey(sid, b.title);
+  const old = THINK_CARDS[key];
+  const anchor = String(b.anchorMid || '');
+  if (old && ver && old.thinkVer && ver < old.thinkVer
+      && old.anchorMid === anchor) return false;   /* 迟到旧版：不回退 */
+  const f = (b.frame && typeof b.frame === 'object') ? b.frame : {};
+  const arr = Array.isArray(f.msgs) ? f.msgs : [];
+  let txt = '';
+  for (let i = arr.length - 1; i >= 0; i--){
+    const m = arr[i];
+    if (Array.isArray(m) && m[0] === 'a' && m[1]){ txt = String(m[1]); break; }
+  }
+  if (!txt) txt = String(f.tail || '');
+  const tm = String(b.time || '')
+          || ((typeof timeFromMid === 'function') ? timeFromMid(anchor) : '');
+  if (old && old.thinkId === tid && old.text === txt) return false;   /* 同版重发 */
+  THINK_CARDS[key] = {
+    srv: (typeof lbSrvKey === 'function' ? lbSrvKey() : ''),
+    sid: sid, title: String(b.title || ''), uid: String(b.uid || ''),
+    thinkId: tid, thinkVer: ver, anchorMid: anchor, time: tm, text: txt,
+    ts: Date.now()
+  };
+  return true;
+}
+function thinkCardGet(sid, title){
+  return THINK_CARDS[_thinkCardKey(sid, title)] || null;
+}
+/* 显示判定（§五-8/9/10）：小账本最底部固定挂一条；四维全匹配＋思维灯亮才显示；
+   本轮终极（fin=1 的 a 行）一到立即让位。任一条件不满足返回 null。 */
+function thinkCardNow(msgs){
+  try {
+    if (typeof hostIsFirst === 'function' && !hostIsFirst()) return null;  /* 思维流只为 1 号 */
+    if ((typeof _curConvLight === 'function' ? _curConvLight() : '') !== 'busy') return null;
+    const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
+    const ct = String((typeof curTitle === 'function' ? curTitle() : '') || '');
+    if (!cs) return null;
+    const c = thinkCardGet(cs, ct);                    /* ③会话 ID 匹配（按稳定键取） */
+    if (!c) return null;
+    if (c.srv && c.srv !== String((typeof lbSrvKey === 'function' ? lbSrvKey() : '')))
+      return null;                                     /* ①服务器匹配 */
+    if (!c.title || !_thinkTitleEq(c.title, ct)) return null;   /* ②会话名匹配 */
+    if (!c.anchorMid) return null;
+    const arr = Array.isArray(msgs) ? msgs : [];
+    let hi = -1;
+    for (let i = arr.length - 1; i >= 0; i--){
+      if (Array.isArray(arr[i]) && arr[i][0] === 'u'){ hi = i; break; }
+    }
+    if (hi < 0) return null;
+    const hmid = String((arr[hi].length > 6 && arr[hi][6]) || '').trim();
+    if (hmid !== c.anchorMid) return null;   /* ④锚定＝当前最新一条人类消息，否则不展示 */
+    for (let i = hi + 1; i < arr.length; i++){
+      const m = arr[i];
+      if (!Array.isArray(m) || m[0] !== 'a') continue;
+      const fin = String((m.length > 7 && m[7]) || '').trim();
+      let kind = '';
+      try { kind = (typeof lbMsgKind === 'function') ? lbMsgKind(m) : ''; } catch(e){}
+      if (kind === 'final' || fin) return null;        /* ⑩终极回复优先：立刻撤卡 */
+    }
+    return c;
+  } catch(e){ return null; }
+}
+/* 对账上报（§五-6）：本端掌握的全部思维流编号（sid → thinkId 含版本）。 */
+function thinkCardsReport(){
+  const out = {};
+  const srv = String((typeof lbSrvKey === 'function' ? lbSrvKey() : ''));
+  Object.keys(THINK_CARDS).forEach(k => {
+    const c = THINK_CARDS[k];
+    if (!c || !c.sid || !c.thinkId) return;
+    if (c.srv && srv && c.srv !== srv) return;         /* 别服的不上报 */
+    out[String(c.sid)] = c.thinkId;
+  });
+  return out;
+}
+/* ===== 2.207 思维流展示卡（止）===== */
 
 /* 项级归属判定：true=本会话 / false=别会话 / null=无项级 sid（交回顶层判定） */
 function pendItemMine(it){
