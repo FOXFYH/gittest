@@ -158,30 +158,57 @@ function onEv(kind, v){
          把桌面切回页面选中会话；非 1 号不提示也不抢切（见 待办卡.js anchorSelfHeal）。 */
       if (typeof anchorSelfHeal === 'function')
         anchorSelfHeal(liveKey);
+      /* 2.206（投递不准覆盖）：先记下上一拍排队条与归属，供下方合并。 */
+      const _prevPend = (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend.slice() : [];
+      const _prevPendSid = String((S.snap && S.snap.pend_sid) || '');
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
       /* 2.131：走到这里的 pend 已确认属于本会话（别人的上面已先剥，锚定冻结
          留用的也是本会话旧帧）⇒ 回写 pend_sid，供 消息渲染.js 2.131 复验。
          V2 第三轮 Y4+Y18（2026-11-19）：快照路排队条与 think 帧存储层同口径——
          stripPendTail 剥提示词尾巴（§十二-5）+ 按 id 幂等去重（双路推送只落一条）；
          剥后全空（整条都是注入）的条目丢弃。 */
-      if (Array.isArray(v.pend) && v.pend.length){
-        const _pv = [];
-        const _seen2 = new Set();
-        v.pend.forEach(it => {
-          if (!it || typeof it !== 'object') return;
-          /* 2.187：新格式条目（WS桥 0.26 起 {id,text,sid,canEdit}）正文在 text，
-             旧格式在 t——只认 t 会把新格式逐条判空丢掉（排队条不上屏＋销卡失效）。 */
-          if (it.text != null) it.text = stripPendTail(it.text);
-          if (it.t != null) it.t = stripPendTail(it.t);
-          const _tx = (it.text != null) ? it.text : it.t;
-          if (!String(_tx || '').trim()) return;
-          const k = String(it.id != null ? it.id : _tx);
-          if (_seen2.has(k)) return;
-          _seen2.add(k);
-          _pv.push(it);
-        });
-        v.pend = _pv;
-      }
+      const _pv = [];
+      const _seen2 = new Set();
+      (Array.isArray(v.pend) ? v.pend : []).forEach(it => {
+        if (!it || typeof it !== 'object') return;
+        /* 2.187：新格式条目（WS桥 0.26 起 {id,text,sid,canEdit}）正文在 text，
+           旧格式在 t——只认 t 会把新格式逐条判空丢掉（排队条不上屏＋销卡失效）。 */
+        if (it.text != null) it.text = stripPendTail(it.text);
+        if (it.t != null) it.t = stripPendTail(it.t);
+        const _tx = (it.text != null) ? it.text : it.t;
+        if (!String(_tx || '').trim()) return;
+        const k = String(it.id != null ? it.id : _tx);
+        if (_seen2.has(k)) return;
+        _seen2.add(k);
+        _pv.push(it);
+      });
+      /* 2.206（老板最终合并口径·投递）：老板忙时多条消息必须全部留在排队条里，
+         不准后一条把前一条覆盖掉——把上一拍【同一会话】、且 DID 尚未落地（本帧
+         人类发言/已进流）的旧条目追加回来，按 id/正文去重；已落地的旧条目淘汰。 */
+      try {
+        const _curPendSid = String((typeof curSid === 'function' ? curSid() : '')
+                                    || _penOwner || '');
+        if (_prevPend.length && (!_prevPendSid || _prevPendSid === _curPendSid)){
+          const _landed = new Set();
+          (v.msgs || []).forEach(m => {
+            if (!Array.isArray(m)) return;
+            const d = pendDidOf(m[1]) || String(m[9] || '');
+            if (d) _landed.add(d);
+          });
+          const _have = new Set(_pv.map(it => String(
+            it.id != null ? it.id : ((it.text != null) ? it.text : it.t))));
+          _prevPend.forEach(it => {
+            if (!it || typeof it !== 'object') return;
+            const _d = String(it.id || '');
+            const _txt = String((it.text != null) ? it.text : (it.t || ''));
+            if (_d && _landed.has(_d)) return;          /* 已落地：淘汰 */
+            const k = String(it.id != null ? it.id : _txt);
+            if (_have.has(k)) return;
+            _have.add(k); _pv.push(it);
+          });
+        }
+      } catch(e){}
+      v.pend = _pv;
       if (Array.isArray(v.pend) && v.pend.length){
         v.pend_sid = String((typeof curSid === 'function' ? curSid() : '')
                             || _penOwner || '');
@@ -394,7 +421,9 @@ function onEv(kind, v){
       }
       const t = raw ? copyPlain(raw, true) : '';
       if (t){
-        el.ent.value = t;
+        /* 2.206：框里已有未发内容时追加，绝不覆盖前一条 */
+        if (typeof fillEntSafe === 'function') fillEntSafe(t);
+        else el.ent.value = t;
         refreshSendBtn();
         try { el.ent.focus(); } catch(e2){}
         flash('已取出排队消息，可修改后重新发送', 'var(--blue)');
