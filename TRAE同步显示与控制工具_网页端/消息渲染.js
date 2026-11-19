@@ -268,12 +268,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     }
     /* 2.91：视觉对齐「原版」——说话人文案 TRAE→TraeWork。
        2.93：时间戳 .tm 用户行与 AI 行都挂。
-       2.112（X2-1）：无 mid 的行（由 缓存.js orderMsgs 统一置顶）标注「时间未知」，
-       绝不用本地时刻/继承时刻冒充该行真实时间。 */
+       2.112（X2-1）：无真时间的行由 缓存.js orderMsgs 统一置顶。
+       2.204（B4）：时间已由统一兜底链补全（mid→DID→会话编号），
+       不再显示「时间未知」；真拿不到就留空。 */
     let h = '<div class="who">' + (user ? '我' : 'TraeWork')
-          + (m[7]
-              ? '<span class="tm" style="color:var(--gray)">时间未知</span>'
-              : (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : ''))
+          + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
           + (acts ? '<span class="mract">' + acts + '</span>' : '')
           + '</div>' + bodyHtml;
     d.innerHTML = h;
