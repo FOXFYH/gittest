@@ -538,7 +538,7 @@ function _idbReq(store, mode, fn){
    2.204（WB+TR 整改 ST·B1）：单位由「条」统一为「轮」，默认 5 轮，与本地账本
    CFG.lb_rounds、服务端 ledger_push_rounds 三处同值；调控页改一值即三处同源。
    ① 只收【人类发言】与【有终极回复的 AI 行】（第 8 位；思维流一律不落盘）；
-   ② 按时间（tm，缺则 mid 前 8 位）排序，只留最新 N 轮；
+   ② 按 mid 前 8 位十六进制时间排序，只留最新 N 轮；
    ③ N 存 localStorage（手机缓存查看器里可直接改，默认 5）。 */
 const FRAME_KEEP_KEY = 'trae_webm_frame_n';
 /* 2.17（老板 2026-11-05 21:51）：预备画面【不再跟版本号走】——钥匙固定为 'frame'。
@@ -624,33 +624,29 @@ function _idbFrame(){
 /* ========== 2.126：本地快照「只进不退」统一闸 ==========
    老板 2026-10-23：「每个会话只保留一份最新的、完整的、只进不退的快照。」
    - 完整：整帧原样（上面 _idbFrame／paneFrameStore 已不再裁轮数）。
-   - 只进不退：新帧末条时间必须比已存帧新；末条相同则条数不得更少；
+   - 只进不退：新帧末条消息 ID 必须比已存帧新；末条相同则条数不得更少；
      旧帧／空帧／碎片帧一律拒收，绝不覆盖。
    - 所有写库入口（定时落盘、切换强制落、预取帧、内存帧）统一走 _frameCommit。 */
 function _frameTailOrder(msgs){
-  let n = 0, tm = '', mid = '';
+  /* 2.209：末条身份只认消息 ID（mid）——不再读 m[2] 时间列。 */
+  let n = 0, mid = '';
   if (Array.isArray(msgs)){
     n = msgs.length;
     for (let i = msgs.length - 1; i >= 0; i--){
       const m = msgs[i];
-      const t = String((m && m[2]) || '');
       const d = String((m && m[6]) || '');
-      if (t || d){ tm = t; mid = d; break; }
+      if (d){ mid = d; break; }
     }
   }
-  return {n: n, tm: tm, mid: mid};
+  return {n: n, mid: mid};
 }
 function _frameNewerOrEqual(a, b){
   /* true＝a（新帧）可以覆盖 b（已存帧） */
   if (!b || !Array.isArray(b.msgs) || !b.msgs.length) return true;
   if (!a || !Array.isArray(a.msgs) || !a.msgs.length) return false;   /* 空帧绝不上位 */
   const A = _frameTailOrder(a.msgs), B = _frameTailOrder(b.msgs);
-  if (A.tm && B.tm){
-    if (A.tm !== B.tm) return A.tm > B.tm;   /* 时间更新才进 */
-    return A.n >= B.n;                       /* 同一时刻：条数不得更少（不看 mid 字典序） */
-  }
-  if (A.mid && B.mid && A.mid !== B.mid) return A.mid > B.mid;
-  return A.n >= B.n;
+  if (A.mid && B.mid && A.mid !== B.mid) return A.mid > B.mid;   /* ID 时间（前 8 位 hex）序 */
+  return A.n >= B.n;                       /* 同一条 ID：条数不得更少 */
 }
 function _frameCommit(sk, frame, meta, onOk, memNow){
   const _mk = String(meta.title || '').trim();
