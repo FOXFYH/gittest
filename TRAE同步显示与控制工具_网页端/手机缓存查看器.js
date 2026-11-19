@@ -54,7 +54,7 @@
      CV_VER 不再手写死——运行时直接取页面总版本 VER（诊断.js，全局可见），
      取不到才退回本地兜底常量。铁规矩：**每次动查看器都必须让 CV_VER 与页面
      VER 恒等**；build() 里再自检一次，不一致打 bad 日志。 */
-  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.205';
+  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.206';
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -375,10 +375,7 @@
         if (!_fx && /^\d+$/.test(String(it.srv || ''))) _fx = String(it.srv);
         var srvTxt = (_sn || _fx) ? ((_sn || '未知服务器') + (_fx ? (' · ' + _fx) : '')) : '服务器未知';
         var sidTxt = sid ? (sid.length > 18 ? (sid.slice(0, 9) + '…' + sid.slice(-8)) : sid) : '⏳ 待补号';
-        var dt = it.ts ? new Date(it.ts) : null;
-        var p2 = function(x){ return (x < 10 ? '0' : '') + x; };
-        var tsTxt = dt ? (p2(dt.getMonth() + 1) + '-' + p2(dt.getDate()) + ' '
-                         + p2(dt.getHours()) + ':' + p2(dt.getMinutes())) : '—';
+        /* 2.206：缓存记录的接口/落盘时间（it.ts）不再作为任何显示时间。 */
         var _cur = '';
         try { _cur = (typeof curSid === 'function') ? String(curSid() || '') : ''; } catch(e){ _cur = ''; }
         var isCur = !!sid && (_cur ? (sid === _cur)
@@ -442,28 +439,19 @@
     host.appendChild(bar);
     var s = document.createElement('div');
     s.className = 'cv_sec';
-    s.innerHTML = '<h3>预备画面 · ' + esc(it.n + ' 条') + ' <span class="n">'
-      + esc(it.ts ? new Date(it.ts).toLocaleString() : '—') + '</span></h3>';
+    /* 2.206：详情头不再显示缓存落盘时间（时间只看每条 mid）。 */
+    s.innerHTML = '<h3>预备画面 · ' + esc(it.n + ' 条') + '</h3>';
     var box = document.createElement('div');
     box.style.padding = '4px 10px 12px';
     if (!it.msgs.length){
       box.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'（这份预备画面是空的）'}));
     } else {
-      var lastTm = '';
       it.msgs.forEach(function(m){
         var x = rowText(m);
         var user = x.role === 'u';
-        /* 2.11（老板 2026-11-05 20:21）：ID 显示**完整** mid（原 slice(0,12) 是显示截断）；
-           时间优先用记录里的完整值（≥10 位＝带日期），残缺（只有 HH:MM）时复用主代码
-           _midTime —— mid 前 8 位十六进制＝Unix 秒，可精确到秒。 */
-        var tm = String(x.tm || '');
-        if (tm.length < 10 && typeof _midTime === 'function'){
-          try { tm = _midTime(m) || tm; } catch(e){}
-        }
-        /* 2.12：AI 行自身时间取不到（无 tm、mid 也非 hex 临时号）时，沿用上一条的时间——
-           与主界面 resolveTimes 同一口径；人类行算出的时间成为后续 AI 行的兜底。 */
-        if (!tm && !user) tm = lastTm;
-        if (tm) lastTm = tm;
+        /* 2.206（老板最终合并口径）：时间只由该条 mid 前 8 位十六进制推导，
+           不读记录里的 tm（旧值），也不再「沿用上一条」。ID 显示完整 mid。 */
+        var tm = String(x.mid || '') ? String((typeof timeFromMid === 'function' ? timeFromMid(x.mid) : '') || '') : '';
         var mid = String(x.mid || '');
         var d = document.createElement('div');
         d.className = 'cv_msg ' + (user ? 'u' : 'a');
