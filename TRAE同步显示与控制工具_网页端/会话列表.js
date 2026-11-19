@@ -8,6 +8,121 @@ function drawerClose(){ el.drawer.classList.remove('on'); el.mask.classList.remo
    命令路径推来的「裸快照」不带 convs_full / conv_unread，若按空集合渲染，
    所有橙灯会被误灭，下一拍正常快照又全亮。裸帧一律沿用上一次的未读集合。 */
 var _cvUnreadMemo = null;      /* {k, titles, ids}：上一份带未读数据的帧 */
+/* 2.200（2026-11-19 WB+TR 整改·子-会话列表固态化·计划书§三「本地固态化优先/
+   永远可操作」）：列表改「按 sid 增量复用节点」——不再 innerHTML='' 整表重画。
+   配合 通用工具.js _convsSolidGuard（空帧/骤减不落地），切会话/服务端空帧时
+   上一份列表原地保留；列表项节点建好即复用（只更新文本/类名/dataset，不销毁），
+   任何时候都可点。顶部「服务器暂时读不到会话列表，以下为本地缓存」提示由
+   S.convs_stale_hint 控制，列表照旧显示可点；白屏文案整段删除。 */
+var _cvNodeMap = {};          /* key（'c|s:sid' / 'c|t:标题' / 'f|标题'）→ 已建节点 */
+var _cvHintEl = null;         /* 顶部缓存提示行（常驻复用，不反复新建） */
+var _cvServerKey = null;      /* 当前服务器键（cur|port，换服才清旧节点） */
+function _cvKeyOf(kind, title, sid){
+  return kind === 'f' ? ('f|' + title)
+    : ('c|' + (sid ? ('s:' + sid) : ('t:' + title)));
+}
+/* 会话行节点：结构固定（灯 span + 名称 span），复用后只改内容/类名/dataset */
+function _cvBuildItem(){
+  const d = document.createElement('div');
+  d.className = 'convo item';
+  const dot = document.createElement('span');
+  dot.className = 'stdot';
+  dot.style.display = 'none';
+  d.appendChild(dot);
+  const tspan = document.createElement('span');
+  const nm = document.createElement('span');
+  nm.style.cssText = 'display:block;overflow:hidden;text-overflow:ellipsis';
+  tspan.appendChild(nm);
+  d.appendChild(tspan);
+  /* 1.25：长按会话行（550ms）出菜单——读 dataset，节点复用不串台 */
+  let lpTimer = null, lpFired = false;
+  const stopLP = () => { if (lpTimer){ clearTimeout(lpTimer); lpTimer = null; } };
+  d.addEventListener('touchstart', () => {
+    lpFired = false;
+    lpTimer = setTimeout(() => {
+      lpFired = true;
+      convMenuOpen(d.dataset.title || '', d.dataset.sid || '', d.dataset.skey || '');
+    }, 550);
+  }, {passive: true});
+  d.addEventListener('touchmove', stopLP, {passive: true});
+  d.addEventListener('touchend', stopLP);
+  d.addEventListener('touchcancel', stopLP);
+  d.onclick = () => {
+    if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
+    _convItemSwitch(d);
+  };
+  d._cvDot = dot; d._cvNm = nm; d._cvKind = 'c';
+  return d;
+}
+/* 文件夹组头节点：结构固定（名称 span + ➕ span） */
+function _cvBuildFolder(){
+  const d = document.createElement('div');
+  d.className = 'convo folder';
+  const nm = document.createElement('span');
+  nm.className = 'fname';
+  d.appendChild(nm);
+  /* 1.06：组头 ➕ —— 在该文件夹工作区内新建对话 */
+  const p = document.createElement('span');
+  p.className = 'fplus';
+  p.textContent = '➕';
+  p.title = '在此文件夹内新建对话（隶属文件夹工作区）';
+  p.onclick = e => {
+    e.stopPropagation();
+    const title = d.dataset.title || '';
+    if (srvNeedOnline('新建对话')) return;
+    if (S.task_open) return;
+    drawerClose();
+    /* 1.11：统一新建弹窗（锁定模式）——创建才真正点组内新建 */
+    taskDlgOpen(title);
+    flash('在「' + title + '」内新建对话', 'var(--blue)');
+  };
+  d.appendChild(p);
+  d.onclick = () => {              /* 1.09：折叠/展开也要有反馈 */
+    const title = d.dataset.title || '';
+    srvOpSend('toggle_folder', title, '折叠/展开', '「' + title + '」');
+  };
+  d._cvNm = nm; d._cvKind = 'f';
+  return d;
+}
+/* 点会话＝切换（原 renderConvs 内 onclick 全文搬出，改成读 dataset，
+   节点复用时永远拿最新的 title/sid/skey/idx）。 */
+function _convItemSwitch(d){
+  const title = d.dataset.title || '', sid = d.dataset.sid || '';
+  const sKey = d.dataset.skey || '';
+  const i = parseInt(d.dataset.idx || '0', 10) || 0;
+  /* 2.62：换会话先退出「历史全屏」 */
+  exitFmsg();
+  /* 2.89：先记「切换前的锚定」——作为「到达判定」的旧正文基线 */
+  const _prevAnchor = {sid: S.anchorSid, title: S.anchorTitle,
+                       full: S.anchorFull};
+  /* 2.98：切走＝离开当前会话 ⇒ 立刻强制落盘一次当前会话的完整快照 */
+  if (typeof snapIdbTick === 'function'){ try { snapIdbTick(true); } catch(e){} }
+  /* 2.18 锚定：用户主动点会话行 = 自己换锚点 */
+  S.anchorSid = sKey || ''; S.anchorTitle = title || '';
+  S.anchorFull = sid || '';
+  /* 2.179 Y24：记「末次点击意图」 */
+  S.pendIntent = {key: sKey || '', title: title || '',
+                  sid: sid || (i + ''), t: Date.now()};
+  S.anchor_gone = '';          /* A4：换锚点即清「已消失」提醒态 */
+  anchorReport();              /* 2.74：T16——用户换锚点即上报 */
+  /* A7：锚点变化 → 列表选中态立即跟随（不等下一拍快照） */
+  S.convs_key = null;
+  renderConvs(S.snap.convs || [], S.snap.conv_unread,
+              S.snap.conv_unread_ids);
+  /* 2.67：切换在途提示；2.89：带「锁死目标 + 切换前锚定」*/
+  pendSwitchSet(title, sid, sid || i,
+                {prevAnchor: _prevAnchor, lockTarget: true, deferRender: true});
+  S.livePrefetch = false;
+  /* 2.130：本地最新完整存帧同步铺满（一次渲染，0ms） */
+  snapIdbShow(sKey, title);
+  /* 2.61：切会话后消息区钉底 */
+  S.pinBottom = true;
+  foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
+  sendCmd('switch', sid || i);
+  /* 账本V1.0（C3/I1）：切换请求携全模块版本编码 */
+  try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', sid || ''); } catch(e){}
+  drawerClose();
+}
 function renderConvs(rows, conv_unread, conv_unread_ids){
   const _cf0 = (S.snap && Array.isArray(S.snap.convs_full)) ? S.snap.convs_full : null;
   const _hasUnread = Array.isArray(conv_unread) || Array.isArray(conv_unread_ids);
@@ -20,16 +135,9 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
                      titles: Array.isArray(conv_unread) ? conv_unread.slice() : [],
                      ids: Array.isArray(conv_unread_ids) ? conv_unread_ids.slice() : null};
   }
-  /* v1.49：conv_unread=服务端快照顶层可选字段「完成-未查看」标题列表。
-     旧服务端/无该字段时回退旧行为。清单参与指纹——unread 变化也要重绘。
-     v1.95：新增 conv_unread_ids=同一未读集合的【稳定 ID】口径（服务端
-     按 sid 记）。优先用 ID 匹配（改名不丢灯），服务端未提供该字段
-     （旧版）则回退按标题。 */
   const ur = new Set(Array.isArray(conv_unread) ? conv_unread : []);
   const useId = Array.isArray(conv_unread_ids);
   const uri = new Set(useId ? conv_unread_ids : []);
-  /* P15：服务端同帧下发的四字段（会话名/真实SID/状态灯/定时）——有则优先，
-     旧服务端无该字段时完全回退原逻辑。 */
   const cfRows = (S.snap && Array.isArray(S.snap.convs_full))
     ? S.snap.convs_full : null;
   const cfKey = cfRows ? cfRows.map(o => (o && o.sid || '') + ':'
@@ -38,86 +146,63 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
     + '#uri:' + Array.from(uri).sort().join('|')
-    /* P15：四字段（状态灯/定时）变化也必重绘 */
     + '#cf:' + cfKey
-    /* 2.40：备注字典纳入指纹——备注变化也要触发重绘（钩子缺失回退空） */
     + '#note:' + (window.备注指纹 ? 备注指纹() : '')
-    /* 2.47：定时任务指纹纳入去重——设/撤/推进定时也会重绘（钩子缺失回退空） */
     + '#sched:' + (window.定时指纹 ? 定时指纹() : '')
-    /* 本专项 A7：锚点纳入指纹——锚点变化也要重画，选中态即时跟随锚定 */
-    + '#a:' + (S.anchorSid || '');
+    + '#a:' + (S.anchorSid || '')
+    /* 2.200：缓存提示显隐也参与指纹 */
+    + '#stale:' + (S.convs_stale_hint ? 1 : 0);
   if (key === S.convs_key) return;
   S.convs_key = key;
-  /* 2.87：重命名完成对账——会话行标题真变成目标新名即收口「成功」
-     （真实信号；列表标题在指纹里，改名必致 key 变化 → 必到这里）。 */
+  /* 2.87：重命名完成对账 */
   renameScanRows(rows);
-  el.convs.innerHTML = '';
-  /* 2.174（B5-b 空落盘最小骨架）：列表为空时给出空态行——不白屏不死等，
-     抽屉/设置页/输入框照常可操作，连上服务器后快照到达自动覆盖。 */
-  if (!rows.length){
-    const d = document.createElement('div');
-    d.className = 'convo';
-    d.style.cssText = 'color:var(--gray,#8a98a6);font-size:13px;text-align:center;padding:18px 10px;';
-    d.textContent = '（暂无本地缓存会话——连上服务器后自动载入）';
-    el.convs.appendChild(d);
-    return;
+  /* 换服务器才清旧节点（同一服务器重连/切会话一律不动旧列表，绝不白屏） */
+  const _sk = String(S.cur || '') + '|' + String(S.port || '');
+  if (_cvServerKey !== _sk){
+    _cvServerKey = _sk;
+    Object.keys(_cvNodeMap).forEach(k => {
+      const n = _cvNodeMap[k];
+      if (n && n.parentNode) n.parentNode.removeChild(n);
+      delete _cvNodeMap[k];
+    });
+    if (_cvHintEl && _cvHintEl.parentNode) _cvHintEl.parentNode.removeChild(_cvHintEl);
+    _cvHintEl = null;
+  }
+  /* 顶部「本地缓存」提示：仅连续多拍读不到列表时出现（列表照旧显示可点） */
+  if (S.convs_stale_hint && rows.length){
+    if (!_cvHintEl){
+      _cvHintEl = document.createElement('div');
+      _cvHintEl.className = 'convo cv-hint';
+      _cvHintEl.style.cssText = 'color:var(--gray,#8a98a6);font-size:12px;text-align:center;padding:8px 10px;';
+      _cvHintEl.textContent = '服务器暂时读不到会话列表，以下为本地缓存';
+    }
+    if (el.convs.firstChild !== _cvHintEl) el.convs.insertBefore(_cvHintEl, el.convs.firstChild);
+  } else if (_cvHintEl && _cvHintEl.parentNode){
+    _cvHintEl.parentNode.removeChild(_cvHintEl);
   }
   let inFolder = false, idx = 0;
+  const _order = [], _used = {};
   /* 1.31：按位取值（兼容旧 3 元组）——r[3]=状态灯 run/done/fail/stop/''
      v1.95：r[4]=会话稳定 ID（缺失则回退标题锚定） */
   for (const r of rows){
     const kind = r[0], title = r[1] || '', flag = r[2], st = r[3] || '';
     const sid = r[4] || '';
+    const ck = _cvKeyOf(kind, title, sid);
+    let d = _cvNodeMap[ck];
     if (kind === 'f'){
-      const d = document.createElement('div');
-      d.className = 'convo folder';
-      const nm = document.createElement('span');
-      nm.className = 'fname';
-      nm.textContent = (flag ? '▸ ' : '▾ ') + title;
-      d.appendChild(nm);
-      /* 1.06：组头 ➕ —— 在该文件夹工作区内新建对话 */
-      const p = document.createElement('span');
-      p.className = 'fplus';
-      p.textContent = '➕';
-      p.title = '在此文件夹内新建对话（隶属文件夹工作区）';
-      p.onclick = e => {
-        e.stopPropagation();
-        if (srvNeedOnline('新建对话')) return;
-        if (S.task_open) return;
-        drawerClose();
-        /* 1.11：统一新建弹窗（锁定模式）——创建才真正点组内新建 */
-        taskDlgOpen(title);
-        flash('在「' + title + '」内新建对话', 'var(--blue)');
-      };
-      d.appendChild(p);
-      d.onclick = () => {              /* 1.09：折叠/展开也要有反馈 */
-        /* 2.90：统一走 srvOpSend（未连 WS ⇒ ①「正在连接 WS…」且命令不发出；
-           连上 ⇒ ②「等待服务器回应…」＋服务端 rcpt 补 ③④）。 */
-        srvOpSend('toggle_folder', title, '折叠/展开', '「' + title + '」');
-      };
-      el.convs.appendChild(d);
+      if (!d || d._cvKind !== 'f'){ d = _cvBuildFolder(); _cvNodeMap[ck] = d; }
+      d.dataset.title = title;
+      d._cvNm.textContent = (flag ? '▸ ' : '▾ ') + title;
       inFolder = true;
     } else {
-      const d = document.createElement('div');
-      /* 2026-10-16（用户口径：绑定改终身号）：稳定性键＝终身号（完整 SID 每日变、
-         跨天不稳）——锚定/未读灯/备注/定时一律用它；仅 switch 仍送完整 sid。 */
+      if (!d || d._cvKind !== 'c'){ d = _cvBuildItem(); _cvNodeMap[ck] = d; }
+      /* 2026-10-16：稳定性键＝终身号；列表选中态与锚定态同源 */
       const sKey = 稳定键(sid, title);
-      /* 本专项 A7：列表选中态与锚定态同源——锚定键优先，未锚定才用快照标志 */
       const isAct = S.anchorSid ? (sKey === S.anchorSid) : !!flag;
-      d.className = 'convo item' + (isAct ? ' act' : '');
-      d.style.paddingLeft = inFolder ? '28px' : '14px';
-      /* v1.49：对齐原版状态灯口径——只在这几种显示灯：
-         run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且「完成未查看」
-         → 橙灯；done 已读 → 无灯（移除原绿点）。
-         v1.95：未读优先按稳定 ID 命中（改名不丢灯），无 ID 回退标题。 */
-      /* P15：四字段优先——服务端同帧带 convs_full 时，状态灯/定时/真 SID 全用它；
-         旧服务端无该字段则完全回退原逻辑（零回归）。 */
+      /* P15：四字段优先（状态灯/定时/真 SID） */
       const cfx = cfRows ? cfRows.find(o => o && (
         (sid && o.sid === sid) || (sKey && o.stable === sKey))) : null;
       const light = cfx && cfx.status ? (cfx.status.light || '') : '';
-      /* 2026-11-14（老板：点一个会话，全部橙灯先灭再全亮）：回退分支此前要求
-         st==='done' 才认未读，而命令路径的裸帧里 r[3] 常为空 ⇒ 橙灯被误灭。
-         未读集合本身就是「完成未查看」的权威来源，命中即亮，不再看 st。 */
       const uread = cfx ? !!(cfx.status && cfx.status.unread)
         : (useId && sid ? uri.has(sid) : ur.has(title));
       const dotCls = cfx
@@ -127,108 +212,34 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
           : light === 'unread' ? 'stdot-uread' : '')
         : (st === 'run' ? 'stdot-run' : st === 'fail' ? 'stdot-fail'
           : st === 'stop' ? 'stdot-stop' : uread ? 'stdot-uread' : '');
-      if (dotCls){
-        const dot = document.createElement('span');
-        dot.className = 'stdot ' + dotCls;
-        d.appendChild(dot);
-      }
-      const tspan = document.createElement('span');
-      /* 2.40：会话名后追加（备注）——钩子由 会话备注.js 提供，缺失回退空串 */
-      /* 2.47：会话名后追加（备注）+ 定时闹钟（⏰）——两钩子各自缺失则回退空串 */
-      const nm = document.createElement('span');
-      /* 2.137（老板 2026-10-26 08:49 口径：「我网页版还看不到铃铛啊……有个叫延时的，
-         我让他自我定时，我查得到他的定时消息，但是没显示铃铛」）——
-         **恢复 ⏰ 铃铛**，并按**终身号**绑定显示：sKey＝稳定键(sid,title)＝4 位终身号，
-         与定时任务库里的 `锚`（终身号）同口径，跨天/改名都不丢铃铛。
-         2.135 撤下铃铛的口径就此作废（以本条为准）。 */
-      nm.textContent = title
+      d.className = 'convo item' + (isAct ? ' act' : '');
+      d.style.paddingLeft = inFolder ? '28px' : '14px';
+      d.dataset.title = title; d.dataset.sid = sid; d.dataset.skey = sKey;
+      d.dataset.idx = String(idx);
+      if (dotCls){ d._cvDot.className = 'stdot ' + dotCls; d._cvDot.style.display = ''; }
+      else { d._cvDot.className = 'stdot'; d._cvDot.style.display = 'none'; }
+      /* 2.40/2.47/2.137：会话名 + 备注后缀 + 定时铃铛（钩子缺失回退空串） */
+      d._cvNm.textContent = title
         + (window.备注后缀 ? 备注后缀(sKey) : '')
         + (window.闹钟后缀 ? 闹钟后缀(sKey) : '');
-      nm.style.cssText = 'display:block;overflow:hidden;text-overflow:ellipsis';
-      tspan.appendChild(nm);
-      /* 2.134（老板 2026-10-25：「每个列表只要有自己的名称、加上原来那个忙闲灯就够了；
-         第二行那些个人信息要传到网页版没错，但不需要展示；我就喜欢一行一个会话」）
-         ——P15 加的第二行（SID · 忙/闲 · ⏰）整段撤下，不再渲染。
-         注意：cfx（会话名/真实SID/状态灯四态/定时）仍然照收照存，只是不上屏；
-         谁要用（备注、闹钟、诊断）继续从 cfx / 快照里取，别当成数据被删了。 */
-      d.appendChild(tspan);
-      const i = idx;
-      /* 1.25：长按会话行（550ms）出菜单——重命名等会话操作 */
-      let lpTimer = null, lpFired = false;
-      const stopLP = () => {
-        if (lpTimer){ clearTimeout(lpTimer); lpTimer = null; }
-      };
-      d.addEventListener('touchstart', () => {
-        lpFired = false;
-        lpTimer = setTimeout(() => {
-          lpFired = true;
-          convMenuOpen(title, sid, sKey);
-        }, 550);
-      }, {passive: true});
-      d.addEventListener('touchmove', stopLP, {passive: true});
-      d.addEventListener('touchend', stopLP);
-      d.addEventListener('touchcancel', stopLP);
-      d.onclick = () => {
-        if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
-        /* 2.179 Y24：撤掉「桌面已选中（flag=true）的行不可点」拦截——快照有
-           拍差，连点场景末次点击的行可能恰是旧快照里的 Focused 行 ⇒ 点击被
-           静默吞掉（ST 实测连点 1ST→4ST→5ST→2ST 锚停 5ST、2ST 没反应）。
-           现在用户点谁就切谁：切换链路自己走 vcheck，服务端同目标幂等无副作用；
-           消息落点由锚定优先路由兜底。 */
-        {
-          /* 2.62：换会话先退出「历史全屏」。输入界面.js 1.20 注释早就写明
-             「退出全屏只有两个途径：点『↓ 回到最新』、切换会话」，但此处
-             从来没调 exitFmsg()。后果：用户上翻过历史（body.fmsg）再切会话
-             时，消息渲染.js 的 inF 分支压过 pinBottom，把 scrollTop 原样还原
-             成顶部的 0，并因 scrollTop<60 误触发「正在取回历史记录」。 */
-          exitFmsg();
-          /* 2.89（老板 2026-10-20）：先记「切换前的锚定」——作为「到达判定」的旧
-             正文基线（sameConvBody 判目标正文是否已换）；2.98 起失败不再回退到此。 */
-          const _prevAnchor = {sid: S.anchorSid, title: S.anchorTitle,
-                               full: S.anchorFull};
-          /* 2.98（老板 2026-10-20 09:43）：切走＝离开当前会话 ⇒ 立刻强制落盘一次
-             当前会话的完整快照（下次回来能立刻顶出「离开前那一刻」，不看到更旧的）。 */
-          if (typeof snapIdbTick === 'function'){ try { snapIdbTick(true); } catch(e){} }
-          /* v1.95：优先按稳定 ID 切换（改名/重排不切错），无 ID 回退序号 */
-          /* 2.18 锚定：用户主动点会话行 = 自己换锚点；此后网页版守着这个
-             会话，别人在电脑版操作别的会话也不会把网页版带走。 */
-          S.anchorSid = sKey || ''; S.anchorTitle = title || '';
-          S.anchorFull = sid || '';    /* 完整 sid 兜底（switch/路由/占位卡用真 sid） */
-          /* 2.179 Y24：记「末次点击意图」——若切完实际锚仍停在此目标之外
-             （链路被吞/被归还），待办卡.js anchorCheck 10s 后出「点此重试」胶囊。 */
-          S.pendIntent = {key: sKey || '', title: title || '',
-                          sid: sid || (i + ''), t: Date.now()};
-          S.anchor_gone = '';          /* 本专项 A4：换锚点即清「已消失」提醒态 */
-          anchorReport();              /* 2.74：T16——用户换锚点即上报（去重+≥300ms 节流） */
-          /* 本专项 A7：锚点变化 → 列表选中态立即跟随（不等下一拍快照） */
-          S.convs_key = null;
-          renderConvs(S.snap.convs || [], S.snap.conv_unread,
-                      S.snap.conv_unread_ids);
-          /* 2.67：切换在途提示（分档状态机）；2.89：带「锁死目标 + 切换前锚定」*/
-          pendSwitchSet(title, sid, sid || i,
-                        {prevAnchor: _prevAnchor, lockTarget: true, deferRender: true});
-          S.livePrefetch = false;      /* 2.67：新切换开始，撤销上一轮预取标记 */
-          /* 2.130：本地最新完整存帧同步铺满（一次渲染，0ms）；状态栏不再出
-             「正在切换到…/正在获取…快照」等待文案。 */
-          snapIdbShow(sKey, title);
-          /* 2.61：切会话后消息区钉底——正文（存帧/直播帧）真正上屏那次不再
-             把中间态残留的 scrollTop=0 当「用户在翻历史」原样还原到顶部。
-             标志在消息渲染.js 消费并清除。 */
-          S.pinBottom = true;
-          foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
-          sendCmd('switch', sid || i);
-          /* 账本V1.0（C3/I1）：切换请求携全模块版本编码——与 switch 同拍发出，
-             vack stage:1/2 两阶段回执由 账本核对.js 接（悬浮提示三阶段）。 */
-          try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', sid || ''); } catch(e){}
-          drawerClose();
-        }
-      };
-      el.convs.appendChild(d);
       idx++;
     }
+    _used[ck] = true;
+    _order.push(d);
+  }
+  /* 按本次顺序就地重排（appendChild 只移动节点，不销毁重建） */
+  for (const d of _order) el.convs.appendChild(d);
+  /* 真实删除才摘节点；空帧一律不动（数据层已拦，双保险：永远不清空） */
+  if (rows.length){
+    Object.keys(_cvNodeMap).forEach(k => {
+      if (!_used[k]){
+        const n = _cvNodeMap[k];
+        if (n && n.parentNode) n.parentNode.removeChild(n);
+        delete _cvNodeMap[k];
+      }
+    });
   }
 }
-
 /* 1.25：会话操作菜单（长按会话行弹出）。1.29 起含：重命名
    （conv_rename，右键菜单「重命名」→ 内联编辑）；置顶/取消置顶
    （conv_pin，TRAE 菜单为切换项，两文案自动适配）；删除
