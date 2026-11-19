@@ -500,6 +500,12 @@ function ledgerThinkApply(sid, body){
      字符串形态（纯画面文本）暂不上屏——TRAE 网页端思维流画面本就随正文行
      呈现，不做卡片化改造（E2）。 */
   const f = b.frame;
+  /* 2.203（老板 2026-11-19 22:02 令）：思维流只为 1 号网页用户提供。非 1 号（2/3 号）
+     不消费本帧画面（不推思维流），该区域改由 消息渲染.js 按思维灯显示「您不是 1 号
+     网页用户，无法提供思维流」占位；终答仍由 ledger 模块照常补到位。 */
+  if (typeof hostIsFirst === 'function' && !hostIsFirst()){
+    return;
+  }
   if (f && typeof f === 'object' && Array.isArray(f.msgs)){
     /* 2.196（三类标记）：思维流帧只做 kind 标记（think/human/final），不落账本。 */
     f.msgs.forEach(m => { if (Array.isArray(m)) m[8] = lbMsgKind(m); });
