@@ -389,15 +389,15 @@ function _midPromote(list){
 }
 /* ===== 2.112（X2-1/X2-2/X2-3）：严格全序排序 =====
    ① 有正式 mid 的行：按 mid 时间升序（同秒按原顺序）——顺序只由系统 ID 决定；
-   ② 无 mid 的行（含 temp-agent 临时号、pane/非选中会话缺 mid、账本缺号）：
-      **一律置顶**，保持其相互间的原相对次序，并在行上打 m[7]=1（渲染层标「时间未知」）；
-   ③ ⇒ 任何输入序列都得到确定的全序，无 mid 行永远抢不到「最新」位置（原 2.103 的
+   ② 无真时间的行（含 temp-agent 临时号、pane/非选中会话缺 mid、账本缺号）：
+      **一律置顶**，保持其相互间的原相对次序；
+   ③ ⇒ 任何输入序列都得到确定的全序，无真时间行永远抢不到「最新」位置（原 2.103 的
       「有 mid 按时间、无 mid 保持原位」不是全序，正是「老记录跑到最新位」的根因）。 */
+/* ② 无真时间的行：一律置顶，保持原相对次序；
+   2.204（B4）：不再往 m[7] 写「时间未知」标记——m[7] 是 AI 完成卡摘要，
+   写 1 会污染完成态/上报指纹；渲染层已改为「有真时间就显示，没有就留空」。 */
 function _markNoMid(m){
-  if (!m || typeof m.slice !== 'function') return m;
-  const r = m.slice();
-  r[7] = 1;
-  return r;
+  return m;
 }
 function orderMsgs(list){
   try {
@@ -405,12 +405,20 @@ function orderMsgs(list){
     if (typeof _midTime !== 'function' || typeof _timeSec !== 'function') return list;
     _midCollect(list);
     const src = _midPromote(list.slice());
-    const arr = src.map((m, i) => ({m: m, i: i, s: _timeSec(_midTime(m))}));
+    /* 2.204（B4）：排序时间也走统一兜底链（mid→DID→会话编号），
+       不再只认 mid 把「有真时间但没 mid」的行一律置顶 → 排序乱。 */
+    const _sidNow = String((typeof S !== 'undefined' && S && (S.anchorFull || S.anchorSid)) || '');
+    const arr = src.map((m, i) => {
+      let ts = _timeSec(_midTime(m));
+      if (!isFinite(ts) && typeof timeNormFull === 'function')
+        ts = _timeSec(timeNormFull(m, _sidNow));
+      return {m: m, i: i, s: ts};
+    });
     const known = [], unk = [];
     for (const x of arr){
       if (isFinite(x.s) && x.s > 0) known.push(x); else unk.push(x);
     }
-    if (!known.length) return arr.map(x => _markNoMid(x.m));   /* 全无 mid：原序＋标时间未知 */
+    if (!known.length) return arr.map(x => _markNoMid(x.m));   /* 全无时间：原序（渲染不写「时间未知」） */
     known.sort((a, b) => (a.s - b.s) || (a.i - b.i));
     return unk.map(x => _markNoMid(x.m)).concat(known.map(x => x.m));
   } catch(e){ return list; }
@@ -521,26 +529,46 @@ function _idbReq(store, mode, fn){
     tx.onabort = () => rej(tx.error);
   })).catch(e => { throw e; });
 }
-/* 2.16（老板 2026-11-05 20:53）：预备账册＝「最近 N 条」（默认 4）——
+/* 2.169（老板 2026-11-05 20:53）：预备账册＝「最近 N 轮」（1 轮＝人类发言＋终极回复）——
+   2.204（WB+TR 整改 ST·B1）：单位由「条」统一为「轮」，默认 5 轮，与本地账本
+   CFG.lb_rounds、服务端 ledger_push_rounds 三处同值；调控页改一值即三处同源。
    ① 只收【人类发言】与【有终极回复的 AI 行】（第 8 位；思维流一律不落盘）；
-   ② 按时间（tm，缺则 mid 前 8 位）排序，只留最新 N 条；
-   ③ N 存 localStorage（手机缓存查看器里可直接改，默认 4）。
-   不再写「碎片」：最新一轮.js 已停用。 */
+   ② 按时间（tm，缺则 mid 前 8 位）排序，只留最新 N 轮；
+   ③ N 存 localStorage（手机缓存查看器里可直接改，默认 5）。 */
 const FRAME_KEEP_KEY = 'trae_webm_frame_n';
 /* 2.17（老板 2026-11-05 21:51）：预备画面【不再跟版本号走】——钥匙固定为 'frame'。
-   老板原意：版本升级清缓存可以，但预备画面现在有「最近 N 条」自动管理，不必再靠
+   老板原意：版本升级清缓存可以，但预备画面现在有「最近 N 轮」自动管理，不必再靠
    版本号一刀清；升级也不该把已有预备画面变成「旧版本」或删掉。 */
 const FRAME_KEY = 'frame';
 function frameKey(){ return FRAME_KEY; }
 function _frameKeepN(){
   try{
-    const v = parseInt(localStorage.getItem(FRAME_KEEP_KEY) || '4', 10);
-    return (v >= 2 && v <= 50) ? v : 4;
-  }catch(e){ return 4; }
+    /* 2.204：账本轮数是唯一真值（调控页只改它）；frame_n 只作旧值兼容镜像。 */
+    if (typeof lbRounds === 'function') return lbRounds();
+    const v = parseInt(localStorage.getItem(FRAME_KEEP_KEY) || '5', 10);
+    return (v >= 1 && v <= 50) ? v : 5;
+  }catch(e){ return 5; }
+}
+function _frameRoundTrim(rows, n){
+  /* 从尾部往前数 n 个「人类发言」作为轮边界，保留其后全部行；
+     1 轮＝[u] 或 [u,a]，绝不按「条」裁出半轮。 */
+  if (!Array.isArray(rows) || !rows.length) return [];
+  let cnt = 0, from = 0;
+  for (let i = rows.length - 1; i >= 0; i--){
+    const m = rows[i] && rows[i].m;
+    if (m && m[0] === 'u'){
+      cnt++;
+      if (cnt >= n){ from = i; break; }
+    }
+  }
+  return rows.slice(from);
 }
 function _msgOrd(m, i){
-  const t = (typeof _timeSec === 'function') ? _timeSec(String((m && m[2]) || '')) : NaN;
-  if (isFinite(t)) return t * 1000 + (i % 1000);
+  const t = (typeof timeNormFull === 'function')
+    ? timeNormFull(m, (typeof S !== 'undefined' && S && (S.anchorFull || S.anchorSid)) || '')
+    : String((m && m[2]) || '');
+  const ts = (typeof _timeSec === 'function') ? _timeSec(t) : NaN;
+  if (isFinite(ts)) return ts * 1000 + (i % 1000);
   const s = String((m && m[6]) || '');
   if (/^[0-9a-fA-F]{8}/.test(s)) return parseInt(s.slice(0, 8), 16) * 1000 + (i % 1000);
   return i;
@@ -576,7 +604,8 @@ function _frameMsgs(msgs, idle){
     }
   });
   rows.sort(function(a, b){ return a.o - b.o; });
-  return rows.slice(-_frameKeepN()).map(function(x){ return x.m; });
+  /* 2.204（B1/B2）：按「轮」裁剪（默认 5 轮），不再按「条」——杜绝「只剩最新两条」。 */
+  return _frameRoundTrim(rows, _frameKeepN()).map(function(x){ return x.m; });
 }
 function _idbFrame(){
   const s = S.snap || {};
@@ -743,12 +772,28 @@ function snapIdbTick(force){
      旧帧／空帧／碎片帧直接拒收（不写内存、不写 IDB）；节流记账与"首份"标记
      只在真正放行后更新，避免"被拒也算已落"导致后续不再落盘。
      2.112 口径不变：按会话各存一份（键 `key|sid`）、同一会话覆盖、不留历史版本。 */
-  _frameCommit(_sk, frame,
-    {key: key, port: S.port, sid: sid, title: curTitle(), ts: now},
-    function(){
-      _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
-      if (_first) S.idbFirstFull = 0;
-    }, force === true || _first);
+  /* 2.204（B2·画面只留一条路）：该会话已有本地账本（按轮）时，预备画面
+     一律由账本路 lbWriteBackSnap 落盘；快照路只把内容增量补进账本
+     （ledgerOnSnap 每 5s 调 ledgerStorePut），**不再按条裁剪后抢写画面**——
+     否则「快照按条裁 / 账本按轮裁，谁后到谁生效」必现「突然只剩最新两条」。 */
+  let _ledgerOwns = false;
+  try {
+    const _k = (typeof 稳定键 === 'function') ? String(稳定键(sid, curTitle()) || '') : '';
+    const _sum = (typeof LB === 'object' && LB && LB.lbSum) ? LB.lbSum : null;
+    const _r = _sum && (_sum[_k] || _sum[String(sid)]);
+    _ledgerOwns = !!(_r && (Number(_r.rounds) || 0) > 0);
+  } catch(e){}
+  if (!_ledgerOwns){
+    _frameCommit(_sk, frame,
+      {key: key, port: S.port, sid: sid, title: curTitle(), ts: now},
+      function(){
+        _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
+        if (_first) S.idbFirstFull = 0;
+      }, force === true || _first);
+  } else {
+    _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
+    if (_first) S.idbFirstFull = 0;
+  }
   _idbReq('snap_list', 'readwrite', st => st.put(
     {sk: cacheKeyNow(), key: cacheKeyNow(), ts: now, convs: s.convs,
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
