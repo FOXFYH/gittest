@@ -130,6 +130,11 @@ function lbSrvKey(){ return String(S.cur || '默认'); }
    绝不合并。旧格式键（'lb|名|…'，无 L 前缀）＝未知服务器：保留只读、
    不再并入、不再清理、不再上报。 */
 function lbSrvTag(){ return String(S.curSid || '').trim() || String(S.cur || '默认'); }
+/* 2.189（老板令·小账本卡片显示服务器归属）：落盘与展示共用同一对取值函数——
+   srvFox＝本服 FOX 号（hello 自报，S.curSid），srvName＝服务器名（S.cur，
+   与 lbSrvKey 同源）。读写必须走同一函数同一值，绝不「读 A 存 B」。 */
+function lbSrvFox(){ return String(S.curSid || '').trim(); }
+function lbSrvName(){ return String(S.cur || '').trim(); }
 function lbIsLegacyRec(r){
   return !(r && typeof r.sk === 'string' && r.sk.indexOf('L') === 0
            && String(r.srv || '') === lbSrvTag());
@@ -616,7 +621,7 @@ function lbMigrateTitle(sid, title){
         const out = base.slice(-lbRounds());
         const maxNum = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
         const rec = {
-          sk: skSid, srv: lbSrvTag(), sid: s,
+          sk: skSid, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(), sid: s,
           title: t,                                  /* 2.184 改8：改名归并——以现名为准 */
           ts: maxNum(cur && cur.ts, tmps.reduce((m, x) => Math.max(m, x.ts || 0), 0)) || Date.now(),
           lastTs: maxNum(cur && cur.lastTs, tmps.reduce((m, x) => Math.max(m, x.lastTs || 0), 0)),
@@ -730,7 +735,8 @@ function ledgerStorePut(sid, title, rounds, opt){
         && old.rounds.map(lbRoundKey).join('|') === out.map(lbRoundKey).join('|');
       const _ts = _same ? (Number(old.ts) || now) : now;
       return _idbReq('ledger_conv', 'readwrite', st => st.put({
-        sk: sk, srv: lbSrvTag(), sid: String(sid), title: title || old.title || '',
+        sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
+        sid: String(sid), title: title || old.title || '',
         ts: _ts, lastTs: now, lastView: opt.touch ? now : (old.lastView || 0),
         pend: String(sid || '').trim() ? 0 : 1, rounds: out}))
         .then(() => _after(out));
@@ -761,7 +767,8 @@ function ledgerStorePut(sid, title, rounds, opt){
       });
     }).catch(() => {
       return _idbReq('ledger_conv', 'readwrite', st => st.put({
-        sk: sk, srv: lbSrvTag(), sid: String(sid), title: title || '',
+        sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
+        sid: String(sid), title: title || '',
         ts: now, lastTs: now, lastView: opt.touch ? now : 0,
         pend: String(sid || '').trim() ? 0 : 1, rounds: rs}))
         .then(() => _after(rs));
