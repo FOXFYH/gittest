@@ -469,6 +469,13 @@ function onEv(kind, v){
       }
       break;
     }
+    case 'u':
+    case 'human': {                        /* 2.198（WB+TR 整改 ST）：服务端人类
+        记录帧（u）——带会话号 sid、会话名 title、消息编号 mid、正文 text、
+        发送编号 did。收到即渲染入账并按发送编号销卡，不等快照/对账/生成结束。 */
+      if (typeof ledgerHumanFrame === 'function') ledgerHumanFrame(v);
+      break;
+    }
     case 'points':
       if (v && v !== '读取失败') S.points = v;
       el.points.textContent = '积分 ' + v;
@@ -712,6 +719,21 @@ function onRcpt(d){
            同步显示）」，允许手动清除，不再让人对着「✅ 已完成」干等。
            定时器为主、pendReconcile 5s 巡检兜底（后台节流时也能转灰）。 */
         p.doneAt = Date.now();
+        /* 2.198：回执自带人类正文 ⇒ 当场入账并按发送编号销卡（≤3 秒目标）；
+           不带正文则维持下面 15 秒灰态兜底，等 u 帧到达再销卡。 */
+        try {
+          const _v = (d.v && typeof d.v === 'object') ? d.v : {};
+          const _txt = String(_v.text != null ? _v.text
+                     : (_v.body != null ? _v.body
+                     : (d.text != null ? d.text : '')));
+          if (_txt && typeof ledgerHumanFrame === 'function'){
+            ledgerHumanFrame({sid: _v.sid || d.sid || '',
+                              title: _v.title || d.title || '',
+                              uid: _v.uid || d.uid,
+                              mid: _v.mid || d.mid || '',
+                              did: did || id, text: _txt});
+          }
+        } catch(e){}
         setTimeout(function(){
           const q = (S.pending || []).find(x => x.id === p.id);
           if (q && q.state === 'done' && q.doneAt
