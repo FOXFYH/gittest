@@ -528,27 +528,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     });
     el.msgs.appendChild(qp);
   }
-  /* 账本V1.0（G1/G2）：历史补发按轮折叠面板——补发轮次上屏时每轮给一枚
-     折叠按钮，点按发 ledger_req 按需补该轮思维流（真画面到手即整面板退场）。 */
-  if (S.lb_foldRounds && S.livePend){
-    const lbf = document.createElement('div');
-    lbf.className = 'qpanel';
-    let lh = '<div class="qhead">📖 历史思维流（按轮补发）</div>';
-    for (let r = 1; r <= S.lb_foldRounds; r++){
-      lh += '<div class="qitem"><div class="qcol">'
-        + '<div class="qtxt">第 ' + r + ' 轮 · 点右侧按钮补发该轮思维流</div></div>'
-        + '<div class="qbtns"><button class="go" data-lbr="' + r + '">▸ 补发</button></div></div>';
-    }
-    lbf.innerHTML = lh;
-    lbf.querySelectorAll('button[data-lbr]').forEach(b => {
-      b.onclick = () => {
-        const r = parseInt(b.dataset.lbr);
-        b.disabled = true;
-        if (typeof ledgerReqThink === 'function') ledgerReqThink(r);
-      };
-    });
-    el.msgs.appendChild(lbf);
-  }
+  /* 2.183 修2（老板 2026-11-19 定性·V1.0 §十二-2）：「历史思维流（按轮补发）」
+     面板整段撤除——TRAE 的直播方式是整个黑板发过来、有什么发什么，没有
+     「按轮补发思维流」概念（那是有逐条思维流绝对编号+历史记录的 WorkBuddy
+     章节才有的）；TRAE 的思维流＝正在进入思维流阶段时定时把有变化的情况
+     发过来，仅此而已。S.lb_foldRounds 状态位保留防渲染 key 漂移。 */
   renderPending();                  // 1.09：占位气泡永远排在末尾
   if (inF && !S.pinBottom){
     fprog(savedTop);                /* 2.64：改走 fprog（程序滚动）——设静默期 + 作废手势窗口，
