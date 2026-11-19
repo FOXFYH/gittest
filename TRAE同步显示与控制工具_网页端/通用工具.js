@@ -399,6 +399,14 @@ function stripPendTail(t){
   return s.replace(/\n{3,}/g, '\n\n').trim();
 }
 function resolveTimes(msgs){
+  /* 2.204（B4）：当前会话编号——供「会话编号里的时间」兜底。 */
+  const _SID_FOR_TIME = function(){
+    try {
+      if (typeof S !== 'undefined' && S && (S.anchorFull || S.anchorSid))
+        return String(S.anchorFull || S.anchorSid);
+      return (typeof curSid === 'function') ? String(curSid() || '') : '';
+    } catch(e){ return ''; }
+  };
   /* 2.99（老板 2026-10-20 11:43「最近几条对话的时间，居然都是一样的……明明我记得
      这些都是更早之前的老对话，全部一起被打上了最新时间」）——时间【取源】整改。
      根因：v2.82 的 didTimeOf 只认「首行纯 14 位 DID」，而「更早老对话」经 TRAE 官方
@@ -430,9 +438,10 @@ function resolveTimes(msgs){
       if (isFinite(_a) && isFinite(_b) && Math.abs(_a - _b) > MID_TIME_DRIFT_S)
         t = String(m[2]);
     }
+    /* 2.204（B4）：mid 无真值时统一走 timeNormFull 兜底链——
+       DOM 完整时间 → mid 前 8 位十六进制 → 14 位 DID → 会话编号里的时间。 */
+    if (!t) t = timeNormFull(m, _SID_FOR_TIME());
     if (m[0] === 'u'){
-      if (!t){ const d = msgDidOf(m[1]); if (d) t = didToStr(d); }  // ① 首行 DID（兼容折叠单行）
-      if (!t && m[2]) t = String(m[2]);    // ② 账本源 tm / TRAE DOM 真值
       if (!t && m.length > 5 && m[5]) t = String(m[5]);   // ③ 服务端 2.52 盖章
       /* else：拿不到真实时间 ⇒ 空（不显示，绝不打 NOW） */
       last = t;
@@ -469,6 +478,74 @@ function _timeSec(ts){
   const p = s.split(/[- :T]/);
   const v = Math.floor(new Date(+p[0], +p[1] - 1, +p[2], +p[3], +p[4], +p[5]).getTime() / 1000);
   return isFinite(v) ? v : NaN;
+}
+/* ===== 2.204（WB+TR 整改 ST·B4 时间统一与兜底）=====
+   写账本 / 显示 / 排序统一口径 'YYYY-MM-DD HH:MM:SS'。
+   缺失按序兜底：已有完整时间 → 消息编号前 8 位十六进制（Unix 秒）
+   → 14 位 DID（YYYYMMDDHHMMSS）→ 会话编号里的时间 → 留空。
+   不完整时间（只有 HH:MM / HH:MM:SS / 缺秒）就地补全；
+   绝不显示「时间未知」、绝不用本地首见时刻冒充。 */
+function timeIsComplete(ts){
+  const s = String(ts == null ? '' : ts).trim();
+  return /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(s) && isFinite(_timeSec(s));
+}
+function _timeFmtMs(ms){
+  const d = new Date(ms), p = n => (n < 10 ? '0' : '') + n;
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+       + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function _timeFromMid(mid){
+  const h = String(mid == null ? '' : mid).slice(0, 8);
+  if (!/^[0-9a-fA-F]{8}$/.test(h)) return '';
+  const sec = parseInt(h, 16);
+  if (!(sec > 1500000000 && sec < 2200000000)) return '';
+  return _timeFmtMs(sec * 1000);
+}
+function _timeFromDid(d){
+  const s = String(d == null ? '' : d).trim();
+  if (!/^\d{14}$/.test(s)) return '';
+  const y = +s.slice(0,4), mo = +s.slice(4,6), da = +s.slice(6,8);
+  const h = +s.slice(8,10), mi = +s.slice(10,12), se = +s.slice(12,14);
+  if (y < 2017 || y > 2039 || mo < 1 || mo > 12 || da < 1 || da > 31
+      || h > 23 || mi > 59 || se > 59) return '';
+  return _timeFmtMs(new Date(y, mo - 1, da, h, mi, se).getTime());
+}
+function _timeFromSid(sid){
+  const s = String(sid == null ? '' : sid);
+  const m = /(\d{14})/.exec(s);
+  if (m){ const t = _timeFromDid(m[1]); if (t) return t; }
+  const h = /^[0-9a-fA-F]{8}/.exec(s);
+  if (h){ const t = _timeFromMid(h[0]); if (t) return t; }
+  return '';
+}
+function _timePartial(ts, base){
+  const t = String(ts == null ? '' : ts).trim();
+  if (!t) return '';
+  let m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(t);
+  if (m) return m[1] + ' ' + m[2] + ':' + m[3] + ':' + (m[4] || '00');
+  m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(t);
+  if (m){
+    const day = (base && String(base).slice(0, 10)) || _timeFmtMs(Date.now()).slice(0, 10);
+    return day + ' ' + m[1] + ':' + m[2] + ':' + (m[3] || '00');
+  }
+  m = /^(\d{4}-\d{2}-\d{2})$/.exec(t);
+  if (m) return m[1] + ' 00:00:00';
+  return '';
+}
+function timeNormFull(m, sid){
+  try {
+    const row = Array.isArray(m) ? m : [];
+    const own = String(row[2] == null ? '' : row[2]).trim();
+    const mid = String(row[6] == null ? '' : row[6]).trim();
+    const did = String(row[9] == null ? '' : row[9]).trim() || msgDidOf(row[1]);
+    let t = '';
+    if (timeIsComplete(own)) t = own.replace('T', ' ');
+    if (!t) t = _timeFromMid(mid);
+    if (!t) t = _timeFromDid(did);
+    if (!t) t = _timeFromSid(sid);
+    if (!t) t = _timePartial(own, '');
+    return t || '';
+  } catch(e){ return ''; }
 }
 function 稳定键(sid, title){
   /* 2026-10-16 用户口径（绑定改终身号）：会话「稳定性键」——完整 SID 每日会变，
@@ -521,22 +598,45 @@ const ACT_MIN_MS = 3000;              /* ① 全局节流底线：3 秒内最多
 const ACT_CONV_MIN_MS = 60000;
 let lastActAt = 0;                    /* 上次成功上报时刻（全局） */
 const lastActByConv = Object.create(null);   /* 会话键 → 上次发灭灯信号时刻 */
-function actCurConv(){                /* 当前选中会话 {title,sid}，无则 null */
+function actCurConv(){                /* 当前正在看的会话（锚定优先，回退桌面选中行） */
   const convs = ((S.snap || {}).convs) || [];
-  for (const r of convs) if (r && r[0] === 'c' && r[2])
-    return {title: (r[1] || '').trim(), sid: r[4] || ''};
-  return null;
+  let row = null;
+  /* 2.204（A 老板 22:24「针对具体的哪个会话，发出会话名称和终身号」）：
+     以锚定为准确认「我滑的是哪一本账」，桌面选中行只在未锚定时兜底。 */
+  if (S.anchorSid) for (const r of convs){
+    if (r && r[0] === 'c' && _行稳定(r) === S.anchorSid){ row = r; break; }
+  }
+  if (!row) for (const r of convs) if (r && r[0] === 'c' && r[2]){ row = r; break; }
+  if (!row) return null;
+  return {title: (row[1] || '').trim(), sid: row[4] || '', uid: _行稳定(row)};
 }
-function actCurUnread(cv){            /* ③ 当前会话是否亮着橙灯（ID 优先，回退标题） */
+function actCurUnread(cv){            /* ③ 当前会话是否亮着橙灯（ID 优先，终身号再认，回退标题） */
   const s = S.snap || {};
-  if (Array.isArray(s.conv_unread_ids))
-    return cv.sid ? s.conv_unread_ids.indexOf(cv.sid) >= 0 : false;
+  if (Array.isArray(s.conv_unread_ids)){
+    if (cv.sid && s.conv_unread_ids.indexOf(cv.sid) >= 0) return true;
+    /* 2.204：跨天完整 sid 变了，但终身号不变——按终身号再认一次 */
+    const cf = Array.isArray(s.convs_full) ? s.convs_full : [];
+    if (cv.uid) for (const id of s.conv_unread_ids){
+      const o = cf.find(x => x && x.sid === id);
+      if (o && typeof 稳定键 === 'function'
+          && 稳定键(o.sid, o.name || o.title || '') === cv.uid) return true;
+    }
+    return false;
+  }
   return (Array.isArray(s.conv_unread) ? s.conv_unread : []).indexOf(cv.title) >= 0;
 }
 function actClearLocal(cv){           /* ③ 发后乐观清本地未读 → 灯灭即停 */
   const s = S.snap || {};
   if (Array.isArray(s.conv_unread_ids) && cv.sid)
     s.conv_unread_ids = s.conv_unread_ids.filter(x => x !== cv.sid);
+  if (Array.isArray(s.conv_unread_ids) && cv.uid){
+    const cf = Array.isArray(s.convs_full) ? s.convs_full : [];
+    s.conv_unread_ids = s.conv_unread_ids.filter(id => {
+      const o = cf.find(x => x && x.sid === id);
+      return !(o && typeof 稳定键 === 'function'
+               && 稳定键(o.sid, o.name || o.title || '') === cv.uid);
+    });
+  }
   if (Array.isArray(s.conv_unread))
     s.conv_unread = s.conv_unread.filter(x => x !== cv.title);
   S.convs_key = null;                 /* 未读变化 → 指纹重算 → 橙灯立即灭 */
@@ -549,10 +649,12 @@ function actSend(k){
   if (!actCurUnread(cv)) return;      /* ③ 橙灯没亮不发 */
   const now = Date.now();
   if (now - lastActAt < ACT_MIN_MS) return;   /* ① 全局 3 秒底线（不动） */
-  const ck = cv.sid || ('t:' + cv.title);     /* 2.194：按会话计频 */
+  const ck = cv.uid || cv.sid || ('t:' + cv.title);  /* 2.194/2.204：按会话（终身号优先）计频 */
   if (now - (lastActByConv[ck] || 0) < ACT_CONV_MIN_MS) return;  /* 同一会话 60 秒 1 条 */
   lastActAt = now;
   lastActByConv[ck] = now;
+  /* 2.204：报文带会话名 title ＋ 会话编号 sid；终身号由服务端按 sid/title 归一
+     （命令路由 act 分支只认 title/sid，绝不发它不认的字段）。 */
   sendJson({t: 'act', k: k, title: cv.title, sid: cv.sid});
   actClearLocal(cv);                  /* ③ 清完即停 */
 }
