@@ -197,6 +197,17 @@ function srvWatch(){
   if (S.srvLost && (!S.ws || S.ws.readyState >= 2) && typeof reconnectTimer !== 'undefined' && !reconnectTimer){
     try { scheduleReconnect(); } catch(e){}
   }
+  /* 2.182 Y32a（hung-0 救援）：断网期重连尝试留下的 CONNECTING 假死 socket
+     （readyState===0 超 20s 仍未开门）——>2 分支救不了、探针（===1）跳过、
+     ensureConnect 早退，三路全死。超 20s 即拆旧重拉退避链。20s 守卫＝hung 期间
+     最多每 20s 拆一次重试（S._wsOpenAt 由 connect() 起记）；健康连接
+     （readyState===1）永远不进此分支，2.178「不真重连」口径不破。 */
+  if (S.srvLost && S.ws && S.ws.readyState === 0
+      && Date.now() - (S._wsOpenAt || 0) > 20000
+      && typeof reconnectTimer !== 'undefined' && !reconnectTimer){
+    try { teardownWs(); } catch(e){}
+    try { scheduleReconnect(); } catch(e){}
+  }
   /* 2.180 Y32：失联期间 WS 活着但服务端一直无帧 → srvSeen 永不触发、红屏锁死。
      每 ~10s（3s 巡检 ×3 拍）主动发一针既有心跳帧（与连接.js cliBeat 同款格式，
      服务端必识有回音）——任何回帧都走 srvSeen（:164-172）自动清失联回绿。 */
