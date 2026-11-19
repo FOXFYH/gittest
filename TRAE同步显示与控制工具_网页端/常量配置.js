@@ -73,7 +73,7 @@ if (!CFG.stats_keep) CFG.stats_keep = 10;
    此处只定默认值；改值立即生效并落盘（cfgSave）。 */
 if (CFG.lb_period === undefined) CFG.lb_period = 60;     /* 主动核对周期（秒），默认 1 分钟 */
 if (CFG.lb_offline === undefined) CFG.lb_offline = 120;  /* 本地离线倒计时（秒） */
-if (CFG.lb_rounds === undefined) CFG.lb_rounds = 5;      /* 本地账本保留轮数（N） */
+if (CFG.lb_rounds === undefined) CFG.lb_rounds = 5;      /* 保留轮数（N）：2.204 起本地账本/预备画面/服务端补发默认三处同值 5 轮 */
 if (CFG.lb_think === undefined) CFG.lb_think = 5;        /* 思维流直播帧间隔（秒，只管 think 模块） */
 if (CFG.lb_autoclean === undefined) CFG.lb_autoclean = 1; /* 自动清理无用小账本（14 天未查看）默认勾选 */
 if (CFG.lb_hud === undefined) CFG.lb_hud = 0;            /* 悬浮倒计时条（追加单 2026-11-18）默认关，开关在缓存查看器「③ 账本调控」区 */
