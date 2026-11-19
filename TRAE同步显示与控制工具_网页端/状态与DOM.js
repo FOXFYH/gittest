@@ -117,9 +117,19 @@ const S = {
      插队）。**只活在本会话内存里、不落任何持久配置**：每次打开/刷新页面
      都回到 false（未选中）。 */
   urgent: false,
+  /* 2.203（老板 2026-11-19 22:02 令）：「谁是 1 号网页用户」——服务端每帧盖的
+     host＝本机操控互斥锁持有者 FOX 号（空串＝无持有者）。hostKnown=是否已收到过
+     该字段（旧服务端不下发时保守按 1 号，行为与改造前一致）。 */
+  hostId: '', hostKnown: false,
 };
 
-/* ================= DOM 快捷 ================= */
+/* 2.203：是不是「1 号网页用户」（老大）——判据＝服务端操控锁持有者是自己；
+   无持有者（空串）视为 1 号（先到者可接管，与 _ctl_check「无主即接管」一致）。
+   非 1 号（2/3 号）：不提醒、不抢切，且思维流不提供（见 消息渲染.js/账本核对.js）。 */
+function hostIsFirst(){
+  return !S.hostKnown || !S.hostId || S.hostId === MY_ID;
+}
+
 
 const $ = id => document.getElementById(id);
 const el = {
@@ -149,7 +159,6 @@ const el = {
   diag_chan: $('diag_chan'), diag_ws: $('diag_ws'), diag_srv: $('diag_srv'),
   diag_last: $('diag_last'), diag_cnt: $('diag_cnt'), diag_log: $('diag_log'),
   netreconn: $('btn_netreconn'), nettest: $('btn_nettest'),
-  check_fulls: $('btn_check_fulls'), lbl_fulls: $('lbl_fulls'),
   netclear: $('btn_netclear'), diagcopy: $('btn_diagcopy'),
   bench: $('btn_bench'), bfoot: $('bfoot'),
   taskpage: $('page_taskdlg'), td_none: $('td_none'),
