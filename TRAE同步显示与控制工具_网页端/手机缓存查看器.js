@@ -12,6 +12,20 @@
      本地账本查看走现有「② 全部缓存」页（IDB ledger_conv 全量可展开），
      现有展示样式一概不动。
 
+   2.17（老板 2026-11-19 09:58 定·《账本系统 V1.0》§十 :271／§七 :206／§八 :230）：
+     ③ 页顶部新增「📒 我的小账本」卡片列表（调控项之上、沿用现成 .cv_rec/.cv_meta/
+     .cv_lbrow 风格，不新造页面、不引框架）：
+       · 数据源＝IDB ledger_conv 全量，按 rec.ts（最后更新时间）倒序；ts 缺失排最后；
+       · 主行＝终身号 sid（等宽字体、过长中间省略、title 提示全文）——核对/归类/去重
+         唯一依据；次行＝lbTitleOf 解析的真名，解析不到「未命名会话 ·#尾4位」；
+         第三行＝轮数＋最后更新时间（本地时间 MM-DD HH:MM）；
+       · 每卡右上角「🗑 删除」：confirm 二次确认 → 删该条 ledger_conv（sk）→ 同步
+         LB.lbHave.delete／lbSumDrop（同服务端记录才减，防串服务端）→ 局部重排；
+         只删本机缓存，不发任何服务端请求；
+       · 排序实时性：每次打开/每次账本落盘（账本核对.js _after 调 window.cvLbDirty）
+         重新读表重排；仅查看不改 ts（账本核对.js 内同内容 put 保 ts 不动）；
+       · 空态「暂无本地小账本」。
+
    2.10（老板 2026-11-05 20:17）：
      · 预备画面列表改「两行一张卡片」的网格——第 1 行会话名，第 2 行时间/条数/是否当前生效；
        点卡片进入该会话的详情，顶部返回列表（不再一条占四行、也不再全堆在左侧）。
@@ -19,7 +33,7 @@
        服务端追加的专属词前后缀（(@fox-sys1)… 等）自动折叠成「系统/自定/人定/岗位」小按钮，
        与主界面显示一字一致。 */
 (function(){
-  var CV_VER = '2.16';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
+  var CV_VER = '2.17';      /* 2.13：界面标题栏显示本查看器自己的版本号，便于确认升级生效 */
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -77,7 +91,19 @@
       '.cv_lbrow label{flex:1;min-width:0}' +
       '.cv_lbrow input[type=number]{width:70px;padding:6px 8px;font-size:13px;border:1px solid #d5dbe1;border-radius:6px}' +
       '.cv_lbhint{padding:8px 14px;font-size:11px;color:#8a98a6;line-height:1.6}' +
-      '#cv_lb_hud{padding:10px 14px;font-size:14px;font-weight:600;color:#337ab7;letter-spacing:1px}';
+      '#cv_lb_hud{padding:10px 14px;font-size:14px;font-weight:600;color:#337ab7;letter-spacing:1px}' +
+      /* 2.17：③ 页「我的小账本」卡片——沿用既有配色，只补主次层级与删除按钮位 */
+      '.cv_lbcard{position:relative;padding:10px 14px;border-bottom:1px solid #f1f4f7}' +
+      '.cv_lbcard:last-child{border-bottom:0}' +
+      '.cv_lbid{font-size:14px;font-weight:600;color:#1f2d3d;font-family:Menlo,monospace;' +
+        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:78px}' +
+      '.cv_lbname{margin-top:3px;font-size:12px;color:#337ab7;white-space:nowrap;overflow:hidden;' +
+        'text-overflow:ellipsis;padding-right:78px}' +
+      '.cv_lbmeta{margin-top:3px;font-size:11px;color:#8a98a6}' +
+      '.cv_lbid.cv_lbpending{color:#b58900;font-weight:500;font-family:inherit}' +
+      '.cv_lbdel{position:absolute;right:10px;top:9px;border:1px solid #f0c6c2;background:#fff;' +
+        'color:#c62828;border-radius:8px;padding:5px 8px;font-size:12px}' +
+      '.cv_lbdel[disabled]{opacity:.45}';
     document.head.appendChild(st);
   }
   function fmtSize(n){
@@ -404,12 +430,176 @@
     });
   }
 
+  /* ---------- ③ 页顶部「📒 我的小账本」卡片列表（2.17 老板 2026-11-19 09:58 定） ----------
+     规范§十 :271：小账本＝现成缓存查看器本体，禁止另造页面；卡片主行＝终身号 sid
+     （核对/归类/去重唯一依据）、次行＝会话名、第三行＝轮数+最后更新时间；🗑 只删
+     本机 IDB 记录（confirm 二次确认），绝不发任何服务端请求。 */
+  function lbTimeText(ts){
+    var n = Number(ts) || 0;
+    if (!n) return '—';
+    var d = new Date(n);
+    if (isNaN(d.getTime())) return '—';
+    var p2 = function(x){ return (x < 10 ? '0' : '') + x; };
+    return p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  }
+  /* 中间省略：头尾都留（sid 是唯一依据，只截尾会丢掉区分位） */
+  function midEllipsis(s, keep){
+    s = String(s == null ? '' : s);
+    keep = keep || 18;
+    if (s.length <= keep) return s;
+    var h = Math.ceil((keep - 1) / 2);
+    return s.slice(0, h) + '…' + s.slice(s.length - (keep - 1 - h));
+  }
+  function readLedgerRows(){
+    return new Promise(function(res){
+      try {
+        if (typeof _idbReq === 'function'){
+          _idbReq('ledger_conv', 'readonly', function(st){ return st.getAll(); })
+            .then(function(rows){ res(Array.isArray(rows) ? rows : []); })
+            .catch(function(){ res([]); });
+          return;
+        }
+      } catch(e){}
+      openDB('trae_webm_idb').then(function(db){
+        storeAll(db, 'ledger_conv').then(function(r){
+          db.close();
+          res((r.rows || []).map(function(x){
+            var v = (x.value && typeof x.value === 'object') ? x.value : {};
+            if (!v.sk) v.sk = x.key;
+            return v;
+          }));
+        }).catch(function(){ db.close(); res([]); });
+      }).catch(function(){ res([]); });
+    });
+  }
+  function delLedgerRow(rec){
+    var sk = rec && rec.sk;
+    return new Promise(function(res, rej){
+      if (sk == null) return rej(new Error('记录缺少 sk，无法删除'));
+      try {
+        if (typeof _idbReq === 'function'){
+          _idbReq('ledger_conv', 'readwrite', function(st){ return st.delete(sk); })
+            .then(function(){ res(true); }).catch(rej);
+          return;
+        }
+      } catch(e){}
+      openDB('trae_webm_idb').then(function(db){
+        var tx = db.transaction('ledger_conv', 'readwrite');
+        tx.objectStore('ledger_conv').delete(sk);
+        tx.oncomplete = function(){ db.close(); res(true); };
+        tx.onerror = function(){ db.close(); rej(tx.error); };
+        tx.onabort = function(){ db.close(); rej(tx.error || new Error('aborted')); };
+      }).catch(rej);
+    });
+  }
+  function renderLbCards(){
+    var box = document.createElement('div');
+    box.className = 'cv_sec';
+    box.innerHTML = '<h3>📒 我的小账本 <span class="n">按最后更新时间倒序 · 只存本机</span></h3>';
+    var list = document.createElement('div');
+    list.id = 'cv_lb_list';
+    box.appendChild(list);
+    var draw = function(){
+      list.innerHTML = '';
+      list.appendChild(Object.assign(document.createElement('div'), {className:'cv_lbhint', textContent:'读取中…'}));
+      readLedgerRows().then(function(rows){
+        list.innerHTML = '';
+        rows = rows.filter(function(r){ return r && typeof r === 'object'; });
+        /* 排序：rec.ts 倒序；ts 缺失排最后；同 ts 再按 sid 稳定，避免观察乱跳 */
+        rows.sort(function(a, b){
+          var d2 = (Number(b.ts) || 0) - (Number(a.ts) || 0);
+          if (d2) return d2;
+          return String(a.sid || '').localeCompare(String(b.sid || ''));
+        });
+        if (!rows.length){
+          list.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'暂无本地小账本'}));
+          return;
+        }
+        var curSrv = '';
+        try { curSrv = (typeof lbSrvKey === 'function') ? String(lbSrvKey()) : ''; } catch(e){ curSrv = ''; }
+        rows.forEach(function(rec){
+          var sid = String(rec.sid || '');
+          var skTxt = String(rec.sk || '');
+          var head = sid || skTxt;
+          var nm = '';
+          try { nm = lbTitleOf(rec); } catch(e){ nm = ''; }
+          /* 2.184 追加（锚定双轨终版）：title 必有（空名/纯号码名不渲染，
+             绝不兜底「未命名会话 ·#尾4位」、绝不拿号码当名）；sid 允许缺——
+             无号账本是「备用账本（待补号）」，照常建卡，主行显灰色「待补号」，
+             等 sid 到位归并后自动变高级账本。 */
+          if (!nm || /^\d+$/.test(nm)){
+            try { if (typeof diagLog === 'function')
+              diagLog('缺 title 弃卡 sk=' + skTxt, 'bad'); } catch(e){}
+            return;
+          }
+          var card = document.createElement('div');
+          card.className = 'cv_lbcard';
+          var idEl = document.createElement('div');
+          idEl.className = 'cv_lbid';
+          if (sid){
+            idEl.textContent = midEllipsis(head, 18);
+            idEl.title = head;                     /* 长按/悬停看完整终身号 */
+          } else {
+            idEl.textContent = '⏳ 待补号';
+            idEl.classList.add('cv_lbpending');
+            idEl.title = '尚未拿到该会话的终身号，拿到后自动归并';
+          }
+          var nmEl = document.createElement('div');
+          nmEl.className = 'cv_lbname';
+          nmEl.textContent = nm;
+          var mtEl = document.createElement('div');
+          mtEl.className = 'cv_lbmeta';
+          var rn = Array.isArray(rec.rounds) ? rec.rounds.length : 0;
+          mtEl.textContent = rn + ' 轮 · ' + lbTimeText(rec.ts);
+          var del = document.createElement('button');
+          del.className = 'cv_lbdel';
+          del.textContent = '🗑 删除';
+          del.onclick = function(){
+            if (!window.confirm('删除这条本地小账本？\n会话：' + nm + '\n（只删本机缓存，不影响服务端与 TRAE 会话）')) return;
+            del.disabled = true;
+            delLedgerRow(rec).then(function(){
+              /* 删完按剩余记录回算：该 sid 已无任何账本 → 真存集与摘要表同步减
+                 （规范§七：绝不让 vcheck 替已死账本上报）；其他服务端的记录不动摘要 */
+              return readLedgerRows().then(function(left){
+                var still = (left || []).some(function(r){
+                  return String((r && r.sid) || '') === sid;
+                });
+                if (!still && sid){
+                  try { LB.lbHave.delete(sid); } catch(e){}
+                  if (curSrv && String(rec.srv || '') === curSrv){
+                    try { if (typeof lbSumDrop === 'function') lbSumDrop(sid, rec.title); } catch(e){}
+                  }
+                }
+                try { if (typeof diagLog === 'function') diagLog('小账本：已删本地账本 ' + (sid || skTxt)); } catch(e){}
+                draw();
+              });
+            }).catch(function(e){
+              del.disabled = false;
+              alert('删除失败：' + ((e && e.message) || e));
+            });
+          };
+          card.appendChild(idEl); card.appendChild(nmEl); card.appendChild(mtEl); card.appendChild(del);
+          list.appendChild(card);
+        });
+      });
+    };
+    draw();
+    return {el: box, redraw: draw};
+  }
+
   /* ---------- ③ 账本调控（整改单 2026-11-18：原「小账本页.js」调控区并入此处） ----------
      规范§九-4：倒计时以「每秒递减的数字」展示在本区（#cv_lb_hud），不做悬浮窗；
      任意操作会重置倒计时 → 人操作时数字不降属正常设计。数值来源＝账本核对.js
      的 window.lbHudText()（每秒由下方 interval 刷新，仅本 tab 可见时更新）。 */
   function renderLedgerCtl(host){
     host.innerHTML = '';
+    /* 2.17：页顶部「📒 我的小账本」卡片列表（调控项之上）；账本落盘后由
+       账本核对.js _after 调 window.cvLbDirty 触发重排（仅本页可见时才刷）。 */
+    var lbList = renderLbCards();
+    host.appendChild(lbList.el);
+    window.cvLbDirty = function(){
+      try { if (tab === 'ledger' && lbList.el.parentNode) lbList.redraw(); } catch(e){}
+    };
     var hud = document.createElement('div');
     hud.className = 'cv_sec';
     hud.innerHTML = '<h3>核对与离线倒计时 <span class="n">每秒递减；任意操作即重置回配置值</span></h3>' +
@@ -426,7 +616,7 @@
       '<div class="cv_lbrow"><label>思维流直播帧间隔（秒，0＝不限频一变即发）</label><input type="number" id="lb_in_think" min="0" max="120"></div>' +
       '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_idleout"> 离线倒计时启用（走完发下线信号）</label></div>' +
       '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_bgout"> 切后台/切网页自动下线</label></div>' +
-      '<div class="cv_lbhint">以上为账本系统 V1.0 全部调控项（唯一集中入口）。本地账本内容查看：切到「② 全部缓存」展开 IndexedDB · trae_webm_idb · ledger_conv。</div>';
+      '<div class="cv_lbhint">以上为账本系统 V1.0 全部调控项（唯一集中入口）。本地账本看本页顶部「📒 我的小账本」；原始记录仍可在「② 全部缓存」展开 IndexedDB · trae_webm_idb · ledger_conv。</div>';
     host.appendChild(fs);
     var q = function(id){ return fs.querySelector('#' + id); };
     var save = function(){ try { if (typeof cfgSave === 'function') cfgSave(); } catch(e){} };
