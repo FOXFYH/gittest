@@ -100,9 +100,8 @@ function _convItemSwitch(d){
   /* 2.18 锚定：用户主动点会话行 = 自己换锚点 */
   S.anchorSid = sKey || ''; S.anchorTitle = title || '';
   S.anchorFull = sid || '';
-  /* 2.179 Y24：记「末次点击意图」 */
-  S.pendIntent = {key: sKey || '', title: title || '',
-                  sid: sid || (i + ''), t: Date.now()};
+  /* 2.203：2.179「末次点击意图」S.pendIntent 已随「不一致提醒」一并撤除
+     （老板 2026-11-19 22:02：选中不一致不再提醒，1 号静默自愈 / 非 1 号不管）。 */
   S.anchor_gone = '';          /* A4：换锚点即清「已消失」提醒态 */
   anchorReport();              /* 2.74：T16——用户换锚点即上报 */
   /* A7：锚点变化 → 列表选中态立即跟随（不等下一拍快照） */
