@@ -90,14 +90,18 @@ function lbSumOf(rounds){
      hash 对「完成卡正文，没有则回退当前正文」（a[7] || a[1]）计算。 */
   const rs = Array.isArray(rounds) ? rounds : [];
   const codes = [];
+  /* 2.185（老板 2026-11-19 令·四类标识）：上报集合只收 m[0]==='a' 的已认证
+     终极轮；th/snap（思维流，含与终极同号的 TRAE 快照）永不进上报——否则
+     服务端看号已存在误判不缺，终极永远补不下来。rounds 计数＝已认证轮数。 */
   rs.forEach(r => {
     const a = (r && r.length) ? r[r.length - 1] : null;
     if (!a) return;
+    if (String(a[0] || '').toLowerCase() !== 'a') return;
     codes.push({mid: String(a[6] || ''),
                 fin: (String(a[7] || '').trim() ? 1 : 0),
                 hash: lbHash(a[7] || a[1] || '')});
   });
-  return {rounds: rs.length, codes: codes};
+  return {rounds: codes.length, codes: codes};
 }
 function lbSumSet(sid, title, rounds){
   try {
@@ -609,6 +613,14 @@ function lbMigrateTitle(sid, title){
     } catch(e){ res(false); }
   });
 }
+/* 2.185（老板 2026-11-19 令·未认证终极弃收日志）：10 秒节流一条，防思维流高频帧刷屏 */
+let _lbUnextT = 0;
+function _lbUnextLog(a){
+  const now = Date.now();
+  if (now - _lbUnextT < 10000) return;
+  _lbUnextT = now;
+  try { diagLog('未认证终极 弃收 mid=' + String((a && a[6]) || ''), 'bad'); } catch(e){}
+}
 function ledgerStorePut(sid, title, rounds, opt){
   try {
     opt = opt || {};
@@ -625,7 +637,16 @@ function ledgerStorePut(sid, title, rounds, opt){
     }
     const _rs0 = (rounds || []).filter(r => {
       const a = (Array.isArray(r) && r.length) ? r[r.length - 1] : null;
-      return !!(a && String(a[6] || '').trim());       /* 轮必须带消息 ID */
+      if (!a || !String(a[6] || '').trim()) return false;      /* 轮必须带消息 ID */
+      /* 2.185（老板 2026-11-19 令·终极认证闸门＋四类标识）：m[0] 类型标识——
+         u=人类发言 / a=AI 终极回复（已认证）/ th=WB 思维流（有独立号）/
+         snap=TRAE 思维流快照（无号、与终极同号）。只落 a：th/snap 整轮丢弃
+         （不落盘、不迁移、不进上报；展示仍走 live 通道），未知类型按 snap
+         处理（fail-closed）——绝不把思维流号写进小账本冒充终极。 */
+      const typ = String(a[0] || '').toLowerCase();
+      if (typ === 'a') return true;                            /* 已认证终极 */
+      _lbUnextLog(a);
+      return false;                                            /* th/snap/未知一律弃 */
     });
     if (!_rs0.length){
       try { diagLog('缺 mid 弃收 sid=' + String(sid || '') + ' · ' + _t, 'bad'); } catch(e){}
@@ -651,9 +672,15 @@ function ledgerStorePut(sid, title, rounds, opt){
       let out = rs;
       if (Array.isArray(old.rounds) && old.rounds.length > rs.length){
         /* 旧账更厚（翻页/补发攒过）⇒ 旧轮打底、新轮按身份并入，再截尾 N 轮。
-           2.184 改3：轮身份改 mid 优先（lbRoundKey），同文本不同轮不再互吞。 */
-        const seen = new Set(old.rounds.map(lbRoundKey));
-        out = old.rounds.concat(rs.filter(r => !seen.has(lbRoundKey(r)))).slice(-lbRounds());
+           2.184 改3：轮身份改 mid 优先（lbRoundKey），同文本不同轮不再互吞。
+           2.185（老板令·旧脏数据自愈）：同 key 的旧轮与新轮不同态（旧记录是
+           思维流/未认证版）⇒ 一律用新轮覆盖成已认证终极版，绝不因「mid 已
+           见过」把终极挡在门外。 */
+        const incMap = new Map();
+        rs.forEach(r => incMap.set(lbRoundKey(r), r));
+        out = old.rounds.map(r => incMap.get(lbRoundKey(r)) || r);
+        const seen = new Set(out.map(lbRoundKey));
+        out = out.concat(rs.filter(r => !seen.has(lbRoundKey(r)))).slice(-lbRounds());
       }
       /* 2.184 改6（老板 2026-11-19 09:58 / 规范§十 :271）：ts＝「最后更新时间」，
          只随真实内容变化走——仅查看（opt.touch）且轮身份全同 ⇒ 保留原 ts，
