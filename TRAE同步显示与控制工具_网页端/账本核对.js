@@ -1,5 +1,6 @@
 'use strict';
 /* 账本核对.js（网页端）  版本 1.01  日期 2026-11-18
+   【2.200 补 m=u/input 路由】
    【依据】《手机网页端账本系统V1.0总规范.md》三/六/九/十章 +
            《账本系统V1.0_TRAE协议定稿.md》（含第十一章统筹批复：
            上行 vcheck 单帧多字段、think 兼带正文、macct 按 boxes）。
@@ -143,6 +144,51 @@ function lbStoreKey(sid, title){
   const s = String(sid || '').trim(), t = String(title || '').trim();
   return 'L' + lbSrvTag() + ':' + (s ? s : 't:' + t);
 }
+/* 2.196（老板 2026-11-19·三类标记）：消息类型判定——只认三种，未知一律 think
+   （fail-closed，宁可不入账也绝不把思维流当终极）。index8 落盘标记，渲染不读。 */
+function lbMsgKind(m){
+  if (!Array.isArray(m)) return 'think';
+  const t = String(m[0] || '').toLowerCase();
+  if (t === 'u') return 'human';
+  if (t === 'a'){
+    const fin = String((m.length > 7 && m[7]) || '').trim();
+    const mid = String((m.length > 6 && m[6]) || '').trim();
+    return (fin && mid) ? 'final' : 'think';     /* 未认证/无 mid＝未定稿，按思维流 */
+  }
+  return 'think';                                /* th/snap/未知 */
+}
+function lbTagKind(m){
+  const x = m.slice();
+  x[8] = lbMsgKind(m);
+  return x;
+}
+/* 四字段之一：uid＝终身号（SID 前 4 位数字，取不到即空＝待补号）；sid＝对话ID
+   （原始会话 id，锚定路只有终身号时从会话列表反查）。title＝会话名（必有）。 */
+function lbUidOf(sid){
+  const s = String(sid || '').trim();
+  return /^\d{4}/.test(s) ? s.slice(0, 4) : '';
+}
+/* 2.197（老板 2026-11-19·终身号口径统一）：优先消费服务端下发 uid（共享数据库
+   `_终身号_由sid`/`翻译_终生号_由SID` 口径），缺失才退回按 sid 自算。非 4 位数字
+   uid（含「<会话名>（临时）」及共享库既有段名）一律视为「待补号」→ 返回 ''，
+   落账走 t:名称 临时键，与无 uid 时同一本账，绝不出现「uid 键 / t:名称 键」两本。 */
+function lbUidPick(serverUid, sid){
+  const u = String(serverUid || '').trim();
+  if (/^\d{4}$/.test(u)) return u;          /* TRAE 标准终身号＝sid 前 4 位数字 */
+  if (u) return '';                         /* 非标准（含「名（临时）」）→ 临时锚 */
+  return lbUidOf(sid);                      /* 服务端未带 uid → 退回自算 */
+}
+function lbRawSidOf(uid, title){
+  try {
+    const u = String(uid || ''), t = String(title || '');
+    if (Array.isArray(S.convs)) for (const r of S.convs){
+      if (!r || !r[4]) continue;
+      if ((u && typeof 稳定键 === 'function' && 稳定键(r[4], r[1]) === u)
+          || (t && String(r[1] || '') === t)) return String(r[4]);
+    }
+  } catch(e){}
+  return String(uid || '');
+}
 function lbModsSet(m){
   LB.mods = (m && typeof m === 'object') ? m : {};
   if (!LB.mods.ledger) LB.mods.ledger = {};
@@ -269,6 +315,9 @@ function ledgerSwitchDone(){
 }
 
 /* ================= ③ mod 单模块实体帧分流（下行唯一实体形态） ================= */
+/* 2.200：m='u' 人类记录帧与 t:'ev' 的 u/human 双路到同一函数，按 did 3 秒去重
+   （同一条消息两路并发只入账一次；无 did 的帧不在此去重，由 lbMsgsAppend 按身份兜底） */
+const _lbHumanSeen = new Map();
 function ledgerMod(d){
   if (!d || typeof d !== 'object') return;
   const m = String(d.m || ''), v = String(d.v || ''), body = d.d;
@@ -281,6 +330,32 @@ function ledgerMod(d){
     lbVerSave();
   }
   switch (m){
+    /* 2.200 补 m=u/input 路由 */
+    case 'u':
+    case 'human': {                        /* 人类记录即发帧（服务端 t:'mod' m:'u'）——收到即入账并按发送编号销卡 */
+      if (typeof ledgerHumanFrame === 'function'){
+        const _didNow = String((body && body.did) || '');
+        const _nowu = Date.now();
+        let _dup = false;
+        if (_didNow){
+          const _last = _lbHumanSeen.get(_didNow);
+          if (_last && _nowu - _last < 3000) _dup = true;
+          _lbHumanSeen.set(_didNow, _nowu);
+          if (_lbHumanSeen.size > 200){
+            _lbHumanSeen.forEach((ts, k) => { if (_nowu - ts > 3000) _lbHumanSeen.delete(k); });
+          }
+        }
+        if (!_dup) ledgerHumanFrame(body);
+      }
+      break;
+    }
+    case 'input': {                        /* 输入框模块帧——横幅「输入框待发」取数点 */
+      if (body && S.snap && typeof S.snap === 'object'){
+        S.snap.inputText = String((body.text != null ? body.text : '') || '');
+        renderAll();
+      }
+      break;
+    }
     case 'snote': {                        /* 定时消息＋备注（合并模块） */
       if (body && S.snap && typeof S.snap === 'object'){
         if (body.notes !== undefined) S.snap['备注'] = body.notes;
@@ -430,6 +505,8 @@ function ledgerThinkApply(sid, body){
      呈现，不做卡片化改造（E2）。 */
   const f = b.frame;
   if (f && typeof f === 'object' && Array.isArray(f.msgs)){
+    /* 2.196（三类标记）：思维流帧只做 kind 标记（think/human/final），不落账本。 */
+    f.msgs.forEach(m => { if (Array.isArray(m)) m[8] = lbMsgKind(m); });
     onEv('snap_pane', {sid: String(sid || ''), title: b.title || '',
                        msgs: f.msgs, finish: f.finish || null});
     S.lb_foldRounds = 0;                   /* 真画面到手 → 归零（2.183 修2：补发面板已撤§十二-2，状态位保留防渲染 key 漂移） */
@@ -600,7 +677,7 @@ function lbMigrateTitle(sid, title){
       let k = '';
       try { k = (typeof 稳定键 === 'function') ? String(稳定键(s, t) || '') : ''; } catch(e){ k = ''; }
       if (!k || k === t) return res(false);          /* 同一把键：没有临时账本可迁 */
-      const skSid = lbStoreKey(s, t);                /* 正式键＝L<本服>:<终身号> */
+      const skSid = lbStoreKey(lbUidOf(s) || s, t);  /* 2.196：与落账同键（uid 优先） */
       const skTmp = lbStoreKey('', t);               /* 临时键＝L<本服>:t:<名称> */
       _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
         const rows = all || [];
@@ -621,7 +698,8 @@ function lbMigrateTitle(sid, title){
         const out = base.slice(-lbRounds());
         const maxNum = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
         const rec = {
-          sk: skSid, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(), sid: s,
+          sk: skSid, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
+          uid: lbUidOf(s) || '', sid: s,          /* 2.196 四字段：uid 终身号 / sid 对话ID */
           title: t,                                  /* 2.184 改8：改名归并——以现名为准 */
           ts: maxNum(cur && cur.ts, tmps.reduce((m, x) => Math.max(m, x.ts || 0), 0)) || Date.now(),
           lastTs: maxNum(cur && cur.lastTs, tmps.reduce((m, x) => Math.max(m, x.lastTs || 0), 0)),
@@ -669,45 +747,60 @@ function _lbUnextLog(a){
 function ledgerStorePut(sid, title, rounds, opt){
   try {
     opt = opt || {};
-    /* 2.183 修4b：纯数字/空名先解析显示名再落库（解析不到保持原值）；
-       2.184 改5：解析失败不影响键——lbKey 仍按终身号建档，绝不丢键。
-       2.184 改7（老板 2026-11-19 终版口径）：闸门只卡 mid 与 title——名称必有
-       （只认服务端下发，客户端不造名），sid 允许为空；sid 空则按名称建临时账本
-       并打 pend:1（待补号），后续拿到 sid 由 lbMigrateTitle 归并。 */
+    /* 2.183 修4b：纯数字/空名先解析显示名再落库（解析不到保持原值）。
+       2.196（老板 2026-11-19）：闸门只卡 title——绝不建无名账本；此处不是
+       消息闸门（缺名帧照常展示），只是「账本必须有名字」的登记前提。 */
     title = lbResolveTitle(sid, title);
     const _t = String(title || '').trim();
     if (!_t){
-      try { diagLog('缺 title 弃收 sid=' + String(sid || ''), 'bad'); } catch(e){}
+      try { diagLog('缺 title 弃收（不建无名账本） sid=' + String(sid || ''), 'bad'); } catch(e){}
       return;
     }
-    const _rs0 = (rounds || []).filter(r => {
-      const a = (Array.isArray(r) && r.length) ? r[r.length - 1] : null;
-      if (!a || !String(a[6] || '').trim()) return false;      /* 轮必须带消息 ID */
-      /* 2.185（老板 2026-11-19 令·终极认证闸门＋四类标识）：m[0] 类型标识——
-         u=人类发言 / a=AI 终极回复（已认证）/ th=WB 思维流（有独立号）/
-         snap=TRAE 思维流快照（无号、与终极同号）。只落 a：th/snap 整轮丢弃
-         （不落盘、不迁移、不进上报；展示仍走 live 通道），未知类型按 snap
-         处理（fail-closed）——绝不把思维流号写进小账本冒充终极。 */
-      const typ = String(a[0] || '').toLowerCase();
-      if (typ === 'a') return true;                            /* 已认证终极 */
-      _lbUnextLog(a);
-      return false;                                            /* th/snap/未知一律弃 */
-    });
+    /* 2.196 三类标记落账闸：只收 human 与 final 两种 kind 的行，think（th/snap/
+       未认证 a）一律剔除；末行不是 final＝半轮，整轮不落（§七 :269-281）。
+       2.198（u 帧即时应答）：opt.humanOnly 时放行「只有一条 human 行」的半轮
+       ——服务端新增的人类记录帧（u）先落 [u]，终极帧后到再就地补全同一轮。 */
+    const _humanOnly = !!opt.humanOnly;
+    const _rs0 = (rounds || []).map(r => {
+      const rows = (r || []).filter(m => {
+        const k = lbMsgKind(m);
+        return k === 'human' || k === 'final';
+      }).map(lbTagKind);
+      if (!rows.length) return null;
+      const a = rows[rows.length - 1];
+      if (a[8] !== 'final'){
+        if (_humanOnly && a[8] === 'human' && rows.length === 1) return rows;
+        return null;                                       /* 无已认证终极＝未完成 */
+      }
+      if (!String(a[6] || '').trim()){ _lbUnextLog(a); return null; }  /* 缺 mid */
+      return rows;
+    }).filter(Boolean);
     if (!_rs0.length){
-      try { diagLog('缺 mid 弃收 sid=' + String(sid || '') + ' · ' + _t, 'bad'); } catch(e){}
+      try { diagLog('缺 mid/终极 弃收 sid=' + String(sid || '') + ' · ' + _t, 'bad'); } catch(e){}
       return;
     }
-    const _run = () => {
-    const sk = lbStoreKey(sid, title), now = Date.now();
+    /* 2.196 四字段：srv＝服务端（srv/srvName/srvFox 同源）、uid＝终身号（可空）、
+       title＝会话名（必有）、sid＝对话ID（原始会话 id，缺则反查会话列表）。 */
+    const _rawSid = String(sid || '').trim();
+    if (!_rawSid){
+      /* 2.196：缺 sid（对话ID）属异常，记调试日志；按名称临时账本兜底，绝不丢内容 */
+      try { diagLog('缺 sid（对话ID）账本登记 · ' + _t, 'bad'); } catch(e){}
+    }
+    /* 2.197：优先消费服务端下发 uid（body.uid），缺失才按 sid 自算。 */
+    const _uid = lbUidPick(opt.uid, _rawSid);
+    const _dialogSid = _rawSid || lbRawSidOf(_uid, _t);
+    const _run = (_effSid) => {
+    const _uidEff = String(_effSid || '').trim();          /* 登记主键＝终身号 */
+    const sk = lbStoreKey(_uidEff, _t), now = Date.now();
     const rs = _rs0.slice(-lbRounds());                    /* H1：只留最新 N 轮 */
     /* put 成功之后的统一收口（2.184 改4：真存记账必须晚于落盘成功，
        原实现 put 前就 add＝落盘失败也假报「有账」）：真存集 + 摘要表 + 秒显回写。 */
     const _after = (out) => {
       /* 2.184 改7：无 sid 的临时账本不进「真存集」——集合按 sid 认，空串会污染 */
-      if (String(sid || '').trim()) LB.lbHave.add(String(sid));
-      lbSumSet(sid, title, out);
-      lbWriteBackSnap(sid, title, out);                    /* 改1：最新账本立刻回写秒显源 */
-      lbPurgeStray(sk, sid, title);                        /* 改2：旧 raw 键残留一次性清理 */
+      if (_uidEff) LB.lbHave.add(_uidEff);
+      lbSumSet(_uidEff, _t, out);
+      lbWriteBackSnap(_uidEff, _t, out);                   /* 改1：最新账本立刻回写秒显源 */
+      lbPurgeStray(sk, _uidEff, _t);                       /* 改2：旧 raw 键残留一次性清理 */
       /* 改6（2.17 查看器）：落盘成功即通知「📒 我的小账本」卡片列表重排
          （仅 ③ 页可见时由查看器自己刷，未开页时是个空钩子，零开销） */
       try { if (typeof window.cvLbDirty === 'function') window.cvLbDirty(); } catch(e){}
@@ -715,17 +808,52 @@ function ledgerStorePut(sid, title, rounds, opt){
     };
     const _apply = (old) => {
       let out = rs;
-      if (Array.isArray(old.rounds) && old.rounds.length > rs.length){
-        /* 旧账更厚（翻页/补发攒过）⇒ 旧轮打底、新轮按身份并入，再截尾 N 轮。
-           2.184 改3：轮身份改 mid 优先（lbRoundKey），同文本不同轮不再互吞。
-           2.185（老板令·旧脏数据自愈）：同 key 的旧轮与新轮不同态（旧记录是
-           思维流/未认证版）⇒ 一律用新轮覆盖成已认证终极版，绝不因「mid 已
-           见过」把终极挡在门外。 */
-        const incMap = new Map();
-        rs.forEach(r => incMap.set(lbRoundKey(r), r));
-        out = old.rounds.map(r => incMap.get(lbRoundKey(r)) || r);
+      /* 2.198（u 帧先落 [u]、终极帧后到）：按人类行编号（index6）认同一轮，
+         更厚者胜——旧半轮让位给新全轮，绝不出现「[u] 与 [u,a]」两轮并存；
+         反向（旧全轮比新半轮厚）保留旧轮、丢掉新半轮。 */
+      const _incU = new Map();
+      rs.forEach(r => {
+        const k = String((Array.isArray(r) && r[0] && r[0][6]) || '');
+        if (k) _incU.set(k, r);
+      });
+      const _oldRounds = (old && Array.isArray(old.rounds)) ? old.rounds : null;
+      if (_oldRounds && _oldRounds.length
+          && (_oldRounds.length > rs.length || _incU.size)){
+        const _keepOld = [];
+        _oldRounds.forEach(r => {
+          const k = String((Array.isArray(r) && r[0] && r[0][6]) || '');
+          const inc = k ? _incU.get(k) : null;
+          if (!inc){ _keepOld.push(r); return; }
+          if (inc.length >= r.length) return;    /* 新轮更厚：旧半轮让位 */
+          _incU.delete(k);                       /* 旧轮更厚：新半轮不并入 */
+          _keepOld.push(r);
+        });
+        if (_oldRounds.length > rs.length){
+          /* 旧账更厚（翻页/补发攒过）⇒ 旧轮打底、新轮按身份并入，再截尾 N 轮。
+             2.184 改3：轮身份改 mid 优先（lbRoundKey），同文本不同轮不再互吞。
+             2.185（老板令·旧脏数据自愈）：同 key 的旧轮与新轮不同态（旧记录是
+             思维流/未认证版）⇒ 一律用新轮覆盖成已认证终极版，绝不因「mid 已
+             见过」把终极挡在门外。 */
+          const incMap = new Map();
+          rs.forEach(r => incMap.set(lbRoundKey(r), r));
+          out = _keepOld.map(r => incMap.get(lbRoundKey(r)) || r);
+        } else {
+          out = _keepOld.length ? _keepOld.slice() : rs.slice();
+        }
+        /* 2.198：同一人类行（index6）已有一轮（更厚/等厚）在 out 里 ⇒ 新的
+           半轮不再追加；只有全新的人类行才并入。 */
         const seen = new Set(out.map(lbRoundKey));
-        out = out.concat(rs.filter(r => !seen.has(lbRoundKey(r)))).slice(-lbRounds());
+        const _uSeen = new Set(out.map(r =>
+          String((Array.isArray(r) && r[0] && r[0][6]) || '')).filter(Boolean));
+        rs.forEach(r => {
+          const k = String((Array.isArray(r) && r[0] && r[0][6]) || '');
+          if (k && _uSeen.has(k)) return;
+          const rk = lbRoundKey(r);
+          if (seen.has(rk)) return;
+          seen.add(rk);
+          out.push(r);
+        });
+        out = out.slice(-lbRounds());
       }
       /* 2.184 改6（老板 2026-11-19 09:58 / 规范§十 :271）：ts＝「最后更新时间」，
          只随真实内容变化走——仅查看（opt.touch）且轮身份全同 ⇒ 保留原 ts，
@@ -734,11 +862,14 @@ function ledgerStorePut(sid, title, rounds, opt){
         && old.rounds.length === out.length
         && old.rounds.map(lbRoundKey).join('|') === out.map(lbRoundKey).join('|');
       const _ts = _same ? (Number(old.ts) || now) : now;
+      /* 2.196 登记规则②：uid 相同而 title 变了＝改名，键不变、就地更新 title，
+         历史轮次与待补号标记全保留，绝不新建。 */
       return _idbReq('ledger_conv', 'readwrite', st => st.put({
         sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
-        sid: String(sid), title: title || old.title || '',
+        uid: _uidEff, sid: _dialogSid || old.sid || '',
+        title: title || old.title || '',
         ts: _ts, lastTs: now, lastView: opt.touch ? now : (old.lastView || 0),
-        pend: String(sid || '').trim() ? 0 : 1, rounds: out}))
+        pend: _uidEff ? 0 : 1, rounds: out}))
         .then(() => _after(out));
     };
     _idbReq('ledger_conv', 'readonly', st => st.get(sk)).then(rec => {
@@ -747,7 +878,7 @@ function ledgerStorePut(sid, title, rounds, opt){
          命中旧 raw 键记录（2.183 及以前按原始 sid 建档）就并入新键并删旧记录，
          老账本不丢、不出现「写一条读另一条」。 */
       return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
-        const s2 = String(sid || '').trim();
+        const s2 = String(_uidEff || '');
         const t2 = String(title || '').trim();
         let k2 = '';
         try { k2 = (typeof 稳定键 === 'function') ? String(稳定键(s2, t2) || '') : ''; } catch(e){ k2 = ''; }
@@ -768,16 +899,146 @@ function ledgerStorePut(sid, title, rounds, opt){
     }).catch(() => {
       return _idbReq('ledger_conv', 'readwrite', st => st.put({
         sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
-        sid: String(sid), title: title || '',
+        uid: _uidEff, sid: _dialogSid || '', title: title || '',
         ts: now, lastTs: now, lastView: opt.touch ? now : 0,
-        pend: String(sid || '').trim() ? 0 : 1, rounds: rs}))
+        pend: _uidEff ? 0 : 1, rounds: rs}))
         .then(() => _after(rs));
     });
     };
-    /* 2.184 改7：sid 一到，先把名称键下的临时账本并到终身号键，再走正常落账 */
-    if (String(sid || '').trim()) lbMigrateTitle(sid, _t).then(_run, _run);
-    else _run();
+    /* 2.196 登记顺序（老板原话，顺序不可乱）：
+       ① 有终身号 → 以 uid 为账本主键登记（同名临时代号账本先归并进 uid 键）；
+       ② 同 uid 改名 → 在 _apply 里就地更新 title（键未变即不新建）；
+       ③ 无 uid 但有 title → 先找同服同名账本，有就归并进他那本；
+       ④ 同名也没有（sid 独有且无号）→ 才以名称键新建临时账本（pend:1）。 */
+    const _dispatch = () => {
+      if (_uid){ _run(_uid); return; }
+      _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
+        const hit = (all || []).find(r => !lbIsLegacyRec(r)
+          && String(r.title || '').trim() === _t);
+        _run(hit ? lbUidPick(hit.uid, hit.sid) : '');
+      }).catch(() => _run(''));
+    };
+    if (_uid) lbMigrateTitle(_uid, _t).then(_dispatch, _dispatch);
+    else _dispatch();
   } catch(e){}
+}
+/* ============ 2.198（WB+TR 整改 ST·老板令）：人类记录帧（u）即时应答 ============
+   服务端新增「人类记录帧」类型标识 u（会话号 sid、会话名 title、消息编号 mid、
+   正文 text、可选发送编号 did）。收到即做三件事，全程不等快照/对账/生成结束：
+     ① 渲染：按当前会话 sid 归并——追加到已在屏正文（旧消息一条不藏、不跳账本）；
+     ② 销卡：按发送编号（did）当场销占位卡（≤3 秒目标；15 秒灰态只作异常兜底）；
+     ③ 入账：uid 优先为账本主键，缺 uid 用名称临时键并标 pend:1 待补号；
+        缺名只记日志不建账（不设拒收闸门，展示照常）。 */
+function lbHumanRecNorm(rec){
+  const o = {text: '', mid: '', did: '', tm: ''};
+  if (Array.isArray(rec)){
+    o.text = String(rec[1] == null ? '' : rec[1]);
+    o.tm   = String(rec[2] == null ? '' : rec[2]);
+    o.mid  = String(rec[6] == null ? '' : rec[6]);
+    o.did  = String(rec[9] == null ? '' : rec[9]);
+  } else if (rec && typeof rec === 'object'){
+    o.text = String(rec.text != null ? rec.text
+                    : (rec.t != null ? rec.t : (rec.body != null ? rec.body : '')));
+    o.mid  = String(rec.mid != null ? rec.mid
+                    : (rec.msgId != null ? rec.msgId : (rec.id != null ? rec.id : '')));
+    o.did  = String(rec.did != null ? rec.did
+                    : (rec.sendId != null ? rec.sendId : ''));
+    o.tm   = String(rec.tm != null ? rec.tm
+                    : (rec.time != null ? rec.time : ''));
+  }
+  const _d = o.did || firstLineDid(o.text) || pendDidOf(o.text);
+  if (!o.tm && _d) o.tm = didToStr(_d);
+  return {text: o.text, mid: o.mid, did: _d, tm: o.tm};
+}
+/* 消息身份键：mid 优先，缺则发送编号，再缺则角色＋正文（只用于去重，不生成新号） */
+function lbMsgIdent(m){
+  if (!Array.isArray(m)) return '';
+  const mid = String(m[6] == null ? '' : m[6]).trim();
+  if (mid) return 'M' + mid;
+  const did = String(m[9] == null ? '' : m[9]).trim();
+  if (did) return 'D' + did;
+  return 'T' + String(m[0] || '') + '\u0001' + String(m[1] || '').replace(/\s+/g, '');
+}
+function lbMsgsAppend(rows, m){
+  if (!Array.isArray(rows) || !Array.isArray(m)) return false;
+  const k = lbMsgIdent(m);
+  if (rows.some(x => lbMsgIdent(x) === k)) return false;
+  rows.push(m);
+  return true;
+}
+function lbHumanIsCurrent(sid, title){
+  const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
+  if (!cs) return false;
+  const s = String(sid || '');
+  if (s){
+    if (s === cs) return true;
+    try {
+      return !!(typeof 稳定键 === 'function' && 稳定键(s, '') === 稳定键(cs, ''));
+    } catch(e){ return false; }
+  }
+  return !!(title && typeof curTitle === 'function' && String(title) === String(curTitle()));
+}
+/* 切换在途、目标是别会话：不把该帧塞进当前屏幕（仍可落账），回帧时自然显示 */
+function lbHumanSwitchBlocked(sid){
+  const sp = S.switch_pend;
+  if (!sp || !sp.lockTarget || sp.arrived) return false;
+  const tgt = String(sp.sid || '');
+  if (!tgt) return true;
+  if (String(sid || '') === tgt) return false;
+  try {
+    return !(typeof 稳定键 === 'function' && 稳定键(sid, '') === 稳定键(tgt, ''));
+  } catch(e){ return true; }
+}
+function ledgerHumanApply(sid, title, rec, opt){
+  opt = opt || {};
+  const _r = lbHumanRecNorm(rec);
+  if (!String(_r.text || '').trim()) return false;
+  const _sid = String(sid || '').trim();
+  const _t = String(title || '').trim();
+  const row = ['u', _r.text, _r.tm || '', 0, 0, '', _r.mid || '', '', 'human'];
+  if (_r.did) row[9] = _r.did;
+  /* ② 按发送编号当场销卡（u 帧到达＝已进流，不等下一帧、不等 15 秒灰态） */
+  let cleared = false;
+  try {
+    if (_r.did && typeof pendClearByDid === 'function')
+      cleared = !!pendClearByDid(_r.did, _t);
+  } catch(e){}
+  /* ① 立即渲染：当前会话追加（不替换、不裁剪旧消息）；非当前会话只落账 */
+  let shown = false;
+  try {
+    if (lbHumanIsCurrent(_sid, _t) && !lbHumanSwitchBlocked(_sid)){
+      if (typeof _liveLockOn === 'function' && _liveLockOn()){
+        if (!S.liveFrame || !Array.isArray(S.liveFrame.msgs))
+          S.liveFrame = {msgs: [], finish: null, tail: '', sendIdle: true,
+                         inputText: '', opts: [], ask: null, pend: [], attach: [], model: ''};
+        shown = lbMsgsAppend(S.liveFrame.msgs, row) || shown;
+      }
+      if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+      if (!Array.isArray(S.snap.msgs)) S.snap.msgs = [];
+      shown = lbMsgsAppend(S.snap.msgs, row) || shown;
+      try { S.msgs_key = null; } catch(e){}
+    }
+  } catch(e){}
+  /* ③ 落本地账本（uid 优先；缺 uid 名称临时键 pend:1；缺名只记日志不建账） */
+  if (_t){
+    try {
+      ledgerStorePut(_sid, _t, [[row]], {touch: true, uid: opt.uid, humanOnly: true});
+    } catch(e){}
+  } else {
+    try {
+      diagLog('缺 title 人类记录仅展示不建账 sid=' + _sid, 'bad');
+    } catch(e){}
+  }
+  if (shown || cleared) { try { renderAll(); } catch(e){} }
+  return shown || cleared;
+}
+/* ev k='u' / k='human' 入口：v={sid,title,uid,mid,text,did,ts}（或 v.rec 同形） */
+function ledgerHumanFrame(v){
+  if (!v || typeof v !== 'object') return false;
+  const sid = String(v.sid || v.selSid || v['会话号'] || '');
+  const title = String(v.title || v['会话名'] || v.name || '');
+  const rec = (v.rec && typeof v.rec === 'object') ? v.rec : v;
+  return ledgerHumanApply(sid, title, rec, {uid: v.uid || (rec && rec.uid)});
 }
 function ledgerStoreApply(sid, body, ver){
   /* 2.184 改7（老板 2026-11-19 终版口径·锚定双轨）：闸门只卡 mid 与 title——
@@ -789,7 +1050,19 @@ function ledgerStoreApply(sid, body, ver){
     return;
   }
   const _sid = String(sid || '').trim();
-  ledgerStorePut(_sid, body.title || '', body.rounds, {touch: true});
+  /* 2.198：只含人类行、没有终极的轮次＝人类记录帧（u）——立即渲染入账，
+     不走「必须有已认证终极」闸门；其余轮次照旧走 ledgerStorePut。 */
+  let _hasFinal = false;
+  (body.rounds || []).forEach(r => {
+    const _rows = Array.isArray(r) ? r : [];
+    const _u = _rows.find(m => Array.isArray(m) && String(m[0] || '').toLowerCase() === 'u');
+    const _hasA = _rows.some(m => Array.isArray(m) && String(m[0] || '').toLowerCase() === 'a');
+    if (_u && !_hasA) ledgerHumanApply(_sid, body.title || '', _u, {uid: body.uid});
+    else if (_hasA) _hasFinal = true;
+  });
+  /* 2.197：把服务端下发的终身号 body.uid 一并带入落账（缺失时 ledgerStorePut 回退自算）。 */
+  if (_hasFinal)
+    ledgerStorePut(_sid, body.title || '', body.rounds, {touch: true, uid: body.uid});
   /* G1：锚定会话且屏幕无内容 ⇒ 用补发轮次顶屏（人类+终极+折叠按钮）。
      V2 第三轮 Y19（2026-11-19）：liveFrame 锁定期收到【更厚】账本也解锁顶屏——
      ST 实抓：liveFrame 停旧 8 条（≈4 轮），桌面真消息+AI 回复已出，页面 3 分钟
@@ -809,8 +1082,16 @@ function ledgerStoreApply(sid, body, ver){
         if (Array.isArray(m)) rows.push(m);
       }));
       if (rows.length){
+        /* 2.198（老板实测「一来新消息只剩最新两条」）：账本顶屏必须与已在屏的
+           当前会话正文合并——旧消息一条不藏；只在切换在途（目标别会话）时
+           不拿旧会话正文作底，防串台。 */
+        const _spNow = S.switch_pend;
+        const _base = (!(_spNow && _spNow.lockTarget && !_spNow.arrived)
+                       && S.snap && Array.isArray(S.snap.msgs))
+          ? S.snap.msgs.slice() : [];
+        rows.forEach(m => { lbMsgsAppend(_base, m); });
         S.livePend = S.anchorSid;
-        S.liveFrame = {msgs: rows, finish: null, tail: '', sendIdle: true,
+        S.liveFrame = {msgs: _base, finish: null, tail: '', sendIdle: true,
                        inputText: '', opts: [], ask: null, pend: [],
                        attach: [], model: ''};
         /* 2.183 修2：S.lb_foldRounds 赋值行撤——补发面板已撤（§十二-2），
