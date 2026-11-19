@@ -228,94 +228,32 @@ function pendLandingScan(msgs, pendArr){
   return ch;
 }
 
-/* ============ 2.178 Y24 / 2.179 Y24：锚定不一致对账提示（前端侧·与 S1 联动） ============
-   两路错位都管（2s 巡检统一出胶囊，各自满 10s 才出）：
-   ① 服务端选中路：快照每拍回报桌面当前选中（v.selSid → liveKey，与 S.anchorSid
-      同稳定键口径），≠本地锚持续 10s → 胶囊「点此对齐」（以服务端为准重锚）；
-   ② 末次点击意图路（2.179 新增）：会话列表点击记 S.pendIntent，若 10s 后实际锚
-      仍停在意图之外（切换被吞/被归还）→ 胶囊「点此重试」（以末次点击为准重发）。
-   切换在途（S.switch_pend）豁免——那是我们自己正在切，不是错位。 */
-const ANCH_MIS_TMO = 10000;
-let _anchSrv = {key: '', t0: 0, title: '', sid: ''};
-(function(){   /* 胶囊样式一次注入（swhint 在顶部，本条放底部避开） */
-  const s = document.createElement('style');
-  s.textContent = '#anchint{position:fixed;left:50%;bottom:calc(64px + env(safe-area-inset-bottom));'
-    + 'transform:translateX(-50%);z-index:99997;background:rgba(243,156,18,.95);color:#fff;'
-    + 'font-size:13px;padding:8px 14px;border-radius:999px;box-shadow:0 2px 10px rgba(0,0,0,.25);'
-    + 'cursor:pointer;max-width:86%;text-align:center;display:none;}';
-  document.head.appendChild(s);
-})();
-/* 快照到达（事件总线.js 快照分支调）：只记服务端选中键，胶囊判断统一交给 anchorCheck */
-function anchorMismatchTick(liveKey, srvTitle, srvSid){
-  const mis = !!(liveKey && S.anchorSid
-                  && liveKey !== S.anchorSid && !S.switch_pend);
-  if (!mis){
-    if (_anchSrv.key) _anchSrv = {key: '', t0: 0, title: '', sid: ''};
+/* ============ 2.203（老板 2026-11-19 22:02 令）：撤「页面选中与服务器选中不一致」提醒 ============
+   旧 2.178~2.180 的底部橙色胶囊 #anchint（「点此对齐 / 点此重试」）连同 2s 巡检
+   anchorCheck、末次点击意图 S.pendIntent 判定整块撤除，界面不再弹任何同义提醒。
+   新口径（机会充足：每条上行都带当前会话、切换/刷新自愈、快照每拍都会再核）：
+   ① 我是 1 号网页用户（服务端操控锁持有者＝本人）：发现服务器选中 ≠ 页面选中，
+      且没有别人正在借用输入框、也没有切换在途 → 静默发 switch 把桌面切回
+      【页面选中的会话】（不提示、不弹条）；
+   ② 我不是 1 号（2 号/3 号）：不提醒、也不抢切（避免抢别人操控）。 */
+const _anchHeal = {key: '', t0: 0, sent: 0};
+/* 快照到达（事件总线.js 快照分支调）：只做上面的静默自愈，不产出任何界面元素 */
+function anchorSelfHeal(liveKey){
+  if (!(typeof hostIsFirst === 'function' ? hostIsFirst() : true)) return;  /* ② 非 1 号 */
+  if (S.inputBusy || S.switch_pend) return;                    /* 有人借框/切换在途：不抢 */
+  if (!liveKey || !S.anchorSid || !S.anchorFull) return;
+  if (liveKey === S.anchorSid){                                 /* 已一致：清状态 */
+    _anchHeal.key = ''; _anchHeal.t0 = 0;
     return;
   }
-  if (_anchSrv.key !== liveKey)
-    _anchSrv = {key: liveKey, t0: Date.now(), title: srvTitle || '', sid: srvSid || ''};
-}
-function anchorCheck(){
   const now = Date.now();
-  const itv = S.pendIntent;
-  const itMis = !!(itv && itv.key && S.anchorSid
-                   && itv.key !== S.anchorSid
-                   && (now - itv.t) < 60000 && !S.switch_pend);
-  const srvMis = !!(_anchSrv.key && S.anchorSid
-                    && _anchSrv.key !== S.anchorSid && !S.switch_pend);
-  if (!itMis && !srvMis){
-    const _old = document.getElementById('anchint');
-    if (_old) _old.style.display = 'none';
-    return;
-  }
-  if (itMis && now - itv.t < ANCH_MIS_TMO) return;                 /* 意图未满 10s 先忍 */
-  if (!itMis && srvMis && now - _anchSrv.t0 < ANCH_MIS_TMO) return; /* 服务端错位未满 10s */
-  let d = document.getElementById('anchint');
-  if (!d){   /* 首次出错位才建（脚本加载时 body 未必就绪，不抢在 IIFE 里建） */
-    d = document.createElement('div');
-    d.id = 'anchint';
-    document.body.appendChild(d);
-  }
-  d.onclick = function(){
-    const iv = S.pendIntent;
-    const iMis = !!(iv && iv.key && S.anchorSid
-                    && iv.key !== S.anchorSid && !S.switch_pend);
-    if (iMis){   /* 意图错位 → 以末次点击为准重试 */
-      pendSwitchSet(iv.title, iv.sid, iv.sid, {lockTarget: true});
-      flash('正在重试切换到「' + (iv.title || '目标会话') + '」…', 'var(--blue)');
-    } else {     /* 服务端错位 → 以服务端选中为准重锚 */
-      const _v = S.snap || {};
-      const _sid = (typeof selSidOf === 'function' ? selSidOf(_v) : '') || _anchSrv.sid || '';
-      const _tt = (typeof selTitleOf === 'function' ? selTitleOf(_v) : '') || _anchSrv.title || '';
-      if (!_sid && !_tt) return;
-      pendSwitchSet(_tt, _sid, _sid, {lockTarget: true});
-      flash('正在对齐：以服务器选中的会话为准…', 'var(--blue)');
-    }
-    S.pendIntent = null;
-    _anchSrv = {key: '', t0: 0, title: '', sid: ''};
-    d.style.display = 'none';
-  };
-  d.style.display = 'block';
-  if (itMis){
-    d.textContent = '⚠ 末次点击「' + (itv.title || '目标会话') + '」未生效（服务器还停在 '
-                  + (S.anchorTitle || _anchSrv.title || '原会话') + '），点此重试';
-  } else {
-    /* 2.180 Y33（低优·只改文案不动逻辑）：srv 路触发但末次点击意图仍新鲜
-       （<60s）且≠服务端选中 → 按 ST 报告§八口径改说「末次点击未生效」
-       （用户视角：刚点完的会话没跟上）；无新鲜意图才用原「页面选中与服务器
-       选中不一致」。点击行为维持不变（srv 路仍以服务端选中为准重锚）。 */
-    const itv0 = S.pendIntent;
-    const itFresh = !!(itv0 && itv0.key && itv0.key !== _anchSrv.key
-                       && now - itv0.t < 60000);
-    d.textContent = itFresh
-      ? ('⚠ 末次点击「' + (itv0.title || '目标会话') + '」未生效（服务器还停在 '
-         + (_anchSrv.title || '原会话') + '），点此重试')
-      : ('⚠ 页面选中与服务器选中（' + (_anchSrv.title || '未知会话')
-         + '）不一致，点此对齐');
-  }
+  if (_anchHeal.key !== liveKey){ _anchHeal.key = liveKey; _anchHeal.t0 = now; }
+  if (now - _anchHeal.t0 < 2000) return;      /* 连拍确认，防快照抖动误发 */
+  if (now - _anchHeal.sent < 8000) return;    /* 8s 限频，防连发 */
+  _anchHeal.sent = now;
+  try { sendCmd('switch', S.anchorFull); } catch(e){}
+  try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull); } catch(e){}
 }
-setInterval(anchorCheck, 2000);
 
 /* 占位卡生命周期检查（快照到达/定时巡检调用）。
    v2.82：销卡**不再走 did_ack**（该回执整条作废）——销卡只认 ①本会话快照
