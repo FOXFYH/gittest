@@ -380,15 +380,25 @@ function buildLedgerEntry(){
   if (idc && idc.parentNode === body) body.insertBefore(fs, idc.nextSibling);
   else body.insertBefore(fs, body.firstChild);
   const btn = document.getElementById('btn_lbopen');
-  if (btn) btn.onclick = () => {
-    try {
-      if (typeof window.cvEnsure === 'function') window.cvEnsure();
-      if (typeof window.cvOpen === 'function') window.cvOpen();
-      el.netpage.classList.remove('on');
-    } catch(e){}
-  };
+  if (btn) btn.onclick = lbOpenViewer;
+}
+/* 2.183 修3：打开小账本查看器公共出口——设置页副入口（btn_lbopen）与
+   抽屉一级入口（btn_lb_drawer）两处共用，不复制两份逻辑。 */
+function lbOpenViewer(){
+  try {
+    if (typeof window.cvEnsure === 'function') window.cvEnsure();
+    if (typeof window.cvOpen === 'function') window.cvOpen();
+    el.netpage.classList.remove('on');
+  } catch(e){}
 }
 buildLedgerEntry();
+/* 2.183 修3（2026-11-19 老板修订·V1.0 §十-0）：抽屉一级「📒 小账本」入口——
+   主入口提级（原 Y14「唯一入口=设置页」口径作废，设置页按钮保留作副入口）：
+   点按＝关抽屉＋开缓存查看器（与设置页副入口走同一公共出口 lbOpenViewer）。 */
+(function(){
+  const d = document.getElementById('btn_lb_drawer');
+  if (d) d.onclick = () => { drawerClose(); lbOpenViewer(); };
+})();
 function renderToday(){
   const b = NET.days[netDay()] || {rx:0, tx:0, rxn:0, txn:0};
   el.today.textContent = '今日  收 ' + fmtBytes(b.rx) + '·' + (b.rxn||0)
