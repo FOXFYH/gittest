@@ -446,7 +446,13 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      生成中插队/排队的消息在这里列出，可删除/立即发送/取出编辑，
      与坐在电脑前管理排队等效。索引用快照内序号（服务端 JS 直点
      同序 DOM 条目，坐标点击会因面板秒级重渲染失效——研究报告结论）。 */
-  if (pend && pend.length){
+  /* 2.195 发送闩：先同步（撤「已确认进对话流」/超时项），再决定要不要画条——
+     服务端队列空了、但还有点过「⚡发送」未确认的条目时，排队条照样画（只剩闩条）。 */
+  const _qLatch = (function(){
+    try { qsentLatchSync(pend); } catch(e){}
+    return qsentList(pend);
+  })();
+  if ((pend && pend.length) || _qLatch.length){
     const qp = document.createElement('div');
     qp.className = 'qpanel';
     /* 2.03：顶部只留标题（用户 2026-09-30 规定）——原先挂着「（AI 完成
@@ -499,6 +505,19 @@ function renderMsgs(msgs, finish, opts, ask, pend){
          + '<button class="del" data-qi="' + i + '" data-qk="del">🗑</button>'
          + '</div></div></div>';
     });
+    /* 2.195 发送闩条追加：服务端队列里已不在、但点过「⚡发送」尚未确认
+       进对话流的条目，原样展示、按钮「⏳ 发送中…」禁点（不提供删除/编辑，
+       避免与服务端真实队列对不上）。确认/超时由 qsentLatchSync 收口。 */
+    _qLatch.forEach(e => {
+      qh += '<div class="qitem">'
+         + '<div class="qcol">'
+         + '<div class="qtxt" title="已发出，等服务器确认进入对话流">'
+         + esc(e.text) + '</div>'
+         + '</div>'
+         + '<div class="qbtns">'
+         + '<button class="go qsend" disabled>⏳ 发送中…</button>'
+         + '</div></div>';
+    });
     qp.innerHTML = qh;
     /* 2.123：排队条里的专属提示词折叠卡——与正文同一套点开/收起绑定 */
     foxHintBind(qp);
@@ -534,6 +553,17 @@ function renderMsgs(msgs, finish, opts, ask, pend){
           srvOpSend('pend_edit', i, '取出到输入框');   // 2.109：②＋rcpt ③④（pend_edit_out 另回填）
         } else {
           b.disabled = true;
+          /* 2.195 发送闩：点「⚡发送」即记闩（键＝14 位 DID）——此后哪怕
+             服务端队列先把该项撤了，条目仍留在屏上转「⏳ 发送中…」，
+             直到 msgs 里浮现该 DID（服务端确认进对话流）才撤。 */
+          const _lp = pend[i];
+          const _lk = qsentKey(_lp);
+          if (_lk){
+            const L = S.qsent || (S.qsent = {});
+            L[_lk] = {ts: Date.now(),
+                      text: stripPendTail((_lp.text != null)
+                              ? String(_lp.text || '') : stripHeadDid(_lp.t || ''))};
+          }
           srvOpSend('pend_sendnow', i, '立即发送');     // 2.109：②＋rcpt ③④
         }
       };
@@ -578,3 +608,37 @@ function renderMsgs(msgs, finish, opts, ask, pend){
    （450ms 内忽略 scroll 回调）；② enterFmsg 布局变化后按高度差补偿
    scrollTop，视野停留在同一段内容上（dist 不变，不会立即误退）。 */
 var fLockUntil = 0;                 // 程序滚动/进出全屏后的静默截止
+
+/* ===== 2.195（老板 2026-11-19 实测「官方排队条点 ⚡发送，整条瞬间就消失」）=====
+   发送闩（qsent latch）：点「⚡发送」后，该条目在本地排队条里**保留展示**，
+   按钮转「⏳ 发送中…」（禁点），直到**服务端帧确认它真正进入对话流**
+   （该项 14 位 DID 命中本会话 msgs 的人类发言）才撤——撤除的唯一权威＝
+   服务端数据，客户端绝不先斩。90 秒兜底防永久挂（TRAE 消费远快于此）。
+   键＝排队项 id（14 位 DID）；没有 id 的旧格式条目不闩（无法与正文对账）。 */
+const QSENT_TMO = 90000;
+function qsentKey(p){
+  return (p && p.id != null) ? String(p.id) : '';
+}
+function qsentLatchSync(pend){
+  const L = S.qsent || (S.qsent = {});
+  const now = Date.now();
+  for (const k in L) if (!(now - L[k].ts < QSENT_TMO)) delete L[k];
+  const have = {};
+  (pend || []).forEach(p => { const k = qsentKey(p); if (k) have[k] = 1; });
+  const dids = {};
+  ((S.snap && S.snap.msgs) || []).forEach(m => {
+    if (!m || m[0] !== 'u') return;
+    const d = (typeof pendDidOf === 'function') ? pendDidOf(m[1]) : '';
+    if (d) dids[d] = 1;
+  });
+  for (const k in L) if (have[k] || dids[k]) delete L[k];
+}
+function qsentList(pend){
+  const L = S.qsent || {};
+  const have = {};
+  (pend || []).forEach(p => { const k = qsentKey(p); if (k) have[k] = 1; });
+  const out = [];
+  for (const k in L) if (!have[k]) out.push({id: k, text: L[k].text, ts: L[k].ts});
+  return out;
+}
+
