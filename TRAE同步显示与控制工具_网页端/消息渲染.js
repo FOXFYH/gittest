@@ -156,8 +156,12 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      指纹含问题文本+各选项文案+选中态+主按钮文字，任何一问变化
      都会触发重画。 */
   key += '#ask:' + askFp(ask);
-  /* 1.29：插话排队条参与指纹（队列增删/立即发送都要及时重画） */
-  key += '#qp:' + (pend || []).map(p => (p.t || '').slice(0, 40)).join('|');
+  /* 1.29：插话排队条参与指纹（队列增删/立即发送都要及时重画）
+     2.187：新格式条目正文在 text（无 t）——只取 p.t 会让排队条内容变化
+     算不出新 key、整块不重画（老板实测「挂了但不动」）。 */
+  key += '#qp:' + (pend || []).map(p =>
+    ((p && p.text != null) ? String(p.text) : String((p && p.t) || (p && p.id) || '')).slice(0, 40)
+  ).join('|');
   /* 1.09：待确认占位参与指纹（状态推进/撤下要重画）；
      2.60：切换在途条已删，指纹不再纳入 switch_pend。 */
   key += '#pend:' + pendSig();
@@ -184,7 +188,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
   }
-  if (empty){ renderPending(); return; }
+  if (empty && !(pend || []).length){ renderPending(); return; }
+  /* 2.187：正文为空但官方排队条有条目（新会话首条就进了队）——不再早退，
+     走正常渲染把「⏳ 官方排队条」挂出来；msgs 空则 forEach 自然零条。 */
   const times = resolveTimes(msgs);
   let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
   msgs.forEach((m, i) => {
@@ -453,7 +459,13 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     const _pendShown = [];
     pend.forEach((p, i) => {
       const mine = (typeof pendItemMine === 'function') ? pendItemMine(p) : null;
-      if (mine === false) return;
+      /* 2.188：归属闸判「别会话」时，若该项 id（14 位 DID）是本人发过的
+         （pendDidOwn：卡还在当场认领；卡已被同拍销掉则凭 10 分钟记忆认），
+         仍要画——消息刚发出那一下锚定/选中还没对齐（curSid 可能为空或仍是
+         旧会话），旧写法整条不画 ⇒ 条不挂、卡却被销，老板看到的正是这个。
+         真别人的条目 DID 对不上，照旧不给画（跨会话绝不串显）。 */
+      if (mine === false
+          && !(typeof pendDidOwn === 'function' && pendDidOwn(p))) return;
       _pendShown.push([p, i]);
     });
     _pendShown.forEach(([p, i]) => {
