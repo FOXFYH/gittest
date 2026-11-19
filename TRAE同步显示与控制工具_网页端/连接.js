@@ -27,11 +27,17 @@ function teardownWs(){
   clearInterval(hbTimer);  hbTimer = null;
   clearTimeout(helloTimer);
   clearTimeout(reconnectTimer);
+  reconnectTimer = null;   /* 2.182 Y32a：清完置 null——残留旧 id 是真值，会卡死
+                            srvWatch「!reconnectTimer」类救援判据（hung-0/已死
+                            两档都靠它判定「无重连定时在跑」）。 */
   loggedIn = false;
 }
 
 function connect(){
   teardownWs();
+  S._wsOpenAt = Date.now();   /* 2.182 Y32a：连接起点时刻——srvWatch 的 hung-0
+                               救援（上线与界面.js）按「readyState===0 超 20s」
+                               判假死，以本时刻起算，20s 守卫防风暴。 */
   setOnLine(false);
   gotHello = false;
   helloTries = 0;    // 1.07：重连后重起握手重试（原不重置——10 次用尽
@@ -129,6 +135,16 @@ addEventListener('online', function(){
   try { diagLog('系统网络恢复事件 → 立即尝试重连', 'dim'); } catch(e){}
   S.failStreak = 0;                      /* 连败停摆是断网期攒的，恢复信号到达即清；网络仍坏会重新攒 */
   clearTimeout(reconnectTimer); reconnectTimer = null;
+  /* 2.182 Y32a（ST§9.7 复测复盘）：online 事件已触发却零动静——旧 socket 两类
+     「假活」让 ensureConnect（:119）早退或救不活：
+     ① 半开黑洞：readyState===1 但帧全被丢（CDP offline/真半开不拆已建 WS），
+        探针帧发进黑洞永不回；② hung CONNECTING：readyState===0 被当「正在连」。
+     恢复信号到达即拆旧重连：connect() 自带 teardownWs 全套收口。
+     只有「hung-0」或「失联在挂」才动刀；readyState===1 且无失联＝真健康，
+     绝不误拆（2.178「不主动断 WS」口径对健康连接仍然成立）。 */
+  if (ws && (ws.readyState === 0 || S.srvLost)){
+    try { teardownWs(); } catch(e){}
+  }
   ensureConnect();
 });
 
