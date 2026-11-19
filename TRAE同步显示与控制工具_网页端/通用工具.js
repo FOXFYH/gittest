@@ -437,11 +437,16 @@ function timeNormFull(m, sid){
   return msgTime(m);
 }
 function 稳定键(sid, title){
-  /* 2026-10-16 用户口径（绑定改终身号）：会话「稳定性键」——完整 SID 每日会变，
-     取前 4 位数字（终身号）作稳定标识；非 4 位数字前缀（临时/hex SID）退回会话名。
-     供锚定/未读灯/备注/定时等**需跨天稳定**的键使用；sid 兜底保键非空。 */
+  /* 2026-10-16 用户口径（绑定改终身号）：会话「稳定性键」供锚定/未读灯/备注/
+     定时等**需跨天稳定**的键使用。2.211（老板 2026-11-20 07:08 令）：**禁止任何
+     字符串切片推导终身号**——实例号（10 位纯数字，如 1632115233）及其截断
+     （1632）绝不当编号；一律退回会话名；无名才用完整 sid 兜底保键非空。 */
   const s = String(sid == null ? '' : sid);
-  if (/^\d{4}/.test(s)) return s.slice(0, 4);
+  if (/^\d{10}$/.test(s)) return (title || s);
+  try {
+    if (typeof _lbIsSrvAcctLike === 'function' && _lbIsSrvAcctLike(s))
+      return (title || s);
+  } catch(e){}
   return (title || s);
 }
 function _行稳定(r){ return 稳定键(r && r[4], r && r[1]); }
