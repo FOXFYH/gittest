@@ -299,7 +299,32 @@ function mdHtml(text){
   return esc(text);          /* 兜底：模块缺失时只转义，绝不吐裸 HTML */
 }
 
-/* ================= 消息时间（本地首见缓存，对齐桌面版） ================= */
+/* ================= 消息时间：唯一来源＝消息编号 mid 前 8 位十六进制 ================= */
+/* 2.206（老板最终合并口径 2026-11-19·人事部长ST 0023 转达）：
+   每条聊天必须有 24 位十六进制消息 ID（mid）；时间只从 mid 前 8 位十六进制
+   （Unix 秒）推导 → 北京时间 UTC+8 → 'YYYY-MM-DD HH:MM:SS'（精确到秒）。
+   服务端不再下发任何时间，手机端也不读任何传进来的时间/ts/DID。
+   mid 不是 24 位十六进制（空、10 位数字、中文名、带括号等）⇒ 该条按
+   「无有效 ID」处理：不入账、不上屏，不再有「时间未知」这种中间态。 */
+function midValid(mid){
+  return /^[0-9a-fA-F]{24}$/.test(String(mid == null ? '' : mid).trim());
+}
+function midSec(mid){
+  const s = String(mid == null ? '' : mid).trim();
+  if (!/^[0-9a-fA-F]{24}$/.test(s)) return NaN;
+  const sec = parseInt(s.slice(0, 8), 16);
+  return isFinite(sec) ? sec : NaN;
+}
+/* 全项目唯一时间函数：mid → 北京时间 'YYYY-MM-DD HH:MM:SS'；无效 mid 返回 ''。 */
+function timeFromMid(mid){
+  const sec = midSec(mid);
+  if (!isFinite(sec) || sec <= 0) return '';
+  /* 显式 +8 小时再取 UTC 字段＝北京墙钟，手机时区被改也不漂移 */
+  const iso = new Date(sec * 1000 + 8 * 3600 * 1000).toISOString();
+  return iso.slice(0, 10) + ' ' + iso.slice(11, 19);
+}
+function msgMid(m){ return String((m && m.length > 6 && m[6]) || '').trim(); }
+function msgTime(m){ return timeFromMid(msgMid(m)); }
 
 function djb2(s){
   let h = 5381;
@@ -342,23 +367,8 @@ function firstLineDid(text){
   const head = s.split('\n', 1)[0].trim();
   return /^\d{14}$/.test(head) ? head : '';
 }
-/* v2.82／2.99：14 位 DID（YYYYMMDDHHMMSS）→ 与 fmtTime 同格式的北京时间串
-   'YYYY-MM-DD HH:MM:SS'（「我自己发的消息」以首行 DID 的时间为准，不用系统时间）。 */
-function didToStr(d){
-  return d.slice(0, 4) + '-' + d.slice(4, 6) + '-' + d.slice(6, 8) + ' '
-       + d.slice(8, 10) + ':' + d.slice(10, 12) + ':' + d.slice(12, 14);
-}
-/* 2.99：取「该条自身」的 14 位 DID——兼容两形态：① 首行纯 DID（换行分隔，
-   firstLineDid）；② TRAE 官方排队条把首行 DID 后的换行折叠成空格后的单行形态
-   （'20261020114333 正文…'，pendDidOf）。② 正是「更早老对话被统一打上最新时间」
-   的根因：旧口径只认 ①，② 取不到 DID 便落进「首见缓存/NOW」兜底。 */
-function msgDidOf(text){
-  return firstLineDid(text) || pendDidOf(text);
-}
-function didTimeOf(text){
-  const d = firstLineDid(text);
-  return d ? didToStr(d) : '';
-}
+/* 2.206：didToStr / msgDidOf / didTimeOf 已整段删除——14 位 DID 只用于占位卡
+   销卡与正文剥离，绝不再当作任何显示时间来源。 */
 /* v2.84（老板实测 · Bug B）：剥净正文开头【已有】的 14 位 DID（含多层）——
    重发/重编/残留回填会带着旧 DID，不剥净发送时就会「首行出现两个时间」。
    反复剥到不再以 DID 打头为止（一次重发可能叠了两层）。兼容两形态：
@@ -399,78 +409,14 @@ function stripPendTail(t){
   return s.replace(/\n{3,}/g, '\n\n').trim();
 }
 function resolveTimes(msgs){
-  /* 2.204（B4）：当前会话编号——供「会话编号里的时间」兜底。 */
-  const _SID_FOR_TIME = function(){
-    try {
-      if (typeof S !== 'undefined' && S && (S.anchorFull || S.anchorSid))
-        return String(S.anchorFull || S.anchorSid);
-      return (typeof curSid === 'function') ? String(curSid() || '') : '';
-    } catch(e){ return ''; }
-  };
-  /* 2.99（老板 2026-10-20 11:43「最近几条对话的时间，居然都是一样的……明明我记得
-     这些都是更早之前的老对话，全部一起被打上了最新时间」）——时间【取源】整改。
-     根因：v2.82 的 didTimeOf 只认「首行纯 14 位 DID」，而「更早老对话」经 TRAE 官方
-     排队条落账后首行 DID 被折进单行（'20261020114333 正文…'，账本 tm 列同时为空）⇒
-     取不到 DID ⇒ 落进旧的 else 本地兜底（首见缓存/渲染时刻 NOW）⇒ 同拍多条一并被打上
-     「最新时间」（且各条独立、不串用的口径被破坏）。
-     2.99 起口径：消息时间必须＝该条【自身】真实时间，按优先序取——
-       ① 首行 DID（含折叠单行 msgDidOf；网页版自己发起的消息其时间就是该 DID）；
-       ② 账本源 tm（历史行 index 2，见 缓存.js ledToArr；亦＝快照 index 2 的 TRAE DOM
-          实测真值，与快照服务端第 6 位同源）；
-       ③ 服务端 2.52 盖章（快照 index 5）。
-     三者皆无 ⇒ 【不显示时间】（times[i] 空 ⇒ 消息渲染.js .tm 不渲染）——绝不再用
-     本地首见/NOW 兜底，各条独立、不串用。AI 行沿用其【紧邻上一句人类提问】的时间
-     （该句无真值则 AI 行亦不显）。保留 2.93「双方常显」口径（是显示与否，非时间源）。 */
-  const out = [];
-  let last = '';                          // 紧邻上一句人类提问的时间（无真值＝''）
-  for (const m of msgs){
-    /* 2.102（老板 2026-10-20 13:11「AI 每一条对话都会有一个 ID，ID 上面带时间」）：
-       **mid 前 8 位十六进制＝Unix 秒**（实测：AI 行 mid `6ad6e17517ef…`
-       → 0x6ad6e175 = 1792467317 → 北京时间 2026-10-20 11:35:17，与该行 tm 完全一致）
-       ⇒ **AI 行也有自己的时间**，不再沿用上一句提问时间。AI 行优先取 mid。 */
-    let t = _midTime(m);
-    /* 2.105（⑨·时间一致性）：mid 解出的时间与该行【DOM/账本真值】m[2]（非空完整
-       时间）交叉校验——B 组实测 mid→时间 vs 账本 tm 全库 15.4% 不一致（多为 1s~数秒、
-       长尾 2751s，部分 mid 非创建时间戳）⇒ 两者皆完整且相差 > MID_TIME_DRIFT_S 时，
-       以 m[2]（TRAE DOM / 账本 tm）为准；两者皆无 ⇒ 后续各取源规则落到空。 */
-    if (t && m[2]){
-      const _a = _timeSec(t), _b = _timeSec(m[2]);
-      if (isFinite(_a) && isFinite(_b) && Math.abs(_a - _b) > MID_TIME_DRIFT_S)
-        t = String(m[2]);
-    }
-    /* 2.204（B4）：mid 无真值时统一走 timeNormFull 兜底链——
-       DOM 完整时间 → mid 前 8 位十六进制 → 14 位 DID → 会话编号里的时间。 */
-    if (!t) t = timeNormFull(m, _SID_FOR_TIME());
-    if (m[0] === 'u'){
-      if (!t && m.length > 5 && m[5]) t = String(m[5]);   // ③ 服务端 2.52 盖章
-      /* else：拿不到真实时间 ⇒ 空（不显示，绝不打 NOW） */
-      last = t;
-    } else if (!t){
-      t = last;                           // AI 无 mid 真值时才沿用其紧邻提问时间
-    }
-    out.push(t);
-  }
-  return out;
+  /* 2.206（老板最终合并口径）：每行时间只由「该行自己的 mid」推导——
+     timeFromMid(m[6])，各条独立；mid 无效 ⇒ 时间留空（该条同时不会入账/上屏）。
+     彻底删除：DOM/账本源 tm(m[2])、14 位 DID、会话编号、服务端盖章(m[5]) 兜底，
+     以及「AI 行沿用上一条提问时间」逻辑。 */
+  return (msgs || []).map(m => msgTime(m));
 }
-/* 2.102：从 mid 解出该条【自身】的时间——mid 前 8 位十六进制＝Unix 秒（UTC），
-   转本地时间字符串（格式对齐账本 tm：YYYY-MM-DD HH:MM:SS）。
-   非十六进制/长度不足/秒数超出 2017~2039 合理区间 ⇒ 返回 ''（当作无真值）。 */
-function _midTime(m){
-  try {
-    const s = String((m && m.length > 6) ? (m[6] || '') : '');
-    const h = s.slice(0, 8);
-    if (!/^[0-9a-fA-F]{8}$/.test(h)) return '';
-    const sec = parseInt(h, 16);
-    if (!(sec > 1500000000 && sec < 2200000000)) return '';
-    const d = new Date(sec * 1000);
-    const p = n => (n < 10 ? '0' : '') + n;
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
-         + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-  } catch(e){ return ''; }
-}
-/* 2.105（⑨）：mid 解出时间与 DOM/账本真值 m[2] 的允许偏差（秒）。B 组实测不一致
-   多为 1s~数秒、长尾 2751s；超过此阈值即认定 mid 非该条创建时间戳 ⇒ 以 m[2] 为准。 */
-const MID_TIME_DRIFT_S = 300;
+/* 2.206：_midTime 仅为旧调用点保留的兼容别名——实体只剩 timeFromMid。 */
+function _midTime(m){ return msgTime(m); }
 function _timeSec(ts){
   /* 'YYYY-MM-DD HH:MM:SS'（含 T 分隔）→ Unix 秒；不完整/非法 ⇒ NaN（不参与比较）。 */
   const s = String(ts == null ? '' : ts).trim();
@@ -479,73 +425,16 @@ function _timeSec(ts){
   const v = Math.floor(new Date(+p[0], +p[1] - 1, +p[2], +p[3], +p[4], +p[5]).getTime() / 1000);
   return isFinite(v) ? v : NaN;
 }
-/* ===== 2.204（WB+TR 整改 ST·B4 时间统一与兜底）=====
-   写账本 / 显示 / 排序统一口径 'YYYY-MM-DD HH:MM:SS'。
-   缺失按序兜底：已有完整时间 → 消息编号前 8 位十六进制（Unix 秒）
-   → 14 位 DID（YYYYMMDDHHMMSS）→ 会话编号里的时间 → 留空。
-   不完整时间（只有 HH:MM / HH:MM:SS / 缺秒）就地补全；
-   绝不显示「时间未知」、绝不用本地首见时刻冒充。 */
+/* 2.206：timeNormFull 仍是「写账本/读回」的唯一入口，但实体只剩 mid 推导——
+   own(m[2]) / DID / 会话编号 / 局部补全全部删除，不再有任何其它时间来源。 */
 function timeIsComplete(ts){
   const s = String(ts == null ? '' : ts).trim();
   return /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(s) && isFinite(_timeSec(s));
 }
-function _timeFmtMs(ms){
-  const d = new Date(ms), p = n => (n < 10 ? '0' : '') + n;
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
-       + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-}
-function _timeFromMid(mid){
-  const h = String(mid == null ? '' : mid).slice(0, 8);
-  if (!/^[0-9a-fA-F]{8}$/.test(h)) return '';
-  const sec = parseInt(h, 16);
-  if (!(sec > 1500000000 && sec < 2200000000)) return '';
-  return _timeFmtMs(sec * 1000);
-}
-function _timeFromDid(d){
-  const s = String(d == null ? '' : d).trim();
-  if (!/^\d{14}$/.test(s)) return '';
-  const y = +s.slice(0,4), mo = +s.slice(4,6), da = +s.slice(6,8);
-  const h = +s.slice(8,10), mi = +s.slice(10,12), se = +s.slice(12,14);
-  if (y < 2017 || y > 2039 || mo < 1 || mo > 12 || da < 1 || da > 31
-      || h > 23 || mi > 59 || se > 59) return '';
-  return _timeFmtMs(new Date(y, mo - 1, da, h, mi, se).getTime());
-}
-function _timeFromSid(sid){
-  const s = String(sid == null ? '' : sid);
-  const m = /(\d{14})/.exec(s);
-  if (m){ const t = _timeFromDid(m[1]); if (t) return t; }
-  const h = /^[0-9a-fA-F]{8}/.exec(s);
-  if (h){ const t = _timeFromMid(h[0]); if (t) return t; }
-  return '';
-}
-function _timePartial(ts, base){
-  const t = String(ts == null ? '' : ts).trim();
-  if (!t) return '';
-  let m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(t);
-  if (m) return m[1] + ' ' + m[2] + ':' + m[3] + ':' + (m[4] || '00');
-  m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(t);
-  if (m){
-    const day = (base && String(base).slice(0, 10)) || _timeFmtMs(Date.now()).slice(0, 10);
-    return day + ' ' + m[1] + ':' + m[2] + ':' + (m[3] || '00');
-  }
-  m = /^(\d{4}-\d{2}-\d{2})$/.exec(t);
-  if (m) return m[1] + ' 00:00:00';
-  return '';
-}
+/* 旧名兼容：_timeFromMid 直接转调唯一时间函数 timeFromMid。 */
+function _timeFromMid(mid){ return timeFromMid(mid); }
 function timeNormFull(m, sid){
-  try {
-    const row = Array.isArray(m) ? m : [];
-    const own = String(row[2] == null ? '' : row[2]).trim();
-    const mid = String(row[6] == null ? '' : row[6]).trim();
-    const did = String(row[9] == null ? '' : row[9]).trim() || msgDidOf(row[1]);
-    let t = '';
-    if (timeIsComplete(own)) t = own.replace('T', ' ');
-    if (!t) t = _timeFromMid(mid);
-    if (!t) t = _timeFromDid(did);
-    if (!t) t = _timeFromSid(sid);
-    if (!t) t = _timePartial(own, '');
-    return t || '';
-  } catch(e){ return ''; }
+  return msgTime(m);
 }
 function 稳定键(sid, title){
   /* 2026-10-16 用户口径（绑定改终身号）：会话「稳定性键」——完整 SID 每日会变，
@@ -927,6 +816,23 @@ function adoptSnap(v){
 }
 
 /* ================= 渲染 ================= */
+
+/* 2.206（老板最终合并口径·投递不准覆盖）：服务端帧回填输入框（取出编辑/撤回取回）
+   前先看框里有没有还没发出去的其它内容——有就追加到下一行，绝不把前一条覆盖掉。 */
+function fillEntSafe(text){
+  try {
+    const t = String(text == null ? '' : text);
+    if (!el || !el.ent) return;
+    const cur = String(el.ent.value || '').replace(/\n*$/, '');
+    if (cur.trim() && cur.trim() !== t){
+      el.ent.value = cur + '\n' + t;
+    } else {
+      el.ent.value = t;
+    }
+    if (typeof refreshSendBtn === 'function') refreshSendBtn();
+    try { el.ent.focus(); } catch(e2){}
+  } catch(e){}
+}
 
 function renderAll(){
   /* 2.164（老板 11-15）：「手机重新展示到输入框的时候，小尾巴都要剥离掉」——
