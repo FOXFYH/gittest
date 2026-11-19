@@ -25,6 +25,13 @@
      读取加 6 秒兜底——IDB 请求悬挂（被旧连接 block）时不再永远停在「读取中…」。
      抽屉「📒 小账本」入口一律落 ①（tab='preview'）。
 
+   2.191（收尾·老板手机会突然看到小账本变空的那个坑）：未标 srv 的老缓存做
+     一次性保守迁移——只有 sid（缺则 sk 的 '|' 后半段）能在当前会话列表
+     （S.convs / S.snap.convs_full）里找到同一会话，才补 srv/srvName/srvFox；
+     对不上的宁可不迁、继续隐藏（跨服串显是红线，绝不猜）。只补这三个字段，
+     sk/frame/msgs 一字不动；localStorage.trae_webm_srv_migrated='2.191' 只跑一次；
+     会话列表还没到（冷开）时不跑、也不写标记，等下次读再迁。
+
    2.10（老板 2026-11-05 20:17）：
      · 预备画面列表改「两行一张卡片」的网格——第 1 行会话名，第 2 行时间/条数/是否当前生效；
        点卡片进入该会话的详情，顶部返回列表（不再一条占四行、也不再全堆在左侧）。
@@ -36,7 +43,7 @@
      CV_VER 不再手写死——运行时直接取页面总版本 VER（诊断.js，全局可见），
      取不到才退回本地兜底常量。铁规矩：**每次动查看器都必须让 CV_VER 与页面
      VER 恒等**；build() 里再自检一次，不一致打 bad 日志。 */
-  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.190';
+  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.191';
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -153,16 +160,108 @@
       rq.onerror = function(){ rej(rq.error || new Error('open failed')); };
     });
   }
+  /* 2.191（保守迁移·老板红线：跨服串显绝不猜）：只给「能证明属于当前登录服务器」
+     的老记录补 srv/srvName/srvFox 三字段。证明方式＝该记录 sid（缺失则取 sk 的
+     '|' 后半段）能在当前会话列表（S.convs 行 / S.snap.convs_full）里找到同一会话；
+     找不到一律不迁移、继续按「未标服务器」隐藏。sk / frame / msgs 一字不动（改了会白屏）。 */
+  function _migSidOf(x){
+    var sid = String((x && x.sid) || '');
+    if (!sid){
+      var sk = String((x && x.sk) || ''), i = sk.indexOf('|');
+      if (i >= 0) sid = sk.slice(i + 1);
+      if (sid === '@snap' || !/^[0-9A-Za-z_-]{4,}$/.test(sid)) sid = '';
+    }
+    return sid;
+  }
+  function _convsReady(){
+    try {
+      if (S && Array.isArray(S.convs) && S.convs.length) return true;
+      if (S && S.snap && Array.isArray(S.snap.convs_full) && S.snap.convs_full.length) return true;
+    } catch(e){}
+    return false;
+  }
+  function _migInConvs(sid){
+    if (!sid) return false;
+    var rows = [], cf = [];
+    try { rows = (S && Array.isArray(S.convs)) ? S.convs : []; } catch(e){ rows = []; }
+    try { cf = (S && S.snap && Array.isArray(S.snap.convs_full)) ? S.snap.convs_full : []; } catch(e){ cf = []; }
+    var hit = function(full){
+      full = String(full || '');
+      if (!full) return false;
+      if (full === sid) return true;
+      try {
+        if (typeof 稳定键 === 'function' && 稳定键(full, '') === 稳定键(sid, '')) return true;
+      } catch(e){}
+      return false;
+    };
+    for (var i = 0; i < rows.length; i++){
+      if (rows[i] && hit(rows[i][4])) return true;
+    }
+    for (var j = 0; j < cf.length; j++){
+      if (cf[j] && hit(cf[j].sid)) return true;
+    }
+    return false;
+  }
+  function migrateSrv(list){
+    var todo = [], i;
+    for (i = 0; i < list.length; i++){
+      var x = list[i];
+      if (String(x.srv || '').trim()) continue;          /* 已有归属，不动 */
+      if (!_migInConvs(_migSidOf(x))) continue;          /* 证明不了，宁可不迁 */
+      todo.push(x);
+    }
+    if (!todo.length) return Promise.resolve(0);
+    var tag = '', nm = '', fx = '';
+    try { tag = String(lbSrvTag() || ''); } catch(e){ tag = ''; }
+    try { nm = String(lbSrvName() || ''); } catch(e){ nm = ''; }
+    try { fx = String(lbSrvFox() || ''); } catch(e){ fx = ''; }
+    if (!tag) return Promise.resolve(0);
+    return openSnapDB().then(function(db){
+      return new Promise(function(res){
+        var done = false;
+        var timer = setTimeout(function(){
+          if (done) return; done = true;
+          try { db.close(); } catch(e){}
+          res(0);
+        }, 6000);
+        var tx = db.transaction('snap_conv', 'readwrite'), st = tx.objectStore('snap_conv');
+        todo.forEach(function(x){
+          var v = x._raw || {};
+          if (!v || !v.sk) return;
+          var sid = _migSidOf(x);
+          v.srv = tag; v.srvName = nm; v.srvFox = fx;
+          /* 2.191：sk 的后半段本身就是 sid（_frameMemKey＝'frame|'+sid），既然已用它
+             证明归属，就顺手把空 sid 补上——只补这一个普通字段，sk/frame/msgs 不碰。 */
+          if (!v.sid && sid) v.sid = sid;
+          try { st.put(v); } catch(e){}
+        });
+        tx.oncomplete = function(){
+          if (done) return; done = true; clearTimeout(timer);
+          try { db.close(); } catch(e){}
+          todo.forEach(function(x){
+            x.srv = tag; x.srvName = nm; x.srvFox = fx;
+            if (!x.sid){ var s2 = _migSidOf(x); if (s2) x.sid = s2; }
+          });
+          res(todo.length);
+        };
+        tx.onerror = function(){
+          if (done) return; done = true; clearTimeout(timer);
+          try { db.close(); } catch(e){}
+          res(0);
+        };
+      });
+    }).catch(function(){ return 0; });
+  }
   function readSnapConvs(){
     return openSnapDB().then(function(db){
       return new Promise(function(res){
-        if (!db.objectStoreNames.contains('snap_conv')){ db.close(); return res({list:[], hidden:0}); }
+        if (!db.objectStoreNames.contains('snap_conv')){ db.close(); return res({all:[], timeout:false}); }
         /* 2.190：加 6 秒兜底——IDB open 被别的旧连接挡住（onblocked）时请求永不
-           落地，读取会永远停在「读取中…」（老账本列表卡死的真因）。超时按空表返回。 */
+           落地，读取会永远停在「读取中…」（老板看到的那张卡卡死的真因）。超时按空表返回。 */
         var done = false, timer = setTimeout(function(){
           if (done) return; done = true;
           try { db.close(); } catch(e){}
-          res({list:[], hidden:0, timeout:true});
+          res({all: [], timeout: true});
         }, 6000);
         var fin = function(v){ if (done) return; done = true; clearTimeout(timer); res(v); };
         var tx = db.transaction('snap_conv', 'readonly'), out = [];
@@ -175,30 +274,43 @@
                       srv: v.srv || '', srvName: v.srvName || '', srvFox: v.srvFox || '',
                       port: v.port, ts: v.ts || 0,
                       n: (v.frame && v.frame.msgs || []).length,
-                      msgs: (v.frame && v.frame.msgs) || []});
+                      msgs: (v.frame && v.frame.msgs) || [],
+                      _raw: v});
             c.continue();
           }
         };
-        tx.oncomplete = function(){
-          db.close();
-          /* 2.190（老板：只显示当前登录服务器的预备画面）：写 srv 与读时过滤，
-             同一个函数 lbSrvTag() 算的同一个值；没有 srv 的老缓存不显示、只报条数。 */
-          var cur = '';
-          try { cur = (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : ''; } catch(e){ cur = ''; }
-          var hidden = 0, list = out;
-          if (cur){
-            list = out.filter(function(x){
-              var ok = String(x.srv || '') === cur;
-              if (!ok) hidden++;
-              return ok;
-            });
-          }
-          list.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
-          fin({list: list, hidden: hidden});
-        };
-        tx.onerror = function(){ db.close(); fin({list:[], hidden:0}); };
+        tx.oncomplete = function(){ db.close(); fin({all: out, timeout: false}); };
+        tx.onerror = function(){ db.close(); fin({all: out, timeout: false}); };
       });
-    }).catch(function(){ return {list:[], hidden:0}; });
+    }).then(function(r){
+      var all = (r && r.all) || [], timedOut = !!(r && r.timeout);
+      var cur = '';
+      try { cur = (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : ''; } catch(e){ cur = ''; }
+      /* 2.191：未标服务器的老记录做一次性保守迁移。会话列表还没到（冷开）时
+         不能跑——跑了必然全对不上，还会把一次性标记锁死，老记录就永远回不来。 */
+      var mp = Promise.resolve(0), flag = '';
+      try { flag = localStorage.getItem('trae_webm_srv_migrated') || ''; } catch(e){ flag = ''; }
+      if (!timedOut && flag !== '2.191' && all.length && _convsReady()){
+        mp = migrateSrv(all).then(function(n){
+          try { localStorage.setItem('trae_webm_srv_migrated', '2.191'); } catch(e){}
+          return n;
+        });
+      }
+      return mp.then(function(migrated){
+        /* 2.190（老板：只显示当前登录服务器的预备画面）：写 srv 与读时过滤，
+           同一个函数 lbSrvTag() 算的同一个值；没有 srv 的老缓存不显示、只报条数。 */
+        var hidden = 0, list = all;
+        if (cur){
+          list = all.filter(function(x){
+            var ok = String(x.srv || '') === cur;
+            if (!ok) hidden++;
+            return ok;
+          });
+        }
+        list.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+        return {list: list, hidden: hidden, timeout: timedOut, migrated: (migrated || 0)};
+      });
+    }).catch(function(){ return {list: [], hidden: 0, timeout: false, migrated: 0}; });
   }
   function rowText(m){
     if (Array.isArray(m)) return {role: m[0], text: m[1] || '', tm: m[2] || '', mid: m[6] || ''};
