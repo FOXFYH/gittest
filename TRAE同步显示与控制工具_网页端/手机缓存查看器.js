@@ -1,8 +1,20 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.192  日期 2026-11-19
+/* 手机缓存查看器.js（网页端）  版本 2.208  日期 2026-11-20
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
    两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
+
+   2.208（老板 2026-11-19 23:50 亲令）：「小账本那边进去以后，查看每一条具体记录的时候，
+     每一条具体记录，你得给它带这么一个字段啊。这个是从服务器发过来的：一个是该对话
+     到底属于什么？是人类的发言？还是 AI 的终极回复？还是思维流？必须带这个字段，
+     并且必须在这里看得见。」落地三处：① ① 账本详情每条记录顶部显中文短标签
+     「人类发言／AI 终极回复／思维流」，三类之外显「类型未知」（绝不空白）；
+     ② ② 缓存页 ledger_conv 列表行给类型小前缀（人类 n · 终极 n · 思维流 n），
+     展开先列「第 N 轮·第 M 条：类型＋正文首 24 字」再给原始 JSON；
+     ③ 类型来源以服务端下发为准（WS桥 0.48 给 msgs 每行 index8＝u/a/th），
+     缺失才按「角色＋完成卡摘要」推导；顶层暴露 cvKindOf/cvKindText 供自测复用。
+     顺带修 2.206 遗留的悬空变量（卡片「更新于」原引用未定义的 tsTxt，会让整个 ①
+     列表渲染抛 ReferenceError）：更新时间改由最后一条 mid 推导，取不到只显条数。
 
    2.16（整改单·老板 2026-11-18 亲批）：本查看器即《账本系统 V1.0》规范§十
      写死的「小账本」本体——禁止另造页面。新增第三个标签页「③ 账本调控」：
@@ -54,7 +66,7 @@
      CV_VER 不再手写死——运行时直接取页面总版本 VER（诊断.js，全局可见），
      取不到才退回本地兜底常量。铁规矩：**每次动查看器都必须让 CV_VER 与页面
      VER 恒等**；build() 里再自检一次，不一致打 bad 日志。 */
-  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.206';
+  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.208';
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -104,6 +116,15 @@
       '.cv_msg{padding:8px 10px;margin:6px 0 0;border-radius:8px;font-size:13px;line-height:1.55;word-break:break-word}' +
       '.cv_msg.u{background:#eef4fb}.cv_msg.a{background:#fff;border:1px solid #eef1f4}' +
       '.cv_msg .who{font-size:11px;color:#8a98a6;margin-bottom:3px}' +
+      /* 2.208（老板 2026-11-19 23:50 令）：每条具体记录必须写明类型（人类发言／AI 终极回复／思维流）。 */
+      '.cv_msg .who .kd{display:inline-block;font-size:10px;line-height:15px;padding:0 5px;margin-right:5px;' +
+        'border:1px solid transparent;border-radius:4px}' +
+      '.cv_msg .who .kd.human{background:#e8f0fe;color:#1a56c4;border-color:#cfe0ff}' +
+      '.cv_msg .who .kd.final{background:#e8f7ee;color:#1a7f37;border-color:#c8ead4}' +
+      '.cv_msg .who .kd.think{background:#fff4e5;color:#9a5b00;border-color:#ffe0b2}' +
+      '.cv_msg .who .kd.unknown{background:#f2f4f7;color:#8a98a6;border-color:#e3e8ee}' +
+      '.cv_kinds{padding:8px 10px;background:#fafbfc;border-top:1px solid #eef1f4;font-size:12px;line-height:1.7;' +
+        'color:#33404d;white-space:pre-wrap;word-break:break-all}' +
       '.cv_msg .body{font-size:13px;line-height:1.55}' +
       '.cv_msg .body p{margin:0 0 6px}.cv_msg .body p:last-child{margin-bottom:0}' +
       /* 2.16：③ 账本调控区（跟随查看器既有风格，不新造组件形态） */
@@ -327,6 +348,72 @@
     if (Array.isArray(m)) return {role: m[0], text: m[1] || '', tm: m[2] || '', mid: m[6] || ''};
     return {role: (m && (m.role || m.r)) || '', text: (m && (m.text || m.t)) || '', tm: '', mid: ''};
   }
+  /* ===== 2.208（老板 2026-11-19 23:50 令）=====
+     「每一条具体记录，你得给它带这么一个字段啊。这个是从服务器发过来的：一个是该对话
+      到底属于什么？是人类的发言？还是 AI 的终极回复？还是思维流？必须带这个字段，
+      并且必须在这里看得见。」
+     口径：服务端下发 index8／kind＝u/a/th（见 WS桥 0.48），前端落账为 human/final/think；
+     读取优先级＝行内 index8 → 行对象 kind/type → 按角色＋完成卡摘要推导（u=人类、
+     a 且有终答=终极、a 无终答=思维流）；三类之外一律「类型未知」，绝不空白。 */
+  var KIND_TEXT = {human: '人类发言', final: 'AI 终极回复', think: '思维流'};
+  function _kindNorm(s){
+    s = String(s == null ? '' : s).trim().toLowerCase();
+    if (s === 'u' || s === 'human' || s === 'user' || s === '人') return 'human';
+    if (s === 'a' || s === 'final' || s === 'ai') return 'final';
+    if (s === 'th' || s === 'think' || s === 'snap') return 'think';
+    return '';
+  }
+  function kindOf(m){
+    if (!m || typeof m !== 'object') return '';
+    if (Array.isArray(m)){
+      var k = _kindNorm(m[8]);
+      if (k) return k;
+      var role = String(m[0] || '').toLowerCase();
+      if (role === 'u') return 'human';
+      if (role === 'a') return (String(m[7] || '').trim() ? 'final' : 'think');
+      return '';
+    }
+    var k2 = _kindNorm(m.kind != null ? m.kind : m.type);
+    if (k2) return k2;
+    var r2 = String(m.role || m.r || '').toLowerCase();
+    if (r2 === 'u' || r2 === 'user') return 'human';
+    if (r2 === 'a' || r2 === 'ai') return 'final';
+    return '';
+  }
+  function kindText(m){
+    var k = kindOf(m);
+    return KIND_TEXT[k] || '类型未知';
+  }
+  /* 类型徽标（详情每条必显；色标仅供一眼分辨，文字为准） */
+  function kindTag(m){
+    var k = kindOf(m) || 'unknown';
+    return '<span class="kd ' + k + '">' + esc(KIND_TEXT[k] || '类型未知') + '</span>';
+  }
+  /* ② 缓存页 ledger_conv：把整本账逐条类型列出来（原始 JSON 里 index8 不直观） */
+  function kindsDigestHtml(rec){
+    var rows = (rec && rec.rounds) || [], out = [];
+    rows.forEach(function(r, i){
+      (Array.isArray(r) ? r : []).forEach(function(m, j){
+        var t = (Array.isArray(m) ? String(m[1] || '') : '').replace(/\s+/g, ' ').slice(0, 24);
+        out.push('第 ' + (i + 1) + ' 轮 · 第 ' + (j + 1) + ' 条：' + kindText(m) + (t ? ('　' + t) : ''));
+      });
+    });
+    if (!out.length) return '';
+    return '<div class="cv_kinds">' + out.map(function(s){ return '<div>' + esc(s) + '</div>'; }).join('') + '</div>';
+  }
+  /* ② 缓存页列表行小前缀：整本账的类型分布（人类 n · 终极 n · 思维流 n） */
+  function kindStatText(rec){
+    var n = {human: 0, final: 0, think: 0, unknown: 0};
+    ((rec && rec.rounds) || []).forEach(function(r){
+      (Array.isArray(r) ? r : []).forEach(function(m){ n[kindOf(m) || 'unknown']++; });
+    });
+    var parts = [];
+    if (n.human) parts.push('人类 ' + n.human);
+    if (n.final) parts.push('终极 ' + n.final);
+    if (n.think) parts.push('思维流 ' + n.think);
+    if (n.unknown) parts.push('类型未知 ' + n.unknown);
+    return parts.join(' · ');
+  }
   /* 2.10：单条消息走主代码同一条渲染管线（专属词前后缀折叠成按钮，不再整段铺开）。 */
   function bodyHtml(text, isUser){
     var src = String(text == null ? '' : text);
@@ -381,6 +468,18 @@
         var isCur = !!sid && (_cur ? (sid === _cur)
           : (!!S.anchorSid && typeof 稳定键 === 'function'
              && 稳定键(sid, it.title || '') === String(S.anchorSid)));
+        /* 2.206/2.208：更新时间只取「最后一条有 mid 的记录」由 mid 推导；
+           两个来源都取不到时只显示条数（绝不显示缓存落盘时间，也不留空变量）。 */
+        var _tsTxt = it.n + ' 条';
+        try {
+          var _ms = it.msgs || [], _lm = '';
+          for (var _mi = _ms.length - 1; _mi >= 0; _mi--){
+            var _mr = _ms[_mi];
+            if (Array.isArray(_mr) && _mr[6]){ _lm = String(_mr[6]); break; }
+          }
+          var _upd = _lm ? String((typeof timeFromMid === 'function' ? timeFromMid(_lm) : '') || '') : '';
+          if (_upd) _tsTxt += ' · 更新于 ' + _upd;
+        } catch(e){}
         var card = document.createElement('div');
         card.className = 'cv_card';
         /* 2.192（老板：内容全挤左侧、卡片太高）：两行两栏——
@@ -390,7 +489,7 @@
           '<div class="cv_r"><div class="cv_rt">' + esc(it.title || '（无名会话）') + (dup ? ' · 重复' : '') + '</div>'
             + '<div class="cv_rs">' + esc(srvTxt) + '</div></div>' +
           '<div class="cv_r"><div class="cv_rid' + (sid ? '' : ' cv_lbpending') + '">' + esc(sidTxt) + '</div>'
-            + '<div class="cv_rmeta">' + esc(it.n + ' 条 · 更新于 ' + tsTxt)
+            + '<div class="cv_rmeta">' + esc(_tsTxt)
             + (isCur ? '<span class="cv_lbcur">● 当前会话</span>' : '') + '</div></div>';
         var del = document.createElement('button');
         del.className = 'cv_lbdel';
@@ -448,14 +547,16 @@
     } else {
       it.msgs.forEach(function(m){
         var x = rowText(m);
-        var user = x.role === 'u';
+        /* 2.208：类型以服务端下发为准（index8/kind）；缺则按角色＋终答推导；不得空白。 */
+        var _k = kindOf(m);
+        var user = x.role === 'u' || _k === 'human';
         /* 2.206（老板最终合并口径）：时间只由该条 mid 前 8 位十六进制推导，
            不读记录里的 tm（旧值），也不再「沿用上一条」。ID 显示完整 mid。 */
         var tm = String(x.mid || '') ? String((typeof timeFromMid === 'function' ? timeFromMid(x.mid) : '') || '') : '';
         var mid = String(x.mid || '');
         var d = document.createElement('div');
         d.className = 'cv_msg ' + (user ? 'u' : 'a');
-        d.innerHTML = '<div class="who">' + esc((user ? '你' : 'AI') +
+        d.innerHTML = '<div class="who">' + kindTag(m) + esc((user ? '你' : 'AI') +
           (tm ? ' · ' + tm : '') + (mid ? ' · ' + mid : '')) + '</div>' +
           bodyHtml(x.text, user);
         box.appendChild(d);
@@ -565,11 +666,17 @@
                     head = '#' + (i+1) + ' ' + esc(nm)
                          + (x.value.diag ? ' <span class="cv_meta">·诊断</span>' : '')
                          + ' <span class="cv_meta">·#' + esc(tail)
-                         + '（' + fmtSize(t.length) + '）</span>';
+                         + '（' + fmtSize(t.length) + '）</span>'
+                         /* 2.208：列表行给类型小前缀（人类 n · 终极 n · 思维流 n） */
+                         + ' <span class="cv_meta">·' + esc(kindStatText(x.value)) + '</span>';
                   } else {
                     head = '#' + (i+1) + ' 键=' + esc(jsonText(x.key).slice(0,60)) + '（' + fmtSize(t.length) + '）';
                   }
-                  dd.innerHTML = '<summary>' + head + '</summary><div class="cv_v">' + esc(t) + '</div>';
+                  /* 2.208：展开即先列「每条记录的类型」（中文短标签），再给原始 JSON。 */
+                  dd.innerHTML = '<summary>' + head + '</summary>'
+                    + ((sn === 'ledger_conv' && x.value && typeof x.value === 'object')
+                        ? kindsDigestHtml(x.value) : '')
+                    + '<div class="cv_v">' + esc(t) + '</div>';
                   wrap.appendChild(dd);
                 });
               });
@@ -751,4 +858,8 @@
   /* 整改单（2026-11-18）：设置页「小账本」按钮唯一入口——顶层暴露，未 build 过
      也先补 build（build 内部自防重复），保证任何入口点开即可用。 */
   window.cvEnsure = function(){ build(); };
+  /* 2.208（老板令·每条记录必须看得见类型）：顶层暴露只读映射，供详情/其它模块与自测复用，
+     返回固定中文短标签「人类发言 / AI 终极回复 / 思维流 / 类型未知」。 */
+  window.cvKindOf = function(m){ return kindOf(m); };
+  window.cvKindText = function(m){ return kindText(m); };
 })();
