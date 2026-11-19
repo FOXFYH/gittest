@@ -655,7 +655,12 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
     if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
     _idbReq('snap_conv', 'readwrite', st => {
       st.delete(meta.key + '|@snap');
-      st.put({sk: sk, key: meta.key, port: meta.port, sid: meta.sid,
+      /* 2.211：记录另存真实 sid 与**权威 uid**（终身号）；显示端只认 uid，
+         取不到显「终身号未登记」，绝不把 sid/实例号当终身号。 */
+      let _uid = String(meta.uid || '').trim();
+      if (!_uid && typeof lbUidPick === 'function')
+        { try { _uid = String(lbUidPick(null, meta.sid, meta.title) || ''); } catch(e){ _uid = ''; } }
+      st.put({sk: sk, key: meta.key, port: meta.port, sid: meta.sid, uid: _uid,
               /* 2.190（老板：只显示当前登录服务器的预备画面）：记录补服务器维度——
                  取值与账本落盘同源（lbSrvTag/lbSrvName/lbSrvFox），读时按同一函数过滤。
                  键（_frameMemKey）不动，避免老缓存全失效白屏。 */
@@ -991,7 +996,7 @@ function paneFrameStore(sid, title, v){
                    attach: [], model: ''};
     /* 2.126：走「只进不退」统一闸——预取帧也不得用碎片／旧帧覆盖已存的完整帧 */
     _frameCommit(_sk, frame,
-      {key: key, port: S.port, sid: _sid, title: title || '', ts: now},
+      {key: key, port: S.port, sid: String(sid), title: title || '', ts: now},
       function(){ _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = msgsFp(frame.msgs); });
     return true;
   }catch(e){ return false; }
