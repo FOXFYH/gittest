@@ -687,8 +687,11 @@ function ledgerThinkApply(sid, body){
     return;
   }
   if (f && typeof f === 'object' && Array.isArray(f.msgs)){
-    /* 2.196（三类标记）：思维流帧只做 kind 标记（think/human/final），不落账本。 */
-    f.msgs.forEach(m => { if (Array.isArray(m)) m[8] = lbMsgKind(m); });
+    /* 2.196（三类标记）：思维流帧只做 kind 标记（think/human/final），不落账本。
+       2.208（老板 2026-11-19 23:50 令·每条记录必须带类型）：服务端已下发 index8
+       （WS桥 0.49 给 msgs 每行写 u/a/th）的**以服务端为准，不覆盖**；只有缺标识的
+       旧帧才就地推导，保证小账本详情显示的类型与服务端一致。 */
+    f.msgs.forEach(m => { if (Array.isArray(m) && !m[8]) m[8] = lbMsgKind(m); });
     onEv('snap_pane', {sid: String(sid || ''), title: b.title || '',
                        msgs: f.msgs, finish: f.finish || null});
     S.lb_foldRounds = 0;                   /* 真画面到手 → 归零（2.183 修2：补发面板已撤§十二-2，状态位保留防渲染 key 漂移） */
