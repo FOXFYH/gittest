@@ -126,6 +126,18 @@ function _pendOwnerOk(pend){
             && 稳定键(ps, '') === 稳定键(cs, ''));
 }
 
+/* 2.203（老板 2026-11-19 22:02 令）：思维流只为 1 号网页用户提供。
+   非 1 号（2/3 号）且当前会话思维灯亮（busy）时，本来该出思维流的位置改显占位文案；
+   灯灭或换成别的灯（unread/fail/stop/无灯）即不显示（区域回归空态/正常渲染）。 */
+function _thinkNoHostOn(){
+  if (typeof hostIsFirst !== 'function' || hostIsFirst()) return false;
+  return ((typeof _curConvLight === 'function' ? _curConvLight() : '') === 'busy');
+}
+function _thinkNoHostHtml(){
+  return '<div class="msg agent thinkph"><div class="who">TraeWork</div>'
+       + '<div class="body">您不是 1 号网页用户，无法提供思维流</div></div>';
+}
+
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
   /* 2.131：不是当前会话的排队条，一律不画（也不进 #qp: 指纹）。 */
@@ -167,6 +179,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   key += '#pend:' + pendSig();
   /* 账本V1.0（G1）：历史补发折叠面板轮数参与指纹（面板进出要重画） */
   key += '#lbf:' + (S.lb_foldRounds || 0);
+  /* 2.203：非 1 号思维流占位参与指纹（灯亮↔灯灭必须触发重画，占位才能即时撤） */
+  const _noHost = _thinkNoHostOn();
+  key += '#nt:' + (_noHost ? '1' : '0');
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -191,11 +206,16 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   const empty = !msgs.length && !opts.length;
   if (empty && !S.pending.length && !S.switch_pend
       && !(pend || []).length && !_qLatch.length){
-    el.msgs.innerHTML =
-      '<div class="empty">（暂无消息，发送一条开始对话）</div>';
+    el.msgs.innerHTML = _noHost
+      ? _thinkNoHostHtml()
+      : '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
   }
-  if (empty && !(pend || []).length && !_qLatch.length){ renderPending(); return; }
+  if (empty && !(pend || []).length && !_qLatch.length){
+    renderPending();
+    if (_noHost) el.msgs.insertAdjacentHTML('beforeend', _thinkNoHostHtml());
+    return;
+  }
   /* 2.187：正文为空但官方排队条有条目（新会话首条就进了队）——不再早退，
      走正常渲染把「⏳ 官方排队条」挂出来；msgs 空则 forEach 自然零条。 */
   const times = resolveTimes(msgs);
@@ -334,6 +354,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     });
     el.msgs.appendChild(d);
   });
+  /* 2.203：非 1 号网页用户——思维灯亮时在「本该出思维流」的位置显示占位文案
+     （灯灭/换灯即撤，见 _thinkNoHostOn；指纹 #nt: 保证灯态变化必重画）。 */
+  if (_noHost) el.msgs.insertAdjacentHTML('beforeend', _thinkNoHostHtml());
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 TRAE
      AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
      底部 主按钮(下一步/确认)/取消）。可点选项、可填其他、可提交。
