@@ -85,6 +85,9 @@ function enterCur(){
 }
 function setCur(nm){
   S.cur = nm;
+  /* 2.184 追加（服务器隔离过滤·老板令）：切换操控服务端＝换了本服——
+     FOX 号锚必须归零，等新服 hello 自报重落，防止拿旧服号错杀新服帧。 */
+  S.curSid = '';
   try {
     if (nm) localStorage.setItem(LS_SRV, nm);
     else localStorage.removeItem(LS_SRV);
