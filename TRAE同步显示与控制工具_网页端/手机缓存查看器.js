@@ -54,7 +54,7 @@
      CV_VER 不再手写死——运行时直接取页面总版本 VER（诊断.js，全局可见），
      取不到才退回本地兜底常量。铁规矩：**每次动查看器都必须让 CV_VER 与页面
      VER 恒等**；build() 里再自检一次，不一致打 bad 日志。 */
-  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.192';
+  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.204';
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -637,20 +637,29 @@
        它是配套参数，不是账本本体。 */
     var cfg = document.createElement('div');
     cfg.className = 'cv_sec';
-    cfg.innerHTML = '<h3>预备账册参数 <span class="n">改动后新的缓存按新条数保存</span></h3>' +
+    /* 2.204（B1）：单位统一为「轮」（1 轮＝人类发言＋终极回复），默认 5 轮，
+       与本地账本 CFG.lb_rounds、服务端 ledger_push_rounds 三处同值；
+       此处与下方「本地账本保留轮数」是同一个值，改任一处两边同步。 */
+    cfg.innerHTML = '<h3>预备账册参数 <span class="n">单位：轮（1 轮＝人类发言＋终极回复）</span></h3>' +
       '<div style="padding:10px 14px;font-size:13px;display:flex;align-items:center;gap:8px">' +
-      '保存最近 <input id="cv_n" type="number" min="2" max="50" step="1" style="width:64px;' +
-      'border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px" value="4"> 条' +
-      '<span class="cv_meta" style="margin:0">（只留人类发言＋终极回复，思维流不存）</span></div>';
+      '保存最近 <input id="cv_n" type="number" min="1" max="50" step="1" style="width:64px;' +
+      'border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px" value="5"> 轮' +
+      '<span class="cv_meta" style="margin:0">（只留人类发言＋终极回复，思维流不存）</span></div>' +
+      '<div class="cv_lbhint" style="padding:0 14px 8px">服务端每次补发轮数：<b>5 轮</b>（默认，与本地同值；服务端侧可配，属另一路整改项）</div>';
     host.appendChild(cfg);
     var nEl = cfg.querySelector('#cv_n');
-    try { nEl.value = localStorage.getItem('trae_webm_frame_n') || '4'; } catch(e){}
+    try { nEl.value = (typeof lbRounds === 'function') ? lbRounds() : 5; } catch(e){ nEl.value = 5; }
     nEl.onchange = function(){
       var v = parseInt(nEl.value, 10);
-      if (!(v >= 2 && v <= 50)){ v = 4; }
+      if (!(v >= 1 && v <= 50)){ v = 5; }
       nEl.value = v;
-      try { localStorage.setItem('trae_webm_frame_n', String(v)); } catch(e){}
-      nEl.parentElement.lastElementChild.textContent = '已保存：之后每次落盘只留最近 ' + v + ' 条';
+      try {
+        if (typeof CFG !== 'undefined'){ CFG.lb_rounds = v; if (typeof cfgSave === 'function') cfgSave(); }
+        localStorage.setItem('trae_webm_frame_n', String(v));   /* 旧键镜像，兼容老逻辑 */
+        localStorage.setItem('trae_webm_frame_n_unit', 'round');
+      } catch(e){}
+      try { var r = document.getElementById('lb_in_rounds'); if (r) r.value = v; } catch(e){}
+      nEl.parentElement.lastElementChild.textContent = '已保存：之后每次落盘只留最近 ' + v + ' 轮';
     };
     var hud = document.createElement('div');
     hud.className = 'cv_sec';
@@ -664,11 +673,11 @@
       '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_hud"> 悬浮倒计时条（左下角，默认关；勾选即悬浮走字）</label></div>' +
       '<div class="cv_lbrow"><label>离线倒计时（秒）</label><input type="number" id="lb_in_offline" min="15" max="3600"></div>' +
       '<div class="cv_lbrow"><label>主动核对周期（秒）</label><input type="number" id="lb_in_period" min="15" max="3600"></div>' +
-      '<div class="cv_lbrow"><label>本地账本保留轮数</label><input type="number" id="lb_in_rounds" min="1" max="50"></div>' +
+      '<div class="cv_lbrow"><label>保留轮数（本地账本＝预备画面＝服务端默认同值）</label><input type="number" id="lb_in_rounds" min="1" max="50"></div>' +
       '<div class="cv_lbrow"><label>思维流直播帧间隔（秒，0＝不限频一变即发）</label><input type="number" id="lb_in_think" min="0" max="120"></div>' +
       '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_idleout"> 离线倒计时启用（走完发下线信号）</label></div>' +
       '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_bgout"> 切后台/切网页自动下线</label></div>' +
-      '<div class="cv_lbhint">以上为账本系统 V1.0 全部调控项（唯一集中入口）。小账本本体在「① 会话预备画面」，本页只放配套调控；原始记录仍可在「② 全部缓存」展开 IndexedDB · trae_webm_idb · ledger_conv。</div>';
+      '<div class="cv_lbhint">以上为账本系统 V1.0 全部调控项（唯一集中入口）。小账本本体在「① 会话预备画面」，本页只放配套调控；原始记录仍可在「② 全部缓存」展开 IndexedDB · trae_webm_idb · ledger_conv。保留轮数三处同值：本地账本 / 预备画面 / 服务端补发默认（服务端侧可配）。</div>';
     host.appendChild(fs);
     var q = function(id){ return fs.querySelector('#' + id); };
     var save = function(){ try { if (typeof cfgSave === 'function') cfgSave(); } catch(e){} };
@@ -689,7 +698,7 @@
     q('lb_ck_bgout').onchange = function(){ CFG.lb_bgout = this.checked ? 1 : 0; save(); };
     q('lb_in_offline').onchange = function(){ CFG.lb_offline = Math.max(15, parseInt(this.value, 10) || 120); this.value = CFG.lb_offline; save(); try { if (typeof lbLastAct !== 'undefined') lbLastAct = Date.now(); } catch(e){} };
     q('lb_in_period').onchange = function(){ CFG.lb_period = Math.max(15, parseInt(this.value, 10) || 60); this.value = CFG.lb_period; save(); };
-    q('lb_in_rounds').onchange = function(){ CFG.lb_rounds = Math.min(50, Math.max(1, parseInt(this.value, 10) || 5)); this.value = CFG.lb_rounds; save(); };
+    q('lb_in_rounds').onchange = function(){ CFG.lb_rounds = Math.min(50, Math.max(1, parseInt(this.value, 10) || 5)); this.value = CFG.lb_rounds; save(); try { localStorage.setItem('trae_webm_frame_n', String(CFG.lb_rounds)); } catch(e){} var n0 = document.getElementById('cv_n'); if (n0) n0.value = CFG.lb_rounds; };
     q('lb_in_think').onchange = function(){
       CFG.lb_think = Math.max(0, parseInt(this.value, 10) || 0);
       this.value = CFG.lb_think; save();
