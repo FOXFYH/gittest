@@ -339,14 +339,26 @@
             return ok;
           });
         }
-        list.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+        /* 2.209：会话列表「最近时间」一律取该会话最后一条消息的 ID 时间
+           （mid 前 8 位 hex），不再用落盘时间 ts 排序。 */
+        function _lastMidSec(x){
+          var ms = (x && x.msgs) || [], v = 0;
+          for (var i = ms.length - 1; i >= 0; i--){
+            var m = ms[i];
+            var s = (Array.isArray(m) && typeof midSec === 'function') ? midSec(m[6]) : NaN;
+            if (isFinite(s)){ v = s; break; }
+          }
+          return v;
+        }
+        list.sort(function(a,b){ return _lastMidSec(b) - _lastMidSec(a); });
         return {list: list, hidden: hidden, timeout: timedOut, migrated: (migrated || 0)};
       });
     }).catch(function(){ return {list: [], hidden: 0, timeout: false, migrated: 0}; });
   }
   function rowText(m){
-    if (Array.isArray(m)) return {role: m[0], text: m[1] || '', tm: m[2] || '', mid: m[6] || ''};
-    return {role: (m && (m.role || m.r)) || '', text: (m && (m.text || m.t)) || '', tm: '', mid: ''};
+    /* 2.209：不读记录里的 tm（账本已不存时间）；显示只用 mid 现算。 */
+    if (Array.isArray(m)) return {role: m[0], text: m[1] || '', mid: m[6] || ''};
+    return {role: (m && (m.role || m.r)) || '', text: (m && (m.text || m.t)) || '', mid: ''};
   }
   /* ===== 2.208（老板 2026-11-19 23:50 令）=====
      「每一条具体记录，你得给它带这么一个字段啊。这个是从服务器发过来的：一个是该对话
