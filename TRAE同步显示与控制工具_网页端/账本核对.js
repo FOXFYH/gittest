@@ -73,6 +73,41 @@ function lbHaveLoad(){
     }).catch(() => {});
   } catch(e){}
 }
+/* 2.204（B4）：坏时间记录回补——只扫最近 1~2 天（rec.ts / lastTs）的本地账本，
+   把「不完整/缺失」的行时间按 timeNormFull 兜底链补成 YYYY-MM-DD HH:MM:SS。
+   幂等：已完整的不动；没有可补值的也不动；写回只在真改过时发生。 */
+let _lbTimeFixAt = 0;
+function lbTimeBackfill(days){
+  try {
+    if (Date.now() - _lbTimeFixAt < 5 * 60 * 1000) return Promise.resolve(0);
+    _lbTimeFixAt = Date.now();
+    const cut = Date.now() - Math.max(1, Number(days) || 2) * 24 * 3600 * 1000;
+    return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
+      let n = 0;
+      const tasks = [];
+      (rows || []).forEach(rec => {
+        if (!rec || lbIsLegacyRec(rec)) return;
+        const ts = Math.max(Number(rec.ts) || 0, Number(rec.lastTs) || 0);
+        if (ts && ts < cut) return;              /* 只回补最近 1~2 天 */
+        let changed = false;
+        (rec.rounds || []).forEach(r => (r || []).forEach(m => {
+          if (!Array.isArray(m)) return;
+          if (typeof timeIsComplete === 'function' && timeIsComplete(m[2])) return;
+          const nv = (typeof timeNormFull === 'function') ? timeNormFull(m, rec.sid || '') : '';
+          if (nv && nv !== m[2]){ m[2] = nv; changed = true; }
+        }));
+        if (changed){
+          n++;
+          tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(rec)).catch(() => {}));
+        }
+      });
+      return Promise.all(tasks).then(() => {
+        if (n) { try { diagLog('账本时间回补 ' + n + ' 本（最近 ' + (Number(days) || 2) + ' 天）', 'ok'); } catch(e){} }
+        return n;
+      });
+    }).catch(() => 0);
+  } catch(e){ return Promise.resolve(0); }
+}
 /* 2.184 改4（规范§七 :194 同号不同态）：本地账本摘要——每会话算
    {rounds, codes:[{mid, fin, hash}]}（编码＋完成态指纹＋正文指纹），
    供 vcheck 上报；键＝终身号（lbKey 同口径）。FNV-1a 32 位，够区分不追求密码学。 */
@@ -153,30 +188,95 @@ function lbMsgKind(m){
   if (t === 'a'){
     const fin = String((m.length > 7 && m[7]) || '').trim();
     const mid = String((m.length > 6 && m[6]) || '').trim();
-    return (fin && mid) ? 'final' : 'think';     /* 未认证/无 mid＝未定稿，按思维流 */
+    /* 2.204（C）：服务端打「本轮终极（补记）」标记的残缺思维流——按已认证终极收，
+       与人类发言凑成一轮；无标记的仍未定稿，按思维流。 */
+    return ((fin || lbPatchMarked(m)) && mid) ? 'final' : 'think';
   }
   return 'think';                                /* th/snap/未知 */
 }
+/* ============ 2.204（C·老板 22:42 令）：本轮终极（补记） ============
+   AI 还在思维流、终极回复未产生时人类又问新问题，残缺血思维流页不会再生长——
+   服务端把它判为「本轮终极（补记）」下发。客户端识别标记后：把这段残缺思维流
+   与人类那句凑成一轮入账，**不再把不完整轮掐掉**（2.202 已撤半轮丢弃，此处不回归）。
+   兼容服务端可能的多种承载形态（任一命中即视为补记）：
+     · 轮级/条目级布尔：patched / fin_patch / final_patch / interrupt_final /
+       terminal_patch / recovered / 补记（值为 1/'1'/true）
+     · 行级：m[8]==='patched' 或 m[10]===1
+   标记只影响「是否按终极落账」，不改正文、不造名、不新增拒收闸门。 */
+const LB_PATCH_KEYS = ['patched', 'fin_patch', 'final_patch', 'interrupt_final',
+                       'terminal_patch', 'recovered', '补记'];
+function lbPatchFlag(v){
+  if (!v || typeof v !== 'object') return false;
+  for (const k of LB_PATCH_KEYS){
+    const x = v[k];
+    if (x === true || x === 1 || x === '1' || x === 'true') return true;
+  }
+  return false;
+}
+function lbPatchMarked(m){
+  if (!Array.isArray(m)) return false;
+  if (String(m[8] || '').toLowerCase() === 'patched') return true;
+  return (m.length > 10 && (m[10] === 1 || m[10] === '1' || m[10] === true));
+}
 function lbTagKind(m){
   const x = m.slice();
-  x[8] = lbMsgKind(m);
+  const k = lbMsgKind(m);
+  x[8] = k;
+  /* 2.204（C）：补记终极原本没有完成卡摘要——补一个非空标记，
+     让它按「已认证终极」参与上报/对账，不再被服务端判缺反复补发。
+     正文（index1）保持残缺思维流原文，不冒充、不改写。 */
+  if (k === 'final' && !String(x[7] || '').trim()) x[7] = '补记';
   return x;
 }
 /* 四字段之一：uid＝终身号（SID 前 4 位数字，取不到即空＝待补号）；sid＝对话ID
    （原始会话 id，锚定路只有终身号时从会话列表反查）。title＝会话名（必有）。 */
 function lbUidOf(sid){
   const s = String(sid || '').trim();
+  /* 2.204（B5·老板：1623/1632 假账号）：10 位纯数字（服务端 FOX 号/旧假会话号）
+     一律不当会话编号/终身号 ⇒ 无编号，走名称临时键。 */
+  if (/^\d{10}$/.test(s)) return '';
   return /^\d{4}/.test(s) ? s.slice(0, 4) : '';
+}
+/* 2.204（B3·名字→编号别名映射）：只做映射，不改历史记录。同一本服的「会话名→终身号」
+   持久化到 localStorage；后续只带名字（无号/假号）的帧按别名回锚，0023 与
+   人事部长ST 落同一本账。与服务端「改名」口径一致：同名最新号覆盖旧号。 */
+const LS_LB_ALIAS = 'trae_webm_lb_alias';
+function lbAliasLoad(){
+  try { return JSON.parse(localStorage.getItem(LS_LB_ALIAS) || '{}') || {}; }
+  catch(e){ return {}; }
+}
+function lbAliasSave(o){
+  try { localStorage.setItem(LS_LB_ALIAS, JSON.stringify(o || {})); } catch(e){}
+}
+function lbAliasGet(title){
+  const t = String(title || '').trim();
+  if (!t) return '';
+  const o = lbAliasLoad(), m = o[lbSrvKey()] || {};
+  const u = String(m[t] || '');
+  return /^\d{4}$/.test(u) ? u : '';
+}
+function lbAliasSet(uid, title){
+  const u = String(uid || '').trim(), t = String(title || '').trim();
+  if (!/^\d{4}$/.test(u) || !t) return;
+  const o = lbAliasLoad();
+  const k = lbSrvKey();
+  const m = o[k] || (o[k] = {});
+  if (m[t] === u) return;
+  m[t] = u;
+  lbAliasSave(o);
 }
 /* 2.197（老板 2026-11-19·终身号口径统一）：优先消费服务端下发 uid（共享数据库
    `_终身号_由sid`/`翻译_终生号_由SID` 口径），缺失才退回按 sid 自算。非 4 位数字
    uid（含「<会话名>（临时）」及共享库既有段名）一律视为「待补号」→ 返回 ''，
    落账走 t:名称 临时键，与无 uid 时同一本账，绝不出现「uid 键 / t:名称 键」两本。 */
-function lbUidPick(serverUid, sid){
+function lbUidPick(serverUid, sid, title){
+  const s = String(sid || '').trim();
+  /* 2.204（B5）：10 位纯数字是假账号号源（1623/1632），按无编号处理。 */
+  if (/^\d{10}$/.test(s)) return '';
   const u = String(serverUid || '').trim();
   if (/^\d{4}$/.test(u)) return u;          /* TRAE 标准终身号＝sid 前 4 位数字 */
   if (u) return '';                         /* 非标准（含「名（临时）」）→ 临时锚 */
-  return lbUidOf(sid);                      /* 服务端未带 uid → 退回自算 */
+  return lbUidOf(s) || lbAliasGet(title);   /* 2.204：无号时先查「名字→编号」别名 */
 }
 function lbRawSidOf(uid, title){
   try {
@@ -570,7 +670,9 @@ function lbRoundsFromMsgs(msgs){
   /* 2.184 改3（规范§七 :194 同号不同态）：终极为空＝该轮未完成（思维流阶段/
      生成中），绝不用 m[1] 思维流正文兜底冒充终极。2.202（老板 2026-11-19
      21:51 令·手机网页端＝诊断口不设限）：半轮（只有人类行、终极未到）也照落，
-     不再整轮丢弃，便于一眼看出缺终极的毛病；纯 think 仍不入账。 */
+     不再整轮丢弃，便于一眼看出缺终极的毛病；纯 think 仍不入账。
+     2.204（C）：服务端打了「本轮终极（补记）」标记的残缺思维流＝终极，
+     与人类发言凑成一轮；正文用原文，fin 用补记标记。 */
   const rounds = [];
   let cur = null;
   (msgs || []).forEach(m => {
@@ -581,9 +683,14 @@ function lbRoundsFromMsgs(msgs){
     } else if (m[0] === 'a' && cur){
       const fin = String((m.length > 7 && m[7]) || '').trim();
       const mid = String((m.length > 6 && m[6]) || '').trim();
-      /* 思维流/未认证终极（完成态或消息 ID 为空）不入账——既有入账范围不动。 */
-      if (!fin || !mid) return;
-      cur.push([m[0], fin, m[2] || '', 0, 0, m[5] || '', m[6] || '', m[7] || '']);
+      const patch = lbPatchMarked(m);
+      /* 思维流/未认证终极（完成态或消息 ID 为空）不入账——既有入账范围不动。
+         2.204：带补记标记的按终极收（正文＝残缺思维流原文，绝不把「补记」
+         二字当正文）。 */
+      if ((!fin && !patch) || !mid) return;
+      const _disp = (fin && fin !== '补记') ? fin : (m[1] || '');
+      cur.push([m[0], _disp, m[2] || '', 0, 0, m[5] || '',
+                m[6] || '', fin || (patch ? '补记' : ''), patch ? 'patched' : '']);
     }
   });
   if (cur && cur.length) rounds.push(cur);           /* 2.202：半轮也落 */
@@ -791,13 +898,25 @@ function ledgerStorePut(sid, title, rounds, opt){
     /* 2.196 四字段：srv＝服务端（srv/srvName/srvFox 同源）、uid＝终身号（可空）、
        title＝会话名（必有）、sid＝对话ID（原始会话 id，缺则反查会话列表）。 */
     const _rawSid = String(sid || '').trim();
+    /* 2.204（B5）：10 位纯数字＝假账号号源（1623/1632），一律不当会话编号/终身号。 */
+    const _fakeSid = /^\d{10}$/.test(_rawSid);
     if (!_rawSid){
       /* 2.196：缺 sid（对话ID）属异常，记调试日志；按名称临时账本兜底，绝不丢内容 */
       try { diagLog('缺 sid（对话ID）账本登记 · ' + _t, 'bad'); } catch(e){}
+    } else if (_fakeSid){
+      try { diagLog('10 位纯数字不当会话编号/终身号（B5）sid=' + _rawSid + ' · ' + _t, 'bad'); } catch(e){}
     }
-    /* 2.197：优先消费服务端下发 uid（body.uid），缺失才按 sid 自算。 */
-    const _uid = lbUidPick(opt.uid, _rawSid);
-    const _dialogSid = _rawSid || lbRawSidOf(_uid, _t);
+    /* 2.197：优先消费服务端下发 uid（body.uid），缺失才按 sid / 名字别名回锚。 */
+    const _uid = _fakeSid ? '' : lbUidPick(opt.uid, _rawSid, _t);
+    if (_uid) lbAliasSet(_uid, _t);                       /* 2.204（B3）：写名字→编号映射 */
+    const _dialogSid = _fakeSid ? '' : (_rawSid || lbRawSidOf(_uid, _t));
+    /* 2.204（B4）：写账本前统一时间格式 'YYYY-MM-DD HH:MM:SS'，
+       缺失按 mid→DID→会话编号 兜底；仍拿不到才留空（绝不写「时间未知」）。 */
+    _rs0.forEach(rows => rows.forEach(row => {
+      if (!Array.isArray(row)) return;
+      const _tn = (typeof timeNormFull === 'function') ? timeNormFull(row, _rawSid) : '';
+      if (_tn) row[2] = _tn;
+    }));
     const _run = (_effSid) => {
     const _uidEff = String(_effSid || '').trim();          /* 登记主键＝终身号 */
     const sk = lbStoreKey(_uidEff, _t), now = Date.now();
@@ -925,7 +1044,7 @@ function ledgerStorePut(sid, title, rounds, opt){
       _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
         const hit = (all || []).find(r => !lbIsLegacyRec(r)
           && String(r.title || '').trim() === _t);
-        _run(hit ? lbUidPick(hit.uid, hit.sid) : '');
+        _run(hit ? lbUidPick(hit.uid, hit.sid, hit.title || _t) : '');
       }).catch(() => _run(''));
     };
     if (_uid) lbMigrateTitle(_uid, _t).then(_dispatch, _dispatch);
@@ -1045,16 +1164,42 @@ function ledgerHumanFrame(v){
   const rec = (v.rec && typeof v.rec === 'object') ? v.rec : v;
   return ledgerHumanApply(sid, title, rec, {uid: v.uid || (rec && rec.uid)});
 }
+/* 2.204（C）：把服务端「本轮终极（补记）」标记落到具体轮次上——
+   残缺思维流（AI 行）直接按终极收；只有人类行、文本另带的，补一条补记终极，
+   与人类发言凑成一轮。不做任何拒收/过滤，只补标记。 */
+function lbPatchRounds(rounds, body){
+  const g = lbPatchFlag(body);
+  const idxs = (body && Array.isArray(body.patched_rounds))
+    ? body.patched_rounds.map(n => Number(n) | 0) : [];
+  const txt = String((body && (body.patch_text || body.tail || body.text)) || '');
+  return (rounds || []).map((r, ri) => {
+    if (!Array.isArray(r)) return r;
+    const rr = r.map(m => Array.isArray(m) ? m.slice() : m);
+    const patch = g || idxs.indexOf(ri) >= 0 || lbPatchFlag(rr);
+    if (!patch) return rr;
+    let ai = rr.length ? rr[rr.length - 1] : null;
+    if (ai && String(ai[0] || '').toLowerCase() === 'a'){
+      if (!String(ai[8] || '')) ai[8] = 'patched';
+      if (!String(ai[7] || '').trim()) ai[7] = '补记';
+    } else if (rr.length === 1 && String(rr[0][0] || '').toLowerCase() === 'u'){
+      const mid = String(rr[0][6] || '').trim();
+      if (txt && mid) rr.push(['a', txt, '', 0, 0, '', mid, '补记', 'patched']);
+    }
+    return rr;
+  });
+}
 function ledgerStoreApply(sid, body, ver){
   /* 2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口不设限）：撤「缺 title
      整帧弃收」闸门——缺名/缺 sid 照建诊断账本（ledgerStorePut 内 lbDiagTitle
      兜底命名并打 diag 标记）；think 不入账的入账范围不动。 */
   if (!body || !Array.isArray(body.rounds)) return;
   const _sid = String(sid || '').trim();
+  /* 2.204（C）：先识别「本轮终极（补记）」标记，残缺轮照样与人类凑成一轮。 */
+  const _rounds = lbPatchRounds(body.rounds, body);
   /* 2.198：只含人类行、没有终极的轮次＝人类记录帧（u）——立即渲染入账，
      不走「必须有已认证终极」闸门；其余轮次照旧走 ledgerStorePut。 */
   let _hasFinal = false;
-  (body.rounds || []).forEach(r => {
+  _rounds.forEach(r => {
     const _rows = Array.isArray(r) ? r : [];
     const _u = _rows.find(m => Array.isArray(m) && String(m[0] || '').toLowerCase() === 'u');
     const _hasA = _rows.some(m => Array.isArray(m) && String(m[0] || '').toLowerCase() === 'a');
@@ -1063,7 +1208,7 @@ function ledgerStoreApply(sid, body, ver){
   });
   /* 2.197：把服务端下发的终身号 body.uid 一并带入落账（缺失时 ledgerStorePut 回退自算）。 */
   if (_hasFinal)
-    ledgerStorePut(_sid, body.title || '', body.rounds, {touch: true, uid: body.uid});
+    ledgerStorePut(_sid, body.title || '', _rounds, {touch: true, uid: body.uid});
   /* G1：锚定会话且屏幕无内容 ⇒ 用补发轮次顶屏（人类+终极+折叠按钮）。
      V2 第三轮 Y19（2026-11-19）：liveFrame 锁定期收到【更厚】账本也解锁顶屏——
      ST 实抓：liveFrame 停旧 8 条（≈4 轮），桌面真消息+AI 回复已出，页面 3 分钟
@@ -1074,12 +1219,12 @@ function ledgerStoreApply(sid, body, ver){
       && _paneIsAnchor(_sid, body.title || '')){
     const _liveN = (S.liveFrame && Array.isArray(S.liveFrame.msgs))
       ? lbRoundsFromMsgs(S.liveFrame.msgs).length : 0;
-    const _newN = (body.rounds || []).length;
+    const _newN = _rounds.length;
     if (!(S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length)
         || _newN > _liveN){
       if (S.livePend){ S.livePend = ''; S.liveFrame = null; }   /* 解锁旧帧，交账本轮顶屏 */
       const rows = [];
-      (body.rounds || []).forEach(r => (r || []).forEach(m => {
+      _rounds.forEach(r => (r || []).forEach(m => {
         if (Array.isArray(m)) rows.push(m);
       }));
       if (rows.length){
@@ -1269,3 +1414,5 @@ function lbThinkIntAck(d){
 
 /* ================= 启动 ================= */
 lbVerLoad();
+/* 2.204（B4）：开机静默回补最近 2 天坏时间（幂等，5 分钟节流） */
+try { setTimeout(() => { try { lbTimeBackfill(2); } catch(e){} }, 4000); } catch(e){}
