@@ -133,13 +133,17 @@ function onEv(kind, v){
       } else if (_penArr.some(it => it && typeof it === 'object' && it.sid != null)){
         /* 账本V1.0（N4 根治串显）：项级 sid 为准——逐条过滤，只留当前锚定
            会话的条目；顶层 pend_sid 仅兜底。pendItemMine（账本核对.js）
-           true=本会话 / false=别会话 / null=无项级 sid（宁可不画不留残影）。 */
-        v.pend = _penArr.filter(it => pendItemMine(it) === true);
+           true=本会话 / false=别会话 / null=无项级 sid（宁可不画不留残影）。
+           2.187：id（14 位 DID）命中本人待销卡的一律保留——消息刚进队那一下
+           桌面选中/锚定可能还没对齐，整批剥掉会让这张卡销不掉（老板实测）。
+           渲染层仍按 pendItemMine 逐条过滤，跨会话绝不串显。 */
+        v.pend = _penArr.filter(it => pendItemMine(it) === true
+            || (typeof pendDidOwn === 'function' && pendDidOwn(it)));
         _penMine = v.pend.length > 0;
       } else if (!_penOwner || !_curSidNow){
         _penMine = _penArr.some(it => {
           const _pd = pendDidOf(it && it.t);
-          return !!(_pd && (S.pending || []).some(p => p && p.did === _pd));
+          return !!(_pd && (typeof pendDidOwn === 'function' && pendDidOwn({id: _pd})));
         });
       } else {
         _penMine = (_penOwner === _curSidNow
@@ -164,9 +168,13 @@ function onEv(kind, v){
         const _seen2 = new Set();
         v.pend.forEach(it => {
           if (!it || typeof it !== 'object') return;
+          /* 2.187：新格式条目（WS桥 0.26 起 {id,text,sid,canEdit}）正文在 text，
+             旧格式在 t——只认 t 会把新格式逐条判空丢掉（排队条不上屏＋销卡失效）。 */
+          if (it.text != null) it.text = stripPendTail(it.text);
           if (it.t != null) it.t = stripPendTail(it.t);
-          if (!String(it.t || '').trim()) return;
-          const k = String(it.id != null ? it.id : it.t);
+          const _tx = (it.text != null) ? it.text : it.t;
+          if (!String(_tx || '').trim()) return;
+          const k = String(it.id != null ? it.id : _tx);
           if (_seen2.has(k)) return;
           _seen2.add(k);
           _pv.push(it);
