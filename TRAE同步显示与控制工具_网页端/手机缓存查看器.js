@@ -716,7 +716,7 @@
     var pg = document.createElement('div'); pg.id = 'cv_page';
     pg.innerHTML = '<div id="cv_hd"><button id="cv_back">‹ 返回</button><div class="t">手机缓存查看器 v' + CV_VER + '</div>' +
       '<button id="cv_reload">刷新</button></div>' +
-      '<div id="cv_tabs"><button id="cv_t1" class="on">① 会话预备画面</button><button id="cv_t2">② 全部缓存</button><button id="cv_t3">③ 账本调控</button></div>' +
+      '<div id="cv_tabs"><button id="cv_t1" class="on">① 账本</button><button id="cv_t2">② 缓存</button><button id="cv_t3">③ 调控</button></div>' +
       '<div id="cv_bd"></div>';
     document.body.appendChild(pg);
     var bd = pg.querySelector('#cv_bd');
