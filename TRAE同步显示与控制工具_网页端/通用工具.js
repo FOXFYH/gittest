@@ -653,7 +653,71 @@ function _msgsMonotonic(v, old){
     }
   } catch(e){}
 }
+/* 2.200（2026-11-19 WB+TR 整改·子-会话列表固态化·计划书§三「本地固态化优先/
+   永远可操作」）：会话列表「空帧/骤减不落地」护栏。根因：切会话瞬间服务端会
+   发空 convs，旧代码来什么用什么是（adoptSnap）⇒ renderConvs([]) 整表清空重画
+   ⇒ 左侧整片变白。护栏与正文 _msgsMonotonic 同口径：
+   ① 缺字段（服务端按结论「宁可不发」）⇒ 一律保留上一份，不计数、不提示；
+   ② 空数组、或条数比上一份少一半以上 ⇒ 不采用，继续用上一份；无上一份则用
+      本地骨架缓存铺满（有几条显示几条）；
+   ③ 连续多拍（3 拍）都为空 ⇒ 置「顶部提示」标志，渲染层在列表顶加一行
+      「服务器暂时读不到会话列表，以下为本地缓存」，列表照旧显示、照旧可点；
+   ④ 骤减连续 8 拍视为真实删减，放行（防合法删会话后列表永久冻结）。 */
+const CONV_SHRINK_MIN = 4;        /* 少于 4 条不做骤减判定，防误伤真实少量列表 */
+const CONV_SHRINK_RATIO = 0.5;    /* 少于上一份的一半＝明显变少 */
+const CONV_EMPTY_HINT_N = 3;      /* 连续 3 拍空才出顶部提示 */
+const CONV_SHRINK_ACCEPT_N = 8;   /* 连续 8 拍骤减认作真实删减，放行 */
+function _convsSolidGuard(v){
+  try {
+    const old = (S.snap && Array.isArray(S.snap.convs) && S.snap.convs.length)
+      ? S.snap.convs : null;
+    const _fillSkel = () => {
+      const sk = (typeof skelCacheLoad === 'function') ? skelCacheLoad() : null;
+      if (sk && Array.isArray(sk.convs) && sk.convs.length){
+        v.convs = sk.convs;
+        if (!Array.isArray(v.conv_unread)) v.conv_unread = sk.conv_unread || [];
+        if (!Array.isArray(v.conv_unread_ids)) v.conv_unread_ids = sk.conv_unread_ids || [];
+        return true;
+      }
+      return false;
+    };
+    /* ① 缺字段：保留上一份（不计数、不提示）；无上一份用本地骨架铺满 */
+    if (!Array.isArray(v.convs)){
+      if (old){
+        v.convs = old;
+        if (!Array.isArray(v.conv_unread)) v.conv_unread = S.snap.conv_unread;
+        if (!Array.isArray(v.conv_unread_ids)) v.conv_unread_ids = S.snap.conv_unread_ids;
+      } else _fillSkel();
+      return;
+    }
+    const nvN = v.convs.length, oldN = old ? old.length : 0;
+    const empty = nvN === 0;
+    const shrink = !empty && oldN >= CONV_SHRINK_MIN
+      && nvN < oldN * CONV_SHRINK_RATIO;
+    if (empty || shrink){
+      if (shrink) S.convs_shrink_n = (S.convs_shrink_n || 0) + 1;
+      else S.convs_empty_n = (S.convs_empty_n || 0) + 1;
+      if (S.convs_empty_n >= CONV_EMPTY_HINT_N) S.convs_stale_hint = 1;
+      /* ④ 连续多拍骤减：认作真实删减，放行本拍 */
+      if (shrink && S.convs_shrink_n >= CONV_SHRINK_ACCEPT_N){
+        S.convs_shrink_n = 0; S.convs_empty_n = 0; S.convs_stale_hint = 0;
+        return;
+      }
+      /* ② 不采用本拍：沿用上一份；无上一份用本地骨架铺满 */
+      if (old){
+        v.convs = old;
+        v.conv_unread = S.snap.conv_unread;
+        v.conv_unread_ids = S.snap.conv_unread_ids;
+      } else _fillSkel();
+      return;
+    }
+    /* 有效帧：计数与提示全部归零 */
+    S.convs_empty_n = 0; S.convs_shrink_n = 0; S.convs_stale_hint = 0;
+  } catch(e){}
+}
 function adoptSnap(v){
+  /* 2.200：会话列表空帧/骤减不落地（切会话不白屏的唯一数据层护栏） */
+  _convsSolidGuard(v);
   /* 用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
      对话」——别人在电脑版操作别的会话（含会话路由器的临时占用），网页版
      不跟着跳，甚至「不要让网页版知道自己的对话被人抢走」。
