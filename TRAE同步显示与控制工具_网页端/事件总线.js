@@ -153,10 +153,11 @@ function onEv(kind, v){
       if (_penArr.length && !_penMine) v.pend = [];
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
-      /* 2.178 Y24：服务端选中≠本地锚定持续 10s → 底部出「点此对齐」可点击
-         提示（切换在途豁免；点击复用 switch 链路以服务端为准重锚）。 */
-      if (typeof anchorMismatchTick === 'function')
-        anchorMismatchTick(liveKey, selTitleOf(v), liveSid);
+      /* 2.203（老板 2026-11-19 22:02 令）：撤 2.178 的「页面选中与服务器选中不一致」
+         橙色胶囊提醒；改为静默自愈——1 号 + 无人借框 + 无在途切换时自动发 switch
+         把桌面切回页面选中会话；非 1 号不提示也不抢切（见 待办卡.js anchorSelfHeal）。 */
+      if (typeof anchorSelfHeal === 'function')
+        anchorSelfHeal(liveKey);
       S.snap = adoptSnap(v);   /* 2.18 锚定：拒收「别人把桌面挪走」的跟随 */
       /* 2.131：走到这里的 pend 已确认属于本会话（别人的上面已先剥，锚定冻结
          留用的也是本会话旧帧）⇒ 回写 pend_sid，供 消息渲染.js 2.131 复验。
