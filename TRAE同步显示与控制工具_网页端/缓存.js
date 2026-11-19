@@ -196,9 +196,12 @@ function histCacheWrite(conv, ver, have_seq, msgs){
 }
 function ledToArr(r){
   /* 2.105（②）：账本行补 index6＝mid（原始记录自带 mid；index5 留空＝无服务端盖章），
-     供 curMsgs 尾部追加「按 mid 优先去重」，并与快照行同口径取时间。 */
-  return [r.role === 'u' ? 'u' : 'a', r.text || '', r.tm || '',
-          r.can_rev ? 1 : 0, r.can_del ? 1 : 0, '', r.mid || ''];
+     供 curMsgs 尾部追加「按 mid 优先去重」。
+     2.206：账本读回的时间不再信任 r.tm／服务端字段，一律由 mid 重新推导。 */
+  const _mid = r.mid || '';
+  return [r.role === 'u' ? 'u' : 'a', r.text || '',
+          (typeof timeFromMid === 'function' ? timeFromMid(_mid) : ''),
+          r.can_rev ? 1 : 0, r.can_del ? 1 : 0, '', _mid];
 }
 /* 2.129：上顶翻页的起始游标＝**当前真正显示在屏幕上的最老一条**的账本 seq。
    旧口径直接用 S.histRaw[0].seq——但 hist 首次 rebuild 会把整段账本塞进 histRaw
@@ -402,25 +405,27 @@ function _markNoMid(m){
 function orderMsgs(list){
   try {
     if (!Array.isArray(list) || !list.length) return list;
-    if (typeof _midTime !== 'function' || typeof _timeSec !== 'function') return list;
+    if (typeof timeFromMid !== 'function' || typeof midSec !== 'function') return list;
     _midCollect(list);
     const src = _midPromote(list.slice());
-    /* 2.204（B4）：排序时间也走统一兜底链（mid→DID→会话编号），
-       不再只认 mid 把「有真时间但没 mid」的行一律置顶 → 排序乱。 */
-    const _sidNow = String((typeof S !== 'undefined' && S && (S.anchorFull || S.anchorSid)) || '');
-    const arr = src.map((m, i) => {
-      let ts = _timeSec(_midTime(m));
-      if (!isFinite(ts) && typeof timeNormFull === 'function')
-        ts = _timeSec(timeNormFull(m, _sidNow));
-      return {m: m, i: i, s: ts};
+    /* 2.206（老板最终合并口径）：排序唯一依据＝mid 前 8 位十六进制秒数。
+       ① 没有有效 24 位十六进制 mid 的 u/a 行＝无有效 ID ⇒ 不上屏，直接剔除；
+       ② 其余按秒数升序；同秒内以 mid 本身作稳定序，仍相同再按原数组顺序。 */
+    const arr = [];
+    src.forEach((m, i) => {
+      if (!Array.isArray(m)){ arr.push({m: m, i: i, s: -Infinity}); return; }
+      const t = String(m[0] || '').toLowerCase();
+      const s = midSec(m[6]);
+      if ((t === 'u' || t === 'a') && !isFinite(s)) return;   /* 无有效ID：不上屏 */
+      arr.push({m: m, i: i, s: isFinite(s) ? s : -Infinity});
     });
-    const known = [], unk = [];
-    for (const x of arr){
-      if (isFinite(x.s) && x.s > 0) known.push(x); else unk.push(x);
-    }
-    if (!known.length) return arr.map(x => _markNoMid(x.m));   /* 全无时间：原序（渲染不写「时间未知」） */
-    known.sort((a, b) => (a.s - b.s) || (a.i - b.i));
-    return unk.map(x => _markNoMid(x.m)).concat(known.map(x => x.m));
+    arr.sort((a, b) => {
+      if (a.s !== b.s) return a.s - b.s;
+      const am = msgMid(a.m), bm = msgMid(b.m);
+      if (am && bm && am !== bm) return am < bm ? -1 : 1;
+      return a.i - b.i;
+    });
+    return arr.map(x => _markNoMid(x.m));
   } catch(e){ return list; }
 }
 function _swSnapIsTargetNow(sp){
@@ -564,13 +569,10 @@ function _frameRoundTrim(rows, n){
   return rows.slice(from);
 }
 function _msgOrd(m, i){
-  const t = (typeof timeNormFull === 'function')
-    ? timeNormFull(m, (typeof S !== 'undefined' && S && (S.anchorFull || S.anchorSid)) || '')
-    : String((m && m[2]) || '');
-  const ts = (typeof _timeSec === 'function') ? _timeSec(t) : NaN;
+  /* 2.206：预备账册排序同样只认 mid 前 8 位十六进制秒数；无有效 mid 的行
+     交给 _frameMsgs／上层剔除，这里用原序兜底（不再读 tm/DID）。 */
+  const ts = (typeof midSec === 'function') ? midSec(m && m[6]) : NaN;
   if (isFinite(ts)) return ts * 1000 + (i % 1000);
-  const s = String((m && m[6]) || '');
-  if (/^[0-9a-fA-F]{8}/.test(s)) return parseInt(s.slice(0, 8), 16) * 1000 + (i % 1000);
   return i;
 }
 function _frameMsgs(msgs, idle){
@@ -578,6 +580,9 @@ function _frameMsgs(msgs, idle){
   const rows = [];
   msgs.forEach(function(m, i){
     if (!Array.isArray(m)) return;
+    /* 2.206：无有效 24 位十六进制 mid 的 u/a 行不入预备账册（无 ID 不落盘）。 */
+    if ((m[0] === 'u' || m[0] === 'a')
+        && !(typeof midSec === 'function' && isFinite(midSec(m[6])))) return;
     if (m[0] === 'u'){ rows.push({m: m, o: _msgOrd(m, i)}); return; }
     if (m[0] === 'a'){
       /* 3.05（老板 2026-11-06 03:02「连续 4 条全是人类」）：3.04 把「无第 8 位的
