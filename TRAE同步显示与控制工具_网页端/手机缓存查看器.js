@@ -473,7 +473,12 @@
         if (!_sn){ try { _sn = (typeof lbSrvName === 'function') ? String(lbSrvName() || '') : ''; } catch(e){ _sn = ''; } }
         if (!_fx && /^\d+$/.test(String(it.srv || ''))) _fx = String(it.srv);
         var srvTxt = (_sn || _fx) ? ((_sn || '未知服务器') + (_fx ? (' · ' + _fx) : '')) : '服务器未知';
-        var sidTxt = sid ? (sid.length > 18 ? (sid.slice(0, 9) + '…' + sid.slice(-8)) : sid) : '⏳ 待补号';
+        /* 2.211（老板 2026-11-20 07:08）：第二行只显示**权威终身号**（记录自带 uid，
+           4 位数字且非实例号截断 1632）；取不到不编造，显「终身号未登记」。
+           绝不把会话 sid / 实例号当终身号展示。 */
+        var _uid2 = String(it.uid || '').trim();
+        var _uidOk = /^\d{4}$/.test(_uid2) && _uid2 !== '1632';
+        var sidTxt = _uidOk ? _uid2 : '终身号未登记';
         /* 2.206：缓存记录的接口/落盘时间（it.ts）不再作为任何显示时间。 */
         var _cur = '';
         try { _cur = (typeof curSid === 'function') ? String(curSid() || '') : ''; } catch(e){ _cur = ''; }
@@ -500,7 +505,7 @@
         card.innerHTML =
           '<div class="cv_r"><div class="cv_rt">' + esc(it.title || '（无名会话）') + (dup ? ' · 重复' : '') + '</div>'
             + '<div class="cv_rs">' + esc(srvTxt) + '</div></div>' +
-          '<div class="cv_r"><div class="cv_rid' + (sid ? '' : ' cv_lbpending') + '">' + esc(sidTxt) + '</div>'
+          '<div class="cv_r"><div class="cv_rid' + (_uidOk ? '' : ' cv_lbpending') + '">' + esc(sidTxt) + '</div>'
             + '<div class="cv_rmeta">' + esc(_tsTxt)
             + (isCur ? '<span class="cv_lbcur">● 当前会话</span>' : '') + '</div></div>';
         var del = document.createElement('button');
