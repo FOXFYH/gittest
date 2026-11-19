@@ -572,7 +572,10 @@
                     var sid = String(x.value.sid || '');
                     var tail = sid ? sid.slice(-4) : jsonText(x.key).slice(-4);
                     if (!nm) nm = '未命名会话';
+                    /* 2.202（老板令·手机端不设限）：诊断账本（缺名/缺 sid 照建）
+                       在原记录行显式标「诊断」，一眼可见毛病来源。 */
                     head = '#' + (i+1) + ' ' + esc(nm)
+                         + (x.value.diag ? ' <span class="cv_meta">·诊断</span>' : '')
                          + ' <span class="cv_meta">·#' + esc(tail)
                          + '（' + fmtSize(t.length) + '）</span>';
                   } else {
