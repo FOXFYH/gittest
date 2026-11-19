@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.182</title>
+<title>TRAE远程 v2.183</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
-  <link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.182">
+  <link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.183">
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
 
@@ -73,8 +73,11 @@
     <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="TRAE 开着→重启；没开→启动" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
+    <div class="dmi" id="btn_lb_drawer" title="本地账本查看与调控（＝缓存查看器「③ 账本调控」页）">📒 小账本</div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
-<!-- V2 验收 Y14（2026-11-18）：#btn_cacheview 重复入口撤除——查看器唯一入口=设置页「小账本」按钮 -->
+<!-- V2 验收 Y14（2026-11-18）：#btn_cacheview 重复入口撤除。
+     2026-11-19 老板修订（2.183 修3）：抽屉一级入口恢复为「小账本」主入口
+     （原 Y14「唯一入口=设置页」口径作废），设置页按钮保留作副入口 -->
     <div class="dmi" id="btn_prof" title="谷歌分身助手：各分身积分与登录状态">👥 分身状态</div>
   </div>
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
@@ -280,7 +283,7 @@
 
 <script>
 /* ===== 2.179 Y6：断网冷开离线壳（零依赖内联兜底）=====
-   ST 实测断网 Page.reload 白屏根因＝外链 js（?v=2.182 带 no-store）断供，
+   ST 实测断网 Page.reload 白屏根因＝外链 js（?v=2.183 带 no-store）断供，
    S 根本没定义——不是缓存 key 失配。本段内联在所有外链脚本之前：
    800ms 后若主脚本仍未活（typeof S === 'undefined'），用 localStorage 骨架
    （trae_webm_skel 会话列表 + trae_webm_solid 账号）直接铺屏并挂黄条提示；
@@ -329,31 +332,31 @@
   }
 })();
 </script>
-<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/账本核对.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.182"></script>
-<script src="TRAE同步显示与控制工具_网页端/手机缓存查看器.js?v=2.182"></script>
+<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/账本核对.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.183"></script>
+<script src="TRAE同步显示与控制工具_网页端/手机缓存查看器.js?v=2.183"></script>
 <script src="TRAE同步显示与控制工具_网页端/切换提示.js?v=1.04"></script>
-<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.182"></script>
+<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.183"></script>
 </body>
 </html>
