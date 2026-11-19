@@ -419,13 +419,9 @@ function ledgerMod(d){
       break;
     }
     case 'ledger':                         /* 聊天主账本（按轮补发，G1） */
-      /* 2.184 追加（锚定双轨终版）：闸门只卡 title——名称必有（只认服务端下发，
-         客户端不造名）；sid 允许为空，空则按名称建临时账本（pend:1 待补号），
-         后续拿到 sid 由 lbMigrateTitle 归并，绝不因缺号丢帧。 */
-      if (!body || !String(body.title || '').trim()){
-        try { diagLog('缺 title 弃收 sid=' + String(d.sid || ''), 'bad'); } catch(e){}
-        break;
-      }
+      /* 2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口不设限）：撤「缺 title
+         弃收」闸门——不合格帧照收照建诊断账本，缺名/缺 sid 由 ledgerStorePut
+         兜底命名并打 diag 标记，便于老板一眼发现毛病。 */
       ledgerStoreApply(d.sid, body, v);
       break;
     case 'think':                          /* 思维流快照＋排队条（TRAE 专属，E2/N1） */
@@ -565,28 +561,26 @@ function lbRoundKey(r){
   }).join('#');
 }
 function lbRoundsFromMsgs(msgs){
-  /* 2.184 改3（规范§七 :194 同号不同态）：**只记终极**——完成卡（index7）为空
-     ＝该轮未完成（思维流阶段/生成中），整轮不落账；绝不用 m[1] 思维流正文
-     兜底冒充终极（老板假设已证实：同 mid 不同态）。2.183 修2 口径不变：
-     思维流不进本地账本（§十二-2）。 */
+  /* 2.184 改3（规范§七 :194 同号不同态）：终极为空＝该轮未完成（思维流阶段/
+     生成中），绝不用 m[1] 思维流正文兜底冒充终极。2.202（老板 2026-11-19
+     21:51 令·手机网页端＝诊断口不设限）：半轮（只有人类行、终极未到）也照落，
+     不再整轮丢弃，便于一眼看出缺终极的毛病；纯 think 仍不入账。 */
   const rounds = [];
   let cur = null;
   (msgs || []).forEach(m => {
     if (!Array.isArray(m)) return;
     if (m[0] === 'u'){
-      if (cur && cur.length > 1) rounds.push(cur);
+      if (cur && cur.length) rounds.push(cur);       /* 2.202：半轮也落 */
       cur = [m.slice()];
     } else if (m[0] === 'a' && cur){
       const fin = String((m.length > 7 && m[7]) || '').trim();
       const mid = String((m.length > 6 && m[6]) || '').trim();
-      /* 2.184 改7 三要素闸门（老板 2026-11-19 纠偏）：完成态为空＝该轮未完成
-         （不落）；消息 ID 为空＝这轮认不出是谁（不落）。两条都整轮丢弃，
-         绝不猜、绝不拿正文当身份。 */
+      /* 思维流/未认证终极（完成态或消息 ID 为空）不入账——既有入账范围不动。 */
       if (!fin || !mid) return;
       cur.push([m[0], fin, m[2] || '', 0, 0, m[5] || '', m[6] || '', m[7] || '']);
     }
   });
-  if (cur && cur.length > 1) rounds.push(cur);
+  if (cur && cur.length) rounds.push(cur);           /* 2.202：半轮也落 */
   return rounds;
 }
 /* 2.183 修4b（老板实测：小账本以纯数字命名·落盘层兜底）：title 为空或纯数字
@@ -608,6 +602,16 @@ function lbResolveTitle(sid, title){
     }
   } catch(e){}
   return title || '';
+}
+/* 2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口，不设拒收闸门）：
+   数据不合格（缺名/缺 sid）也照建账本，名称要能一眼定位毛病——
+   有 sid 无名 → 「（无名）<sid 后 6 位>」；无名无 sid → 「（无名）无sid」。
+   返回 {title, diag}，diag=1 时调用方在账本记录打诊断标记（列表可见）。 */
+function lbDiagTitle(sid, title){
+  const t = String(title || '').trim();
+  if (t) return {title: t, diag: 0};
+  const s = String(sid || '').trim();
+  return {title: s ? ('（无名）' + s.slice(-6)) : '（无名）无sid', diag: 1};
 }
 /* 2.184 改1（规范§三 :54 秒显源＝账本本体）：最新账本（对账补发/主动核对/
    强制核对拉到）落盘成功后，立刻把同一份 rounds 平铺成画面写回 snap_conv——
@@ -748,35 +752,34 @@ function ledgerStorePut(sid, title, rounds, opt){
   try {
     opt = opt || {};
     /* 2.183 修4b：纯数字/空名先解析显示名再落库（解析不到保持原值）。
-       2.196（老板 2026-11-19）：闸门只卡 title——绝不建无名账本；此处不是
-       消息闸门（缺名帧照常展示），只是「账本必须有名字」的登记前提。 */
+       2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口不设限）：撤「缺 title
+       弃收（不建无名账本）」闸门——缺名照建诊断账本，命名 lbDiagTitle 兜底
+       （（无名）尾6位／（无名）无sid），并打 diag 标记。 */
     title = lbResolveTitle(sid, title);
+    const _dt = lbDiagTitle(sid, title);
+    title = _dt.title;
+    const _diag = _dt.diag;
     const _t = String(title || '').trim();
-    if (!_t){
-      try { diagLog('缺 title 弃收（不建无名账本） sid=' + String(sid || ''), 'bad'); } catch(e){}
-      return;
+    if (_diag){
+      try { diagLog('收到无名条目（诊断口不设限）→ 已建诊断账本 title='
+        + _t + ' sid=' + String(sid || ''), 'bad'); } catch(e){}
     }
     /* 2.196 三类标记落账闸：只收 human 与 final 两种 kind 的行，think（th/snap/
-       未认证 a）一律剔除；末行不是 final＝半轮，整轮不落（§七 :269-281）。
-       2.198（u 帧即时应答）：opt.humanOnly 时放行「只有一条 human 行」的半轮
-       ——服务端新增的人类记录帧（u）先落 [u]，终极帧后到再就地补全同一轮。 */
-    const _humanOnly = !!opt.humanOnly;
+       未认证 a）一律剔除——这是老板既定的入账范围，不是数据合格闸。
+       2.202：末行不是 final（半轮）/缺 mid 一律照落（带 diag 标记），不再整轮丢。 */
     const _rs0 = (rounds || []).map(r => {
       const rows = (r || []).filter(m => {
         const k = lbMsgKind(m);
         return k === 'human' || k === 'final';
       }).map(lbTagKind);
-      if (!rows.length) return null;
+      if (!rows.length) return null;                       /* 空壳/纯 think：入账范围外 */
       const a = rows[rows.length - 1];
-      if (a[8] !== 'final'){
-        if (_humanOnly && a[8] === 'human' && rows.length === 1) return rows;
-        return null;                                       /* 无已认证终极＝未完成 */
-      }
-      if (!String(a[6] || '').trim()){ _lbUnextLog(a); return null; }  /* 缺 mid */
+      if (a[8] !== 'final' && a[8] !== 'human') return null;
+      if (a[8] === 'final' && !String(a[6] || '').trim()) _lbUnextLog(a);  /* 缺 mid 仅留痕 */
       return rows;
     }).filter(Boolean);
     if (!_rs0.length){
-      try { diagLog('缺 mid/终极 弃收 sid=' + String(sid || '') + ' · ' + _t, 'bad'); } catch(e){}
+      try { diagLog('无人类/终极内容 未建账 sid=' + String(sid || '') + ' · ' + _t, 'bad'); } catch(e){}
       return;
     }
     /* 2.196 四字段：srv＝服务端（srv/srvName/srvFox 同源）、uid＝终身号（可空）、
@@ -867,9 +870,10 @@ function ledgerStorePut(sid, title, rounds, opt){
       return _idbReq('ledger_conv', 'readwrite', st => st.put({
         sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
         uid: _uidEff, sid: _dialogSid || old.sid || '',
-        title: title || old.title || '',
+        /* 2.202：诊断命名的账本不覆盖旧的真名（已有名字优先保留） */
+        title: _diag ? (old.title || title) : (title || old.title || ''),
         ts: _ts, lastTs: now, lastView: opt.touch ? now : (old.lastView || 0),
-        pend: _uidEff ? 0 : 1, rounds: out}))
+        pend: _uidEff ? 0 : 1, diag: (_diag || (old && old.diag)) ? 1 : 0, rounds: out}))
         .then(() => _after(out));
     };
     _idbReq('ledger_conv', 'readonly', st => st.get(sk)).then(rec => {
@@ -901,7 +905,7 @@ function ledgerStorePut(sid, title, rounds, opt){
         sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
         uid: _uidEff, sid: _dialogSid || '', title: title || '',
         ts: now, lastTs: now, lastView: opt.touch ? now : 0,
-        pend: _uidEff ? 0 : 1, rounds: rs}))
+        pend: _uidEff ? 0 : 1, diag: _diag, rounds: rs}))
         .then(() => _after(rs));
     });
     };
@@ -928,7 +932,7 @@ function ledgerStorePut(sid, title, rounds, opt){
      ① 渲染：按当前会话 sid 归并——追加到已在屏正文（旧消息一条不藏、不跳账本）；
      ② 销卡：按发送编号（did）当场销占位卡（≤3 秒目标；15 秒灰态只作异常兜底）；
      ③ 入账：uid 优先为账本主键，缺 uid 用名称临时键并标 pend:1 待补号；
-        缺名只记日志不建账（不设拒收闸门，展示照常）。 */
+     2.202 缺名也照建诊断账本（手机网页端＝诊断口，不设拒收闸门）。 */
 function lbHumanRecNorm(rec){
   const o = {text: '', mid: '', did: '', tm: ''};
   if (Array.isArray(rec)){
@@ -1019,16 +1023,11 @@ function ledgerHumanApply(sid, title, rec, opt){
       try { S.msgs_key = null; } catch(e){}
     }
   } catch(e){}
-  /* ③ 落本地账本（uid 优先；缺 uid 名称临时键 pend:1；缺名只记日志不建账） */
-  if (_t){
-    try {
-      ledgerStorePut(_sid, _t, [[row]], {touch: true, uid: opt.uid, humanOnly: true});
-    } catch(e){}
-  } else {
-    try {
-      diagLog('缺 title 人类记录仅展示不建账 sid=' + _sid, 'bad');
-    } catch(e){}
-  }
+  /* ③ 落本地账本（uid 优先；缺 uid 名称临时键 pend:1；
+     2.202 缺名也照建诊断账本——手机网页端为诊断口，不设拒收闸门） */
+  try {
+    ledgerStorePut(_sid, _t, [[row]], {touch: true, uid: opt.uid, humanOnly: true});
+  } catch(e){}
   if (shown || cleared) { try { renderAll(); } catch(e){} }
   return shown || cleared;
 }
@@ -1041,14 +1040,10 @@ function ledgerHumanFrame(v){
   return ledgerHumanApply(sid, title, rec, {uid: v.uid || (rec && rec.uid)});
 }
 function ledgerStoreApply(sid, body, ver){
-  /* 2.184 改7（老板 2026-11-19 终版口径·锚定双轨）：闸门只卡 mid 与 title——
-     名称必有（只认服务端下发，客户端不造名）；sid 允许为空，空则按名称建
-     临时账本（pend:1 待补号），后续拿到 sid 由 lbMigrateTitle 归并。 */
+  /* 2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口不设限）：撤「缺 title
+     整帧弃收」闸门——缺名/缺 sid 照建诊断账本（ledgerStorePut 内 lbDiagTitle
+     兜底命名并打 diag 标记）；think 不入账的入账范围不动。 */
   if (!body || !Array.isArray(body.rounds)) return;
-  if (!String(body.title || '').trim()){
-    try { diagLog('缺 title 弃收 sid=' + String(sid || ''), 'bad'); } catch(e){}
-    return;
-  }
   const _sid = String(sid || '').trim();
   /* 2.198：只含人类行、没有终极的轮次＝人类记录帧（u）——立即渲染入账，
      不走「必须有已认证终极」闸门；其余轮次照旧走 ledgerStorePut。 */
