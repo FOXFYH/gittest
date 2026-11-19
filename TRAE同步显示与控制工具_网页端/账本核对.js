@@ -73,10 +73,9 @@ function lbHaveLoad(){
     }).catch(() => {});
   } catch(e){}
 }
-/* 2.206（老板最终合并口径）：账本时间回补——只扫最近 1~2 天（rec.ts / lastTs）
-   的本地账本，把每行 m[2] 一律改写成 timeFromMid(mid)（含 22:49 那条空时间）。
-   幂等：m[2] 已等于 mid 推导值的不动；mid 无效（无有效 ID）的行不补值。
-   写回只在真改过时发生。 */
+/* 2.209（老板口径「时间只从消息ID里算，不准再传时间」）：账本/画面缓存清理——
+   把每行 m[2] 一律清成空串（历史遗留的抓屏/接口时间也清掉），账本不存任何时间。
+   显示/排序一律在读取时按该行 mid 现算（timeFromMid）。幂等，写回只在真改过时发生。 */
 let _lbTimeFixAt = 0;
 function lbTimeBackfill(days){
   try {
@@ -93,17 +92,15 @@ function lbTimeBackfill(days){
         let changed = false;
         (rec.rounds || []).forEach(r => (r || []).forEach(m => {
           if (!Array.isArray(m)) return;
-          /* 2.206：时间唯一来源＝mid 前 8 位；不认 m[2] 旧值（DID/接口时间戳等）。
-             22:49 那条空时间也在这里被补成 2026-11-19 22:49:55。 */
-          const nv = (typeof timeFromMid === 'function') ? timeFromMid(m[6]) : '';
-          if (nv && nv !== m[2]){ m[2] = nv; changed = true; }
+          /* 2.209：账本行不存时间——历史非空值一律清空。 */
+          if (m[2] !== ''){ m[2] = ''; changed = true; }
         }));
         if (changed){
           n++;
           tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(rec)).catch(() => {}));
         }
       });
-      /* 2.206：画面缓存 snap_conv 同步回补——只把每行 m[2] 改写成 mid 推导值，
+      /* 2.209：画面缓存 snap_conv 同步清理——把每行 m[2] 清空，
          不碰 sk/frame 其它字段，幂等可重复。 */
       const _snapTask = _idbReq('snap_conv', 'readonly', st => st.getAll()).then(srows => {
         const puts = [];
@@ -113,8 +110,7 @@ function lbTimeBackfill(days){
           let ch = false;
           fr.msgs.forEach(m => {
             if (!Array.isArray(m)) return;
-            const nv = (typeof timeFromMid === 'function') ? timeFromMid(m[6]) : '';
-            if (nv && nv !== m[2]){ m[2] = nv; ch = true; }
+            if (m[2] !== ''){ m[2] = ''; ch = true; }   /* 2.209：不存时间 */
           });
           if (ch) puts.push(_idbReq('snap_conv', 'readwrite', st => st.put(rec)).catch(() => {}));
         });
@@ -739,8 +735,8 @@ function thinkCardSet(body, sidHint){
     if (Array.isArray(m) && m[0] === 'a' && m[1]){ txt = String(m[1]); break; }
   }
   if (!txt) txt = String(f.tail || '');
-  const tm = String(b.time || '')
-          || ((typeof timeFromMid === 'function') ? timeFromMid(anchor) : '');
+  /* 2.209：不读服务端 time 字段——展示时间只由锚定消息 ID 现算 */
+  const tm = (typeof timeFromMid === 'function') ? timeFromMid(anchor) : '';
   if (old && old.thinkId === tid && old.text === txt) return false;   /* 同版重发 */
   THINK_CARDS[key] = {
     srv: (typeof lbSrvKey === 'function' ? lbSrvKey() : ''),
@@ -883,10 +879,9 @@ function lbRoundsFromMsgs(msgs){
          二字当正文）。2.205：mid 与 did 都空＝无消息 ID，不收。 */
       if ((!fin && !patch) || !lbRowHasId(m)) return;
       const _disp = (fin && fin !== '补记') ? fin : (m[1] || '');
-      cur.push([m[0], _disp,
-                (typeof timeFromMid === 'function' ? timeFromMid(m[6]) : ''), 0, 0, '',
+      cur.push([m[0], _disp, '', 0, 0, '',
                 m[6] || '', fin || (patch ? '补记' : ''), patch ? 'patched' : '',
-                m[9] || '']);   /* 2.206：时间只由 mid 推导；m[5] 接口时间戳不再保留 */
+                m[9] || '']);   /* 2.209：账本行不存时间（index2 恒空），显示时按 mid 现算 */
     }
   });
   if (cur && cur.length) rounds.push(cur);           /* 2.202：半轮也落 */
@@ -1119,13 +1114,11 @@ function ledgerStorePut(sid, title, rounds, opt){
     const _uid = _fakeSid ? '' : lbUidPick(opt.uid, _rawSid, _t);
     if (_uid) lbAliasSet(_uid, _t);                       /* 2.204（B3）：写名字→编号映射 */
     const _dialogSid = _fakeSid ? '' : (_rawSid || lbRawSidOf(_uid, _t));
-    /* 2.206（老板最终合并口径）：写账本前把每行 m[2] 一律重算成
-       timeFromMid(mid)（北京时间、精确到秒）。不读任何传进来的时间，
-       无效 mid 的行前面已被 ID 闸剔除，这里不会再出现「时间未知」。 */
+    /* 2.209（老板口径「不准再传时间」）：写账本前把每行 m[2] 一律置空——
+       账本不存任何时间；显示/排序一律在读取时按该行 mid 现算（timeFromMid）。 */
     _rs0.forEach(rows => rows.forEach(row => {
       if (!Array.isArray(row)) return;
-      const _tn = (typeof timeFromMid === 'function') ? timeFromMid(row[6]) : '';
-      row[2] = _tn;
+      row[2] = '';
     }));
     const _run = (_effSid) => {
     const _uidEff = String(_effSid || '').trim();          /* 登记主键＝终身号 */
@@ -1285,8 +1278,8 @@ function lbHumanRecNorm(rec){
                     : (rec.sendId != null ? rec.sendId : ''));
   }
   const _d = o.did || firstLineDid(o.text) || pendDidOf(o.text);
-  return {text: o.text, mid: o.mid, did: _d,
-          tm: (typeof timeFromMid === 'function' ? timeFromMid(o.mid) : '')};
+  /* 2.209：不再携带/存储 tm——账本行时间只由 mid 在显示时现算 */
+  return {text: o.text, mid: o.mid, did: _d};
 }
 /* 消息身份键：mid 优先，缺则发送编号，再缺则角色＋正文（只用于去重，不生成新号） */
 function lbMsgIdent(m){
@@ -1340,7 +1333,7 @@ function ledgerHumanApply(sid, title, rec, opt){
     return false;
   }
   const _t = String(title || '').trim();
-  const row = ['u', _r.text, _r.tm || '', 0, 0, '', _r.mid || '', '', 'human'];
+  const row = ['u', _r.text, '', 0, 0, '', _r.mid || '', '', 'human'];  /* 2.209：index2 不存时间 */
   if (_r.did) row[9] = _r.did;
   /* ② 按发送编号当场销卡（u 帧到达＝已进流，不等下一帧、不等 15 秒灰态） */
   let cleared = false;
