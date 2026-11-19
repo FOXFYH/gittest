@@ -245,24 +245,46 @@ function renderState(snap){
     return;
   }
   _nrTxt = '';
-  /* 2.106（C·老板 15:57「横幅四维状态必须准确」）：横幅「忙/闲」仍以 snap.sendIdle 为
-     单一取数（服务端快照结构【无「状态灯」字段】——仅 convs 行内携会话灯，本端已有；
-     见回报）；服务端 X3-1 已把 sendIdle 纳入指纹去重键、并在「忙↔闲」翻转瞬间强制
-     放行一帧 ⇒ 忙→闲可自行翻转。X3-3：不再细分「等待/停顿」，只据 sendIdle 出生成态。 */
-  const idle = snap.sendIdle, inp = snap.inputText || '',
-        tail = snap.tail;
-  if (!idle && !inp){                        // 生成中
+  /* 2.106（C·老板 15:57「横幅四维状态必须准确」）：横幅「忙/闲」原始取数＝snap.sendIdle
+     （服务端快照结构无全局「状态灯」字段，会话灯仅在 convs 行 / convs_full 内）；
+     ★2.193 起改为「会话灯 run 优先、sendIdle 兜底」，见下段，本条不再单独成立。 */
+  /* 2.193（SSWB 派工·老板 16:53「灯来了就不许再显示空闲」）：横幅忙闲改「会话灯优先、
+     快照 sendIdle 兜底」。灯源与左侧列表同源：convs 'c' 行 r[3]==='run'，或
+     convs_full 同一会话的 status.light==='busy'。灯 run 时即使 sendIdle=true 也判生成态。 */
+  const _rows2 = (S.snap && Array.isArray(S.snap.convs)) ? S.snap.convs : [];
+  let _cSid = '', _cLamp = '';
+  if (S.anchorSid){
+    for (const r of _rows2)
+      if (r && r[0] === 'c' && _行稳定(r) === S.anchorSid){
+        _cSid = r[4] || ''; _cLamp = r[3] || ''; break;
+      }
+  }
+  if (!_cSid && !_cLamp){
+    for (const r of _rows2)
+      if (r && r[0] === 'c' && r[2]){ _cSid = r[4] || ''; _cLamp = r[3] || ''; break; }
+  }
+  let _lampRun = (_cLamp === 'run');
+  if (!_lampRun){
+    const _cf2 = (S.snap && Array.isArray(S.snap.convs_full)) ? S.snap.convs_full : [];
+    const _k2 = S.anchorSid || _cSid;
+    for (const o of _cf2){
+      if (!o) continue;
+      if ((_cSid && o.sid === _cSid) || (_k2 && o.stable === _k2)){
+        _lampRun = !!(o.status && o.status.light === 'busy'); break;
+      }
+    }
+  }
+  const idle = snap.sendIdle, inp = snap.inputText || '';
+  const busy = _lampRun || !idle;            // 2.193：灯 run > sendIdle，两者都闲才「空闲」
+  if (busy && !inp){                         // 生成中
     S.gen = true;
-    /* 1.5x：生成中用「✏️」符号替代「生成中」三字省空间；AI 实时 tail
-       不再逐字显示，只用有无划分两个固定阶段词——空=输出中、有=
-       规划中（原「正在规划下一步」精简为规划中）；并像空闲一样带
-       上当前会话名 */
+    /* 2.193：不再按 tail 分「规划中/输出中」，统一「输出中」+ 当前会话名 + 橙色 */
     const ct2 = (curTitle() || '').trim();
-    el.state.textContent = '✏️ ' + (tail ? '规划中' : '输出中')
+    el.state.textContent = '✏️ 输出中'
       + (ct2 ? ' · ' + (ct2.length > 14 ? ct2.slice(0, 14) + '…' : ct2) : '');
     el.state.style.color = 'var(--orange)';
     refreshSendBtn();                        // 有本地字→插话，无→停止
-  } else if (idle && !inp){                  // 空闲
+  } else if (!busy && !inp){                 // 空闲
     /* 1.24：空闲时顺带显示当前会话名——整行只写「空闲」太浪费 */
     const ct = (curTitle() || '').trim();
     el.state.textContent = '空闲'
@@ -270,7 +292,7 @@ function renderState(snap){
     el.state.style.color = 'var(--green)';
     setSendBtn(false, true);
   } else {                                   // 输入框待发（远端残留）
-    S.gen = !idle;                           // 生成中残留仍属生成态
+    S.gen = busy;                            // 2.193：灯 run 也算生成态（原 !idle）
     el.state.textContent = '输入框待发' + (inp.length > 20 ? '（有残留）'
       : ': ' + inp.slice(0, 18));
     el.state.style.color = 'var(--blue)';
