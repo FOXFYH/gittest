@@ -514,8 +514,13 @@ function curSid(){
      ② 只对当前选中会话：未选服务端、或当前没有选中会话 → 不发；
      ③ 只有当前会话确实亮着橙灯才发；发完乐观地把该会话从本地未读集合
        摘掉（橙灯立即灭），此后不再发。 */
-const ACT_MIN_MS = 3000;              /* ① 全局节流窗口：3 秒 */
+const ACT_MIN_MS = 3000;              /* ① 全局节流底线：3 秒内最多 1 条（防抖） */
+/* 2.194（老板 2026-11-19 16:56「这个信号 1 分钟之内只发一条…不要重复发灭灯信号」）：
+   同一会话的灭灯信号 **60 秒内最多 1 条**——按「sid（缺则 t:标题）」记上次发送时刻。
+   与 ① 的 3 秒全局底线同时生效：全局兜抖，会话兜频，两条都不放宽。 */
+const ACT_CONV_MIN_MS = 60000;
 let lastActAt = 0;                    /* 上次成功上报时刻（全局） */
+const lastActByConv = Object.create(null);   /* 会话键 → 上次发灭灯信号时刻 */
 function actCurConv(){                /* 当前选中会话 {title,sid}，无则 null */
   const convs = ((S.snap || {}).convs) || [];
   for (const r of convs) if (r && r[0] === 'c' && r[2])
@@ -543,8 +548,11 @@ function actSend(k){
   if (!cv || !cv.title) return;       /* ② 当前没有选中会话不发 */
   if (!actCurUnread(cv)) return;      /* ③ 橙灯没亮不发 */
   const now = Date.now();
-  if (now - lastActAt < ACT_MIN_MS) return;   /* ① 全局 3 秒节流 */
+  if (now - lastActAt < ACT_MIN_MS) return;   /* ① 全局 3 秒底线（不动） */
+  const ck = cv.sid || ('t:' + cv.title);     /* 2.194：按会话计频 */
+  if (now - (lastActByConv[ck] || 0) < ACT_CONV_MIN_MS) return;  /* 同一会话 60 秒 1 条 */
   lastActAt = now;
+  lastActByConv[ck] = now;
   sendJson({t: 'act', k: k, title: cv.title, sid: cv.sid});
   actClearLocal(cv);                  /* ③ 清完即停 */
 }
