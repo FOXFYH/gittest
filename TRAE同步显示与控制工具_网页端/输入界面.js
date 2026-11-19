@@ -225,6 +225,40 @@ function _srvDead(){
   const ts = (s && s.ts) || 0;
   return !ts || Date.now() - ts > SRV_DEAD_MS;
 }
+/* 2.199（ST 0019）：取「当前会话」的思维灯——精确锚定，取不到即闲置（''）。
+   锚定：有终身号 S.anchorSid 时按稳定键精确匹配；锚点暂不在快照里按锚定显示名
+   精确匹配；未锚定取快照「选中」行（r[2]）。灯源：convs_full 同会话 status.light
+   优先（busy/unread/fail/stop），旧裸帧回退 convs 'c' 行 r[3]（run/fail/stop，
+   run 归一为 busy）。绝不拿会话列表第一行顶替——匹配不到就返回 ''。 */
+function _curConvLight(){
+  const rows = (S.snap && Array.isArray(S.snap.convs)) ? S.snap.convs : [];
+  const cf = (S.snap && Array.isArray(S.snap.convs_full)) ? S.snap.convs_full : [];
+  let row = null;
+  if (S.anchorSid){
+    for (const r of rows)
+      if (r && r[0] === 'c' && _行稳定(r) === S.anchorSid){ row = r; break; }
+    if (!row){
+      const t = (S.anchorTitle || '').trim();
+      if (t) for (const r of rows)
+        if (r && r[0] === 'c' && r[1] === t){ row = r; break; }
+    }
+  } else {
+    for (const r of rows)
+      if (r && r[0] === 'c' && r[2]){ row = r; break; }
+  }
+  if (!row) return '';                       /* 取不到锚点 → 闲置，禁止首行顶替 */
+  const sid = row[4] || '', stable = _行稳定(row);
+  for (const o of cf){
+    if (!o) continue;
+    if ((sid && o.sid === sid) || (stable && o.stable === stable)){
+      const L = (o.status && o.status.light) || '';
+      return (L === 'run' ? 'busy' : L);
+    }
+  }
+  const st = row[3] || '';
+  return (st === 'run' ? 'busy' : st);
+}
+
 function renderState(snap){
   S.gen = false;
   const _online = !!(snap && snap.online);
@@ -247,52 +281,34 @@ function renderState(snap){
   _nrTxt = '';
   /* 2.106（C·老板 15:57「横幅四维状态必须准确」）：横幅「忙/闲」原始取数＝snap.sendIdle
      （服务端快照结构无全局「状态灯」字段，会话灯仅在 convs 行 / convs_full 内）；
-     ★2.193 起改为「会话灯 run 优先、sendIdle 兜底」，见下段，本条不再单独成立。 */
-  /* 2.193（SSWB 派工·老板 16:53「灯来了就不许再显示空闲」）：横幅忙闲改「会话灯优先、
-     快照 sendIdle 兜底」。灯源与左侧列表同源：convs 'c' 行 r[3]==='run'，或
-     convs_full 同一会话的 status.light==='busy'。灯 run 时即使 sendIdle=true 也判生成态。 */
-  const _rows2 = (S.snap && Array.isArray(S.snap.convs)) ? S.snap.convs : [];
-  let _cSid = '', _cLamp = '';
-  if (S.anchorSid){
-    for (const r of _rows2)
-      if (r && r[0] === 'c' && _行稳定(r) === S.anchorSid){
-        _cSid = r[4] || ''; _cLamp = r[3] || ''; break;
-      }
-  }
-  if (!_cSid && !_cLamp){
-    for (const r of _rows2)
-      if (r && r[0] === 'c' && r[2]){ _cSid = r[4] || ''; _cLamp = r[3] || ''; break; }
-  }
-  let _lampRun = (_cLamp === 'run');
-  if (!_lampRun){
-    const _cf2 = (S.snap && Array.isArray(S.snap.convs_full)) ? S.snap.convs_full : [];
-    const _k2 = S.anchorSid || _cSid;
-    for (const o of _cf2){
-      if (!o) continue;
-      if ((_cSid && o.sid === _cSid) || (_k2 && o.stable === _k2)){
-        _lampRun = !!(o.status && o.status.light === 'busy'); break;
-      }
-    }
-  }
-  const idle = snap.sendIdle, inp = snap.inputText || '';
-  const busy = _lampRun || !idle;            // 2.193：灯 run > sendIdle，两者都闲才「空闲」
-  if (busy && !inp){                         // 生成中
+     ★2.199 起改为「只认当前会话思维灯、不看 sendIdle」，见下段，本条不再单独成立。 */
+  /* 2.199（ST 0019·老板 2026-11-19 21:16/21:21）：横幅状态行只认「当前会话」的思维灯，
+     不做任何推断——sendIdle 不再参与（留作他用，绝不点亮「输出中」）；锚定不到当前
+     会话即「闲置」，禁止拿会话列表首行顶替；输入框残留单独一支，不与忙闲混算。
+     灯语汇映射极短词：busy→输出中 / unread→待看 / fail→出错 / stop→已停 / 无灯→闲置。 */
+  const _light = (typeof _curConvLight === 'function') ? _curConvLight() : '';
+  const _LAMP_TXT = { busy: '输出中', unread: '待看', fail: '出错', stop: '已停' };
+  const inp = snap.inputText || '';
+  const busy = (_light === 'busy');          // 2.199：仅当前会话灯 busy 才算生成
+  if (busy && !inp){                         // 当前会话输出中
     S.gen = true;
-    /* 2.193：不再按 tail 分「规划中/输出中」，统一「输出中」+ 当前会话名 + 橙色 */
     const ct2 = (curTitle() || '').trim();
-    el.state.textContent = '✏️ 输出中'
+    el.state.textContent = _LAMP_TXT.busy
       + (ct2 ? ' · ' + (ct2.length > 14 ? ct2.slice(0, 14) + '…' : ct2) : '');
     el.state.style.color = 'var(--orange)';
     refreshSendBtn();                        // 有本地字→插话，无→停止
-  } else if (!busy && !inp){                 // 空闲
-    /* 1.24：空闲时顺带显示当前会话名——整行只写「空闲」太浪费 */
+  } else if (!inp){                          // 无残留：按当前会话灯四态显示
+    S.gen = false;
     const ct = (curTitle() || '').trim();
-    el.state.textContent = '空闲'
+    el.state.textContent = (_LAMP_TXT[_light] || '闲置')
       + (ct ? ' · ' + (ct.length > 14 ? ct.slice(0, 14) + '…' : ct) : '');
-    el.state.style.color = 'var(--green)';
+    el.state.style.color = _light === 'fail' ? 'var(--red)'
+      : _light === 'stop' ? 'var(--gray)'
+      : _light === 'unread' ? 'var(--orange)'
+      : 'var(--green)';
     setSendBtn(false, true);
-  } else {                                   // 输入框待发（远端残留）
-    S.gen = busy;                            // 2.193：灯 run 也算生成态（原 !idle）
+  } else {                                   // 输入框有残留字：单独显示，不与忙闲混算
+    S.gen = busy;                            // 保留原发送键判定（灯 busy 才算生成）
     el.state.textContent = '输入框待发' + (inp.length > 20 ? '（有残留）'
       : ': ' + inp.slice(0, 18));
     el.state.style.color = 'var(--blue)';
