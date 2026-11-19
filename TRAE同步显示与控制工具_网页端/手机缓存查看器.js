@@ -394,12 +394,19 @@
   }
   function kindText(m){
     var k = kindOf(m);
+    /* 2.212（老板 2026-11-20 07:28 bug②）：提前终极回复——人类连发打断、
+       残片含「已切换到新请求/手动终止输出」升格而来；仍算终极，另标来源。 */
+    var _early = Array.isArray(m)
+      ? ((m[11] == 1 || m[11] === '1')
+         || String(m[7] || '').trim() === '提前终极')
+      : !!(m && m.early_final == 1);
+    if (k === 'final' && _early) return 'AI 终极回复（提前）';
     return KIND_TEXT[k] || '类型未知';
   }
   /* 类型徽标（详情每条必显；色标仅供一眼分辨，文字为准） */
   function kindTag(m){
     var k = kindOf(m) || 'unknown';
-    return '<span class="kd ' + k + '">' + esc(KIND_TEXT[k] || '类型未知') + '</span>';
+    return '<span class="kd ' + k + '">' + esc(kindText(m)) + '</span>';
   }
   /* ② 缓存页 ledger_conv：把整本账逐条类型列出来（原始 JSON 里 index8 不直观） */
   function kindsDigestHtml(rec){
