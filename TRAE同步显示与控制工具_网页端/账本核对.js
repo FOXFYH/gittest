@@ -375,22 +375,47 @@ function ledgerThinkApply(sid, body){
        也只落一条。 */
     const mine = [];
     const _seen = new Set();
-    b.pend.filter(it => pendItemMine(it) === true).forEach(it => {
-      if (!it || typeof it !== 'object') return;
+    /* 2.187（老板 2026-11-19 实测：消息进排队条后手机端半天不挂条、卡也不销）：
+       服务端 `_pend条目`（WS桥 0.26 起）下发的新格式是 {id,text,sid,canEdit}
+       ——正文在 **text**，旧格式才在 t。2.177 的剥词/去重收口只认 it.t，
+       新格式逐条判空被丢弃 ⇒ S.snap.pend 恒空 ⇒ ①排队条不上屏 ②pendLandingScan
+       拿不到条目、渠道③销卡整条失效。此处两形态都收（text 优先）。
+       归属：项级 sid 命中本会话，或该项 id（14 位 DID）命中本人待销卡
+       ——「我发的这条明明进了队、可桌面选中/锚定还没对齐」时也认领并销卡。 */
+    b.pend.filter(it => {
+      if (!it || typeof it !== 'object') return false;
+      if (pendItemMine(it) === true) return true;
+      return pendDidOwn(it);
+    }).forEach(it => {
+      if (it.text != null) it.text = stripPendTail(it.text);
       if (it.t != null) it.t = stripPendTail(it.t);
-      if (!String(it.t || '').trim()) return;
-      const k = String(it.id != null ? it.id : it.t);
+      const _tx = (it.text != null) ? it.text : it.t;
+      if (!String(_tx || '').trim()) return;
+      const k = String(it.id != null ? it.id : _tx);
       if (_seen.has(k)) return;
       _seen.add(k);
       mine.push(it);
     });
     if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+    /* 2.188（老板 2026-11-19「排队条一变就要主动推送、这边才能销卡」）：
+       排队条内容指纹——id+正文逐项拼，前后不同即「变了」，必须立刻重画。
+       livePend（生成中）锁态下旧写法一律跳过 renderAll ⇒ 条上新/条撤下
+       都要等下一次非锁态重画，实测空帧后条在 DOM 上一直挂着不撤。 */
+    const _sigOf = a => (a || []).map(x => String(x && x.id != null ? x.id : '')
+                 + '\u0001' + String(x && x.text != null ? x.text : ((x && x.t) || ''))).join('\u0002');
+    const _sigPrev = _sigOf(S.snap && S.snap.pend);
+    const _sigNext = _sigOf(mine);
     S.snap.pend = mine;
     S.snap.pend_sid = String(b.pend_sid || sid || '');
     S.convs_key = null;
     /* Y5：排队条到达即扫销卡（渠道③）——消息一进官方队列就算已发出 */
-    if (typeof pendLandingScan === 'function') pendLandingScan(null, mine);
-    if (typeof _liveLockOn !== 'function' || !_liveLockOn()) renderAll();
+    let _cleared = false;
+    if (typeof pendLandingScan === 'function') _cleared = !!pendLandingScan(null, mine);
+    /* 2.187：销卡成功必须立刻重画——旧写法只在「非切换锁态」renderAll，
+       锁态下卡虽已从 S.pending 摘掉、DOM 上那张卡还挂着（老板看到的现象）。
+       2.188：排队条有增减（含撤到空）也一并即时重画，不受锁态约束。 */
+    if (_cleared || _sigPrev !== _sigNext
+        || typeof _liveLockOn !== 'function' || !_liveLockOn()) renderAll();
   }
   /* 整屏快照上屏判定（S1 裁定·2026-11-18）：模块化模式下服务端【不再有】
      k='snap_pane' 帧（仅 mod_push_on=False 回退时才存在）——上屏唯一驱动＝
@@ -414,6 +439,21 @@ function pendItemMine(it){
   const s = String(it.sid);
   if (s === cs) return true;
   return !!(typeof 稳定键 === 'function' && 稳定键(s, '') === 稳定键(cs, ''));
+}
+
+/* 2.188：本人排队项 DID 认领（含记忆）——消息刚进队那一下，项级 sid 可能还
+   指着别处（桌面选中/锚定未对齐），靠占位卡上的 14 位 DID 认领；但销卡与
+   重画同一拍完成，卡一销「证据」就没了，下一帧又会被判成别会话 ⇒ 条闪一下
+   就没。故认领过的 DID 记 10 分钟（排队项存活远短于此），期间一律算本人的。
+   反向：没发过的 DID 永远不认领 ⇒ 别人的条目绝不串显（跨会话红线）。 */
+function pendDidOwn(it){
+  if (!it || it.id == null) return false;
+  const k = String(it.id);
+  const _m = S.pendOwn || (S.pendOwn = {});
+  const now = Date.now();
+  for (const kk in _m) if (!(now - _m[kk] < 600000)) delete _m[kk];
+  if ((S.pending || []).some(p => p && p.did === k)){ _m[k] = now; return true; }
+  return !!_m[k];
 }
 
 /* ================= ⑥ 本地账本（IDB ledger_conv；按服务端隔离） =================
