@@ -20,8 +20,9 @@
         信号（logout）；保留现有主动下线场景并新增开关（切后台下线）；
      ⑥ 本地账本（IDB ledger_conv 表，按服务端隔离）：只留最新 N 轮
         （默认 5 可配）；改名/删除会话自动清理；「自动清理无用小账本」
-        开关默认勾选、14 天未查看自动删；历史按轮渲染+折叠按钮补发
-        （ledger_req）。
+        开关默认勾选、14 天未查看自动删；历史按轮补发仅人类发言+终极回复
+        （2.183 修2 按 V1.0 §十二-2：TRAE 无思维流补发概念，ledger_req-think
+        通路已撤；按轮补发面板仅 WorkBuddy 章节适用，规范§七-3）。
      调控界面已并入 手机缓存查看器.js「③ 账本调控」tab（规范§十：
      小账本＝现成缓存查看器，禁止新造页面；原 小账本页.js 已撤销）。
    【零依赖降级】服务端未升级（无 vack/mod 帧）时：vcheck 发出无人应答
@@ -325,7 +326,7 @@ function ledgerThinkApply(sid, body){
   if (f && typeof f === 'object' && Array.isArray(f.msgs)){
     onEv('snap_pane', {sid: String(sid || ''), title: b.title || '',
                        msgs: f.msgs, finish: f.finish || null});
-    S.lb_foldRounds = 0;                   /* 真画面到手 → 历史补发折叠面板退场 */
+    S.lb_foldRounds = 0;                   /* 真画面到手 → 归零（2.183 修2：补发面板已撤§十二-2，状态位保留防渲染 key 漂移） */
   }
 }
 
@@ -349,7 +350,8 @@ function lbRoundKey(r){
 }
 function lbRoundsFromMsgs(msgs){
   /* 1 轮＝1 条人类 + 1 条 AI 终极（终极取第 8 位完成卡正文，缺则原文兜底）；
-     思维流不落本地账本（按需补发，规范七）。 */
+     思维流不落本地账本（2.183 修2 按 §十二-2：TRAE 无思维流补发，按轮补发
+     面板仅 WorkBuddy 章节适用，规范§七-3）。 */
   const rounds = [];
   let cur = null;
   (msgs || []).forEach(m => {
@@ -363,9 +365,31 @@ function lbRoundsFromMsgs(msgs){
   if (cur) rounds.push(cur);
   return rounds;
 }
+/* 2.183 修4b（老板实测：小账本以纯数字命名·落盘层兜底）：title 为空或纯数字
+   （/^\d+$/，服务端 TRAE本地账本.py 键常为 4 位序号，显示名在服务端 _名 映射
+   未随帧下发）→ 先按 sid 从本地会话列表解析显示名（只读，不发帧）；解析不到
+   保持原值。函数内单点做，ledgerStoreApply/ledgerOnSnap 两条调用路自动受益。 */
+function lbResolveTitle(sid, title){
+  const t = String(title || '').trim();
+  if (t && !/^\d+$/.test(t)) return t;
+  try {
+    const s = String(sid || '');
+    if (s && Array.isArray(S.convs)){
+      const ks = (typeof 稳定键 === 'function') ? 稳定键(s, '') : null;
+      for (const r of S.convs){
+        if (!r || !r[1]) continue;
+        const rs = String(r[4] || '');
+        if (rs === s || (ks !== null && 稳定键(rs, '') === ks)) return String(r[1]);
+      }
+    }
+  } catch(e){}
+  return title || '';
+}
 function ledgerStorePut(sid, title, rounds, opt){
   try {
     opt = opt || {};
+    /* 2.183 修4b：纯数字/空名先解析显示名再落库（解析不到保持原值） */
+    title = lbResolveTitle(sid, title);
     /* Y11：真存记账收口在此单点——ledgerStoreApply（mod ledger 收帧）与
        ledgerOnSnap（快照路落盘）两条路都经这里，Set 重复 add 无害。 */
     if (sid != null) LB.lbHave.add(String(sid));
@@ -415,20 +439,16 @@ function ledgerStoreApply(sid, body, ver){
         S.liveFrame = {msgs: rows, finish: null, tail: '', sendIdle: true,
                        inputText: '', opts: [], ask: null, pend: [],
                        attach: [], model: ''};
-        S.lb_foldRounds = (body.rounds || []).length;
+        /* 2.183 修2：S.lb_foldRounds 赋值行撤——补发面板已撤（§十二-2），
+           状态位只在真画面到手时由 :328 处归零防 key 漂移 */
         renderAll();
       }
     }
   }
 }
-/* G2：点折叠按钮 → 按需补该轮思维流（协议定稿 七：ledger_req） */
-function ledgerReqThink(round){
-  try {
-    sendJson({t: 'ledger_req', sid: S.anchorFull || (typeof curSid === 'function' ? curSid() : '') || '',
-              round: round | 0, kind: 'think'});
-    flash('已请求第 ' + round + ' 轮思维流…', 'var(--blue)');
-  } catch(e){}
-}
+/* 2.183 修2（老板定性·V1.0 §十二-2）：ledgerReqThink（ledger_req-think 通路）
+   整函数撤除——TRAE 无「按轮补发思维流」概念（§十二-2），前端已无调用方
+   （消息渲染.js 补发面板同轮撤除）；服务端 ledger_req handler 不动＝死路无害。 */
 /* 快照到达（事件总线.js snap 分支转调）：账本落盘 + 触碰 lastView + 真画面退场折叠面板 */
 function ledgerOnSnap(){
   const s = S.snap || {};
