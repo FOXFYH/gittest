@@ -279,6 +279,27 @@
     });
     return d;
   }
+  /* 2.183 修4a（2026-11-19 老板实测：小账本以纯数字命名，莫名其妙）：
+     ledger_conv 展示名三级解析——①rec.title 非空且非纯数字（/^\d+$/ 不算名，
+     服务端账本键常为 4 位序号、显示名未随帧下发）→ 直接用；②按 rec.sid 从
+     本地会话列表解析显示名（typeof 守卫只读访问，不发帧不触发同步）；
+     ③拿不到返回空，调用方兜底「未命名会话 ·#<sid 尾 4 位>」。 */
+  function lbTitleOf(rec){
+    var t = String((rec && rec.title) || '').trim();
+    if (t && !/^\d+$/.test(t)) return t;
+    try {
+      var sid = String((rec && rec.sid) || '');
+      if (sid && (typeof S === 'object') && S && Array.isArray(S.convs)){
+        for (var i = 0; i < S.convs.length; i++){
+          var r = S.convs[i];
+          if (!r || !r[1]) continue;
+          if (String(r[4] || '') === sid) return String(r[1]);
+          if (typeof 稳定键 === 'function' && 稳定键(String(r[4] || ''), '') === 稳定键(sid, '')) return String(r[1]);
+        }
+      }
+    } catch(e){}
+    return '';
+  }
   function renderAllCache(host){
     host.innerHTML = '';
     var ov = sec('概览', '');
@@ -312,14 +333,34 @@
             det.addEventListener('toggle', function(){
               if (!det.open || loaded) return; loaded = true;
               var wrap = document.createElement('div'); wrap.textContent = '读取中…'; det.appendChild(wrap);
-              storeAll(db, sn).then(function(r){
+              /* 2.183 修4（2026-11-19）：原写法 toggle 时才 storeAll(db, sn)，而外层
+                 连接在建完 DOM 后已 db.close() → transaction 恒抛「connection is
+                 closing」→ 展开恒 0 条（修4 自测 T-G-b 实锤，2.16 起就坏）。改：展开
+                 时自开新连接、读完即关；外层连接只负责枚举 objectStoreNames。 */
+              openDB(nm).then(function(db2){
+                return storeAll(db2, sn).then(function(r){ db2.close(); return r; });
+              }).catch(function(e){ return {rows: [], err: e}; }).then(function(r){
                 wrap.innerHTML = '';
                 if (r.err) wrap.appendChild(Object.assign(document.createElement('div'), {className:'cv_bad', textContent:'读取失败：' + (r.err.message||r.err)}));
                 wrap.appendChild(Object.assign(document.createElement('div'), {className:'cv_meta', textContent:'共 ' + r.rows.length + ' 条记录'}));
                 r.rows.forEach(function(x, i){
                   var t = jsonText(x.value);
                   var dd = document.createElement('details'); dd.className = 'cv_rec';
-                  dd.innerHTML = '<summary>' + esc('#' + (i+1) + ' 键=' + jsonText(x.key).slice(0,60) + '（' + fmtSize(t.length) + '）') + '</summary><div class="cv_v">' + esc(t) + '</div>';
+                  var head;
+                  /* 2.183 修4a：ledger_conv 记录行改展示名（三级解析＋缀 #sid 尾 4 位
+                     防重名）——其它列（读取体/大小）原样不动，样式零改动（§十）。 */
+                  if (sn === 'ledger_conv' && x.value && typeof x.value === 'object'){
+                    var nm = lbTitleOf(x.value);
+                    var sid = String(x.value.sid || '');
+                    var tail = sid ? sid.slice(-4) : jsonText(x.key).slice(-4);
+                    if (!nm) nm = '未命名会话';
+                    head = '#' + (i+1) + ' ' + esc(nm)
+                         + ' <span class="cv_meta">·#' + esc(tail)
+                         + '（' + fmtSize(t.length) + '）</span>';
+                  } else {
+                    head = '#' + (i+1) + ' 键=' + esc(jsonText(x.key).slice(0,60)) + '（' + fmtSize(t.length) + '）';
+                  }
+                  dd.innerHTML = '<summary>' + head + '</summary><div class="cv_v">' + esc(t) + '</div>';
                   wrap.appendChild(dd);
                 });
               });
