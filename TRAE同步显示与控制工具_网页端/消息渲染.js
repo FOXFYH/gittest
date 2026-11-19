@@ -137,6 +137,17 @@ function _thinkNoHostHtml(){
   return '<div class="msg agent thinkph"><div class="who">TraeWork</div>'
        + '<div class="body">您不是 1 号网页用户，无法提供思维流</div></div>';
 }
+/* 2.207（V1.0 §五-8）：小账本最底部固定挂的「一张」思维流卡——只展示，
+   走不到 ledger 落盘/轮次统计/终极回复任何一条路。样式内联，免改 css。 */
+function _thinkCardHtml(c){
+  const tm = c.time ? '<span class="tm">' + esc(c.time) + '</span>' : '';
+  const ver = '<span class="tm">v' + (parseInt(c.thinkVer, 10) || 1) + '</span>';
+  return '<div class="msg agent thinklive" data-think="' + esc(c.thinkId || '') + '"'
+       + ' style="border:1px dashed #4a9eff;border-radius:10px;padding:8px 10px;margin-top:8px">'
+       + '<div class="who">🧠 思维流 · ' + esc(c.title || '') + tm + ver + '</div>'
+       + '<div class="body" style="white-space:pre-wrap;word-break:break-word;'
+       + 'max-height:45vh;overflow:auto">' + _mdBody(String(c.text || '')) + '</div></div>';
+}
 
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
@@ -182,6 +193,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   /* 2.203：非 1 号思维流占位参与指纹（灯亮↔灯灭必须触发重画，占位才能即时撤） */
   const _noHost = _thinkNoHostOn();
   key += '#nt:' + (_noHost ? '1' : '0');
+  /* 2.207（V1.0 §五-8/9/10）：小账本最底部固定挂一张思维流卡——四维＋思维灯
+     亮才出（thinkCardNow 判定），新版/终极到达必须重画（版本号＋正文进指纹）。 */
+  const _think = (typeof thinkCardNow === 'function') ? thinkCardNow(msgs) : null;
+  key += '#tc:' + (_think
+    ? (_think.thinkId + '\u0001' + String(_think.text || '').slice(-40)) : '0');
   if (key === S.msgs_key) return;
   S.msgs_key = key;
   /* 1.14：历史全屏下重画保持阅读位置（不强制回底）。
@@ -599,6 +615,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      章节才有的）；TRAE 的思维流＝正在进入思维流阶段时定时把有变化的情况
      发过来，仅此而已。S.lb_foldRounds 状态位保留防渲染 key 漂移。 */
   renderPending();                  // 1.09：占位气泡永远排在末尾
+  /* 2.207（V1.0 §五-8/10）：思维流卡永远在排版最底部——插在全部消息/排队条/
+     占位卡之后，其下不再出现任何人类或 AI 回复；终极一到 _think=null 即撤。 */
+  if (_think) el.msgs.insertAdjacentHTML('beforeend', _thinkCardHtml(_think));
   if (inF && !S.pinBottom){
     fprog(savedTop);                /* 2.64：改走 fprog（程序滚动）——设静默期 + 作废手势窗口，
                                        位置不被快照拽回，也不会误触发上翻判定；
