@@ -1,14 +1,14 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN" data-page-node-id="a3BJFm1aqZ2wCBMnE5X6z1">
 <head data-page-node-id="ifPap0uNA7aKsFtXSqtqt1">
 <meta charset="utf-8" data-page-node-id="HtDIgArRIZ3kdjyQElQAk0">
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.164</title>
+<title>TRAE远程 v2.202</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
-  <link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.164">
+  <link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.202">
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
 
@@ -73,8 +73,12 @@
     <div class="dmi" id="btn_new" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="TRAE 开着→重启；没开→启动" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
+    <div class="dmi" id="btn_lb_drawer" title="本地账本查看与调控（＝缓存查看器「③ 账本调控」页）">📒 小账本</div>
     <div class="dmi" id="btn_net" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
-<div class="dmi" id="btn_cacheview" data-page-node-id="CACHEVIEW01">🗂 手机缓存查看器</div>
+<!-- V2 验收 Y14（2026-11-18）：#btn_cacheview 重复入口撤除。
+     2026-11-19 老板修订（上一版修3）：抽屉一级入口恢复为「小账本」主入口
+     （原 Y14「唯一入口=设置页」口径作废）；2.186 起设置页副入口整体删除，
+     本抽屉入口＝唯一入口，比它更深的地方不再重复放入口 -->
     <div class="dmi" id="btn_prof" title="谷歌分身助手：各分身积分与登录状态">👥 分身状态</div>
   </div>
   <!-- 1.35：抽屉里的「AI 文本刷新间隔」档位已移除（用户：占空间，
@@ -158,10 +162,7 @@
       <div class="row" style="gap:8px; margin-top:8px;">
         <button id="btn_netreconn" style="flex:1;">立即重连</button>
         <button id="btn_nettest" style="flex:1;">测电脑端回应（5s）</button>
-        <button id="btn_check_fulls" style="flex:1;">检测最大化</button>
       </div>
-      <div class="row"><span class="hint">检测当前是否有窗口最大化/全屏压制原版渲染</span>
-        <b id="lbl_fulls" class="diagv">—</b></div>
       <div class="row" style="gap:8px; margin-top:8px;">
         <button id="btn_diagcopy" style="flex:1;">📋 复制诊断信息</button>
       </div>
@@ -182,7 +183,7 @@
         <button id="btn_chan_back" style="flex:1;" data-page-node-id="DC01dualChan5">副频道</button>
       </div>
       <div class="row" data-page-node-id="DC01dualChan6"><span class="hint" data-page-node-id="DC01dualChan7">
-        主频道异常/限流时可临时切副频道兜底；此后每 15 分钟探测主频道，恢复即自动切回。
+        主频道异常/限流时可临时切副频道兜底。已改为手动切换（不再自动探测）：想回主频道请点上面的「主频道」按钮。
         切换仅本次生效，不改变长期设置。</span></div>
       <!-- v1.50：双通道地址显示（WS1 主 / WS2 副，随频道名实时刷新） -->
       <div class="row" data-page-node-id="DC01dualChan8"><label data-page-node-id="DC01dualChan9">WS1 主</label>
@@ -281,30 +282,82 @@
     立刻实测=真开无界面 Chrome 读官方用量页，耗时数分钟属正常。</div>
 </div>
 
-<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/手机缓存查看器.js?v=2.164"></script>
-<script src="TRAE同步显示与控制工具_网页端/切换提示.js?v=1.02"></script>
-<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.164"></script>
+<script>
+/* ===== 2.179 Y6：断网冷开离线壳（零依赖内联兜底）=====
+   ST 实测断网 Page.reload 白屏根因＝外链 js（带 ?v= 版本戳的 no-store 请求）断供，
+   S 根本没定义——不是缓存 key 失配。本段内联在所有外链脚本之前：
+   800ms 后若主脚本仍未活（typeof S === 'undefined'），用 localStorage 骨架
+   （trae_webm_skel 会话列表 + trae_webm_solid 账号）直接铺屏并挂黄条提示；
+   主脚本弱网慢加载到位后自动拆壳让位。在线正常打开时本段静默（S 已定义）。 */
+(function(){
+  function _offShell(){
+    if (typeof S !== 'undefined' && S) return;
+    var cv = document.getElementById('convs');
+    try {
+      var sk = JSON.parse(localStorage.getItem('trae_webm_skel') || 'null');
+      if (sk && Array.isArray(sk.convs) && sk.convs.length && cv){
+        cv.innerHTML = '';
+        sk.convs.forEach(function(r){
+          if (!r || r[0] !== 'c') return;
+          var d = document.createElement('div');
+          d.className = 'convo item' + (r[2] ? ' act' : '');
+          d.style.cssText = 'padding:10px 14px;opacity:.8;';
+          d.textContent = r[1] || '（会话）';
+          cv.appendChild(d);
+        });
+      }
+      var so = JSON.parse(localStorage.getItem('trae_webm_solid') || 'null');
+      var ac = document.getElementById('lbl_acct');
+      if (so && so.acct && ac) ac.textContent = String(so.acct);
+    } catch(e){}
+    try {
+      var bar = document.createElement('div');
+      bar.id = 'offbar';
+      bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
+        + 'background:#b26a00;color:#fff;font-size:12px;padding:6px 10px;text-align:center;';
+      bar.textContent = '离线模式：脚本未能加载，以下为上次在线时的数据（正在尝试连接…）';
+      (document.body || document.documentElement).appendChild(bar);
+    } catch(e){}
+    var _p = setInterval(function(){
+      if (typeof S !== 'undefined' && S){
+        clearInterval(_p);
+        var b = document.getElementById('offbar');
+        if (b) b.remove();
+      }
+    }, 1500);
+  }
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(_offShell, 800); });
+  } else {
+    setTimeout(_offShell, 800);
+  }
+})();
+</script>
+<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/账本核对.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/手机缓存查看器.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/切换提示.js?v=2.202"></script>
+<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.202"></script>
 </body>
 </html>
