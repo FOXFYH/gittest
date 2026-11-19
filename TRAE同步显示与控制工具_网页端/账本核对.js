@@ -289,16 +289,28 @@ function lbRoundIdFilter(rounds, sid, title){
 }
 /* 2.196（老板 2026-11-19·三类标记）：消息类型判定——只认三种，未知一律 think
    （fail-closed，宁可不入账也绝不把思维流当终极）。index8 落盘标记，渲染不读。 */
+/* 2.212（老板 2026-11-20 07:28 bug①）：终极回复的**唯一判据**——命中即 final，
+   任何地方（尤其虚线思维流框）绝不再把它当 think。命中任一：
+     · 完成卡摘要 index7 非空（标准 fin/rounds 终态都会写它）；
+     · 行级补记标记（index8='patched' / index10=1）；
+     · 服务端已下发 index8='a'/'final'（权威类型）。 */
+function lbIsFinalRow(m){
+  if (!Array.isArray(m)) return false;
+  if (String(m[0] || '').toLowerCase() !== 'a') return false;
+  const k = String((m.length > 8 && m[8]) || '').toLowerCase();
+  if (k === 'a' || k === 'final' || k === 'patched') return true;
+  if (lbPatchMarked(m)) return true;
+  return String((m.length > 7 && m[7]) || '').trim() !== '';
+}
 function lbMsgKind(m){
   if (!Array.isArray(m)) return 'think';
   const t = String(m[0] || '').toLowerCase();
   if (t === 'u') return 'human';
   if (t === 'a'){
-    const fin = String((m.length > 7 && m[7]) || '').trim();
     const mid = String((m.length > 6 && m[6]) || '').trim();
     /* 2.204（C）：服务端打「本轮终极（补记）」标记的残缺思维流——按已认证终极收，
        与人类发言凑成一轮；无标记的仍未定稿，按思维流。 */
-    return ((fin || lbPatchMarked(m)) && mid) ? 'final' : 'think';
+    return (lbIsFinalRow(m) && mid) ? 'final' : 'think';
   }
   return 'think';                                /* th/snap/未知 */
 }
@@ -325,6 +337,44 @@ function lbPatchMarked(m){
   if (!Array.isArray(m)) return false;
   if (String(m[8] || '').toLowerCase() === 'patched') return true;
   return (m.length > 10 && (m[10] === 1 || m[10] === '1' || m[10] === true));
+}
+/* ============ 2.212（老板 2026-11-20 07:28 bug②）：提前终极回复 ============
+   人类连续两条强制发言打断思维流，AI 没产出标准终极回复，但残片里带着
+   「已切换到新请求 / 手动终止输出」。规则（老板原话）：
+     · 夹在人类 A 与人类 B 之间、其间没有已认证终极；
+     · 残片含打断标志（兼容空白/全角/标点差异）；
+     · 有合法 24 位十六进制 mid；
+   ⇒ 升格为「AI 终极回复（提前）」：打 final 标签、当正经聊天记录入账，
+     并移出思维流（虚线框不再算它）。无合法 ID 的残片不升格（仍按无ID不发）。
+   幂等：已带 index7/fin 的行原样返回，重复扫描不重复入账。 */
+const LB_INTERRUPT_RE =
+  /已\s*切\s*换\s*[到至]\s*新\s*请\s*求|手\s*动\s*终\s*止\s*输\s*出/;
+function lbIsInterruptFragment(text){
+  return LB_INTERRUPT_RE.test(String(text == null ? '' : text));
+}
+function lbPromoteEarlyFinals(rounds){
+  const rs = Array.isArray(rounds) ? rounds : [];
+  return rs.map((r, i) => {
+    if (!Array.isArray(r) || !r.length) return r;
+    const next = rs[i + 1];
+    const hasU = String((r[0] && r[0][0]) || '').toLowerCase() === 'u';
+    const nxtU = !!(next && Array.isArray(next) && next.length
+      && String((next[0] && next[0][0]) || '').toLowerCase() === 'u');
+    if (!hasU || !nxtU) return r;             /* 必须夹在人类A、人类B之间 */
+    const a = r[r.length - 1];
+    if (!Array.isArray(a) || String(a[0] || '').toLowerCase() !== 'a') return r;
+    if (lbIsFinalRow(a)) return r;            /* 已是标准终极：幂等不动 */
+    const mid = String((a.length > 6 && a[6]) || '').trim();
+    if (!/^[0-9a-fA-F]{24}$/.test(mid)) return r;   /* 无合法 ID 不升格 */
+    if (!lbIsInterruptFragment(a[1])) return r;
+    const rr = r.map(m => Array.isArray(m) ? m.slice() : m);
+    const aa = rr[rr.length - 1];
+    while (aa.length < 12) aa.push('');
+    aa[7] = '提前终极';                        /* 完成卡摘要位＝来源标记（不是正文） */
+    aa[8] = 'a';
+    aa[11] = 1;                                /* index11＝提前终极标记 */
+    return rr;
+  });
 }
 function lbTagKind(m){
   const x = m.slice();
@@ -782,19 +832,58 @@ function thinkCardSet(body, sidHint){
       && old.anchorMid === anchor) return false;   /* 迟到旧版：不回退 */
   const f = (b.frame && typeof b.frame === 'object') ? b.frame : {};
   const arr = Array.isArray(f.msgs) ? f.msgs : [];
-  let txt = '';
-  for (let i = arr.length - 1; i >= 0; i--){
+  /* 2.212（老板 2026-11-20 07:28 bug①）：虚线框只准放思维流。
+     ①先收集本轮「终极回复」的 mid 集合（唯一判据 lbIsFinalRow）；
+     ②只取锚定人类消息**之后**的 AI 行（绝不拿上一轮终极回复冒充本版思维流）；
+     ③final 行、以及同一 mid 已有 final 的 think 版，一律跳过；
+     ④锚定人类之后一旦出现 final ⇒ 本轮 think 版作废，卡片直接移出虚线框。 */
+  const finalMids = new Set();
+  arr.forEach(m => {
+    if (Array.isArray(m) && lbIsFinalRow(m)){
+      const _id = String((m.length > 6 && m[6]) || '').trim();
+      if (_id) finalMids.add(_id);
+    }
+  });
+  let _ai = -1;
+  if (anchor){
+    for (let i = arr.length - 1; i >= 0; i--){
+      const m = arr[i];
+      if (Array.isArray(m) && m[0] === 'u'
+          && String((m.length > 6 && m[6]) || '') === anchor){ _ai = i; break; }
+    }
+  }
+  if (_ai < 0){
+    for (let i = arr.length - 1; i >= 0; i--){
+      if (Array.isArray(arr[i]) && arr[i][0] === 'u'){ _ai = i; break; }
+    }
+  }
+  let _roundDone = false;
+  for (let i = _ai + 1; i < arr.length; i++){
+    if (Array.isArray(arr[i]) && lbIsFinalRow(arr[i])){ _roundDone = true; break; }
+  }
+  if (_roundDone){
+    if (old) delete THINK_CARDS[key];          /* final 为准：think 版作废 */
+    return !!old;
+  }
+  let txt = '', textMid = '';
+  for (let i = arr.length - 1; i > _ai; i--){
     const m = arr[i];
-    if (Array.isArray(m) && m[0] === 'a' && m[1]){ txt = String(m[1]); break; }
+    if (!Array.isArray(m) || m[0] !== 'a' || !m[1]) continue;
+    if (lbIsFinalRow(m)) continue;              /* 终极回复绝不进虚线框 */
+    const _id = String((m.length > 6 && m[6]) || '').trim();
+    if (_id && finalMids.has(_id)) continue;    /* 同 mid 已有 final：think 版作废 */
+    txt = String(m[1]); textMid = _id; break;
   }
   if (!txt) txt = String(f.tail || '');
   /* 2.209：不读服务端 time 字段——展示时间只由锚定消息 ID 现算 */
   const tm = (typeof timeFromMid === 'function') ? timeFromMid(anchor) : '';
-  if (old && old.thinkId === tid && old.text === txt) return false;   /* 同版重发 */
+  if (old && old.thinkId === tid && old.text === txt
+      && old.textMid === textMid) return false;   /* 同版重发 */
   THINK_CARDS[key] = {
     srv: (typeof lbSrvKey === 'function' ? lbSrvKey() : ''),
     sid: sid, title: String(b.title || ''), uid: String(b.uid || ''),
-    thinkId: tid, thinkVer: ver, anchorMid: anchor, time: tm, text: txt,
+    thinkId: tid, thinkVer: ver, anchorMid: anchor, time: tm,
+    text: txt, textMid: textMid,
     ts: Date.now()
   };
   return true;
@@ -825,13 +914,21 @@ function thinkCardNow(msgs){
     if (hi < 0) return null;
     const hmid = String((arr[hi].length > 6 && arr[hi][6]) || '').trim();
     if (hmid !== c.anchorMid) return null;   /* ④锚定＝当前最新一条人类消息，否则不展示 */
+    /* 2.212（bug① 渲染层双保险）：卡片正文对应的 mid 一旦已有终极回复，
+       think 版立即作废，虚线框绝不显示终极回复。 */
+    if (c.textMid){
+      for (let i = 0; i < arr.length; i++){
+        const m = arr[i];
+        if (Array.isArray(m) && lbIsFinalRow(m)
+            && String((m.length > 6 && m[6]) || '') === c.textMid) return null;
+      }
+    }
     for (let i = hi + 1; i < arr.length; i++){
       const m = arr[i];
       if (!Array.isArray(m) || m[0] !== 'a') continue;
-      const fin = String((m.length > 7 && m[7]) || '').trim();
       let kind = '';
       try { kind = (typeof lbMsgKind === 'function') ? lbMsgKind(m) : ''; } catch(e){}
-      if (kind === 'final' || fin) return null;        /* ⑩终极回复优先：立刻撤卡 */
+      if (kind === 'final' || lbIsFinalRow(m)) return null;   /* ⑩终极回复优先：立刻撤卡 */
     }
     return c;
   } catch(e){ return null; }
@@ -931,7 +1028,9 @@ function lbRoundsFromMsgs(msgs){
          2.204：带补记标记的按终极收（正文＝残缺思维流原文，绝不把「补记」
          二字当正文）。2.205：mid 与 did 都空＝无消息 ID，不收。 */
       if ((!fin && !patch) || !lbRowHasId(m)) return;
-      const _disp = (fin && fin !== '补记') ? fin : (m[1] || '');
+      /* 2.212：'提前终极'/'补记' 是来源标记不是正文，正文必须保留残片原文。 */
+      const _disp = (fin && fin !== '补记' && fin !== '提前终极')
+        ? fin : (m[1] || '');
       cur.push([m[0], _disp, '', 0, 0, '',
                 m[6] || '', fin || (patch ? '补记' : ''), patch ? 'patched' : '',
                 m[9] || '']);   /* 2.209：账本行不存时间（index2 恒空），显示时按 mid 现算 */
@@ -1475,7 +1574,11 @@ function ledgerStoreApply(sid, body, ver){
   }
   /* 2.204（C）：先识别「本轮终极（补记）」标记，残缺轮照样与人类凑成一轮。
      2.205：入账与上屏同一口径，先剔除缺 mid/did 的行。 */
-  const _rounds = lbRoundIdFilter(lbPatchRounds(body.rounds, body), _sid, body.title || '');
+  /* 2.212（老板 2026-11-20 07:28 bug②）：先升格「提前终极回复」（人类连发打断
+     产生的残片），再走既有补记/无ID/落账链——升格后它就是正经 final，正常入账。 */
+  const _rounds = lbRoundIdFilter(
+    lbPatchRounds(lbPromoteEarlyFinals(body.rounds), body),
+    _sid, body.title || '');
   /* 2.198：只含人类行、没有终极的轮次＝人类记录帧（u）——立即渲染入账，
      不走「必须有已认证终极」闸门；其余轮次照旧走 ledgerStorePut。 */
   let _hasFinal = false;
