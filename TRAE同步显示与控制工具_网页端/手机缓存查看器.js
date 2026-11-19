@@ -1,5 +1,5 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.16  日期 2026-11-18
+/* 手机缓存查看器.js（网页端）  版本 2.192  日期 2026-11-19
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
    两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
@@ -11,6 +11,17 @@
      倒计时展示（撤销原 #lbhud 左下角悬浮条，倒计时逻辑仍在 账本核对.js）。
      本地账本查看走现有「② 全部缓存」页（IDB ledger_conv 全量可展开），
      现有展示样式一概不动。
+
+   2.192（老板：「这个小卡片呢你的东西几乎都集中在左侧，导致卡片过高，我希望窄一点，
+     左右分布均匀一点，显示的行数会更多」）：① 卡片由四行竖排改「两行两栏」——
+     第一行 左会话名(13px 600 省略) / 右「服务器 · FOX号」(11px 灰，flex:none 不压缩)；
+     第二行 左终身号(等宽 11px、flex:1 中途省略) / 右「N 条 · 更新于 MM-DD HH:MM」
+     （当前会话追加 ● 徽标）＋🗑（挂第二行最右，24×22，不占行）；四样信息一样不少，只重排。
+     ② 压扁：卡片 padding 5px 10px、行间距 2px、行高 16px，单卡实测 108px → **52px**。
+     ③ 变窄可多列：栅格 minmax(240px→215px,1fr)、gap 10→8px；390 宽仍 1 列，
+     820 宽实测 3 列（每列 261px）。
+     ④ 坑：全局 `button{min-height:36px}`（样式.css:13）会把 🗑 撑到 36 高，必须显式
+     `min-height:0` 才压得下去；`.cv_card` 原 min-height:56px 也一并清 0。
 
    2.190（老板 2026-11-19 亲批·纠正口径：「那个显示预备画面的那个地方就是我认为的小账本」）：
      ① 与 ③ 曾各有一份「📒 我的小账本」，老板一句「难怪我说你怎么给我做了两个小账本」否定，
@@ -43,7 +54,7 @@
      CV_VER 不再手写死——运行时直接取页面总版本 VER（诊断.js，全局可见），
      取不到才退回本地兜底常量。铁规矩：**每次动查看器都必须让 CV_VER 与页面
      VER 恒等**；build() 里再自检一次，不一致打 bad 日志。 */
-  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.191';
+  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.192';
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -76,7 +87,7 @@
       '.cv_rec summary{cursor:pointer;font-size:12px;color:#337ab7;word-break:break-all}' +
       '.cv_empty{padding:14px;font-size:13px;color:#8a98a6}.cv_bad{padding:10px 14px;font-size:12px;color:#c62828}' +
       /* 2.10：两行一张卡片的网格（左列/右侧都用上，不再一条占四行） */
-      '.cv_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}' +
+      '.cv_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:8px}' +
       '.cv_card{background:#fff;border:1px solid #e6ebf0;border-radius:12px;padding:10px 12px;min-height:56px;' +
         'display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}' +
       '.cv_card:active{background:#f2f6ff}' +
@@ -102,22 +113,22 @@
       '.cv_lbrow input[type=number]{width:70px;padding:6px 8px;font-size:13px;border:1px solid #d5dbe1;border-radius:6px}' +
       '.cv_lbhint{padding:8px 14px;font-size:11px;color:#8a98a6;line-height:1.6}' +
       '#cv_lb_hud{padding:10px 14px;font-size:14px;font-weight:600;color:#337ab7;letter-spacing:1px}' +
-      /* 2.190（老板纠正：小账本＝① 会话预备画面）：卡片四行、行序固定
-         （服务器 → 终身号 → 会话名 → 条数/更新于），右上角 🗑；③ 页那套
-         第二本账的样式（cv_lbcard/cv_lbid/cv_lbsrv…）随功能一并删除。 */
-      '.cv_card{position:relative;justify-content:flex-start}' +
-      '.cv_l1{font-size:12px;color:#6b7a89;white-space:nowrap;overflow:hidden;' +
-        'text-overflow:ellipsis;padding-right:70px}' +
-      '.cv_lid{margin-top:3px;font-size:14px;font-weight:600;color:#1f2d3d;font-family:Menlo,monospace;' +
-        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:70px}' +
-      '.cv_lid.cv_lbpending{color:#b58900;font-weight:500;font-family:inherit;font-size:13px}' +
-      '.cv_l3{margin-top:3px;font-size:13px;color:#337ab7;white-space:nowrap;overflow:hidden;' +
-        'text-overflow:ellipsis;padding-right:70px}' +
-      '.cv_l4{margin-top:3px;font-size:11px;color:#8a98a6;white-space:nowrap;overflow:hidden;' +
+      /* 2.192（老板：内容全挤左侧、卡片太高）：改「两行两栏」——第一行 左会话名 / 右服务器，
+         第二行 左终身号 / 右 条数·时间＋当前会话徽标＋🗑；压到 ≤52px，卡片变窄宽屏可两列。 */
+      '.cv_card{position:relative;padding:5px 10px;min-height:0}' +
+      '.cv_r{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;line-height:16px}' +
+      '.cv_r+.cv_r{margin-top:2px}' +
+      '.cv_rt{flex:1;min-width:0;font-size:13px;font-weight:600;color:#1f2d3d;white-space:nowrap;' +
+        'overflow:hidden;text-overflow:ellipsis}' +
+      '.cv_rs{flex:none;max-width:48%;font-size:11px;color:#6b7a89;white-space:nowrap;overflow:hidden;' +
         'text-overflow:ellipsis}' +
-      '.cv_l4 .cv_lbcur{margin-left:4px;font-size:11px;color:#8a98a6}' +
-      '.cv_lbdel{position:absolute;right:8px;top:8px;border:1px solid #f0c6c2;background:#fff;' +
-        'color:#c62828;border-radius:8px;padding:4px 7px;font-size:11px}' +
+      '.cv_rid{flex:1;min-width:0;font-size:11px;color:#5b6b7a;font-family:Menlo,monospace;' +
+        'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.cv_rid.cv_lbpending{color:#b58900;font-family:inherit}' +
+      '.cv_rmeta{flex:none;font-size:11px;color:#8a98a6;white-space:nowrap}' +
+      '.cv_rmeta .cv_lbcur{margin-left:4px;font-size:11px;color:#8a98a6}' +
+      '.cv_lbdel{flex:none;width:24px;height:22px;min-height:0;line-height:1;border:1px solid #f0c6c2;' +
+        'background:#fff;color:#c62828;border-radius:6px;padding:0;font-size:11px}' +
       '.cv_lbdel[disabled]{opacity:.45}';
     document.head.appendChild(st);
   }
@@ -375,11 +386,15 @@
              && 稳定键(sid, it.title || '') === String(S.anchorSid)));
         var card = document.createElement('div');
         card.className = 'cv_card';
-        card.innerHTML = '<div class="cv_l1">' + esc(srvTxt) + '</div>' +
-          '<div class="cv_lid' + (sid ? '' : ' cv_lbpending') + '">' + esc(sidTxt) + '</div>' +
-          '<div class="cv_l3">' + esc(it.title || '（无名会话）') + (dup ? ' · 重复' : '') + '</div>' +
-          '<div class="cv_l4">' + esc(it.n + ' 条 · 更新于 ' + tsTxt)
-            + (isCur ? '<span class="cv_lbcur">● 当前会话</span>' : '') + '</div>';
+        /* 2.192（老板：内容全挤左侧、卡片太高）：两行两栏——
+           第一行 左会话名 / 右服务器；第二行 左终身号 / 右 条数·更新于（＋当前会话徽标）。
+           🗑 由下方 appendChild 塞进第二行最右，不再占独立一行。 */
+        card.innerHTML =
+          '<div class="cv_r"><div class="cv_rt">' + esc(it.title || '（无名会话）') + (dup ? ' · 重复' : '') + '</div>'
+            + '<div class="cv_rs">' + esc(srvTxt) + '</div></div>' +
+          '<div class="cv_r"><div class="cv_rid' + (sid ? '' : ' cv_lbpending') + '">' + esc(sidTxt) + '</div>'
+            + '<div class="cv_rmeta">' + esc(it.n + ' 条 · 更新于 ' + tsTxt)
+            + (isCur ? '<span class="cv_lbcur">● 当前会话</span>' : '') + '</div></div>';
         var del = document.createElement('button');
         del.className = 'cv_lbdel';
         del.textContent = '🗑';
@@ -405,7 +420,9 @@
             alert('删除失败：' + ((e && e.message) || e));
           });
         };
-        card.appendChild(del);
+        /* 2.192：🗑 挂在第二行最右（与「条数·更新于」同排），不撑高卡片 */
+        var _r2 = card.querySelectorAll('.cv_r');
+        (_r2[1] || card).appendChild(del);
         card.onclick = function(){
           detailItem = it; view = 'detail';
           renderPreview(host);
