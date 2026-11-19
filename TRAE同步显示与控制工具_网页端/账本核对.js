@@ -179,6 +179,51 @@ function lbStoreKey(sid, title){
   const s = String(sid || '').trim(), t = String(title || '').trim();
   return 'L' + lbSrvTag() + ':' + (s ? s : 't:' + t);
 }
+/* ============ 2.205（老板新令·人事部长ST 0023 转达）：无 ID 不入账 ============
+   两次口谕的边界（留痕，防止以后互相打架）：
+     · 2026-11-19 21:51 老板口谕：手机网页端＝诊断口，不设限、任何错误都不过滤、
+       照建诊断账本（2.202 已落地：缺名也建、半轮也落、lbDiagTitle 兜底命名）。
+     · 2026-11-19 23:29 老板新令（人事部长ST 0023 转达）：「没有 ID 号码，服务器那边
+       就别给我发东西过来了……不带 ID 号码的聊天记录不要发。」——本令【只】推翻
+       「无 ID 也照建」这一部分，边界严格限定为两类：
+         ① 缺消息 ID：mid（index6）与 did（index9）都为空；
+         ② 缺会话 ID：sid 为空，或为 10 位纯数字假号（2.204 B5 口径的无效 sid）。
+       命中①② → 不入账、不上屏、不建账，只 diagLog 记一行（不上屏）。
+     · 其它不合格数据（例如有 sid 但没名字）仍按 21:51 诊断口口径照建诊断账本，
+       绝不扩大化。 */
+function lbRowHasId(m){
+  if (!Array.isArray(m)) return false;
+  return !!String(m[6] || '').trim() || !!String(m[9] || '').trim();
+}
+function lbSidValid(sid){
+  const s = String(sid || '').trim();
+  if (!s) return false;
+  if (/^\d{10}$/.test(s)) return false;          /* 2.204 B5：10 位纯数字＝假账号号源 */
+  return true;
+}
+let _lbNoIdT = 0;
+function _lbNoIdLog(what, sid, title){
+  const now = Date.now();
+  if (now - _lbNoIdT < 10000) return;            /* 10 秒节流，防高频帧刷屏 */
+  _lbNoIdT = now;
+  try { diagLog('因缺ID丢弃（' + what + '）sid=' + String(sid || '')
+    + ' title=' + String(title || ''), 'bad'); } catch(e){}
+}
+/* 2.205：把「缺 mid 且缺 did」的 u/a 行从轮次里剔除（入账前、上屏前同一口径）。 */
+function lbRoundIdFilter(rounds, sid, title){
+  return (rounds || []).map(r => {
+    if (!Array.isArray(r)) return null;
+    const rows = r.filter(m => {
+      if (!Array.isArray(m)) return false;
+      const t = String(m[0] || '').toLowerCase();
+      if (t !== 'u' && t !== 'a') return true;   /* 其它行交 lbMsgKind 再判 */
+      if (lbRowHasId(m)) return true;
+      _lbNoIdLog((t === 'u' ? '人类' : '终极') + '条目缺mid/did', sid, title);
+      return false;
+    });
+    return rows.length ? rows : null;
+  }).filter(Boolean);
+}
 /* 2.196（老板 2026-11-19·三类标记）：消息类型判定——只认三种，未知一律 think
    （fail-closed，宁可不入账也绝不把思维流当终极）。index8 落盘标记，渲染不读。 */
 function lbMsgKind(m){
@@ -520,9 +565,11 @@ function ledgerMod(d){
     }
     case 'ledger':                         /* 聊天主账本（按轮补发，G1） */
       /* 2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口不设限）：撤「缺 title
-         弃收」闸门——不合格帧照收照建诊断账本，缺名/缺 sid 由 ledgerStorePut
-         兜底命名并打 diag 标记，便于老板一眼发现毛病。 */
-      ledgerStoreApply(d.sid, body, v);
+         弃收」闸门——不合格帧照收照建诊断账本，缺名由 ledgerStorePut 兜底命名并
+         打 diag 标记，便于老板一眼发现毛病。
+         2.205（人事部长ST 0023 转达老板新令）：只对「缺消息 ID / 缺会话 ID」两类
+         做丢弃；缺名但 sid 有效的仍按诊断口口径照建（不扩大化）。 */
+      ledgerStoreApply(d.sid || (body && body.sid) || '', body, v);
       break;
     case 'think':                          /* 思维流快照＋排队条（TRAE 专属，E2/N1） */
       /* V2 验收 Y9（2026-11-18）：think 帧归属按 d.sel 优先——服务端 think
@@ -678,6 +725,14 @@ function lbRoundsFromMsgs(msgs){
   (msgs || []).forEach(m => {
     if (!Array.isArray(m)) return;
     if (m[0] === 'u'){
+      /* 2.205（老板新令）：人类条目缺 mid 且缺 did ⇒ 不入账、不上屏；
+         先收掉上一轮遗留的人类行，再断链（后续终极不得挂到上一轮）。 */
+      if (!lbRowHasId(m)){
+        _lbNoIdLog('人类条目缺mid/did', '', '');
+        if (cur && cur.length) rounds.push(cur);
+        cur = null;
+        return;
+      }
       if (cur && cur.length) rounds.push(cur);       /* 2.202：半轮也落 */
       cur = [m.slice()];
     } else if (m[0] === 'a' && cur){
@@ -686,11 +741,12 @@ function lbRoundsFromMsgs(msgs){
       const patch = lbPatchMarked(m);
       /* 思维流/未认证终极（完成态或消息 ID 为空）不入账——既有入账范围不动。
          2.204：带补记标记的按终极收（正文＝残缺思维流原文，绝不把「补记」
-         二字当正文）。 */
-      if ((!fin && !patch) || !mid) return;
+         二字当正文）。2.205：mid 与 did 都空＝无消息 ID，不收。 */
+      if ((!fin && !patch) || !lbRowHasId(m)) return;
       const _disp = (fin && fin !== '补记') ? fin : (m[1] || '');
       cur.push([m[0], _disp, m[2] || '', 0, 0, m[5] || '',
-                m[6] || '', fin || (patch ? '补记' : ''), patch ? 'patched' : '']);
+                m[6] || '', fin || (patch ? '补记' : ''), patch ? 'patched' : '',
+                m[9] || '']);                             /* 2.205：保留 did 供 ID 判据 */
     }
   });
   if (cur && cur.length) rounds.push(cur);           /* 2.202：半轮也落 */
@@ -873,17 +929,30 @@ function ledgerStorePut(sid, title, rounds, opt){
     title = _dt.title;
     const _diag = _dt.diag;
     const _t = String(title || '').trim();
+    /* 2.205（老板新令）：会话 ID 无效（空／10 位假号）→ 不入账、不上屏、不建账
+       （含名称临时账本；21:51 诊断口口谕中「无 ID 也照建」这部分被本令推翻）。 */
+    const _sidGate = String(sid || '').trim();
+    if (!lbSidValid(_sidGate)){
+      _lbNoIdLog('账本条目缺会话ID(sid)', _sidGate, _t);
+      return;
+    }
     if (_diag){
       try { diagLog('收到无名条目（诊断口不设限）→ 已建诊断账本 title='
         + _t + ' sid=' + String(sid || ''), 'bad'); } catch(e){}
     }
     /* 2.196 三类标记落账闸：只收 human 与 final 两种 kind 的行，think（th/snap/
        未认证 a）一律剔除——这是老板既定的入账范围，不是数据合格闸。
-       2.202：末行不是 final（半轮）/缺 mid 一律照落（带 diag 标记），不再整轮丢。 */
+       2.202：末行不是 final（半轮）/缺 mid 一律照落（带 diag 标记），不再整轮丢。
+       2.205（老板新令）：缺 mid 且缺 did 的行一律不收（人类/终极同口径）。 */
     const _rs0 = (rounds || []).map(r => {
       const rows = (r || []).filter(m => {
         const k = lbMsgKind(m);
-        return k === 'human' || k === 'final';
+        if (k !== 'human' && k !== 'final') return false;
+        if (!lbRowHasId(m)){
+          _lbNoIdLog((k === 'human' ? '人类' : '终极') + '条目缺mid/did', _sidGate, _t);
+          return false;
+        }
+        return true;
       }).map(lbTagKind);
       if (!rows.length) return null;                       /* 空壳/纯 think：入账范围外 */
       const a = rows[rows.length - 1];
@@ -1123,6 +1192,12 @@ function ledgerHumanApply(sid, title, rec, opt){
   const _r = lbHumanRecNorm(rec);
   if (!String(_r.text || '').trim()) return false;
   const _sid = String(sid || '').trim();
+  /* 2.205（老板新令）：缺会话 ID 或消息 ID（mid/did 都空）的人类帧一律不收。 */
+  if (!lbSidValid(_sid)){ _lbNoIdLog('人类帧缺会话ID(sid)', _sid, title); return false; }
+  if (!String(_r.mid || '').trim() && !String(_r.did || '').trim()){
+    _lbNoIdLog('人类帧缺mid/did', _sid, title);
+    return false;
+  }
   const _t = String(title || '').trim();
   const row = ['u', _r.text, _r.tm || '', 0, 0, '', _r.mid || '', '', 'human'];
   if (_r.did) row[9] = _r.did;
@@ -1194,8 +1269,16 @@ function ledgerStoreApply(sid, body, ver){
      兜底命名并打 diag 标记）；think 不入账的入账范围不动。 */
   if (!body || !Array.isArray(body.rounds)) return;
   const _sid = String(sid || '').trim();
-  /* 2.204（C）：先识别「本轮终极（补记）」标记，残缺轮照样与人类凑成一轮。 */
-  const _rounds = lbPatchRounds(body.rounds, body);
+  /* 2.205（老板新令）：缺会话 ID 的整帧不收——不入账、不上屏、不建账。
+     （21:51「诊断口不设限、无 ID 也照建」中的「无 ID」部分由此令推翻；
+     有 sid 但缺名仍按诊断口口径照建，边界不扩大。） */
+  if (!lbSidValid(_sid)){
+    _lbNoIdLog('账本帧缺会话ID(sid)', _sid, body.title || '');
+    return;
+  }
+  /* 2.204（C）：先识别「本轮终极（补记）」标记，残缺轮照样与人类凑成一轮。
+     2.205：入账与上屏同一口径，先剔除缺 mid/did 的行。 */
+  const _rounds = lbRoundIdFilter(lbPatchRounds(body.rounds, body), _sid, body.title || '');
   /* 2.198：只含人类行、没有终极的轮次＝人类记录帧（u）——立即渲染入账，
      不走「必须有已认证终极」闸门；其余轮次照旧走 ledgerStorePut。 */
   let _hasFinal = false;
@@ -1313,6 +1396,59 @@ function lbCleanStale(){
   }).catch(() => {});
 }
 setInterval(() => { try { lbCleanStale(); } catch(e){} }, 10 * 60 * 1000);
+
+/* ============ 2.205（老板新令②）：历史临时账本一次性清理 ============
+   背景：21:51 诊断口口径曾允许「无 sid 也按名称建临时账本（键 t:名称、标待补号）」；
+   23:29 新令后这类账本一律不再产生，历史残留做一次性清理：
+     · 账本（ledger_conv）：uid 与 sid 都为空的记录＝按名称建的临时账本/无名残账，
+       删除并同步减真存集与摘要表；有 sid 或 uid 的正常账本（含 0023 那种
+       名字→编号别名账本）一律保留。
+     · 预备画面（snap_conv，① 小账本卡片）：sid 空或 sid 等于 title 的＝名称键临时
+       画面，同步删除，杜绝「⏳ 待补号」卡片；有真 sid 的一律保留。
+   幂等、可重复跑：判据只看记录本身，清过即无；结果 diagLog 留痕。 */
+let _lbTempCleanAt = 0;
+function lbCleanupTempLedgers(force){
+  try {
+    if (!force && _lbTempCleanAt) return Promise.resolve(0);
+    _lbTempCleanAt = Date.now();
+    const tasks = [];
+    let nLed = 0, nSnap = 0;
+    return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
+      (rows || []).forEach(rec => {
+        if (!rec) return;
+        /* 有 sid 或 uid＝正常账本，绝不误删 */
+        if (String(rec.uid || '').trim() || String(rec.sid || '').trim()) return;
+        nLed++;
+        LB.lbHave.delete(String(rec.sid || ''));
+        lbSumDrop(rec.sid, rec.title);
+        tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.delete(rec.sk)).catch(() => {}));
+      });
+      return _idbReq('snap_conv', 'readonly', st => st.getAll());
+    }).then(rows2 => {
+      const _fk = (typeof frameKey === 'function') ? frameKey() : '';
+      (rows2 || []).forEach(rec => {
+        if (!rec) return;
+        const sid = String(rec.sid || '').trim();
+        const title = String(rec.title || '').trim();
+        if (sid && sid !== title) return;     /* 有真 sid：正常预备画面，保留 */
+        nSnap++;
+        try { if (rec.sk && typeof _frameMem === 'object' && _frameMem) delete _frameMem[rec.sk]; } catch(e){}
+        try {
+          if (title && _fk && typeof _frameMemByTitle === 'object' && _frameMemByTitle)
+            delete _frameMemByTitle[_fk + '|' + title];
+        } catch(e){}
+        tasks.push(_idbReq('snap_conv', 'readwrite', st => st.delete(rec.sk)).catch(() => {}));
+      });
+      return Promise.all(tasks).then(() => {
+        try { diagLog('临时账本清理：删除账本 ' + nLed + ' 本、待补号预备画面 ' + nSnap + ' 条', 'ok'); } catch(e){}
+        try { if (typeof window.cvLbDirty === 'function') window.cvLbDirty(); } catch(e){}
+        return nLed + nSnap;
+      });
+    }).catch(() => 0);
+  } catch(e){ return Promise.resolve(0); }
+}
+/* 开机稍后跑一次（等 IDB/服务端标记就绪；幂等，可重复调用） */
+try { setTimeout(() => { try { lbCleanupTempLedgers(); } catch(e){} }, 1500); } catch(e){}
 
 /* ================= ④ 主动核对（1 分钟周期+倒计时）与智能避让 ================= */
 setInterval(() => {
