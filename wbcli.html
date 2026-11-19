@@ -1136,6 +1136,10 @@ async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中
   return true;
 }
 function sendJson(d){
+  /* 2.69：挂起期统一外发闸门——已 logout 的页面除了 login/logout 本身，任何帧
+     （ctl_hb / ctl_free / cmd / req / act / who …）一律丢弃，杜绝频道零外发被
+     定时器或渲染副作用打穿。用 try 包住，避免初始化阶段 TDZ 误伤。 */
+  try { if (cliSuspended && (!d || (d.t !== 'login' && d.t !== 'logout'))) return; } catch(e){}
   /* 13.1【有则必报】：凡外发 JSON 帧一律附本机昵称——昵称只进载荷可选字段
      （FOX 帧头 【FOXID:…=cut(…)】 一字不动）；服务端无则回落电脑名。 */
   if (d && d.nick === undefined) d.nick = MY_NICK;
@@ -6214,7 +6218,7 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.68';
+const VER = '2.69';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -6736,8 +6740,16 @@ function connect(){
 let cliHbTimer = null, cliLoggedIn = false, cliIdleAt = Date.now();
 let cliLastBeat = 0;           /* 1.25：最后一次成功发出登录心跳的时刻 */
 let cliActSent = 0;            /* 1.64：最后一次上报「人工活动」的时刻（节流用） */
+/* 2.69（2026-11-19 A1 实测整改）：logout 后「挂起」——频道广播仍在往本页面
+   推 snap（PieSocket 是频道级广播，服务端无法只发给在线客户端），旧逻辑照
+   收照渲染，渲染里 plans_fp 对不上就又发 cmd plans_cur；ctl 定时器也只管
+   5 分钟窗口、不看登录态，继续发 ctl_hb。实测 logout 后 10 分钟仍外发 16 帧。
+   现在：logout 即置 suspended，来帧只记账不处理、任何外发一律短路；回前台
+   doLogin 复位。 */
+let cliSuspended = false;
 function doLogin(){
   cliIdleAt = Date.now();
+  cliSuspended = false;                    /* 2.69：回前台复位，恢复处理与发送 */
   if (!cliLoggedIn){
     cliLoggedIn = true;
     try { sendJson({t: 'login', fg: !document.hidden, nick: MY_NICK}); } catch(e){}
@@ -6747,7 +6759,11 @@ function doLogin(){
 function cliLogout(reason){
   if (!cliLoggedIn) return;
   cliLoggedIn = false;
+  cliSuspended = true;                     /* 2.69：挂起——零处理、零外发 */
+  cliIdleAt = 0;
   if (cliHbTimer){ clearInterval(cliHbTimer); cliHbTimer = null; }
+  /* 2.69：离场顺手还操控锁（在 logout 帧之前发，属同一次离场，不计入观察窗） */
+  try { if (ctlHeld){ ctlHeld = false; sendJson({t: 'ctl_free'}); } ctlAt = 0; } catch(e){}
   try { sendJson({t: 'logout', r: reason || ''}); } catch(e){}
 }
 function startCliHb(){
@@ -6883,6 +6899,9 @@ function _plansMerge(v){
 
 function onMsg(msg){
   statsAdd(msg.length, 0, 1, 0);
+  /* 2.69：挂起期（已 logout）只记账，不处理任何来帧——snap 继续广播过来也不
+     触发渲染/plans_cur 现取，保证频道零外发。回前台 doLogin 复位。 */
+  if (cliSuspended) return;
   const r = FoxIn.feed(msg);
   if (r === null){
     /* 无 FOX 头：本端只发 FOX 帧，不可能撞自己回声——兜底收对端
@@ -7165,6 +7184,7 @@ setInterval(pruneSrv, 5000);
 let ctlHeld = false, ctlAt = 0;
 function ctlTouch(){ ctlAt = Date.now(); }
 setInterval(() => {
+  if (!cliLoggedIn) return;                    /* 2.69：logged-out 一律不发 ctl_* */
   if (!S.onLine || !S.cur) return;
   if (!ctlAt || Date.now() - ctlAt > 300000){
     if (ctlHeld){ ctlHeld = false; try { sendJson({t: 'ctl_free'}); } catch(e){} }
