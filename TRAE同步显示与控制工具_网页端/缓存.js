@@ -626,6 +626,12 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
     _idbReq('snap_conv', 'readwrite', st => {
       st.delete(meta.key + '|@snap');
       st.put({sk: sk, key: meta.key, port: meta.port, sid: meta.sid,
+              /* 2.190（老板：只显示当前登录服务器的预备画面）：记录补服务器维度——
+                 取值与账本落盘同源（lbSrvTag/lbSrvName/lbSrvFox），读时按同一函数过滤。
+                 键（_frameMemKey）不动，避免老缓存全失效白屏。 */
+              srv: (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : '',
+              srvName: (typeof lbSrvName === 'function') ? String(lbSrvName()) : '',
+              srvFox: (typeof lbSrvFox === 'function') ? String(lbSrvFox()) : '',
               title: meta.title, ts: meta.ts, frame: frame});
       return null;
     }).catch(() => {});
@@ -955,7 +961,7 @@ function liveClear(){
   }
   S.livePend = ''; S.liveGot = true; S.liveFrame = null;   /* 2.57B：真帧到手撤存帧 */
   S.livePrefetch = false;                                  /* 2.67：预取标记一并清 */
-  S.lb_foldRounds = 0;     /* 账本V1.0：真画面到手 → 历史补发折叠面板退场（账本核对.js） */
+  S.lb_foldRounds = 0;     /* 账本V1.0：真画面到手 → 归零（2.183 修2：补发面板已撤§十二-2，状态位保留防渲染 key 漂移） */
   snapIdbTick(true);                           /* 真画面到手，立刻落地一帧 */
 }
 /* 2.98（标准《快照缓存策略》附录A「刷新/首屏也应立刻顶出最新缓存」）：首屏/刷新在
