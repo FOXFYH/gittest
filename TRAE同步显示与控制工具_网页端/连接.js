@@ -31,9 +31,20 @@ function teardownWs(){
                             srvWatch「!reconnectTimer」类救援判据（hung-0/已死
                             两档都靠它判定「无重连定时在跑」）。 */
   loggedIn = false;
+  /* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：拆旧就彻底断——
+     S.ws 指针一并置空（配上面的四回调摘除），任何代码都不可能再往旧连接发帧；
+     同时清掉与旧链路绑定的判活痕迹，新连接从零开始，杜绝「新旧两条同时在线」。
+     注：waitT/waitN 不在此清（重连正是由它触发，清了会无限重试）。 */
+  S.ws = null;
+  S.lastSrv = 0;
+  S.srvLost = false;
 }
 
 function connect(){
+  /* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：建新连接前必须先拆旧——
+     teardownWs 会把旧 socket 的 open/message/close/error 四回调全置 null 再
+     close()，并把 S.ws 置空 ⇒ 绝不会「新旧两条同时在线」，旧连接关闭时也不会
+     再排一次重连。切频道（设置页切 main↔backup）、重连、换频道名都走这一条路。 */
   teardownWs();
   S._wsOpenAt = Date.now();   /* 2.182 Y32a：连接起点时刻——srvWatch 的 hung-0
                                救援（上线与界面.js）按「readyState===0 超 20s」
@@ -210,8 +221,17 @@ function cliBeat(){
 function cliLogout(reason){
   const was = loggedIn;
   loggedIn = false;
-  clearInterval(hbTimer);
+  clearInterval(hbTimer); hbTimer = null;
+  clearTimeout(helloTimer);          /* 2.184：退出后不得再有定时外发（握手重发也停） */
   if (was){ try { sendJson({t: 'logout', r: reason || ''}); } catch(e){} }
+  /* 2.184（老板 2026-11-19 令：退出后频道零消耗）：把「等回应 / 失联 / 判活」
+     痕迹全部归零。此后除用户主动操作（cliRebind → cliLogin）外，本端不再定时
+     发送任何帧：hb 心跳已停；ctl_hb（电脑名册.js:191）与账本 vcheck
+     （账本核对.js:678）都以 loggedIn 为闸，自然停发；srvWatch 已无任何探针帧。 */
+  S.lastSrv = 0;
+  S.srvLost = false;
+  S.waitT = 0; S.waitN = 0; S.waitLast = 0;
+  try { renderLink(); } catch(e){}
 }
 /* 1.57：回前台统一入口——秒续优先，其次重登，最后立即重连
      · 链路活着且心跳没断太久 → 只补一个 hb（秒续，不重放、省流量）
@@ -340,10 +360,29 @@ function deliverFox(r){
   if (!sender || sender[0] !== '1') return;   // 1.12：只认服务端（'1'
                                               // 开头），拒客户端回声
   srvSeen();                                  // 1.07：服务端判活
-  handleBody(body);
+  handleBody(body, sender);                   // 2.184：带上 FOX 头发送者 id 供隔离过滤
 }
 
-function handleBody(body){
+/* 2.184 追加（服务器隔离过滤·老板令）：帧必须来自本服。身份取帧内 srv_sid
+   优先、无则 FOX 头发送者 id；本服号来源＝hello 自报（onHello 落 S.curSid），
+   否则首个带身份的帧记为本服。不符 → 整帧丢弃并记「跨服帧 弃收」。
+   无身份帧（t:'srv' 名册心跳等）无法判源，不判=放行，不误杀。 */
+function srvIsoPass(d, fromId){
+  const tag = String((d && (d.srv_sid || fromId)) || '').trim();
+  if (!tag) return true;                      // 无身份：不判
+  if (!S.curSid){                             // 首个自报身份记为本服
+    S.curSid = tag;
+    try { diagLog('本服 FOX 号=' + tag + '（首个身份自报）', 'ok'); } catch(e){}
+    return true;
+  }
+  if (tag !== S.curSid){
+    try { diagLog('跨服帧 弃收 srv=' + tag + ' t=' + String((d && d.t) || ''), 'bad'); } catch(e){}
+    return false;
+  }
+  return true;
+}
+
+function handleBody(body, fromId){
   let d;
   try { d = JSON.parse(body); } catch(e){ return; }
   if (!d || typeof d !== 'object') return;
@@ -360,6 +399,7 @@ function handleBody(body){
     return;
   }
   if (nm !== S.cur) return;                   // 非当前操控对象：忽略
+  if (!srvIsoPass(d, fromId)) return;         // 2.184：非本服 FOX 号，整帧丢弃
   /* 1.13：操控互斥——目标拒绝（正被其他客户端占用） */
   if (d.t === 'deny'){
     if (d.target === MY_ID)
