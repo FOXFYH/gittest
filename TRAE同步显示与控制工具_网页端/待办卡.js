@@ -98,12 +98,9 @@ function renderPending(){
     const st = pendStat(p);
     const d = document.createElement('div');
     d.className = 'msg user pend ' + st[1];
-    /* 2.93（老板 2026-10-20 07:10）：占位卡补上老板自己的时间（取首行 DID 的
-       14 位时间，见 通用工具.js didTimeOf），用专属元素 .ptm 且常显——不复用
-       .tm（.tm 属普通消息行）。 */
-    const _pTm = didTimeOf(p.did || p.text);
+    /* 2.206（老板最终合并口径）：占位卡还没有消息 ID（mid），故不显示任何时间——
+       14 位 DID 编号不再当作显示时间。 */
     let h = '<div class="who">我'
-          + (_pTm ? '<span class="ptm">' + esc(_pTm) + '</span>' : '')
           + '<span class="pstat">' + esc(st[0]) + '</span>';
     /* 1.83：出口恒亮——服务端"耳聋"（命令已发出却一个回执都收不到）时
        卡片会永久停在中间态（1.25 起刻意无自动超时），原来按钮只在
