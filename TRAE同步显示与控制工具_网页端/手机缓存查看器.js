@@ -99,6 +99,9 @@
         'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:78px}' +
       '.cv_lbname{margin-top:3px;font-size:12px;color:#337ab7;white-space:nowrap;overflow:hidden;' +
         'text-overflow:ellipsis;padding-right:78px}' +
+      /* 2.189：服务器归属行（会话名下一行、轮数上一行，字号比会话名小一号） */
+      '.cv_lbsrv{margin-top:2px;font-size:11px;color:#6b7a89;white-space:nowrap;overflow:hidden;' +
+        'text-overflow:ellipsis;padding-right:78px}' +
       '.cv_lbmeta{margin-top:3px;font-size:11px;color:#8a98a6}' +
       '.cv_lbid.cv_lbpending{color:#b58900;font-weight:500;font-family:inherit}' +
       '.cv_lbdel{position:absolute;right:10px;top:9px;border:1px solid #f0c6c2;background:#fff;' +
@@ -505,18 +508,36 @@
       readLedgerRows().then(function(rows){
         list.innerHTML = '';
         rows = rows.filter(function(r){ return r && typeof r === 'object'; });
+        /* 2.189（老板令「我现在登录的是哪个服务器，就只能看到这个服务器的小账本」）：
+           只画当前服务器——判据与落盘同源 lbSrvTag()（sk/srv 都按它建、按它写），
+           绝不「读 A 存 B」；无 rec.srv 的旧记录一律不显示，只在顶部报个条数
+           （宁可少画，也不混显、不冒充本服）。 */
+        var curTag = '';
+        try { curTag = (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : ''; } catch(e){ curTag = ''; }
+        var _hid = 0;
+        if (curTag){
+          rows = rows.filter(function(r){
+            var ok = String((r && r.srv) || '') === curTag;
+            if (!ok) _hid++;
+            return ok;
+          });
+        }
         /* 排序：rec.ts 倒序；ts 缺失排最后；同 ts 再按 sid 稳定，避免观察乱跳 */
         rows.sort(function(a, b){
           var d2 = (Number(b.ts) || 0) - (Number(a.ts) || 0);
           if (d2) return d2;
           return String(a.sid || '').localeCompare(String(b.sid || ''));
         });
+        if (_hid){
+          list.appendChild(Object.assign(document.createElement('div'),
+            {className:'cv_lbhint',
+             textContent:'另有 ' + _hid + ' 条记录属于其它/未知服务器，这里不显示（切到那台服务器再看）'}));
+        }
         if (!rows.length){
           list.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'暂无本地小账本'}));
           return;
         }
-        var curSrv = '';
-        try { curSrv = (typeof lbSrvKey === 'function') ? String(lbSrvKey()) : ''; } catch(e){ curSrv = ''; }
+        var curSrv = curTag;
         rows.forEach(function(rec){
           var sid = String(rec.sid || '');
           var skTxt = String(rec.sk || '');
@@ -547,6 +568,23 @@
           var nmEl = document.createElement('div');
           nmEl.className = 'cv_lbname';
           nmEl.textContent = nm;
+          /* 2.189（老板令）：卡片必须写明「属于哪个服务器的、终身号是多少」——
+             服务器归属单独一行，固定「服务器：名 · FOX号」；老记录没这两字段
+             时按 rec.srv 兜底（能认出就照实写），认不出写「服务器未知（旧记录）」，
+             绝不崩、绝不整张卡消失。 */
+          var srvEl = document.createElement('div');
+          srvEl.className = 'cv_lbsrv';
+          var _sn = String(rec.srvName || '').trim();
+          var _fx = String(rec.srvFox || '').trim();
+          if (!_sn && !_fx){
+            var _old = String(rec.srv || '').trim();
+            if (/^\d+$/.test(_old)) _fx = _old;
+            else if (_old) _sn = _old;
+          }
+          srvEl.textContent = (_sn || _fx)
+            ? ('服务器：' + (_sn || '名称未知') + (_fx ? (' · ' + _fx) : ''))
+            : '服务器未知（旧记录）';
+          srvEl.title = srvEl.textContent;
           var mtEl = document.createElement('div');
           mtEl.className = 'cv_lbmeta';
           var rn = Array.isArray(rec.rounds) ? rec.rounds.length : 0;
@@ -561,8 +599,11 @@
               /* 删完按剩余记录回算：该 sid 已无任何账本 → 真存集与摘要表同步减
                  （规范§七：绝不让 vcheck 替已死账本上报）；其他服务端的记录不动摘要 */
               return readLedgerRows().then(function(left){
+                /* 2.189：判「本服该 sid 已无账本」必须带服务器——同一终身号在
+                   别的服务器上是另一本账，不能拿它挡掉本服的摘要清理。 */
                 var still = (left || []).some(function(r){
-                  return String((r && r.sid) || '') === sid;
+                  return String((r && r.sid) || '') === sid
+                    && String((r && r.srv) || '') === String(rec.srv || '');
                 });
                 if (!still && sid){
                   try { LB.lbHave.delete(sid); } catch(e){}
@@ -578,7 +619,8 @@
               alert('删除失败：' + ((e && e.message) || e));
             });
           };
-          card.appendChild(idEl); card.appendChild(nmEl); card.appendChild(mtEl); card.appendChild(del);
+          card.appendChild(idEl); card.appendChild(nmEl); card.appendChild(srvEl);
+          card.appendChild(mtEl); card.appendChild(del);
           list.appendChild(card);
         });
       });
