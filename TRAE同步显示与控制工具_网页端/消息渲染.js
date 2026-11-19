@@ -181,14 +181,21 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      scroll 事件；那是程序造成的，绝不能让它被当成「用户上翻找历史」。 */
   clearGesture();
   el.msgs.innerHTML = '';
+  /* 2.195 发送闩：先同步（撤「已确认进对话流」/超时项），再决定要不要画条——
+     服务端队列空了、但还有点过「⚡发送」未确认的条目时，排队条照样画（只剩闩条）。
+     空态早退判据同样要算上闩条，否则「点发送→队列撤空」会被空态文案顶掉（实测）。 */
+  const _qLatch = (function(){
+    try { qsentLatchSync(pend); } catch(e){}
+    return qsentList(pend);
+  })();
   const empty = !msgs.length && !opts.length;
   if (empty && !S.pending.length && !S.switch_pend
-      && !(pend || []).length){
+      && !(pend || []).length && !_qLatch.length){
     el.msgs.innerHTML =
       '<div class="empty">（暂无消息，发送一条开始对话）</div>';
     return;
   }
-  if (empty && !(pend || []).length){ renderPending(); return; }
+  if (empty && !(pend || []).length && !_qLatch.length){ renderPending(); return; }
   /* 2.187：正文为空但官方排队条有条目（新会话首条就进了队）——不再早退，
      走正常渲染把「⏳ 官方排队条」挂出来；msgs 空则 forEach 自然零条。 */
   const times = resolveTimes(msgs);
@@ -446,12 +453,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      生成中插队/排队的消息在这里列出，可删除/立即发送/取出编辑，
      与坐在电脑前管理排队等效。索引用快照内序号（服务端 JS 直点
      同序 DOM 条目，坐标点击会因面板秒级重渲染失效——研究报告结论）。 */
-  /* 2.195 发送闩：先同步（撤「已确认进对话流」/超时项），再决定要不要画条——
-     服务端队列空了、但还有点过「⚡发送」未确认的条目时，排队条照样画（只剩闩条）。 */
-  const _qLatch = (function(){
-    try { qsentLatchSync(pend); } catch(e){}
-    return qsentList(pend);
-  })();
+  /* 2.195 发送闩已在上方（空态判据前）同步并算出 _qLatch——此处只判「要不要画条」。 */
   if ((pend && pend.length) || _qLatch.length){
     const qp = document.createElement('div');
     qp.className = 'qpanel';
