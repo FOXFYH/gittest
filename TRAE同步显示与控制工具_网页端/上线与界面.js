@@ -108,7 +108,7 @@ const LINKDOC = {
   '已连接':           '频道通、服务端正常，可以发指令收消息（安静没消息也是正常的）',
   '服务器无响应·重试连接中…': '我刚发了动作、20 秒没回音——正在重连，最多试 3 次',
   '服务器无响应（已重试 3 次）': '连着重试 3 次都没有回应——电脑上的服务端可能没在跑，去看看',
-  '服务器失联中…':          '2.178 Y25：频道还连着，但 20 秒没听到服务端任何动静——断网/服务端卡了；恢复收帧即回「已连接」'
+  '服务器失联中…':          '2.183 探针确认式：频道还连着，20 秒无帧先探针确认，约 12 秒仍无回音才判失联（老板 2026-11-19 定性：静默≠失联）——断网/服务端卡了；恢复收帧即回「已连接」'
 };
 function renderLink(){
   let txt, col, doc;
@@ -163,6 +163,9 @@ function renderLink(){
 }
 function srvSeen(){                    // 服务端来向消息：判活 + 即时刷新
   S.lastSrv = Date.now();
+  /* 2.183 修1：任何帧到达＝探针有了回音 → 立刻清疑似态（误报根治点：
+     正常静默期后随便来一帧就恢复，绝不走到置失联） */
+  S._srvProbe = 0; S._srvProbeT = 0;
   /* 2.178 Y25：失联恢复——之前被判失联（srvWatch 置的），收到任何帧即回绿。
      WS 还开着（没断过）时 onLine 已被置 false，这里直接拉回 true 免得傻等重连。 */
   if (S.srvLost){
@@ -175,20 +178,41 @@ function srvSeen(){                    // 服务端来向消息：判活 + 即�
   if (DIAG.testAt && !DIAG.testOk) DIAG.testOk = true;   // 测服务器：收到即成功
   renderLink();
 }
-/* 2.178 Y25（断网假在线治理）：browser 的 online/offline 事件不可靠，改用
-   服务端心跳判据——最近收到服务端任何帧超过 SRV_IDLE_MS(20s) 即置失联：
-   · S.srvLost = true（顶栏/诊断页显示「服务器失联中…」）；
+/* 2.178 Y25（断网假在线治理）→ 2.183 修1 修订（老板实测误报定性）：browser 的
+   online/offline 事件不可靠，改用服务端心跳判据——但「20s 无帧」只是疑似，
+   须探针确认（≈12s 仍无回音且 socket 活着）才置失联；socket 已死免探针直置：
+   · S.srvLost = true（顶栏/诊断页才显示「服务器失联中…」，疑似态不红不拦）；
    · setOnLine(false)：发命令被 srvNeedOnline 拦住（失联期间假 OK 比拦截更糟）。
    只动显示层+拦命令，**不主动断 WS、不真重连**（频道可能只是慢，真重连仍
    只走 2.162 主动动作 waitT 那条路）；收帧即由 srvSeen 恢复回绿。
-   复用 srvSeen 记的 S.lastSrv 源，不另设心跳帧。 */
+   复用 srvSeen 记的 S.lastSrv 源，探针用既有 hb 帧格式。 */
 function srvWatch(){
-  if (S.onLine && S.lastSrv && Date.now() - S.lastSrv > SRV_IDLE_MS){
-    S.srvLost = true;
-    setOnLine(false);
-    S._hbProbe = 0;                    /* 失联成立 → 探针计数从头起 */
-    try { diagLog('服务器 ' + Math.round((Date.now() - S.lastSrv) / 1000)
-                  + ' 秒无任何帧 → 判失联（等恢复收帧回绿）', 'bad'); } catch(e){}
+  /* 2.183 修1（2026-11-19 老板实测误报定性：静默≠失联，须探针确认）——
+     2.178「20s 无帧即置失联」与 2.162 铁律「完全静默＝正常态，只有主动动作
+     超时才报」冲突：TRAE 服务端本就「变了才发」，正常静默超 20s 必误报；
+     点测试＝主动动作→帧回→srvSeen 回绿。改【探针确认式·两阶段】：
+     ① 疑似：20s 无帧 → 置 _srvProbe 疑似态＋立即发一针 hb 探针——疑似态
+        顶栏不红、不拦命令（onLine/srvLost 都不动），一切照旧；
+     ② 确认：疑似后每 3s 拍复查——任何新帧到达（srvSeen 清 _srvProbe）→
+        恢复、绝不置失联（误报根治点）；连续 4 拍（≈12s）仍无帧且 socket
+        活着 → 才真置失联（真黑洞/服务端死）；socket 已死 → 免探针直接置。
+     置失联时点 20s→约 30s：真断网报失联晚 ~10s 属可接受代价（Y25 治的
+     本是「永久假在线」）。SRV_IDLE_MS 数值不动，动的是判定语义。
+     失联后的恢复链路（2.180 探针 / 2.181 online 拆旧 / 2.182 hung-0 救援）
+     全部保留不动。 */
+  if (S.onLine && S.lastSrv && Date.now() - S.lastSrv > SRV_IDLE_MS && !S._srvProbe){
+    S._srvProbe = 1; S._srvProbeT = 0;             /* 疑似态：先探针确认，不直接报 */
+    try { sendJson({t: 'hb', fg: true, nick: nickGet()}); } catch(e){}
+    try { diagLog('20 秒无帧 → 探针确认中…', 'dim'); } catch(e){}
+  }
+  if (S._srvProbe){
+    if (S.lastSrv && Date.now() - S.lastSrv <= SRV_IDLE_MS){
+      S._srvProbe = 0; S._srvProbeT = 0;           /* 新帧到达 → 恢复，绝不置失联 */
+    } else if (!S.ws || S.ws.readyState !== 1){
+      _srvMarkLost();                              /* socket 已死 → 免探针直接置失联 */
+    } else if (++S._srvProbeT >= 4){               /* 疑似后 ≈12s 仍无帧 → 真失联 */
+      _srvMarkLost();
+    }
   }
   /* 2.181 Y32a（兜底）：失联期间 socket 已死且无重连定时在跑时，把退避链重新
      拉起来——scheduleReconnect 自带 failStreak>=MAX 拒发卫兵（连接.js:107），
@@ -221,6 +245,16 @@ function srvWatch(){
   }
 }
 setInterval(srvWatch, 3000);          /* Y25：失联巡检（判据 20s，巡检 3s → 20~23s 内置失联） */
+/* 2.183：真失联统一收口（原 2.178 直判体）——只在探针确认无回音或 socket
+   已死时进入；进入即清疑似态，失联恢复链路（2.180/2.181/2.182）照旧生效。 */
+function _srvMarkLost(){
+  S._srvProbe = 0; S._srvProbeT = 0;
+  S.srvLost = true;
+  setOnLine(false);
+  S._hbProbe = 0;                    /* 失联成立 → 探针计数从头起 */
+  try { diagLog('服务器 ' + Math.round((Date.now() - (S.lastSrv || Date.now())) / 1000)
+                + ' 秒无任何帧且探针确认无回音 → 判失联（等恢复收帧回绿）', 'bad'); } catch(e){}
+}
 setInterval(renderLink, 3000);         // 静默→离线的过渡由定时器兜底
 
 /* ================= 命令 ================= */
