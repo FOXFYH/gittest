@@ -68,6 +68,84 @@ function _lsPurgeSnapKeys(){
     del.forEach(k => localStorage.removeItem(k));
   } catch(e){}
 }
+/* —— 2.232：按服务器分区的固态包（切服务器立刻还原，不再纯空白）——
+   老板 2026-11-20 23:06：换服务器来回切，列表整片空白，违反固态化原则。
+   键＝S.box|S.port（与会话列表.js 的 _cvServerKey 同源）；每台服务器各存一份
+   列表/未读/锚定/六模块最后已知值。切换时先还原这份，服务端快照到了照常覆盖
+   （错后报，绝不拦截操作）。最多留 6 台，LRU 淘汰。 */
+const LS_SRV_PACK = 'trae_webm_srvpack';
+let srvPackLastSave = 0;
+function srvPackKey(box, port){
+  const b = (box != null) ? box : S.box;
+  const p = (port != null) ? port : S.port;
+  return String(b || '') + '|' + String(p || '');
+}
+function _srvPacksRead(){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_SRV_PACK) || 'null');
+    return (o && typeof o === 'object') ? o : {};
+  } catch(e){ return {}; }
+}
+function srvPackSave(){
+  const now = Date.now();
+  if (now - srvPackLastSave < 2000) return;
+  srvPackLastSave = now;
+  try {
+    const s = S.snap || {};
+    if (!Array.isArray(s.convs) || !s.convs.length) return;   /* 没列表不写，防空白毒化 */
+    const k = srvPackKey();
+    const all = _srvPacksRead();
+    all[k] = {ts: now,
+              convs: s.convs, conv_unread: s.conv_unread || [],
+              conv_unread_ids: s.conv_unread_ids || [],
+              anchor: S.anchorSid ? {sid: S.anchorSid, title: S.anchorTitle || '',
+                                     full: S.anchorFull || ''} : null,
+              solid: {备注: S.备注 || {}, 定时: S.定时 || [],
+                      models_full: S.models_full || [], boxes: S.boxes || [],
+                      acct: S.acct || '', model: (s.model || '')}};
+    const ks = Object.keys(all).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
+    ks.slice(6).forEach(x => { delete all[x]; });
+    localStorage.setItem(LS_SRV_PACK, JSON.stringify(all));
+  } catch(e){}
+}
+function srvPackRestore(box, port){
+  try {
+    const p = _srvPacksRead()[srvPackKey(box, port)];
+    if (!p) return false;
+    if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+    if (Array.isArray(p.convs) && p.convs.length){
+      S.snap.convs = p.convs;
+      S.snap.conv_unread = p.conv_unread || [];
+      S.snap.conv_unread_ids = p.conv_unread_ids || [];
+      S.convs_key = null;                       /* 强制重画列表 */
+    }
+    const d = p.solid || {};
+    try { if (d.备注 && typeof d.备注 === 'object') S.备注 = d.备注; } catch(e){}
+    try { if (Array.isArray(d.定时) && d.定时.length) S.定时 = d.定时; } catch(e){}
+    try { if (Array.isArray(d.models_full) && d.models_full.length){
+            S.models_full = d.models_full;
+            if (typeof rebuildModelOptions === 'function') rebuildModelOptions();
+            if (typeof checkFavInvalid === 'function') checkFavInvalid(); } } catch(e){}
+    try { if (Array.isArray(d.boxes) && d.boxes.length){
+            S.boxes = d.boxes.filter(Boolean);
+            el.box.innerHTML = '';
+            S.boxes.forEach(b => { const o = document.createElement('option');
+              o.value = b; o.textContent = b; el.box.appendChild(o); });
+            el.box.value = box; } } catch(e){}
+    try { if (d.acct){ S.acct = String(d.acct); renderAcct(); } } catch(e){}
+    try { if (d.model && typeof syncModel === 'function'){ syncModel(d.model);
+            if (S.snap) S.snap.model = d.model; } } catch(e){}
+    /* 锚定：切回这台服务器＝回到它上次看的会话，立刻用该会话存帧铺满 */
+    if (p.anchor && p.anchor.sid){
+      S.anchorSid = p.anchor.sid; S.anchorTitle = p.anchor.title || '';
+      S.anchorFull = p.anchor.full || '';
+    }
+    if (el.msgs) el.msgs.innerHTML = '';
+    renderAll();
+    if (S.anchorSid && typeof snapIdbShow === 'function') snapIdbShow(S.anchorSid, S.anchorTitle);
+    return true;
+  } catch(e){ return false; }
+}
 /* —— 骨架缓存：打开页面即秒显会话列表（不用等连上） —— */
 function skelCacheSave(snap){
   if (!snap || !Array.isArray(snap.convs) || !snap.convs.length) return;
@@ -80,6 +158,7 @@ function skelCacheSave(snap){
                conv_unread_ids: snap.conv_unread_ids || []};
     localStorage.setItem(LS_SKEL, JSON.stringify(o));
   } catch(e){}
+  srvPackSave();                              /* 2.232：顺带写按服务器分区的固态包 */
 }
 /* （2.174：旧严格版 skelCacheLoad 已并入文件头部的宽松版——key 校验移除） */
 /* —— 固态兜底（2.173「打开即活」，老板 2026-11-18 亲批最核心灵魂）——
@@ -107,6 +186,7 @@ function solidSave(){
                pend_sid: (S.snap && S.snap.pend_sid) || ''};
     localStorage.setItem(LS_SOLID, JSON.stringify(o));
   } catch(e){}
+  srvPackSave();                              /* 2.232：六模块也按服务器分区存一份 */
 }
 function solidLoad(){
   try {
@@ -418,15 +498,60 @@ function _swSnapIsTargetNow(sp){
       && Array.isArray(sp && sp.prevMsgs)
       && !sameConvBody(sm, sp.prevMsgs));
 }
+/* 3.01（老板 2026-11-20 令·小账本短路）：取「当前会话」的本地全量快照正文。
+   来源优先级：_frameMem（按 srv+sid 预读/落地）→ 标题索引 → S.liveFrame。
+   服务器归属不符（f._srv 有值且≠当前服务器）⇒ 视为无缓存，绝不跨服串显。 */
+function _curLocalFrameMsgs(){
+  try{
+    const sid = (S.anchorSid || (typeof curSid === 'function' ? curSid() : '') || '');
+    const title = (typeof curTitle === 'function') ? curTitle() : '';
+    let f = sid ? _frameMem[_frameMemKey(sid)] : null;
+    if (!f && title) f = _frameMemByTitle[_frameTitleKey(title)];
+    if (!f && S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length)
+      f = S.liveFrame;
+    if (!f || !Array.isArray(f.msgs) || !f.msgs.length) return [];
+    const tag = (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : '';
+    if (f._srv && tag && String(f._srv) !== tag) return [];
+    return f.msgs;
+  }catch(e){ return []; }
+}
+/* 3.01：同一 mid（无正式 mid 退「角色+正文」指纹）只留一条——本地铺底、活帧增量补尾；
+   同一条取正文更长的那份（终极回复长于生成中的壳行），绝不重复成两条。 */
+function _mergeLocalSnap(localMsgs, snapMsgs){
+  const local = Array.isArray(localMsgs) ? localMsgs : [];
+  const snap = Array.isArray(snapMsgs) ? snapMsgs : [];
+  if (!local.length) return snap;
+  const out = [], idx = new Map();
+  const idOf = m => {
+    const id = String((m && m[6]) || '');
+    return _midIsFormal(id) ? ('M\u0001' + id) : _msgKey(m);
+  };
+  const put = (m, live) => {
+    if (!Array.isArray(m)) return;
+    const k = idOf(m), at = idx.get(k);
+    if (at == null){ idx.set(k, out.length); out.push(m); return; }
+    const old = out[at];
+    const ot = String((old && old[1]) || ''), nt = String((m && m[1]) || '');
+    if (nt.length > ot.length || (nt.length === ot.length && live)) out[at] = m;
+  };
+  local.forEach(m => put(m, false));
+  snap.forEach(m => put(m, true));
+  return out;
+}
 function curMsgs(){
   /* 3.00（老板 2026-11-05 23:10）：正文唯一来源＝
      ① 服务端真快照（S.snap.msgs，内存，不落盘）；
      ② 用户上顶翻出来的更早一页（S.histPrevRaw，账本给的历史）。
-     本地账本副本（S.histMsgs / LS_HIST）彻底退出屏幕，不再抢位置、不再补尾。 */
+     本地账本副本（S.histMsgs / LS_HIST）彻底退出屏幕，不再抢位置、不再补尾。
+     3.01（老板 2026-11-20 令）：主界面「吃小账本」——①先铺本地 IndexedDB 全量快照
+     （_curLocalFrameMsgs，按 srv+sid 归属校验），再叠加服务端活帧增量；同 mid 取
+     正文更长的那份、绝不重复成两条；无本地缓存则原样用活帧（降级不报错）。 */
   const _sp = S.switch_pend;
   if ((S.livePend || (_sp && _sp.lockTarget && !_sp.arrived))
       && !_swSnapIsTargetNow(_sp)) return [];
-  const snapMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs.slice() : [];
+  const _liveMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs.slice() : [];
+  const _localMsgs = _curLocalFrameMsgs();
+  const snapMsgs = _localMsgs.length ? _mergeLocalSnap(_localMsgs, _liveMsgs) : _liveMsgs;
   const prevRaw = (S.histPrevRaw && S.histPrevRaw.length) ? S.histPrevRaw : [];
   if (!prevRaw.length) return orderMsgs(snapMsgs);
   const prevArr = prevRaw.map(ledToArr);
@@ -622,6 +747,9 @@ function _frameTrimN(msgs, sk, quiet){
 }
 function _frameCommit(sk, frame, meta, onOk, memNow){
   const _mk = String(meta.title || '').trim();
+  /* 3.01：给存帧盖「当前服务器」归属，供小账本短路按 srv+sid 校验（切服不串显）。 */
+  try { if (frame && typeof frame === 'object' && typeof lbSrvTag === 'function')
+          frame._srv = String(lbSrvTag()); } catch(e){}
   /* 2.220：新帧先按 N 裁再参与「只进不退」比较与落盘——否则已存 12 轮旧帧
      会以「条数更多」把裁后的 5 轮新帧判成旧帧拒收。 */
   if (frame && Array.isArray(frame.msgs)) frame.msgs = _frameTrimN(frame.msgs, sk, false);
@@ -710,6 +838,8 @@ function snapIdbPrewarm(key){
     (arr || []).forEach(rec => {
       const sk = k + '|' + rec.sid;
       const old = _frameMem[sk] || null;
+      /* 3.01：内存存帧带上记录里的服务器归属，供小账本短路 srv+sid 校验。 */
+      try { if (rec.frame && typeof rec.frame === 'object') rec.frame._srv = String(rec.srv || ''); } catch(e){}
       if (old && !_frameNewerOrEqual(rec.frame, old)) return;
       _frameMem[sk] = rec.frame;
       const t = String(rec.title || '').trim();
