@@ -105,7 +105,7 @@ body.fmsg #msgs{padding-top:22px;}
 #ftoast.on{opacity:1;}
 /* 本专项 B3：直播帧提示条——横幅正下方细条，仅当显示的是本地存帧
    （尚未收到当前锚定会话的直播帧）时出现；真直播帧到达即撤。
-   2.57：层级降到 28（原 36）——必须低于左侧抽屉 #drawer(30) 与
+   2.57：层级降到 28（原 36）——必须低于左上角 ☰ 抽屉 #drawer(30) 与
    遮罩 #mask(29)；否则拉开左侧菜单时这条细条还压在菜单上面（用户实测）。 */
 #livebar{display:none; position:fixed; left:0; right:0; z-index:28;
   padding:2px 8px; text-align:center; font-size:11px; line-height:1.3;
