@@ -9508,6 +9508,10 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     q('tv_in_period').value = lsN(LS_PER, 90);
     q('tv_in_rounds').value = _snapRounds();
     q('tv_in_think').value = lsN(LS_THINK, 3);
+    /* 2.77：打开调控页即把本机「保留轮数 / 思维流间隔」同步给服务端一次，
+       免得本地与服务端各记一份（服务端现在真的按它们干活）。 */
+    try { sendJson({t: 'set_rounds', v: _snapRounds()}); } catch(e){}
+    try { sendJson({t: 'set_think_int', v: lsN(LS_THINK, 3)}); } catch(e){}
     q('tv_ck_clean').onchange = function(){ lsSet(LS_CLEAN, this.checked ? 1 : 0); };
     q('tv_ck_hud').onchange = function(){ lsSet(LS_HUD, this.checked ? 1 : 0); };
     q('tv_in_offline').onchange = function(){
