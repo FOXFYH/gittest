@@ -21,7 +21,19 @@ function _cvKeyOf(kind, title, sid){
   return kind === 'f' ? ('f|' + title)
     : ('c|' + (sid ? ('s:' + sid) : ('t:' + title)));
 }
-/* 会话行节点：结构固定（灯 span + 名称 span），复用后只改内容/类名/dataset */
+/* 2.217（老板时间规则第 5 条）：取该会话的 lastMid（服务端下发的「最后一条
+   消息 mid」，24hex；无/非法一律当没有）。同名/同 sid 与状态灯查找同口径。 */
+function _cvLastMidOf(cfRows, sid, sKey){
+  if (!Array.isArray(cfRows)) return '';
+  for (const o of cfRows){
+    if (!o) continue;
+    if ((sid && o.sid === sid) || (sKey && o.stable === sKey))
+      return String(o.lastMid || '');
+  }
+  return '';
+}
+/* 会话行节点：结构固定（灯 span + 名称 span + 最近时间 span），复用后只改
+   内容/类名/dataset，不销毁重建 */
 function _cvBuildItem(){
   const d = document.createElement('div');
   d.className = 'convo item';
@@ -30,10 +42,19 @@ function _cvBuildItem(){
   dot.style.display = 'none';
   d.appendChild(dot);
   const tspan = document.createElement('span');
+  tspan.style.cssText = 'flex:1;min-width:0;overflow:hidden;';
   const nm = document.createElement('span');
   nm.style.cssText = 'display:block;overflow:hidden;text-overflow:ellipsis';
   tspan.appendChild(nm);
   d.appendChild(tspan);
+  /* 2.217：最近时间＝timeFromMid(lastMid)（北京时间，秒级）；无合法
+     lastMid 时不显示时间（绝不写「时间未知」）。 */
+  const tm = document.createElement('span');
+  tm.className = 'cvtm';
+  tm.style.cssText = 'flex:none;margin-left:8px;color:#8a98a6;font-size:11px;'
+    + 'font-variant-numeric:tabular-nums;white-space:nowrap;';
+  tm.style.display = 'none';
+  d.appendChild(tm);
   /* 1.25：长按会话行（550ms）出菜单——读 dataset，节点复用不串台 */
   let lpTimer = null, lpFired = false;
   const stopLP = () => { if (lpTimer){ clearTimeout(lpTimer); lpTimer = null; } };
@@ -51,7 +72,7 @@ function _cvBuildItem(){
     if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
     _convItemSwitch(d);
   };
-  d._cvDot = dot; d._cvNm = nm; d._cvKind = 'c';
+  d._cvDot = dot; d._cvNm = nm; d._cvTm = tm; d._cvKind = 'c';
   return d;
 }
 /* 文件夹组头节点：结构固定（名称 span + ➕ span） */
@@ -141,7 +162,8 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
     ? S.snap.convs_full : null;
   const cfKey = cfRows ? cfRows.map(o => (o && o.sid || '') + ':'
       + (o && o.status && o.status.light || '') + ':'
-      + (o && o.schedule ? (o.schedule.next_at || '') : '')).sort().join('|') : '';
+      + (o && o.schedule ? (o.schedule.next_at || '') : '') + ':'
+      + (o && o.lastMid || '')).sort().join('|') : '';
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
     + '#uri:' + Array.from(uri).sort().join('|')
@@ -179,11 +201,63 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
   } else if (_cvHintEl && _cvHintEl.parentNode){
     _cvHintEl.parentNode.removeChild(_cvHintEl);
   }
-  let inFolder = false, idx = 0;
+  /* 2.217（老板时间规则第 5 条）：
+     · 每行「最近时间」＝timeFromMid(该会话 lastMid)；无合法 lastMid 一律
+       不显示时间（绝不写「时间未知」）。
+     · 显示层唯一允许的排序＝按 ID 时间倒序（同秒按 mid 倒序，无合法 mid
+       置末尾）。「排序归后端」只指聊天消息顺序（服务端 B3），不适用于会话
+       列表；此处排序就是本列表唯一的显示排序。
+     · 有文件夹组头时保持分组结构：组内按时间倒序、组间按组内最新时间倒序，
+       绝不把组头与组内会话打散。 */
+  const _items = [];
+  for (let _i = 0; _i < rows.length; _i++){
+    const _r = rows[_i] || [];
+    const _kind = _r[0], _title = _r[1] || '', _sid = _r[4] || '';
+    const _sKey = _sid ? 稳定键(_sid, _title) : '';
+    const _lm = _kind === 'c' ? _cvLastMidOf(cfRows, _sid, _sKey) : '';
+    const _sec = midSec(_lm);
+    const _ok = isFinite(_sec) && _sec > 0;
+    _items.push({r: _r, oi: _i, mid: _ok ? String(_lm).toLowerCase() : '',
+                 sec: _ok ? _sec : -1, ok: _ok});
+  }
+  const _cmpItem = (a, b) => {
+    if (a.ok !== b.ok) return a.ok ? -1 : 1;
+    if (a.ok){
+      if (a.sec !== b.sec) return b.sec - a.sec;
+      if (a.mid !== b.mid) return a.mid < b.mid ? 1 : -1;
+    }
+    return a.oi - b.oi;
+  };
+  const _blocks = [];
+  let _blk = {head: null, items: []};
+  for (const _it of _items){
+    if (_it.r && _it.r[0] === 'f'){
+      if (_blk.head || _blk.items.length) _blocks.push(_blk);
+      _blk = {head: _it, items: []};
+    } else {
+      _blk.items.push(_it);
+    }
+  }
+  if (_blk.head || _blk.items.length) _blocks.push(_blk);
+  _blocks.forEach(b => b.items.sort(_cmpItem));
+  _blocks.forEach((b, bi) => {
+    b.bi = bi; b.sec = -1;
+    b.items.forEach(it => { if (it.ok && it.sec > b.sec) b.sec = it.sec; });
+  });
+  _blocks.sort((a, b) => (a.sec !== b.sec) ? (b.sec - a.sec) : (a.bi - b.bi));
+  const _rows2 = [];
+  _blocks.forEach(b => {
+    if (b.head) _rows2.push(b.head);
+    b.items.forEach(it => _rows2.push(it));
+  });
+  let inFolder = false;
   const _order = [], _used = {};
   /* 1.31：按位取值（兼容旧 3 元组）——r[3]=状态灯 run/done/fail/stop/''
-     v1.95：r[4]=会话稳定 ID（缺失则回退标题锚定） */
-  for (const r of rows){
+     v1.95：r[4]=会话稳定 ID（缺失则回退标题锚定）
+     2.217：显示顺序用 _rows2；dataset.idx 仍保留服务端原始序号（无 sid 时
+     切换回退用原始位置，绝不因排序错点别的会话）。 */
+  for (const _it of _rows2){
+    const r = _it.r;
     const kind = r[0], title = r[1] || '', flag = r[2], st = r[3] || '';
     const sid = r[4] || '';
     const ck = _cvKeyOf(kind, title, sid);
@@ -214,14 +288,17 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       d.className = 'convo item' + (isAct ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       d.dataset.title = title; d.dataset.sid = sid; d.dataset.skey = sKey;
-      d.dataset.idx = String(idx);
+      d.dataset.idx = String(_it.oi);
       if (dotCls){ d._cvDot.className = 'stdot ' + dotCls; d._cvDot.style.display = ''; }
       else { d._cvDot.className = 'stdot'; d._cvDot.style.display = 'none'; }
       /* 2.40/2.47/2.137：会话名 + 备注后缀 + 定时铃铛（钩子缺失回退空串） */
       d._cvNm.textContent = title
         + (window.备注后缀 ? 备注后缀(sKey) : '')
         + (window.闹钟后缀 ? 闹钟后缀(sKey) : '');
-      idx++;
+      /* 2.217：最近时间只由 lastMid 现算；无合法 mid 不显示（不留占位文字） */
+      const _tm = _it.mid ? timeFromMid(_it.mid) : '';
+      if (_tm){ d._cvTm.textContent = _tm; d._cvTm.style.display = ''; }
+      else { d._cvTm.textContent = ''; d._cvTm.style.display = 'none'; }
     }
     _used[ck] = true;
     _order.push(d);
