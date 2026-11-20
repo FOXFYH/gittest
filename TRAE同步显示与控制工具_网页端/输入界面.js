@@ -206,7 +206,7 @@ function notReadyState(){
   if (!S.onLine)
     return {txt: '未连上中转频道，正在重连…', col: 'var(--orange)'};
   if (!S.cur)
-    return {txt: '未选择服务端（请打开左侧抽屉选一台）', col: 'var(--gray)'};
+    return {txt: '未选择服务端（请点左上角 ☰ 打开会话列表选一台）', col: 'var(--gray)'};
   const s = S.servers[S.cur];
   const ts = (s && s.ts) || 0;
   if (!ts || Date.now() - ts > SRV_DEAD_MS)
