@@ -610,8 +610,21 @@ function _frameNewerOrEqual(a, b){
   if (A.mid && B.mid && A.mid !== B.mid) return A.mid > B.mid;   /* ID 时间（前 8 位 hex）序 */
   return A.n >= B.n;                       /* 同一条 ID：条数不得更少 */
 }
+/* 2.220（预备画面同一把尺子）：落盘前按 N 裁 frame.msgs，复用 账本核对.js
+   的 lbTrimFrameMsgs（内部就是「u 起一轮」分组 + lbLedgerTrimRounds 的
+   lbRoundKey 去重/slice(-N)），不另写第二套。当前屏 S.snap 不经过本函数，
+   屏幕上的消息照旧显示（前端零拦截不变）。 */
+function _frameTrimN(msgs, sk, quiet){
+  try {
+    if (typeof lbTrimFrameMsgs === 'function') return lbTrimFrameMsgs(msgs, sk, quiet !== false);
+  } catch(e){}
+  return msgs;
+}
 function _frameCommit(sk, frame, meta, onOk, memNow){
   const _mk = String(meta.title || '').trim();
+  /* 2.220：新帧先按 N 裁再参与「只进不退」比较与落盘——否则已存 12 轮旧帧
+     会以「条数更多」把裁后的 5 轮新帧判成旧帧拒收。 */
+  if (frame && Array.isArray(frame.msgs)) frame.msgs = _frameTrimN(frame.msgs, sk);
   const _put = () => {
     _frameMem[sk] = frame;
     if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
@@ -636,6 +649,9 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
     if (typeof onOk === 'function') onOk();
   };
   if (Object.prototype.hasOwnProperty.call(_frameMem, sk)){
+    /* 2.220：旧内存帧也先按 N 裁再比，避免旧帧「条数更多」压住裁后新帧。 */
+    if (_frameMem[sk] && Array.isArray(_frameMem[sk].msgs))
+      _frameMem[sk].msgs = _frameTrimN(_frameMem[sk].msgs, sk, true);
     if (!_frameNewerOrEqual(frame, _frameMem[sk])) return false;
     _put();
     return true;
@@ -648,6 +664,7 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
     if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
     _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
       const old = (rec && rec.frame) || null;
+      if (old && Array.isArray(old.msgs)) old.msgs = _frameTrimN(old.msgs, sk, true);
       if (old && !_frameNewerOrEqual(frame, old)){
         _frameMem[sk] = old;                        /* 磁盘更新：内存回填更新帧 */
         const ot = String((rec && rec.title) || '').trim();
@@ -661,6 +678,7 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
   /* 内存里还没有该会话：先读 IDB 已存帧做比较（首启/未点过的会话） */
   _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
     const old = (rec && rec.frame) || null;
+    if (old && Array.isArray(old.msgs)) old.msgs = _frameTrimN(old.msgs, sk, true);
     if (old) _frameMem[sk] = old;                 /* 回填内存基准 */
     if (!_frameNewerOrEqual(frame, old)) return;  /* 旧帧／碎片帧拒收 */
     _put();
