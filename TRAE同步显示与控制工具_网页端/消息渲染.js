@@ -529,6 +529,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     d.innerHTML = h;
     el.msgs.appendChild(d);
   }
+  /* 2.223（老板 2026-11-20 17:20 令·思维流卡位置）：卡紧贴最新人类发言下方，
+     且必须排在**官方排队条之前**（2.207 原「插在排队条之后」被本令取代）。
+     此处插在正文/提问卡/完成任务卡之后、排队条与占位气泡之前，
+     DOM 顺序＝人类·终极 → 思维流卡 → 占位 → 官方排队条。 */
+  if (_think) el.msgs.insertAdjacentHTML('beforeend', _thinkCardHtml(_think));
   /* 1.29：插话排队条管理面板——快照 pend（TRAE pendingMessageList）。
      生成中插队/排队的消息在这里列出，可删除/立即发送/取出编辑，
      与坐在电脑前管理排队等效。索引用快照内序号（服务端 JS 直点
