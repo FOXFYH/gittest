@@ -434,38 +434,6 @@ setInterval(() => {
   renderState(S.snap);
 }, 5000);
 
-function renderAttach(items){
-  const row = el.attach_row;
-  row.innerHTML = '';
-  if (S.attach_pending){
-    row.classList.add('on');
-    for (const nm of S.attach_pending){
-      const c = document.createElement('span');
-      c.className = 'chip pend';
-      c.textContent = '⏳ ' + nm;
-      row.appendChild(c);
-    }
-    return;
-  }
-  if (!items || !items.length){
-    row.classList.remove('on');
-    return;
-  }
-  row.classList.add('on');
-  items.forEach((it, i) => {
-    const c = document.createElement('span');
-    c.className = 'chip ok';
-    c.innerHTML = '📎 ' + esc(it.name)
-      + (it.size ? '  ' + esc(it.size) : '')
-      + ' <span class="rm" title="移除">✕</span>';
-    c.querySelector('.rm').onclick = e => {
-      e.stopPropagation();
-      srvOpSend('attach_rm', i, '移除附件');   // 2.109：②＋rcpt ③④（attach_rm_done 另回填）
-    };
-    row.appendChild(c);
-  });
-}
-
 /* ===== 1.15：模型收藏 =====
  * 官方模型列表经常变更（改名/下架），收藏按「模型真名」存
  * localStorage（trae_webm_fav_models），跨服务端通用。有收藏时
