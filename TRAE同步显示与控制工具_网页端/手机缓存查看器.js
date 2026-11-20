@@ -1,8 +1,12 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.208  日期 2026-11-20
+/* 手机缓存查看器.js（网页端）  版本 2.215  日期 2026-11-20
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
    两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
+
+   2.215（老板 2026-11-20 09:11 终身号规则）：卡片第二行显示三档——标准终身号
+     原样（如 0047）／提取失败显示会话名并标「（按名称）」／两者都没有显
+     「终身号未登记」；卡片身份同一口径（标准号或同名只出一张卡），绝不完整 sid。
 
    2.208（老板 2026-11-19 23:50 亲令）：「小账本那边进去以后，查看每一条具体记录的时候，
      每一条具体记录，你得给它带这么一个字段啊。这个是从服务器发过来的：一个是该对话
@@ -66,7 +70,7 @@
      CV_VER 不再手写死——运行时直接取页面总版本 VER（诊断.js，全局可见），
      取不到才退回本地兜底常量。铁规矩：**每次动查看器都必须让 CV_VER 与页面
      VER 恒等**；build() 里再自检一次，不一致打 bad 日志。 */
-  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.208';
+  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.215';
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -441,14 +445,19 @@
     if (typeof foxHintBind === 'function'){ try { foxHintBind(host); } catch(e){} }
   }
 
-  /* 2.214：一张卡的身份（有权威终身号认终身号，否则认同名；无名才认 sid）。
-     同名只出一张卡，绝不再给第二张打「· 重复」标。 */
+  /* 2.215：一张卡的身份（标准终身号 → 号；提取失败 → 会话名/名称兜底；
+     无名才认 sid）。同名只出一张卡，绝不再打「· 重复」标。 */
   function _snapIdent(it){
     var u = String((it && it.uid) || '').trim();
-    var _fake = false;
-    try { _fake = (typeof _lbIsSrvAcctLike === 'function' && _lbIsSrvAcctLike(u)); } catch(e){ _fake = false; }
-    if (/^\d{4}$/.test(u) && !_fake) return 'u:' + u;
+    var _std = '';
+    try { _std = (typeof lbUidAuth === 'function') ? lbUidAuth(u) : ''; } catch(e){ _std = ''; }
+    if (_std) return 'u:' + _std;
+    var n = '';
+    try { n = (typeof lbUidName === 'function') ? lbUidName(u) : ''; } catch(e){ n = ''; }
     var t = String((it && it.title) || '').trim();
+    if (!t){
+      try { t = (typeof lbNormTitle === 'function') ? lbNormTitle(n) : n; } catch(e){ t = n; }
+    }
     if (t){
       try { if (typeof lbNormTitle === 'function') t = lbNormTitle(t); } catch(e){}
       return 't:' + t;
@@ -518,16 +527,26 @@
         if (!_sn){ try { _sn = (typeof lbSrvName === 'function') ? String(lbSrvName() || '') : ''; } catch(e){ _sn = ''; } }
         if (!_fx && /^\d+$/.test(String(it.srv || ''))) _fx = String(it.srv);
         var srvTxt = (_sn || _fx) ? ((_sn || '未知服务器') + (_fx ? (' · ' + _fx) : '')) : '服务器未知';
-        /* 2.211（老板 2026-11-20 07:08）：第二行只显示**权威终身号**（记录自带 uid，
-           4 位数字且非实例号截断 1632）；取不到不编造，显「终身号未登记」。
-           绝不把会话 sid / 实例号当终身号展示。 */
+        /* 2.215（老板 2026-11-20 09:11）：第二行显示口径——
+           ① 标准终身号（24hex sid 前 4 位数字）→ 原样（如 0047）；
+           ② 提取失败 → 会话名称原样并标「（按名称）」；
+           ③ 两者都没有 → 「终身号未登记」（只显示，不拦截）。
+           绝不把完整 sid / 实例号当终身号展示。 */
         var _uid2 = String(it.uid || '').trim();
-        var _uidOk = false;
+        var _std2 = '', _nm2 = '';
         try {
-          _uidOk = (typeof lbUidAuth === 'function') ? !!lbUidAuth(_uid2)
-            : (/^\d{4}$/.test(_uid2) && _uid2 !== '1632');
-        } catch(e){ _uidOk = false; }
-        var sidTxt = _uidOk ? _uid2 : '终身号未登记';
+          _std2 = (typeof lbUidAuth === 'function') ? (lbUidAuth(_uid2) || '')
+            : ((/^\d{4}$/.test(_uid2) && _uid2 !== '1632') ? _uid2 : '');
+          _nm2 = _std2 ? '' : ((typeof lbUidName === 'function') ? (lbUidName(_uid2) || '') : '');
+          if (!_std2 && !_nm2){
+            var _tt2 = String(it.title || '').trim();
+            if (_tt2) _nm2 = (typeof lbNormTitle === 'function')
+              ? (lbNormTitle(_tt2) || '') : _tt2;
+            if (/^\d{4}$/.test(_nm2) || /^\d{10}$/.test(_nm2)) _nm2 = '';  /* 数字名不当号 */
+          }
+        } catch(e){ _std2 = ''; _nm2 = ''; }
+        var _uidOk = !!(_std2 || _nm2);          /* 名称兜底也是合法终身号，不再标待补 */
+        var sidTxt = _std2 ? _std2 : (_nm2 ? (_nm2 + '（按名称）') : '终身号未登记');
         /* 2.206：缓存记录的接口/落盘时间（it.ts）不再作为任何显示时间。 */
         var _cur = '';
         try { _cur = (typeof curSid === 'function') ? String(curSid() || '') : ''; } catch(e){ _cur = ''; }
