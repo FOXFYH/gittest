@@ -624,7 +624,7 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
   const _mk = String(meta.title || '').trim();
   /* 2.220：新帧先按 N 裁再参与「只进不退」比较与落盘——否则已存 12 轮旧帧
      会以「条数更多」把裁后的 5 轮新帧判成旧帧拒收。 */
-  if (frame && Array.isArray(frame.msgs)) frame.msgs = _frameTrimN(frame.msgs, sk);
+  if (frame && Array.isArray(frame.msgs)) frame.msgs = _frameTrimN(frame.msgs, sk, false);
   const _put = () => {
     _frameMem[sk] = frame;
     if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
