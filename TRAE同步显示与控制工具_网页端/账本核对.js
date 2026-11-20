@@ -55,7 +55,7 @@ let lbLastAct = Date.now();                  /* 离线倒计时锚点（任意�
 let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默认关，追加单 2026-11-18） */
 
 /* ================= 配置读取（调控界面在缓存查看器「③ 账本调控」区） ================= */
-function lbPeriodMs(){ const v = parseInt(CFG.lb_period) || 60; return Math.max(15, v) * 1000; }
+function lbPeriodMs(){ const v = parseInt(CFG.lb_period) || 90; return Math.max(15, v) * 1000; }   /* 2.241：兜底 60→90 */
 function lbOfflineSecs(){ return Math.max(15, parseInt(CFG.lb_offline) || 120); }
 function lbRounds(){ return Math.min(50, Math.max(1, parseInt(CFG.lb_rounds) || 5)); }
 
