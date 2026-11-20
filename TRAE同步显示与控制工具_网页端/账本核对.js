@@ -1,5 +1,10 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.03  日期 2026-11-20
+/* 账本核对.js（网页端）  版本 1.04  日期 2026-11-20
+   【2.220 预备画面同尺子】上一轮只裁本地账本（ledger_conv），① 会话预备画面
+     （snap_conv）仍只增不减，老板看到卡片「N 条」超过 10 条。本版把 snap_conv
+     的 frame.msgs 也按同一 N（lbRounds 默认 5）裁：lbTrimFrameMsgs 复用
+     lbLedgerTrimRounds 判定（lbRoundKey 去重 + slice(-N)），写快照/合并/迁移/
+     开机统一走它，卡片条数与实际留存一致。屏幕上的消息照旧显示（零拦截不变）。
    【2.219 保留轮数真正生效】老板 2026-11-20 16:21「保留最近 5 轮这个参数没起作用」：
      本地账本落账/归并/迁移/开机清理统一按 N（CFG.lb_rounds）裁 rounds——
      lbRoundKey 去重后 slice(-N)，只裁 rounds 数组，整条记录其余字段不动；
@@ -1056,6 +1061,36 @@ function lbLedgerTrimRounds(rounds, key, quiet){
   }
   return out;
 }
+/* 2.220（预备画面同一把尺子）：把 snap_conv 的 msgs 按「u 起一轮」分组（AI/思维流
+   等其它行随当前轮，思维流不单独计轮），复用 lbLedgerTrimRounds 判定（lbRoundKey
+   去重 + slice(-N)）后平铺回行数组。只裁预备画面存量；当前屏 S.snap 不走此路，
+   前端零拦截不变。 */
+function lbTrimFrameMsgs(msgs, key, quiet){
+  const arr = Array.isArray(msgs) ? msgs : [];
+  if (!arr.length) return arr;
+  const groups = [];
+  let cur = null;
+  arr.forEach(m => {
+    if (!Array.isArray(m)) return;
+    if (m[0] === 'u'){
+      if (cur && cur.length) groups.push(cur);
+      cur = [m];
+    } else if (cur){
+      cur.push(m);                      /* AI 终极/思维流等随当前轮 */
+    } else {
+      groups.push([m]);                 /* 人类行之前的孤立行单列一组，绝不丢 */
+    }
+  });
+  if (cur && cur.length) groups.push(cur);
+  const kept = lbLedgerTrimRounds(groups, key, true);
+  if (kept.length < groups.length && !quiet){
+    try { diagLog('预备画面裁剪|键=' + String(key || '') + '|裁前=' + groups.length
+      + '|裁后=' + kept.length, 'ok'); } catch(e){}
+  }
+  const out = [];
+  kept.forEach(g => g.forEach(m => out.push(m.slice())));
+  return out;
+}
 /* 2.183 修4b（老板实测：小账本以纯数字命名·落盘层兜底）：title 为空或纯数字
    （/^\d+$/，服务端 TRAE本地账本.py 键常为 4 位序号，显示名在服务端 _名 映射
    未随帧下发）→ 先按 sid 从本地会话列表解析显示名（只读，不发帧）；解析不到
@@ -1107,7 +1142,10 @@ function lbWriteBackSnap(sid, title, rounds){
     const rows = [];
     rounds.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) rows.push(m.slice()); }));
     if (!rows.length) return;
-    const frame = {msgs: rows, finish: null, tail: '', sendIdle: true,
+    /* 2.220：写回预备画面也走同一把尺子（只留最新 N 轮），与账本存量同源。 */
+    const _rows = lbTrimFrameMsgs(rows, sk, true);
+    if (!_rows.length) return;
+    const frame = {msgs: _rows, finish: null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
                    attach: [], model: ''};
     _frameCommit(sk, frame,
@@ -1838,6 +1876,39 @@ function lbTrimAllRounds(force){
   } catch(e){ return Promise.resolve(0); }
 }
 
+/* ============ 2.220：开机/改值后按 N 批量裁预备画面（snap_conv） ============
+   与 lbTrimAllRounds 同一把尺子：只裁 frame.msgs 的轮次（lbTrimFrameMsgs →
+   lbLedgerTrimRounds），sk/key/sid/uid/title/srv/ts 一律不动；未超 N 的记录不
+   重写、不记日志；幂等，裁到的每条记 `预备画面裁剪|键=…|裁前=n|裁后=N`。 */
+let _lbTrimSnapAt = 0;
+function lbTrimAllSnaps(force){
+  try {
+    const now = Date.now();
+    if (!force && now - _lbTrimSnapAt < 5000) return Promise.resolve(0);
+    _lbTrimSnapAt = now;
+    let nRec = 0;
+    const tasks = [];
+    return _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
+      (rows || []).forEach(rec => {
+        if (!rec || !rec.frame || !Array.isArray(rec.frame.msgs)) return;
+        const before = rec.frame.msgs.length;
+        const kept = lbTrimFrameMsgs(rec.frame.msgs, rec.sk, false);
+        if (kept.length === before) return;
+        nRec++;
+        const nrec = Object.assign({}, rec,
+          {frame: Object.assign({}, rec.frame, {msgs: kept})});
+        tasks.push(_idbReq('snap_conv', 'readwrite', st => st.put(nrec)).catch(() => {}));
+        try {
+          if (typeof _frameMem === 'object' && _frameMem) _frameMem[rec.sk] = nrec.frame;
+          if (typeof _frameMemByTitle === 'object' && _frameMemByTitle && rec.title)
+            _frameMemByTitle[String(rec.key || '') + '|' + String(rec.title)] = nrec.frame;
+        } catch(e){}
+      });
+      return Promise.all(tasks).then(() => nRec);
+    }).catch(() => 0);
+  } catch(e){ return Promise.resolve(0); }
+}
+
 /* ============ 2.205/2.211：历史账本一次性清理（假桶只迁不删） ============
    背景：21:51 诊断口口径曾允许「无 sid 也按名称建临时账本（键 t:名称、标待补号）」；
    23:29 新令后这类账本一律不再产生。2.211（老板 2026-11-20 07:08 令）：
@@ -1971,6 +2042,10 @@ function lbCleanupTempLedgers(force){
               recNew.ts = Math.max(Number(old.ts) || 0, Number(rec.ts) || 0);
             }
             bySk2.set(nsk, recNew);
+            /* 2.220：迁移合并后的预备画面同样只留最新 N 轮。 */
+            if (recNew.frame && Array.isArray(recNew.frame.msgs))
+              recNew.frame = Object.assign({}, recNew.frame,
+                {msgs: lbTrimFrameMsgs(recNew.frame.msgs, nsk, false)});
             notes.push('画面 ' + String(rec.sk) + ' → ' + nsk);
             tasks.push(_idbReq('snap_conv', 'readwrite', st => st.put(recNew))
               .then(() => (rec.sk !== nsk)
@@ -2182,6 +2257,8 @@ function lbMergeDuplicateBuckets(force){
       const _skTitle = String(base.title || '').trim();
       const _nsk = (_skTitle && typeof _frameMemKey === 'function')
         ? _frameMemKey(_skTitle) : String(base.sk || '');
+      /* 2.220：合并后的预备画面同样只留最新 N 轮（思维流随当前轮，单独计轮）。 */
+      msgs = lbTrimFrameMsgs(msgs, _nsk, false);
       const frame = Object.assign({}, (order[order.length - 1] || {}).frame || {}, {msgs: msgs});
       const rec = Object.assign({}, base, {
         sk: _nsk, srv: String(base.srv || ''), sid: String(base.sid || ''),
@@ -2330,7 +2407,8 @@ lbVerLoad();
 try { setTimeout(() => {
   try {
     Promise.resolve(lbMergeDuplicateBuckets()).catch(() => 0)
-      .then(() => { try { return lbTrimAllRounds(); } catch(e){} });
+      .then(() => { try { return lbTrimAllRounds(); } catch(e){} })
+      .then(() => { try { return lbTrimAllSnaps(); } catch(e){} });
   } catch(e){}
 }, 2500); } catch(e){}
 /* 2.204（B4）：开机静默回补最近 2 天坏时间（幂等，5 分钟节流） */
