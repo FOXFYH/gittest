@@ -6397,7 +6397,7 @@ const APP_NAME = 'wb远程';
    ★2.72（2026-11-20）口径更新：条数/轮数两个参数合并成一个「保留轮数」
       （`wb_snap_rounds`，默认 5 轮≈10 条），上面②里的条数参数与查看器里的「保留条数」
       输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。 */
-const VER = '2.72';
+const VER = '2.73';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -9137,15 +9137,17 @@ const wsOV = new URLSearchParams(location.search).get('ws');
    首次点播放时由 ttsEnsure() 拉起，播完静置 60 秒自动断开。 */
 if (wsOV || CFG.channel){ connect(); } else channelPrompt();
 
-/* ======== 小账本查看器（快照账 snaps） V1.0 三页签 ========
+/* ======== 小账本查看器（快照账 snaps） V1.0 两页签 ========
    1.11（2026-11-20）：按《手机网页端账本系统 V1.0》§十整改——
    ① 账本（小账本本体，只显当前服务器；卡片两行左右分栏：名/服务器、终身号/条数·更新时间＋删除）
-   ② 缓存（原样保留，全部服务器可查）
-   ③ 调控（唯一集中入口：自动清理、悬浮倒计时、离线倒计时、核对周期、保留条数、
+   ③ 调控（唯一集中入口：自动清理、悬浮倒计时、离线倒计时、核对周期、保留轮数、
            思维流帧间隔、切后台下线）
+   ★ 1.12（2026-11-20 人事部长ST 0023 派单）：「账本」与「缓存」两页功能重复，
+     WB 网页版不需要缓存页 —— 整页删除（② 缓存 tab、renderCache 渲染器一并删），
+     只留「账本」；「缓存管理」按钮只做在 TRAE 网页版设置页。
    ★ 小账本＝现成查看器，禁止另造页面；配置项只放本页 ③。 */
 (function(){
-  var built = false, CV_VER = '1.11', tab = 'ledger', cur = null;
+  var built = false, CV_VER = '1.12', tab = 'ledger', cur = null;
   var NKEY = 'wb_turns_n';
   var LS_CLEAN = 'wb_lb_autoclean', LS_HUD = 'wb_lb_hud', LS_OFFE = 'wb_lb_offline_on',
       LS_OFF = 'wb_lb_offline', LS_PER = 'wb_lb_period', LS_THINK = 'wb_lb_think',
@@ -9394,7 +9396,6 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     host.innerHTML = '';
     if (cur){ renderDetail(host); return; }
     if (tab === 'ctl') renderCtl(host);
-    else if (tab === 'cache') renderCache(host);
     else renderLedger(host);
   }
   /* ① 账本：小账本本体——只显当前服务器的会话，按更新时间倒序，两行卡片 */
@@ -9402,7 +9403,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     var sec = document.createElement('div'); sec.className = 'tv_sec';
     sec.innerHTML = '<h3>📒 小账本 · 本机 <span class="n">读取中…</span></h3>' +
       '<div class="tv_hint">只显当前服务器 <b>' + esc(srvName(srvKey())) + '</b> 的会话；' +
-      '每个会话只留最新 N 条，切会话时先铺的就是它。改条数/清理去「③ 调控」。</div>';
+      '每个会话只留最新 5 轮（≈10 条），切会话时先铺的就是它。改轮数/清理去「② 调控」。</div>';
     host.appendChild(sec);
     openAll().then(function(list){
       var mine = list.filter(function(it){ return String(it.srv) === String(srvKey()); });
@@ -9419,40 +9420,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
       sec.appendChild(g);
     });
   }
-  /* ② 缓存：原样保留，全部服务器都能查（按服务器分组） */
-  function renderCache(host){
-    var cfg = document.createElement('div'); cfg.className = 'tv_sec';
-    cfg.innerHTML = '<h3>缓存说明 <span class="n">全部服务器 · 原样保留</span></h3>' +
-      '<div class="tv_hint">「小账本」＝切会话时先铺的那份缓存，与直播同一套渲染，切过去不抖不闪。' +
-      '规则：每个会话都保存（不限会话个数），每个会话只留最新 N 条，超出自动删最旧。</div>';
-    host.appendChild(cfg);
-    var sec = document.createElement('div'); sec.className = 'tv_sec';
-    sec.innerHTML = '<h3>本地快照账 <span class="n">读取中…</span></h3>';
-    host.appendChild(sec);
-    openAll().then(function(list){
-      list.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
-      sec.querySelector('.n').textContent = list.length + ' 个会话有本地快照账';
-      if (!list.length){
-        var e = document.createElement('div'); e.className = 'tv_empty';
-        e.textContent = '（本地还没有快照账，切几个会话就会攒起来）';
-        sec.appendChild(e); return;
-      }
-      var mp = nameMap(), groups = {}, order = [];
-      list.forEach(function(it){
-        if (!groups[it.srv]){ groups[it.srv] = []; order.push(it.srv); }
-        groups[it.srv].push(it);
-      });
-      order.sort();
-      order.forEach(function(sv){
-        var gs = document.createElement('div'); gs.className = 'tv_sec';
-        gs.innerHTML = '<h3>服务器：' + esc(srvName(sv)) + ' <span class="n">'
-          + groups[sv].length + ' 个会话</span></h3>';
-        var g = document.createElement('div'); g.className = 'tv_grid';
-        groups[sv].forEach(function(it){ g.appendChild(cardOf(it, mp, false, host)); });
-        gs.appendChild(g); host.appendChild(gs);
-      });
-    });
-  }
+  /* 1.12（2026-11-20）：② 缓存页整页删除（与①账本重复；WB 端不需要）。 */
   function renderDetail(host){
     var mp = nameMap(), ln = lnOf(cur.sid, mp);
     var bar = document.createElement('div'); bar.className = 'tv_dhd';
@@ -9494,7 +9462,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
       '<div class="tv_ctlrow"><label>思维流帧间隔（秒，0＝不限频一变即发）</label><input type="number" id="tv_in_think" min="0" max="120"></div>' +
       '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_idleout"> 离线倒计时启用（走完发下线信号）</label></div>' +
       '<div class="tv_ctlrow"><label>切后台自动下线（秒，0＝不自动下线）</label><input type="number" id="tv_in_bg" min="0" max="1800"></div>' +
-      '<div class="tv_hint">以上为账本系统 V1.0 调控项（唯一集中入口）。小账本本体在「① 账本」，原始缓存仍在「② 缓存」。</div>';
+      '<div class="tv_hint">以上为账本系统 V1.0 调控项（唯一集中入口）。小账本本体就在「① 账本」；1.12 起不再单列缓存分页。</div>';
     host.appendChild(fs);
     var q = function(id){ return fs.querySelector('#' + id); };
     function applyRounds(v){
@@ -9561,7 +9529,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     pg.innerHTML = '<div id="tv_hd"><button id="tv_back">‹ 返回</button>' +
       '<div class="t">小账本查看器 v' + CV_VER + '</div><button id="tv_reload">刷新</button></div>' +
       '<div id="tv_tabs"><button data-t="ledger" class="on">① 账本</button>' +
-      '<button data-t="cache">② 缓存</button><button data-t="ctl">③ 调控</button></div>' +
+      '<button data-t="ctl">② 调控</button></div>' +
       '<div id="tv_bd"></div>';
     document.body.appendChild(pg);
     var hb = document.createElement('div'); hb.id = 'tv_hudbar';
