@@ -198,9 +198,12 @@ function onEv(kind, v){
            旧格式 {t:'<DID> 正文'} 与新格式 {id:'<DID>',text} 必须算出同一个键，
            否则同一句两种形态交替到达时各算一条（2→4）。 */
         const k = (typeof pendTxtKey === 'function') ? pendTxtKey(it)
-                                                     : String(it.id != null ? it.id : _tx);
-        if (!k || _seen2.has(k)) return;
-        _seen2.add(k);
+              : String((it.id != null && String(it.id).trim()) ? it.id : _tx);
+        /* 2.234（老板 2026-11-20 23:09）：无 id 的 AI 间总管命令键为空，
+           旧写法 `if (!k || …) return` 会整条吞掉（「只认 DID」的又一处）；
+           键空＝无从判重，放行。 */
+        if (k && _seen2.has(k)) return;
+        if (k) _seen2.add(k);
         _pv.push(it);
       });
       /* 2.206（老板最终合并口径·投递）：老板忙时多条消息必须全部留在排队条里，
