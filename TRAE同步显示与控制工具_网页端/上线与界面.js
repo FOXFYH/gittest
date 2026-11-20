@@ -64,7 +64,7 @@ function applySwitch(box, port){
   S.box = box; S.port = port;
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
-  S.attach_pending = null; S.model_busy = false;
+  S.model_busy = false;
   /* 1.09：换目标——待确认项/切换在途条随旧目标作废 */
   S.pending = []; switchAbort();
   S.busy = false;      // 1.07：远程拉起/重启成功经 switched 到此——
@@ -73,7 +73,6 @@ function applySwitch(box, port){
   el.convs.innerHTML = '';
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
                      + ' …）</div>';
-  renderAttach([]);
   el.model.value = '';
   renderVer(box);
   /* 2.232（老板 2026-11-20 23:06）：换服务器不许白屏——立刻还原这台服务器上次的
