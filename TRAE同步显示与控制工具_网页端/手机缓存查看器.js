@@ -70,7 +70,7 @@
      CV_VER 不再手写死——运行时直接取页面总版本 VER（诊断.js，全局可见），
      取不到才退回本地兜底常量。铁规矩：**每次动查看器都必须让 CV_VER 与页面
      VER 恒等**；build() 里再自检一次，不一致打 bad 日志。 */
-  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.215';
+  var CV_VER = (typeof VER === 'string' && VER) ? VER : '2.216';
   var built = false, tab = 'preview';
   var view = 'list';           /* 'list' ＝ 卡片列表；'detail' ＝ 单会话详情 */
   var detailItem = null;
@@ -397,10 +397,13 @@
     if (_early) return 'AI 终极回复（提前）';
     return KIND_TEXT[k] || '类型未知';
   }
-  /* 类型徽标（详情每条必显；色标仅供一眼分辨，文字为准） */
+  /* 类型徽标（详情每条必显；色标仅供一眼分辨，文字为准）
+     2.216（0047）：术语保留，补一句人话解释（长按/悬浮可见）。 */
   function kindTag(m){
     var k = kindOf(m) || 'unknown';
-    return '<span class="kd ' + k + '">' + esc(kindText(m)) + '</span>';
+    return '<span class="kd ' + k + '"'
+      + (k === 'unknown' ? ' title="旧记录未带类型，不影响阅读"' : '')
+      + '>' + esc(kindText(m)) + '</span>';
   }
   /* ② 缓存页 ledger_conv：把整本账逐条类型列出来（原始 JSON 里 index8 不直观） */
   function kindsDigestHtml(rec){
@@ -429,7 +432,7 @@
     if (n.human) parts.push('人类 ' + n.human);
     if (n.final) parts.push('终极 ' + n.final);
     if (n.think) parts.push('思维流 ' + n.think);
-    if (n.unknown) parts.push('类型未知 ' + n.unknown);
+    if (n.unknown) parts.push('类型未知 ' + n.unknown + '（旧记录未带类型）');
     return parts.join(' · ');
   }
   /* 2.10：单条消息走主代码同一条渲染管线（专属词前后缀折叠成按钮，不再整段铺开）。 */
@@ -573,7 +576,9 @@
         card.innerHTML =
           '<div class="cv_r"><div class="cv_rt">' + esc(_dispTitle(it)) + '</div>'
             + '<div class="cv_rs">' + esc(srvTxt) + '</div></div>' +
-          '<div class="cv_r"><div class="cv_rid' + (_uidOk ? '' : ' cv_lbpending') + '">' + esc(sidTxt) + '</div>'
+          '<div class="cv_r"><div class="cv_rid' + (_uidOk ? '' : ' cv_lbpending') + '"'
+            + (_uidOk ? '' : ' title="系统暂未登记该会话编号，不影响聊天"') + '>'
+            + esc(sidTxt) + '</div>'
             + '<div class="cv_rmeta">' + esc(_tsTxt)
             + (isCur ? '<span class="cv_lbcur">● 当前会话</span>' : '') + '</div></div>';
         var del = document.createElement('button');
