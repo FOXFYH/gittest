@@ -9,7 +9,6 @@ const S = {
   failStreak: 0,
   box: '(未连接)', port: 0, boxes: [], alive: new Set(),
   points: '—', snap: {},
-  attach_pending: null,
   model_map: {}, model_busy: false,
   /* 1.15 模型收藏：favs=收藏的模型真名数组（localStorage 持久）；
      models_full=最近一拍官方模型列表 [name,trail,restricted]；
@@ -140,13 +139,13 @@ const el = {
   points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), loginbar: $('loginbar'),
   reconn: $('btn_reconn'), reconnbar: $('reconnbar'),
-  msgs: $('msgs'), attach_row: $('attach_row'),
+  msgs: $('msgs'),
   input_row: $('input_row'),
-  attach: $('btn_attach'), ent: $('ent'), take: $('btn_take'),
+  ent: $('ent'), take: $('btn_take'),
   copy: $('btn_copy'),
   urgent: $('btn_urgent'),        /* T63：加急插入勾选（放大态顶行「急」） */
   send: $('btn_send'),
-  file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
+  drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
   launch: $('btn_launch'), refresh_pts: $('btn_refresh_pts'),
   net: $('btn_net'), netpage: $('page_net'),
