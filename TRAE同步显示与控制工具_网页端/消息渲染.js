@@ -140,19 +140,11 @@ function _thinkNoHostHtml(){
 /* 2.207（V1.0 §五-8）：小账本最底部固定挂的「一张」思维流卡——只展示，
    走不到 ledger 落盘/轮次统计/终极回复任何一条路。样式内联，免改 css。 */
 function _thinkCardHtml(c){
-  /* 2.229（老板 2026-11-20 21:47）：头部只留大脑图标 + 会话名 + HH:MM + 版本号；
-     去掉「思维流」三字；时间只到分（年月日不显示）；会话名 flex:1 可省略、
-     时间/版本 flex-shrink:0 保显示优先级（长标题不吃掉它们）。 */
-  const _m = String(c.time || '').match(/(\d{1,2}):(\d{2})/);
-  const hm = _m ? (('0' + _m[1]).slice(-2) + ':' + _m[2]) : '';
-  const tm = hm ? '<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">' + hm + '</span>' : '';
-  const ver = '<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">v' + (parseInt(c.thinkVer, 10) || 1) + '</span>';
-  const ttl = '<span class="tk" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;'
-       + 'white-space:nowrap;margin-left:6px">' + esc(c.title || '') + '</span>';
+  const tm = c.time ? '<span class="tm">' + esc(c.time) + '</span>' : '';
+  const ver = '<span class="tm">v' + (parseInt(c.thinkVer, 10) || 1) + '</span>';
   return '<div class="msg agent thinklive" data-think="' + esc(c.thinkId || '') + '"'
        + ' style="border:1px dashed #4a9eff;border-radius:10px;padding:8px 10px;margin-top:8px">'
-       + '<div class="who" style="display:flex;align-items:center;min-width:0">'
-       + '<span style="flex-shrink:0">🧠</span>' + ttl + tm + ver + '</div>'
+       + '<div class="who">🧠 思维流 · ' + esc(c.title || '') + tm + ver + '</div>'
        + '<div class="body" style="white-space:pre-wrap;word-break:break-word;'
        + 'max-height:45vh;overflow:auto">' + _mdBody(String(c.text || '')) + '</div></div>';
 }
@@ -684,9 +676,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     qp.querySelectorAll('.qbtns button').forEach(b => {
       b.onclick = () => {
         if (b.disabled) return;
-        const i = parseInt(b.dataset.qi);          /* 服务端官方队列 DOM 真实下标 */
-        let li = parseInt(b.dataset.qx);           /* 本端数组下标（取正文/展开键） */
-        if (!isFinite(li)) li = i;
+        const i = parseInt(b.dataset.qi);
         const k = b.dataset.qk;
         if (k === 'del'){
           /* 2.117（老板 2026-10-21 15:44「点击删除没反应，不应该马上出弹窗问我删不删？」）：
@@ -694,7 +684,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
              改自绘确认层：点「删除」立刻弹问，确认后才发 pend_del。 */
           uiConfirm('🗑 删除排队消息',
             '确认删除排队消息「'
-            + esc(stripHeadDid((pend[li] || {}).t || '').slice(0, 40))
+            + esc(stripHeadDid((pend[i] || {}).t || '').slice(0, 40))
             + '」？<br>删除后不会发送。', '删除', () => {
               b.disabled = true;
               srvOpSend('pend_del', i, '删除排队消息');   // 2.109：②＋rcpt ③④
@@ -708,7 +698,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
           /* 2.195 发送闩：点「⚡发送」即记闩（键＝14 位 DID）——此后哪怕
              服务端队列先把该项撤了，条目仍留在屏上转「⏳ 发送中…」，
              直到 msgs 里浮现该 DID（服务端确认进对话流）才撤。 */
-          const _lp = pend[li];
+          const _lp = pend[i];
           const _lk = qsentKey(_lp);
           if (_lk){
             const L = S.qsent || (S.qsent = {});
@@ -716,14 +706,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
                       text: stripPendTail((_lp.text != null)
                               ? String(_lp.text || '') : stripHeadDid(_lp.t || ''))};
           }
-          /* 2.229（老板 22:05）：服务端可能按「过滤后下标」点错行——改为带下标
-             + DID + 正文原文下发，服务端优先按 DID/正文精确找行，找不到才回退下标。 */
-          srvOpSend('pend_sendnow',
-                    {i: i,
-                     did: (_lp && _lp.id) || '',
-                     text: (_lp ? ((_lp.text != null) ? String(_lp.text)
-                                                      : String(_lp.t || '')) : '')},
-                    '立即发送');     // 2.109：②＋rcpt ③④
+          srvOpSend('pend_sendnow', i, '立即发送');     // 2.109：②＋rcpt ③④
         }
       };
     });
