@@ -76,28 +76,83 @@ function _cvUidOf(sid, title, cfx){
   } catch(e){ u = ''; }
   return (u && typeof lbUidAny === 'function') ? (lbUidAny(u) || '') : u;
 }
+/* 2.225（老板 2026-11-20 18:09「备注和定时信息显示不正常，尤其课后延时有很多
+   定时信息」）：备注/定时三种键形态都要认——
+     ① 服务端权威 uid（4 位终身号，如 0019/0047）；
+     ② 本机按「终身号唯一算法」由 **24hex 且前 4 位全数字** 的 sid 取前 4 位
+        （仅此一种切片，绝不截 10 位实例号/1632）；
+     ③ 完整 sid / 稳定键（会话名）/ 会话名。
+   备注额外兼容**历史完整 sid 键**：旧记录可能把备注挂在某天的 24hex sid 下
+   （如 00016add… → TR探索），其前 4 位即终身号，同会话也要认出来；多条不同
+   备注按「权威号→旧完整 sid」顺序拼接，同一文本只出一次。 */
+function _cvSid4(sid){
+  const s = String(sid == null ? '' : sid);
+  if (!/^[0-9a-f]{24}$/.test(s)) return '';
+  const p = s.slice(0, 4);
+  if (!/^\d{4}$/.test(p) || p === '1632') return '';
+  return p;
+}
 function _cvAliasKeys(sKey, sid, title, uid){
   const a = [];
-  [uid, sKey, sid, title].forEach(k => {
+  [uid, _cvSid4(sid), sKey, sid, title].forEach(k => {
     k = String(k == null ? '' : k);
     if (k && a.indexOf(k) < 0) a.push(k);
   });
   return a;
 }
-/* 备注后缀 + 闹钟后缀：按别名顺序取第一个非空（不叠加、不重复查） */
-function _cvNoteSched(sKey, sid, title, uid){
-  const al = _cvAliasKeys(sKey, sid, title, uid);
-  let note = '', sched = '';
-  for (let i = 0; i < al.length; i++){
-    if (!note && typeof window.备注后缀 === 'function'){
-      try { note = String(备注后缀(al[i]) || ''); } catch(e){}
-    }
-    if (!sched && typeof window.闹钟后缀 === 'function'){
-      try { sched = String(闹钟后缀(al[i]) || ''); } catch(e){}
-    }
-    if (note && sched) break;
+/* 该会话的全部备注文本（去重）：别名逐个命中 + 旧完整 sid 键按前 4 位归并 */
+function _cvNoteTexts(al, uid, sid4){
+  const D = (S.备注 && typeof S.备注 === 'object') ? S.备注 : {};
+  const out = [], seen = {};
+  const push = v => {
+    const t = (typeof v === 'string') ? v.trim() : '';
+    if (t && !seen[t]){ seen[t] = 1; out.push(t); }
+  };
+  al.forEach(k => { if (k) push(D[k]); });
+  const codes = [];
+  if (uid) codes.push(String(uid));
+  if (sid4 && codes.indexOf(sid4) < 0) codes.push(sid4);
+  if (codes.length){
+    Object.keys(D).forEach(k => {
+      const ks = String(k || '');
+      if (!/^[0-9a-f]{24}$/.test(ks)) return;
+      if (codes.indexOf(ks.slice(0, 4)) >= 0) push(D[ks]);
+    });
   }
-  return note + sched;
+  return out;
+}
+/* 定时条数：S.定时（服务端任务列表，唯一执行真源）按别名合并、按任务 id 去重；
+   本机一条 live 都没命中时，才回退用服务端四字段 schedule（同一任务的派生摘要），
+   绝不把同一任务算两次。列表只显示 ⏰/⏰×N，不显示任何时间。 */
+function _cvSchedCount(al, cfx){
+  const seen = {}, ids = [];
+  let n = 0;
+  if (typeof 定时取 === 'function'){
+    al.forEach(k => {
+      if (!k) return;
+      let rows = [];
+      try { rows = 定时取(k) || []; } catch(e){ rows = []; }
+      rows.forEach(t => {
+        if (!t) return;
+        const id = String(t.id || '') || (String(t['锚'] || '') + '|' + String(t.sid || ''));
+        if (seen[id]) return;
+        seen[id] = 1; ids.push(id); n++;
+      });
+    });
+  }
+  if (!n && cfx && cfx.schedule && cfx.schedule.has){
+    n = Math.max(0, parseInt(cfx.schedule.count || 0, 10) || 0);
+  }
+  return n;
+}
+/* 备注后缀 + 定时铃铛：备注可多条（去重），定时只认条数 */
+function _cvNoteSched(sKey, sid, title, uid, cfx){
+  const sid4 = _cvSid4(sid);
+  const al = _cvAliasKeys(sKey, sid, title, uid);
+  const notes = _cvNoteTexts(al, uid, sid4);
+  const n = _cvSchedCount(al, cfx);
+  return notes.map(t => '（' + t + '）').join('')
+    + (n ? (' ⏰' + (n > 1 ? '×' + n : '')) : '');
 }
 /* 文件夹组头节点：结构固定（名称 span + ➕ span） */
 function _cvBuildFolder(){
@@ -269,12 +324,13 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       d.dataset.idx = String(_i);
       if (dotCls){ d._cvDot.className = 'stdot ' + dotCls; d._cvDot.style.display = ''; }
       else { d._cvDot.className = 'stdot'; d._cvDot.style.display = 'none'; }
-      /* 2.40/2.47/2.137 + 2.221：会话名 + 备注后缀 + 定时铃铛。
-         备注/定时历史上按 4 位权威终身号存，故不能只拿 sKey（会话名）查——
-         先由服务端 uid 起头，逐个别名试（见 _cvNoteSched）。 */
+      /* 2.40/2.47/2.137 + 2.221/2.225：会话名 + 备注后缀 + 定时铃铛。
+         备注/定时历史上按 4 位权威终身号存，另有旧完整 sid 键与名称兜底；
+         别名顺序＝权威 uid → sid 前 4 位（24hex 且数字）→ 稳定键 → 完整 sid
+         → 会话名，备注另按旧完整 sid 前 4 位归并（见 _cvNoteSched）。 */
       const uid = _cvUidOf(sid, title, cfx);
       if (uid) d.dataset.uid = uid; else delete d.dataset.uid;
-      d._cvNm.textContent = title + _cvNoteSched(sKey, sid, title, uid);
+      d._cvNm.textContent = title + _cvNoteSched(sKey, sid, title, uid, cfx);
     }
     _used[ck] = true;
     _order.push(d);
@@ -352,7 +408,7 @@ function convMenuOpen(title, sid, sKey){
       ? (S.snap.convs_full.find(o => o && ((sid && o.sid === sid)
           || (sKey && o.stable === sKey))) || null) : null;
   } catch(e){ _cfm = null; }
-  const _wKey = _cvUidOf(sid, title, _cfm) || sKey;
+  const _wKey = _cvUidOf(sid, title, _cfm) || _cvSid4(sid) || sKey;
   if (window.备注菜单项) 备注菜单项(_wKey, title, ov);
   if (window.自我激活菜单项) 自我激活菜单项(_wKey, title, ov);
 }
