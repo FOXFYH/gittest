@@ -1,5 +1,7 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.01  日期 2026-11-18
+/* 账本核对.js（网页端）  版本 1.02  日期 2026-11-20
+   【2.215 终身号唯一算法】标准＝24hex sid 前 4 位数字；提取失败＝会话名原样兜底；
+     新增 lbUidName/lbUidAny；lbUidPick 无号时回落到会话名；桶键只用「号」或「名称」。
    【2.200 补 m=u/input 路由】
    【依据】《手机网页端账本系统V1.0总规范.md》三/六/九/十章 +
            《账本系统V1.0_TRAE协议定稿.md》（含第十一章统筹批复：
@@ -191,21 +193,39 @@ function lbIsLegacyRec(r){
   return !(r && typeof r.sk === 'string' && r.sk.indexOf('L') === 0
            && String(r.srv || '') === lbSrvTag());
 }
-/* 2.214（老板 2026-11-20 08:08 令·分桶身份唯一口径）：账本桶键只有两种——
-     ① 有权威会话终身号（4 位数字、且不是服务端实例号或其截断）→ 'L<本服>:<终身号>'；
-     ② 无终身号 → 'L<本服>:t:<会话名>'（同名一律归并到同一桶，绝不新建第二个同名桶）。
-   禁止拿会话 sid / 实例号 / 名字哈希派生键，也禁止任何「重名加后缀」造新桶。 */
+/* 2.215（老板 2026-11-20 09:11 终身号唯一算法·与 WS桥 0.57 逐字同口径）：
+     ① 标准终身号＝sid 恰 24 位小写十六进制且前 4 位全数字 → 前 4 位（如 0047）；
+     ② 提取失败（非 24hex / 前 4 位含字母 / 10 位实例号）→ **会话名称原样**兜底；
+     ③ 两者都没有 → 显示「终身号未登记」（只显示，不拦截）。
+   账本桶键只有两种：标准号 → 'L<本服>:<号>'；名称兜底 → 'L<本服>:t:<名称>'。
+   禁止拿完整 sid / 实例号 / 名字哈希派生键，也禁止「重复/(2)/_2」后缀造新桶。 */
 function lbUidAuth(v){
   const u = String(v == null ? '' : v).trim();
-  if (!/^\d{4}$/.test(u)) return '';          /* 非 4 位数字（含「xxx（临时）」）不认 */
+  if (!/^\d{4}$/.test(u)) return '';          /* 非 4 位数字（含名称兜底）不认 */
   if (_lbIsSrvAcctLike(u)) return '';         /* 实例号/1632 不是终身号 */
   return u;
 }
+/* 2.215：服务端下发/本地标题里的**名称兜底终身号**——不是标准 4 位号，也不是
+   完整 sid / 实例号；去掉「（临时）/（按名称）」显示后缀后原样返回。 */
+function lbUidName(v){
+  let s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  if (lbUidAuth(s)) return '';                 /* 标准号不是名称 */
+  if (/^\d{4}$/.test(s)) return '';            /* 4 位数字一律按编号处理（含 1632 假号） */
+  if (/^\d{10}$/.test(s)) return '';           /* 10 位实例号 */
+  if (/^[0-9a-f]{24}$/i.test(s)) return '';    /* 完整 sid 绝不当身份键 */
+  s = s.replace(/\s*（临时）\s*$/, '').replace(/\s*（按名称）\s*$/, '').trim();
+  return s;
+}
+function lbUidAny(v){ return lbUidAuth(v) || lbUidName(v); }
 function lbStoreKey(uidOrSid, title){
   const t = (typeof lbNormTitle === 'function')
     ? lbNormTitle(title) : String(title || '').trim();
   const u = lbUidAuth(uidOrSid);
-  return 'L' + lbSrvTag() + ':' + (u ? u : 't:' + t);
+  if (u) return 'L' + lbSrvTag() + ':' + u;
+  /* 名称兜底：服务端下发的名称优先，其次会话名（同名一律同一桶） */
+  const n = lbUidName(uidOrSid) || t;
+  return 'L' + lbSrvTag() + ':t:' + n;
 }
 /* ============ 2.213（老板 2026-11-20「最终合并版」·前端零拦截）============
    前端只是显示器：后端发什么就原样显示、原样落盘——不判断、不筛选、不拦截、
@@ -346,15 +366,15 @@ function lbAliasSet(uid, title){
   m[t] = u;
   lbAliasSave(o);
 }
-/* 2.214：客户端不推断终身号——只从服务端下发的会话列表（convs_full / convs 行
-   / sig 帧）里取权威 uid。取不到即空＝显示「终身号未登记」，绝不自己算。 */
+/* 2.215：从服务端会话列表（convs_full / convs 行 / sig 帧）取权威 uid——
+   标准 4 位终身号与名称兜底都收；完整 sid / 实例号不认。 */
 function lbUidFromConvs(sid, title){
   const s = String(sid || '').trim(), t = String(title || '').trim();
   try {
     const cf = (S.snap && Array.isArray(S.snap.convs_full)) ? S.snap.convs_full : [];
     for (const o of cf){
       if (!o) continue;
-      const u = lbUidAuth(o.uid);
+      const u = lbUidAny(o.uid);
       if (!u) continue;
       const osid = String(o.sid || ''), ot = String(o.title || '');
       if ((s && osid === s) || (t && ot === t)) return u;
@@ -364,29 +384,34 @@ function lbUidFromConvs(sid, title){
     const cv = (S.snap && Array.isArray(S.snap.convs)) ? S.snap.convs : [];
     for (const r of cv){
       if (!Array.isArray(r)) continue;
-      const u = lbUidAuth(r[5]);
+      const u = lbUidAny(r[5]);
       if (!u) continue;
       if ((s && String(r[4] || '') === s) || (t && String(r[1] || '') === t)) return u;
     }
   } catch(e){}
   try {
     if (S.convUids && typeof S.convUids === 'object'){
-      if (s && lbUidAuth(S.convUids[s])) return lbUidAuth(S.convUids[s]);
-      if (t && lbUidAuth(S.convUids[t])) return lbUidAuth(S.convUids[t]);
+      if (s && lbUidAny(S.convUids[s])) return lbUidAny(S.convUids[s]);
+      if (t && lbUidAny(S.convUids[t])) return lbUidAny(S.convUids[t]);
     }
   } catch(e){}
   return '';
 }
-/* 2.197（老板 2026-11-19·终身号口径统一）：优先消费服务端下发 uid（共享数据库
-   `_终身号_由sid`/`翻译_终生号_由SID` 口径），缺失才退回按 sid 自算。非 4 位数字
-   uid（含「<会话名>（临时）」及共享库既有段名）一律视为「待补号」→ 返回 ''，
-   落账走 t:名称 临时键，与无 uid 时同一本账，绝不出现「uid 键 / t:名称 键」两本。 */
+/* 2.215（老板 2026-11-20 09:11·唯一算法）：优先消费服务端下发 uid——
+   标准 4 位号原样；非 4 位的名称兜底也收（按名称同一桶）；都没有才用会话名。
+   完整 sid / 10 位实例号 / 「1632」绝不进身份键。 */
 function lbUidPick(serverUid, sid, title){
-  /* 2.214：只认 4 位权威终身号；无效 uid 一律走「名字→权威编号」别名与会话列表
-     回锚，取不到即空（名称键），绝不把「xxx（临时）」或 sid 当终身号。 */
   const u = lbUidAuth(serverUid);
   if (u) return u;
-  return lbAliasGet(title) || lbUidFromConvs(sid, title) || '';
+  const n = lbUidName(serverUid);
+  if (n) return n;
+  const a = lbAliasGet(title);
+  if (a) return a;
+  const c = lbUidFromConvs(sid, title);
+  if (c) return c;
+  /* ③ 名称兜底：会话名原样当终身号（同名同桶，无后缀） */
+  const t = String(title || '').trim();
+  return (typeof lbNormTitle === 'function') ? lbNormTitle(t) : t;
 }
 function lbRawSidOf(uid, title){
   try {
@@ -584,10 +609,10 @@ function ledgerMod(d){
     }
     case 'sig': {                          /* 信号灯（独立高频） */
       const arr = (body && body.convs) || [];
-      /* 2.214：收下服务端下发的权威终身号（只收 4 位；无则显示「终身号未登记」）。 */
+      /* 2.215：收下服务端下发的权威终身号（标准 4 位或名称兜底；无则未登记）。 */
       try {
         if (!S.convUids) S.convUids = {};
-        arr.forEach(o => { if (o && o.sid && lbUidAuth(o.uid)) S.convUids[String(o.sid)] = lbUidAuth(o.uid); });
+        arr.forEach(o => { if (o && o.sid && lbUidAny(o.uid)) S.convUids[String(o.sid)] = lbUidAny(o.uid); });
       } catch(e){}
       if (arr.length && S.snap){
         const cf = Array.isArray(S.snap.convs_full) ? S.snap.convs_full : [];
@@ -599,7 +624,7 @@ function ledgerMod(d){
             if (o.light !== undefined) row.light = o.light;
             if (o.orange !== undefined) row.orange = o.orange;
             if (o.unread !== undefined) row.unread = o.unread;
-            if (lbUidAuth(o.uid)) row.uid = lbUidAuth(o.uid);
+            if (lbUidAny(o.uid)) row.uid = lbUidAny(o.uid);
           }
         });
         if (Array.isArray(o_unreadIds(arr))) S.snap.conv_unread_ids = o_unreadIds(arr);
@@ -631,25 +656,25 @@ function ledgerMod(d){
       if (body && S.snap && typeof S.snap === 'object'){
         if (Array.isArray(body.convs)) S.snap.convs = body.convs;
         if (Array.isArray(body.convs_full)) S.snap.convs_full = body.convs_full;
-        /* 2.214：收下服务端下发的权威终身号（uid / uids 两种形态都认）。 */
+        /* 2.215：收下服务端下发的权威终身号（标准 4 位或名称兜底；uid/uids 都认）。 */
         try {
           if (!S.convUids) S.convUids = {};
           if (body.uids && typeof body.uids === 'object'){
             Object.keys(body.uids).forEach(k => {
-              const u = lbUidAuth(body.uids[k]);
+              const u = lbUidAny(body.uids[k]);
               if (k && u) S.convUids[String(k)] = u;
             });
           }
           (Array.isArray(body.convs_full) ? body.convs_full : []).forEach(o => {
             if (!o) return;
-            const u = lbUidAuth(o.uid);
+            const u = lbUidAny(o.uid);
             if (!u) return;
             if (o.sid) S.convUids[String(o.sid)] = u;
             if (o.title) S.convUids[String(o.title)] = u;
           });
           (Array.isArray(body.convs) ? body.convs : []).forEach(r => {
             if (!Array.isArray(r)) return;
-            const u = lbUidAuth(r[5]);
+            const u = lbUidAny(r[5]);
             if (!u) return;
             if (r[4]) S.convUids[String(r[4])] = u;
             if (r[1]) S.convUids[String(r[1])] = u;
@@ -1131,8 +1156,8 @@ function lbMigrateTitle(sid, title){
           title: t,                                  /* 2.184 改8：改名归并——以现名为准 */
           ts: maxNum(cur && cur.ts, tmps.reduce((m, x) => Math.max(m, x.ts || 0), 0)) || Date.now(),
           lastTs: maxNum(cur && cur.lastTs, tmps.reduce((m, x) => Math.max(m, x.lastTs || 0), 0)),
-          lastView: maxNum(cur && cur.lastView, tmps.reduce((m, x) => Math.max(m, x.lastView || 0), 0)),
-          pend: _mu ? 0 : 1, rounds: out
+          lastView: maxNum(cur && cur.lastView, tmps.reduce((m, x) => maxNum(m, x.lastView || 0), 0)),
+          pend: (_mu || name) ? 0 : 1, rounds: out
         };
         if (_think) rec.think = _think;
         const sks = tmps.map(x => x.sk);
@@ -1173,6 +1198,8 @@ function lbMigrateTitle(sid, title){
 function lbNormTitle(t){
   let s = String(t == null ? '' : t).trim();
   if (!s) return '';
+  /* 2.215：旧「（临时）」「（按名称）」都是显示后缀，不是名字本身——归一到同一桶 */
+  s = s.replace(/\s*（临时）\s*$/, '').replace(/\s*（按名称）\s*$/, '');
   s = s.replace(/\s*[·・]?\s*(重复|副本|duplicate)\s*$/i, '');
   s = s.replace(/\s*[（(]\s*\d+\s*[）)]\s*$/, '');
   s = s.replace(/\s*_\d+\s*$/, '');
@@ -1950,9 +1977,10 @@ function lbMergeKeyOf(rec){
       u = lbUidAuth(cu[r.sid]) || lbUidAuth(cu[r.title]);
     } catch(e){ u = ''; }
   }
-  const t = lbNormTitle(r.title);
-  if (u) return lbStoreKey(u, t);
-  if (t) return lbStoreKey('', t);
+  if (u) return lbStoreKey(u, lbNormTitle(r.title));
+  /* 2.215：名称兜底——服务端 uid 名称优先，其次会话名；同名一律同一桶 */
+  const n = lbUidName(r.uid) || lbNormTitle(r.title);
+  if (n) return lbStoreKey('', n);
   return String(r.sk || '');
 }
 function _snapMergeKey(rec){
@@ -1960,8 +1988,8 @@ function _snapMergeKey(rec){
   const srv = String(r.srv || '');
   const u = lbUidAuth(r.uid);
   if (u) return srv + '|u:' + u;
-  const t = lbNormTitle(r.title);
-  if (t) return srv + '|t:' + t;
+  const n = lbUidName(r.uid) || lbNormTitle(r.title);
+  if (n) return srv + '|t:' + n;
   const s = String(r.sid || '').trim();
   return srv + '|s:' + (s || String(r.sk || ''));
 }
@@ -2010,7 +2038,7 @@ function lbMergeDuplicateBuckets(force){
       if (arr.length < 2 && !needMove) return;
       ledGroups++;
       const order = arr.slice().sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
-      const uid = arr.reduce((u, r) => u || lbUidAuth(r.uid), '');
+      const uid = arr.reduce((u, r) => u || lbUidAuth(r.uid) || lbUidName(r.uid), '');
       const named = arr.find(r => String(r.title || '').trim()) || {};
       const title = lbNormTitle(named.title);
       const seen = new Set(), out = [];
