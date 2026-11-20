@@ -871,7 +871,8 @@
         localStorage.setItem('trae_webm_frame_n_unit', 'round');
       } catch(e){}
       try { var r = document.getElementById('lb_in_rounds'); if (r) r.value = v; } catch(e){}
-      nEl.parentElement.lastElementChild.textContent = '已保存：之后每次落盘只留最近 ' + v + ' 轮';
+      nEl.parentElement.lastElementChild.textContent = '已保存：之后每次落盘只留最近 ' + v + ' 轮（本地账本＝服务端下发同值）';
+      lbRoundsApplied();
     };
     var hud = document.createElement('div');
     hud.className = 'cv_sec';
