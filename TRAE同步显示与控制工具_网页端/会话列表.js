@@ -58,6 +58,47 @@ function _cvBuildItem(){
   d._cvDot = dot; d._cvNm = nm; d._cvKind = 'c';
   return d;
 }
+/* 2.221（老板 2026-11-20 16:31：「备注怎么都不显示了，定时状态，甚至状态灯的
+   响应都慢了些」）：备注字典（会话备注.py 全部()）与定时任务锚（定时自我激活.py）
+   历史上都按 **4 位权威终身号** 存（实测盘上：{"0019":"夸机 资源","0047":…}），
+   2.211「禁止切片」后 `稳定键()` 只返回会话名 ⇒ 按 sKey 查备注/¬闹钟一律落空
+   → 备注与 ⏰ 整列消失。这里只读服务端下发的权威 uid（convs_full.uid /
+   sig 帧 uid / S.convUids），再按「权威终身号 → 稳定键 → 完整 sid → 会话名」
+   逐个试，第一个命中的即用；**绝不自行切片推导终身号**。
+   顺带：新建备注/定时也按同一权威键写入（keys 顺序第一），读写同源不再分身。 */
+function _cvUidOf(sid, title, cfx){
+  let u = '';
+  try {
+    u = String((cfx && cfx.uid) || '');
+    if (!u && S.convUids){
+      u = String(S.convUids[String(sid || '')] || S.convUids[String(title || '')] || '');
+    }
+  } catch(e){ u = ''; }
+  return (u && typeof lbUidAny === 'function') ? (lbUidAny(u) || '') : u;
+}
+function _cvAliasKeys(sKey, sid, title, uid){
+  const a = [];
+  [uid, sKey, sid, title].forEach(k => {
+    k = String(k == null ? '' : k);
+    if (k && a.indexOf(k) < 0) a.push(k);
+  });
+  return a;
+}
+/* 备注后缀 + 闹钟后缀：按别名顺序取第一个非空（不叠加、不重复查） */
+function _cvNoteSched(sKey, sid, title, uid){
+  const al = _cvAliasKeys(sKey, sid, title, uid);
+  let note = '', sched = '';
+  for (let i = 0; i < al.length; i++){
+    if (!note && typeof window.备注后缀 === 'function'){
+      try { note = String(备注后缀(al[i]) || ''); } catch(e){}
+    }
+    if (!sched && typeof window.闹钟后缀 === 'function'){
+      try { sched = String(闹钟后缀(al[i]) || ''); } catch(e){}
+    }
+    if (note && sched) break;
+  }
+  return note + sched;
+}
 /* 文件夹组头节点：结构固定（名称 span + ➕ span） */
 function _cvBuildFolder(){
   const d = document.createElement('div');
@@ -143,9 +184,12 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
   const uri = new Set(useId ? conv_unread_ids : []);
   const cfRows = (S.snap && Array.isArray(S.snap.convs_full))
     ? S.snap.convs_full : null;
+  /* 2.221：指纹只收「影响显示」的字段——sid / 灯态 / 未读。
+     不再收 schedule.next_at（定时每次到点必变的时间串）：它一变就整表重画，
+     而列表根本不显示时间；定时状态由下方 #sched 指纹（⏰ 条数/轮次）负责。 */
   const cfKey = cfRows ? cfRows.map(o => (o && o.sid || '') + ':'
       + (o && o.status && o.status.light || '') + ':'
-      + (o && o.schedule ? (o.schedule.next_at || '') : '')).sort().join('|') : '';
+      + (o && o.status && o.status.unread ? '1' : '')).sort().join('|') : '';
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
     + '#uri:' + Array.from(uri).sort().join('|')
@@ -225,10 +269,12 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
       d.dataset.idx = String(_i);
       if (dotCls){ d._cvDot.className = 'stdot ' + dotCls; d._cvDot.style.display = ''; }
       else { d._cvDot.className = 'stdot'; d._cvDot.style.display = 'none'; }
-      /* 2.40/2.47/2.137：会话名 + 备注后缀 + 定时铃铛（钩子缺失回退空串） */
-      d._cvNm.textContent = title
-        + (window.备注后缀 ? 备注后缀(sKey) : '')
-        + (window.闹钟后缀 ? 闹钟后缀(sKey) : '');
+      /* 2.40/2.47/2.137 + 2.221：会话名 + 备注后缀 + 定时铃铛。
+         备注/定时历史上按 4 位权威终身号存，故不能只拿 sKey（会话名）查——
+         先由服务端 uid 起头，逐个别名试（见 _cvNoteSched）。 */
+      const uid = _cvUidOf(sid, title, cfx);
+      if (uid) d.dataset.uid = uid; else delete d.dataset.uid;
+      d._cvNm.textContent = title + _cvNoteSched(sKey, sid, title, uid);
     }
     _used[ck] = true;
     _order.push(d);
@@ -298,8 +344,17 @@ function convMenuOpen(title, sid, sKey){
   document.body.appendChild(ov);
   /* 2.40：追加两项网页端专享菜单——实现各在新 js 的钩子里，缺失则跳过，
      保证两个功能可整块摘除、本文件不膨胀。 */
-  if (window.备注菜单项) 备注菜单项(sKey, title, ov);
-  if (window.自我激活菜单项) 自我激活菜单项(sKey, title, ov);
+  /* 2.221：备注/定时一律按「权威终身号优先」的同一把键读写——读的时候
+     _cvNoteSched 会依次试 uid/名称/sid，写的时候也落 uid，避免新旧数据分身。 */
+  let _cfm = null;
+  try {
+    _cfm = (S.snap && Array.isArray(S.snap.convs_full))
+      ? (S.snap.convs_full.find(o => o && ((sid && o.sid === sid)
+          || (sKey && o.stable === sKey))) || null) : null;
+  } catch(e){ _cfm = null; }
+  const _wKey = _cvUidOf(sid, title, _cfm) || sKey;
+  if (window.备注菜单项) 备注菜单项(_wKey, title, ov);
+  if (window.自我激活菜单项) 自我激活菜单项(_wKey, title, ov);
 }
 
 /* ============ 2.87：重命名就地弹层 + 四态反馈 ============
