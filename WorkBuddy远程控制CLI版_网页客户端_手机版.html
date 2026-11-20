@@ -7367,7 +7367,6 @@ function switchSrv(nm){
   convArchiveLoad(nm);
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
                      + ' …）</div>';
-  renderAttach([]);
   applySrvEntry();
   sendJson({t: 'hello'});
   helloWatch();                             /* 1.14：快照看门狗 */
@@ -8234,7 +8233,6 @@ function applySwitch(box, port, keepSnap){
     el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(box)
                        + ' …）</div>';
   }
-  renderAttach([]);
   el.model.value = '';
   renderVer(box);
 }
