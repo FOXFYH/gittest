@@ -1,8 +1,13 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.215  日期 2026-11-20
+/* 手机缓存查看器.js（网页端）  版本 2.219  日期 2026-11-20
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
    两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
+
+   2.219（老板 2026-11-20 16:21「保留最近 5 轮没起作用」）：③ 两处「保留轮数」
+     改值后立即（a）按新 N 批量裁本地账本存量（lbTrimAllRounds）；（b）发一次
+     vcheck 把 mods.lb_rounds 上报服务端，服务端据此调整下发轮数——
+     参数从此真正三处同值、立即生效。
 
    2.215（老板 2026-11-20 09:11 终身号规则）：卡片第二行显示三档——标准终身号
      原样（如 0047）／提取失败显示会话名并标「（按名称）」／两者都没有显
@@ -823,6 +828,17 @@
      规范§九-4：倒计时以「每秒递减的数字」展示在本区（#cv_lb_hud），不做悬浮窗；
      任意操作会重置倒计时 → 人操作时数字不降属正常设计。数值来源＝账本核对.js
      的 window.lbHudText()（每秒由下方 interval 刷新，仅本 tab 可见时更新）。 */
+  /* 2.219（老板 2026-11-20 16:21「保留最近 N 轮没起作用」）：保留下发轮数
+     改值后立即 ① 按新 N 批量裁本地账本存量；② 发一次 timer 核对，把
+     mods.lb_rounds 上报服务端（服务端 _采纳lb轮数 立即调整下发轮数）。 */
+  function lbRoundsApplied(){
+    try { if (typeof lbTrimAllRounds === 'function') lbTrimAllRounds(true); } catch(e){}
+    try {
+      var sid = (typeof S !== 'undefined' && S)
+        ? (S.anchorFull || ((typeof curSid === 'function') ? curSid() : '')) : '';
+      if (typeof ledgerVcheckSend === 'function') ledgerVcheckSend('timer', sid || '');
+    } catch(e){}
+  }
   function renderLedgerCtl(host){
     host.innerHTML = '';
     /* 2.190（老板纠正口径：小账本＝① 会话预备画面，③ 只放配套调控功能）：
@@ -839,7 +855,9 @@
       '保存最近 <input id="cv_n" type="number" min="1" max="50" step="1" style="width:64px;' +
       'border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px" value="5"> 轮' +
       '<span class="cv_meta" style="margin:0">（只留人类发言＋终极回复，思维流不存）</span></div>' +
-      '<div class="cv_lbhint" style="padding:0 14px 8px">服务端每次补发轮数：<b>5 轮</b>（默认，与本地同值；服务端侧可配，属另一路整改项）</div>';
+      '<div class="cv_lbhint" style="padding:0 14px 8px">服务端每次补发轮数：<b>' +
+      ((typeof lbRounds === 'function') ? lbRounds() : 5) +
+      ' 轮</b>（跟随「保留轮数」，改值后下一次核对即同步到服务端）</div>';
     host.appendChild(cfg);
     var nEl = cfg.querySelector('#cv_n');
     try { nEl.value = (typeof lbRounds === 'function') ? lbRounds() : 5; } catch(e){ nEl.value = 5; }
@@ -892,7 +910,7 @@
     q('lb_ck_bgout').onchange = function(){ CFG.lb_bgout = this.checked ? 1 : 0; save(); };
     q('lb_in_offline').onchange = function(){ CFG.lb_offline = Math.max(15, parseInt(this.value, 10) || 120); this.value = CFG.lb_offline; save(); try { if (typeof lbLastAct !== 'undefined') lbLastAct = Date.now(); } catch(e){} };
     q('lb_in_period').onchange = function(){ CFG.lb_period = Math.max(15, parseInt(this.value, 10) || 60); this.value = CFG.lb_period; save(); };
-    q('lb_in_rounds').onchange = function(){ CFG.lb_rounds = Math.min(50, Math.max(1, parseInt(this.value, 10) || 5)); this.value = CFG.lb_rounds; save(); try { localStorage.setItem('trae_webm_frame_n', String(CFG.lb_rounds)); } catch(e){} var n0 = document.getElementById('cv_n'); if (n0) n0.value = CFG.lb_rounds; };
+    q('lb_in_rounds').onchange = function(){ CFG.lb_rounds = Math.min(50, Math.max(1, parseInt(this.value, 10) || 5)); this.value = CFG.lb_rounds; save(); try { localStorage.setItem('trae_webm_frame_n', String(CFG.lb_rounds)); } catch(e){} var n0 = document.getElementById('cv_n'); if (n0) n0.value = CFG.lb_rounds; lbRoundsApplied(); };
     q('lb_in_think').onchange = function(){
       CFG.lb_think = Math.max(0, parseInt(this.value, 10) || 0);
       this.value = CFG.lb_think; save();
