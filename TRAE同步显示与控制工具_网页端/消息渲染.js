@@ -140,11 +140,19 @@ function _thinkNoHostHtml(){
 /* 2.207（V1.0 §五-8）：小账本最底部固定挂的「一张」思维流卡——只展示，
    走不到 ledger 落盘/轮次统计/终极回复任何一条路。样式内联，免改 css。 */
 function _thinkCardHtml(c){
-  const tm = c.time ? '<span class="tm">' + esc(c.time) + '</span>' : '';
-  const ver = '<span class="tm">v' + (parseInt(c.thinkVer, 10) || 1) + '</span>';
+  /* 2.229（老板 2026-11-20 21:47）：头部只留大脑图标 + 会话名 + HH:MM + 版本号；
+     去掉「思维流」三字；时间只到分（年月日不显示）；会话名 flex:1 可省略、
+     时间/版本 flex-shrink:0 保显示优先级（长标题不吃掉它们）。 */
+  const _m = String(c.time || '').match(/(\d{1,2}):(\d{2})/);
+  const hm = _m ? (('0' + _m[1]).slice(-2) + ':' + _m[2]) : '';
+  const tm = hm ? '<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">' + hm + '</span>' : '';
+  const ver = '<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">v' + (parseInt(c.thinkVer, 10) || 1) + '</span>';
+  const ttl = '<span class="tk" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;'
+       + 'white-space:nowrap;margin-left:6px">' + esc(c.title || '') + '</span>';
   return '<div class="msg agent thinklive" data-think="' + esc(c.thinkId || '') + '"'
        + ' style="border:1px dashed #4a9eff;border-radius:10px;padding:8px 10px;margin-top:8px">'
-       + '<div class="who">🧠 思维流 · ' + esc(c.title || '') + tm + ver + '</div>'
+       + '<div class="who" style="display:flex;align-items:center;min-width:0">'
+       + '<span style="flex-shrink:0">🧠</span>' + ttl + tm + ver + '</div>'
        + '<div class="body" style="white-space:pre-wrap;word-break:break-word;'
        + 'max-height:45vh;overflow:auto">' + _mdBody(String(c.text || '')) + '</div></div>';
 }
@@ -180,6 +188,20 @@ function guideBoot(){
     if (el.msgs.querySelector('.msg')) return;
     el.msgs.innerHTML = guideHtml();
   } catch(e){}
+}
+
+/* 3.01（老板 2026-11-20 令·未终结 AI 壳行上屏）：当前会话【最后一条】、
+   index8==='th' 且 index7 为空（未终结）⇒ 判为「生成中壳行」，原位出实时占位。 */
+function _isLiveShellRow(m, i, n){
+  if (!Array.isArray(m)) return false;
+  const k8 = (m.length > 8 ? String(m[8] || '').trim().toLowerCase() : '');
+  const fin7 = (m.length > 7 ? String(m[7] || '').trim() : '');
+  return k8 === 'th' && !fin7 && i === n - 1;
+}
+/* 3.01：壳行占位文案——正文里数「已执行 X 条命令」，没有就写「正在思考」。 */
+function _shellPhrase(text){
+  const m = /已执行\s*(\d+)\s*条命令/.exec(String(text == null ? '' : text));
+  return m ? ('已执行 ' + m[1] + ' 条命令') : '正在思考';
 }
 
 function renderMsgs(msgs, finish, opts, ask, pend){
@@ -277,9 +299,22 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   msgs.forEach((m, i) => {
     /* 2.222（老板 2026-11-20 17:10 令·思维流与终极回复位置混装）：行级类型
        只认后端 index8——`th` 只画虚线框，绝不进普通消息区（防同一行两处同显）；
-       `u`/`a`/`?` 照常上屏（`?` 不猜、不丢）。本处是位置分流，不是筛选。 */
+       `u`/`a`/`?` 照常上屏（`?` 不猜、不丢）。本处是位置分流，不是筛选。
+       3.01（老板 2026-11-20 令·未终结 AI 壳行上屏）：当前会话【最后一条】且
+       index7 为空的 `th` 行不再整行跳过——原位显示「正在思考 / 已执行 N 条命令」
+       实时占位；整轮结束（index7 非空）后仍按后端 index8 正常显示，本处不改判。 */
     const _k8 = (m.length > 8 ? String(m[8] || '').trim().toLowerCase() : '');
-    if (_k8 === 'th') return;
+    if (_k8 === 'th' && !_isLiveShellRow(m, i, msgs.length)) return;
+    if (_k8 === 'th'){
+      const _sd = document.createElement('div');
+      _sd.className = 'msg agent thinking';
+      _sd.innerHTML = '<div class="who">TraeWork'
+        + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
+        + '</div><div class="body" style="font-style:italic;opacity:.7">'
+        + esc(_shellPhrase(m[1])) + '</div>';
+      el.msgs.appendChild(_sd);
+      return;
+    }
     const user = m[0] === 'u';
     let acts = '';
     /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息——把
@@ -553,6 +588,10 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     /* 账本V1.0（N4）：项级 sid 过滤——只渲染当前锚定会话的条目；渲染下标
        仍取服务端原数组序号（data-qi），命令对位不受过滤影响。 */
     const _pendShown = [];
+    /* 2.225（老板 2026-11-20 19:15 排队条翻倍）：渲染前再按跨形态统一键去重
+       ——哪怕存储层（含旧版缓存 solidLoad）里已存在两种形态各一份，界面也只画
+       一条；保留首次出现的下标，data-qi 仍对位官方队列。 */
+    const _seenQ = new Set();
     pend.forEach((p, i) => {
       const mine = (typeof pendItemMine === 'function') ? pendItemMine(p) : null;
       /* 2.188：归属闸判「别会话」时，若该项 id（14 位 DID）是本人发过的
@@ -562,9 +601,23 @@ function renderMsgs(msgs, finish, opts, ask, pend){
          真别人的条目 DID 对不上，照旧不给画（跨会话绝不串显）。 */
       if (mine === false
           && !(typeof pendDidOwn === 'function' && pendDidOwn(p))) return;
+      const _pk = (typeof pendTxtKey === 'function') ? pendTxtKey(p) : '';
+      if (_pk && _seenQ.has(_pk)) return;
+      if (_pk) _seenQ.add(_pk);
       _pendShown.push([p, i]);
     });
+    /* 2.229（取证·排队条 4 条只显示 2 条）：只记账不改行为——入口数组条数
+       vs 实际画出条数；差值即本层过滤/去重丢的条数。 */
+    try {
+      if (typeof diagLog === 'function' && pend.length !== _pendShown.length){
+        diagLog('[pend] 渲染：数组 ' + pend.length + ' 条 → 画出 '
+                + _pendShown.length + ' 条', 'warn');
+      }
+    } catch(e){}
     _pendShown.forEach(([p, i]) => {
+      /* 2.229（老板 2026-11-20 22:05·立即发送无效）：命令下发用服务端官方队列的
+         真实下标 __i（事件总线.js 收帧时打的戳）；局部下标 i 只用于本端取正文。 */
+      const qi = (typeof p.__i === 'number') ? p.__i : i;
       /* 账本V1.0（N2）：新格式条目（p.text 有值）＝服务端已剥净的用户原文
          （首行 DID→id 字段底层携带、提示词/后缀已剥），界面只显示原文，
          不再走专属词折叠卡管线；旧格式维持 DID/三段剥净不变。 */
@@ -578,6 +631,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       const _hasH = _new ? false : _hz.length > 0;
       const _txt = _hasH ? _head.replace(/\s*@@FHC\d+@@\s*$/, '') : _head;
       const _qk = _new ? ('\u0001' + (p.id || _raw)) : p.t;
+      /* 2.225：_ghost＝事件总线 2.206 从上一拍补回的遗留条，其下标与官方队列
+         已不对位 —— 只展示、不给操作按钮，避免按错下标误删别的排队消息。 */
+      const _ghost = !!p._ghost;
       /* 2.124（老板 2026-10-22 19:38）：排队条默认只显示两行正文，折叠卡（小尾巴）
          只在点开展开后才出现——仍在同一 .qcol 内，紧随 .qtxt 之后，由 CSS 的
          `.qtxt.open + .qfh` 控制显隐，快照重画后随 S.qopen 恢复。 */
@@ -588,12 +644,16 @@ function renderMsgs(msgs, finish, opts, ask, pend){
          + esc(_txt) + '</div>'
          + (_hasH ? '<div class="qfh">' + foxHintHtml(_hz[0]) + '</div>' : '')
          + '</div>'
-         + '<div class="qbtns">'
-         + '<button class="go qsend" data-qi="' + i + '">⚡发送</button>'
-         + '<div class="qsub">'
-         + '<button data-qi="' + i + '" data-qk="edit">✎</button>'
-         + '<button class="del" data-qi="' + i + '" data-qk="del">🗑</button>'
-         + '</div></div></div>';
+         + (_ghost
+            ? '<div class="qbtns"><button class="go qsend" disabled'
+              + ' title="上一拍遗留，未与官方队列对齐，不可操作">—</button></div>'
+            : '<div class="qbtns">'
+              + '<button class="go qsend" data-qi="' + qi + '" data-qx="' + i + '">⚡发送</button>'
+              + '<div class="qsub">'
+              + '<button data-qi="' + qi + '" data-qx="' + i + '" data-qk="edit">✎</button>'
+              + '<button class="del" data-qi="' + qi + '" data-qx="' + i + '" data-qk="del">🗑</button>'
+              + '</div></div>')
+         + '</div>';
     });
     /* 2.195 发送闩条追加：服务端队列里已不在、但点过「⚡发送」尚未确认
        进对话流的条目，原样展示、按钮「⏳ 发送中…」禁点（不提供删除/编辑，
@@ -624,7 +684,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     qp.querySelectorAll('.qbtns button').forEach(b => {
       b.onclick = () => {
         if (b.disabled) return;
-        const i = parseInt(b.dataset.qi);
+        const i = parseInt(b.dataset.qi);          /* 服务端官方队列 DOM 真实下标 */
+        let li = parseInt(b.dataset.qx);           /* 本端数组下标（取正文/展开键） */
+        if (!isFinite(li)) li = i;
         const k = b.dataset.qk;
         if (k === 'del'){
           /* 2.117（老板 2026-10-21 15:44「点击删除没反应，不应该马上出弹窗问我删不删？」）：
@@ -632,7 +694,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
              改自绘确认层：点「删除」立刻弹问，确认后才发 pend_del。 */
           uiConfirm('🗑 删除排队消息',
             '确认删除排队消息「'
-            + esc(stripHeadDid(pend[i].t || '').slice(0, 40))
+            + esc(stripHeadDid((pend[li] || {}).t || '').slice(0, 40))
             + '」？<br>删除后不会发送。', '删除', () => {
               b.disabled = true;
               srvOpSend('pend_del', i, '删除排队消息');   // 2.109：②＋rcpt ③④
@@ -646,7 +708,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
           /* 2.195 发送闩：点「⚡发送」即记闩（键＝14 位 DID）——此后哪怕
              服务端队列先把该项撤了，条目仍留在屏上转「⏳ 发送中…」，
              直到 msgs 里浮现该 DID（服务端确认进对话流）才撤。 */
-          const _lp = pend[i];
+          const _lp = pend[li];
           const _lk = qsentKey(_lp);
           if (_lk){
             const L = S.qsent || (S.qsent = {});
@@ -654,7 +716,14 @@ function renderMsgs(msgs, finish, opts, ask, pend){
                       text: stripPendTail((_lp.text != null)
                               ? String(_lp.text || '') : stripHeadDid(_lp.t || ''))};
           }
-          srvOpSend('pend_sendnow', i, '立即发送');     // 2.109：②＋rcpt ③④
+          /* 2.229（老板 22:05）：服务端可能按「过滤后下标」点错行——改为带下标
+             + DID + 正文原文下发，服务端优先按 DID/正文精确找行，找不到才回退下标。 */
+          srvOpSend('pend_sendnow',
+                    {i: i,
+                     did: (_lp && _lp.id) || '',
+                     text: (_lp ? ((_lp.text != null) ? String(_lp.text)
+                                                      : String(_lp.t || '')) : '')},
+                    '立即发送');     // 2.109：②＋rcpt ③④
         }
       };
     });
