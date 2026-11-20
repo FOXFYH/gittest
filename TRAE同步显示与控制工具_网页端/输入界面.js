@@ -359,15 +359,23 @@ function renderState(snap){
      accepted/running/done/fail 一到即由 srvOpAck 推进原四态，本分支自动让位。
      发送消息走的不是 srvOpSend，另按占位卡 state='sending'（已发出、未受理）兜底，
      只在其新鲜期（20s）内提示，之后交回原状态栏，绝不永久占位。 */
-  let _qSent = (typeof srvOpQueuedPending === 'function') && srvOpQueuedPending();
-  if (!_qSent && Array.isArray(S.pending)){
-    for (const p of S.pending){
-      if (p && p.state === 'sending' && Date.now() - (p.ts || 0) < 20000){ _qSent = true; break; }
+  /* 2.226（老板 2026-11-20 19:18「四步感受不到」）：在途动作按【最靠前阶段】
+     常显对应文案——已提交→服务器已受理→开始执行，逐级推进；不再 accepted
+     一到就回落、也不是永远只写②。发送/插话的占位卡另有同阶段文案，两处同步。 */
+  let _qPh = (typeof srvOpStageAny === 'function') ? srvOpStageAny() : '';
+  if (!_qPh){
+    if (typeof srvOpQueuedPending === 'function' && srvOpQueuedPending()) _qPh = 'queued';
+    else if (Array.isArray(S.pending)){
+      for (const p of S.pending){
+        if (p && p.state === 'sending' && Date.now() - (p.ts || 0) < 20000){ _qPh = 'queued'; break; }
+      }
     }
   }
-  if (!S.switch_pend && !S.inputBusy && _qSent){
-    el.state.textContent = SRV_PHASE.queued[0];
-    el.state.style.color = SRV_PHASE.queued[1];
+  if (!S.switch_pend && !S.inputBusy && _qPh){
+    const _pk = {queued: 'queued', sent: 'queued',
+                 accepted: 'accepted', running: 'ack'}[_qPh] || 'queued';
+    el.state.textContent = SRV_PHASE[_pk][0];
+    el.state.style.color = SRV_PHASE[_pk][1];
   }
   /* 2.46：后台借框占用——置顶提示并禁用发送，挡住人类操作 */
   if (S.inputBusy){
@@ -375,6 +383,20 @@ function renderState(snap){
     el.state.style.color = 'var(--orange)';
     setSendBtn(false, false);
   }
+  /* 2.229（老板 2026-11-20 22:01）：强核对不再有独立大悬浮窗——复用本条顶部
+     横幅，临时改文案「核对中」，终态后由 LB.vchkOpen 清位自动恢复原四态文案。
+     放在最末＝优先级最高（压过忙闲/四步/切换）；30 秒硬兜底防卡死。
+     只在原本该显示忙闲的位置覆盖，「输出中」等逻辑一字不改。 */
+  try {
+    if (typeof LB !== 'undefined' && LB && LB.vchkOpen){
+      if (!LB.vchkEndAt || Date.now() < LB.vchkEndAt){
+        el.state.textContent = '核对中';
+        el.state.style.color = 'var(--blue)';
+      } else {
+        LB.vchkOpen = 0; LB.vchkEndAt = 0;
+      }
+    }
+  } catch(e){}
   /* 1.77：未登录异常横幅——1.31 本有此设计，但 el 映射漏挂 loginbar 键，
      横幅从未亮过；现补键修活，并按用户要求加「持续门槛」：
      连续未登录满 60 秒才算确诊（与服务端钉钉报警同一门槛，瞬断不误报）。 */
