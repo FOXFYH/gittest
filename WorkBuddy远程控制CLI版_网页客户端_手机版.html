@@ -6397,7 +6397,7 @@ const APP_NAME = 'wb远程';
    ★2.72（2026-11-20）口径更新：条数/轮数两个参数合并成一个「保留轮数」
       （`wb_snap_rounds`，默认 5 轮≈10 条），上面②里的条数参数与查看器里的「保留条数」
       输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。 */
-const VER = '2.73';
+const VER = '2.74';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -9147,7 +9147,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
      只留「账本」；「缓存管理」按钮只做在 TRAE 网页版设置页。
    ★ 小账本＝现成查看器，禁止另造页面；配置项只放本页 ③。 */
 (function(){
-  var built = false, CV_VER = '1.12', tab = 'ledger', cur = null;
+  var built = false, CV_VER = '1.13', tab = 'ledger', cur = null;
   var NKEY = 'wb_turns_n';
   var LS_CLEAN = 'wb_lb_autoclean', LS_HUD = 'wb_lb_hud', LS_OFFE = 'wb_lb_offline_on',
       LS_OFF = 'wb_lb_offline', LS_PER = 'wb_lb_period', LS_THINK = 'wb_lb_think',
@@ -9398,26 +9398,48 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     if (tab === 'ctl') renderCtl(host);
     else renderLedger(host);
   }
-  /* ① 账本：小账本本体——只显当前服务器的会话，按更新时间倒序，两行卡片 */
+  /* ① 账本：小账本本体——当前服务器排最前；其它服务器（换过服务端/实例号）的旧账也全列，
+     每条都带 🗑 删除（统一管理标准：看得见的都能删，只删本机缓存）。2.74 改。 */
   function renderLedger(host){
     var sec = document.createElement('div'); sec.className = 'tv_sec';
     sec.innerHTML = '<h3>📒 小账本 · 本机 <span class="n">读取中…</span></h3>' +
-      '<div class="tv_hint">只显当前服务器 <b>' + esc(srvName(srvKey())) + '</b> 的会话；' +
-      '每个会话只留最新 5 轮（≈10 条），切会话时先铺的就是它。改轮数/清理去「② 调控」。</div>';
+      '<div class="tv_hint">当前服务器 <b>' + esc(srvName(srvKey())) + '</b> 的会话排最前；' +
+      '其它服务器留下的历史账也全部列出，每张卡都可 🗑 删除（只删本机缓存，不动服务器与云端）。改轮数/清理去「② 调控」。</div>';
     host.appendChild(sec);
     openAll().then(function(list){
-      var mine = list.filter(function(it){ return String(it.srv) === String(srvKey()); });
+      var ck = String(srvKey());
+      var mine = list.filter(function(it){ return String(it.srv) === ck; });
+      var others = list.filter(function(it){ return String(it.srv) !== ck; });
       mine.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
-      sec.querySelector('.n').textContent = mine.length + ' 个会话（盘上共 ' + list.length + ' 个）';
-      if (!mine.length){
+      others.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
+      sec.querySelector('.n').textContent = mine.length + ' 个当前 · ' + others.length +
+        ' 个其它（盘上共 ' + list.length + ' 个）';
+      if (!list.length){
         var e = document.createElement('div'); e.className = 'tv_empty';
-        e.textContent = '（当前服务器还没有小账本，切几个会话就会攒起来）';
+        e.textContent = '（还没有小账本，切几个会话就会攒起来）';
         sec.appendChild(e); return;
       }
-      var g = document.createElement('div'); g.className = 'tv_grid';
       var mp = nameMap();
-      mine.forEach(function(it){ g.appendChild(cardOf(it, mp, true, host)); });
-      sec.appendChild(g);
+      if (mine.length){
+        var g = document.createElement('div'); g.className = 'tv_grid';
+        mine.forEach(function(it){ g.appendChild(cardOf(it, mp, true, host)); });
+        sec.appendChild(g);
+      } else {
+        var e2 = document.createElement('div'); e2.className = 'tv_empty';
+        e2.textContent = '（当前服务器还没有小账本，切几个会话就会攒起来）';
+        sec.appendChild(e2);
+      }
+      if (others.length){
+        var sec2 = document.createElement('div'); sec2.className = 'tv_sec';
+        sec2.innerHTML = '<h3>🗄 其它服务器的小账本 <span class="n">' + others.length +
+          ' 个 · 历史缓存，可逐条删</span></h3>' +
+          '<div class="tv_hint">这些是旧服务器标识（换过服务端／实例号）下攒的账，本机缓存；' +
+          '没用就点 🗑 删掉，不影响云端与大账本。</div>';
+        var g2 = document.createElement('div'); g2.className = 'tv_grid';
+        others.forEach(function(it){ g2.appendChild(cardOf(it, mp, true, host)); });
+        sec2.appendChild(g2);
+        host.appendChild(sec2);
+      }
     });
   }
   /* 1.12（2026-11-20）：② 缓存页整页删除（与①账本重复；WB 端不需要）。 */
