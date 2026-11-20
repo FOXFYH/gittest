@@ -807,8 +807,14 @@ function ledgerThinkApply(sid, body){
        ——「我发的这条明明进了队、可桌面选中/锚定还没对齐」时也认领并销卡。 */
     b.pend.filter(it => {
       if (!it || typeof it !== 'object') return false;
-      if (pendItemMine(it) === true) return true;
-      return pendDidOwn(it);
+      const _m = pendItemMine(it);
+      if (_m === true) return true;
+      if (typeof pendDidOwn === 'function' && pendDidOwn(it)) return true;
+      /* 2.234（老板 2026-11-20 23:09）：旧写法「只留 true / DID 认领」，项级 sid
+         缺失或本端拿不到 sid（null）时整条被丢——AI 之间走总管命令发的消息不带
+         DID，于是排队条两条只剩一条。回退到 11-18 旧版口径：只有**明确**属于
+         别的会话（false）才丢，无从判定（null）一律显示。 */
+      return _m !== false;
     }).forEach(it => {
       if (it.text != null) it.text = stripPendTail(it.text);
       if (it.t != null) it.t = stripPendTail(it.t);
@@ -1044,7 +1050,13 @@ function thinkCardsReport(){
 function pendItemMine(it){
   if (!it || typeof it !== 'object' || it.sid == null) return null;
   const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
-  if (!cs) return false;
+  /* 2.234（老板 2026-11-20 23:09「只认带 DID 的、AI 间总管命令不显示，倒退」）：
+     本端还没锚定/拿不到当前 sid 时，旧写法返回 false＝「确凿是别人的」，
+     调用方据此丢掉条目；而「认领」只有 DID 一条路（pendDidOwn），
+     于是无 DID 的 AI 间总管命令全被吞，只剩带 DID 的人类发言。
+     拿不到 sid ＝ **无从判定**，返回 null（与项级 sid 缺失同口径），
+     由调用方按「宁可显示、不误杀」处理；只有 sid 明确对不上才 false。 */
+  if (!cs) return null;
   const s = String(it.sid);
   if (s === cs) return true;
   return !!(typeof 稳定键 === 'function' && 稳定键(s, '') === 稳定键(cs, ''));
