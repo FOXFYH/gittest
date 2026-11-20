@@ -149,6 +149,39 @@ function _thinkCardHtml(c){
        + 'max-height:45vh;overflow:auto">' + _mdBody(String(c.text || '')) + '</div></div>';
 }
 
+/* 2.216（0047 游客体验·第1件）：首屏/空态三步引导。
+   纯文字＋现有样式，不引入新框架；「知道了」后 localStorage 记住、不再弹。
+   引导卡只画在 #msgs 空态里（输入行独立），不遮挡发送框、不改布局骨架。 */
+const LS_GUIDE_DONE = 'trae_webm_guide_done';
+function guideDone(){
+  try { return localStorage.getItem(LS_GUIDE_DONE) === '1'; } catch(e){ return false; }
+}
+function guideHtml(){
+  return '<div class="empty" id="guidecard" style="text-align:left;max-width:430px;'
+    + 'margin:18px auto;padding:12px 14px;background:#fff;border:1px solid var(--bd);'
+    + 'border-radius:10px;color:#444;line-height:1.75;">'
+    + '<div style="font-weight:bold;color:var(--blue);margin-bottom:6px;">第一次用？三步就能聊</div>'
+    + '<div>① 上方选择要看的会话（点左上角 ☰ 打开会话列表）</div>'
+    + '<div>② 中间是聊天记录：人类发言 / AI 终极回复 / 思维流</div>'
+    + '<div>③ 底部输入框发消息，忙时会排队</div>'
+    + '<div style="text-align:right;margin-top:8px;">'
+    + '<button type="button" onclick="guideDismiss()" '
+    + 'style="min-height:30px;padding:2px 14px;">知道了</button></div></div>';
+}
+function guideDismiss(){
+  try { localStorage.setItem(LS_GUIDE_DONE, '1'); } catch(e){}
+  const g = document.getElementById('guidecard');
+  if (g) g.outerHTML = '<div class="empty">（暂无消息，发送一条开始对话）</div>';
+}
+/* 启动时若还没人渲染正文（无缓存/首帧未到）也先铺引导，不白屏、不挡输入框 */
+function guideBoot(){
+  try {
+    if (guideDone() || !el || !el.msgs) return;
+    if (el.msgs.querySelector('.msg')) return;
+    el.msgs.innerHTML = guideHtml();
+  } catch(e){}
+}
+
 function renderMsgs(msgs, finish, opts, ask, pend){
   opts = opts || [];
   /* 2.131：不是当前会话的排队条，一律不画（也不进 #qp: 指纹）。 */
@@ -224,7 +257,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       && !(pend || []).length && !_qLatch.length){
     el.msgs.innerHTML = _noHost
       ? _thinkNoHostHtml()
-      : '<div class="empty">（暂无消息，发送一条开始对话）</div>';
+      : (guideDone()
+          ? '<div class="empty">（暂无消息，发送一条开始对话）</div>'
+          : guideHtml());
     return;
   }
   if (empty && !(pend || []).length && !_qLatch.length){
@@ -497,7 +532,8 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     /* 2.03：顶部只留标题（用户 2026-09-30 规定）——原先挂着「（AI 完成
        当前步骤后按顺序消费；这是 TRAE 自己的队，不是我们这边的）」一长串
        解释，用户嫌叽里呱啦，拍板顶上就写「官方排队条」即可。 */
-    let qh = '<div class="qhead">⏳ 官方排队条</div>';
+    /* 2.216（0047）：术语保留原义，补一句人话解释（悬浮/长按可见，不占版面） */
+    let qh = '<div class="qhead" title="AI 忙完会按顺序处理这些消息">⏳ 官方排队条</div>';
     qopenPrune(pend);        /* 2.08：清掉已不在队列里的「展开」标记 */
     /* 账本V1.0（N4）：项级 sid 过滤——只渲染当前锚定会话的条目；渲染下标
        仍取服务端原数组序号（data-qi），命令对位不受过滤影响。 */
