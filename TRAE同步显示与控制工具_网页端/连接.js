@@ -50,6 +50,9 @@ function connect(){
                                救援（上线与界面.js）按「readyState===0 超 20s」
                                判假死，以本时刻起算，20s 守卫防风暴。 */
   setOnLine(false);
+  /* 2.216：只有「断过/重试中/手动重连」才亮顶部重连条；首次正常连接不闪橙条 */
+  if (S._rcOffline || S._manualRC || S.failStreak > 0 || DIAG.reconn > 0)
+    try { reconnUi('↻ 正在重连…', 'var(--orange)'); } catch(e){}
   gotHello = false;
   helloTries = 0;    // 1.07：重连后重起握手重试（原不重置——10 次用尽
                      // 后，重连首条 hello 被中继丢弃就永远失联）
@@ -68,6 +71,8 @@ function connect(){
   let _openOk = false;
   ws.onopen = () => {
     _openOk = true;
+    /* 2.216：本次连上之前是否处于「断过/重试」——是才提示「已恢复」 */
+    const _rcWas = !!(S._rcOffline || S._manualRC || S.failStreak > 0 || DIAG.reconn > 0);
     S.failStreak = 0;                 // 1.61：连上了就清零
     DIAG.reconn = 0; DIAG.reconnActive = false;   // 1.66：成功连上=一轮结束，重试计数归零
     diagLog('已连上中转服务器', 'ok');
@@ -76,6 +81,11 @@ function connect(){
        lastSrv 清零，srvWatch 不会见陈旧 lastSrv 立刻误置。 */
     if (S.srvLost){ S.srvLost = false; diagLog('重连成功，解除失联', 'ok'); }
     setOnLine(true);
+    /* 2.216：手动重连成功 → 撤掉兜底定时器；仅「断过/重试」才提示「已恢复」（2.5 秒后自动收起） */
+    if (S._manualRC){ clearTimeout(S._manualRcT); S._manualRC = 0; }
+    S._rcLastDelay = 0;
+    S._rcOffline = 0;
+    if (_rcWas) { try { reconnUi('✓ 已恢复', 'var(--green)', 2500); } catch(e){} }
     /* 2.42：删除链路保活 PING（本软件免 PING，由中继自动保持在线） */
     /* v1.32：登录 → 服务端开始广播；loginWatch 兜底握手首条被中继丢弃 */
     cliRebind();
@@ -98,9 +108,17 @@ function connect(){
                 + '请检查手机网络，或换主/备中继试试', 'bad');
       }
     }
-    diagLog((S.dropByHide ? '后台断线（回来自动补）'
-                          : '断线（第 ' + DIAG.reconn + ' 次）'),
-            'bad');
+    /* 2.216：断线日志 10 秒节流（手动重连 12 秒兜底也走这里）——不刷屏 */
+    if (!S._rcLastLogAt || Date.now() - S._rcLastLogAt > 10000){
+      S._rcLastLogAt = Date.now();
+      diagLog((S.dropByHide ? '后台断线（回来自动补）'
+                            : '断线（第 ' + DIAG.reconn + ' 次）'),
+              'bad');
+    }
+    if (S._manualRC){
+      clearTimeout(S._manualRcT); S._manualRC = 0;
+      if (el && el.reconn) el.reconn.disabled = false;
+    }
     setOnLine(false);
     clearTimeout(helloTimer);
     loggedIn = false; clearInterval(hbTimer);   // 断线＝退出登录
@@ -115,26 +133,69 @@ function connect(){
   ttsConnect();
 }
 
-/* 1.57：立即重连（回前台专用）——不再干等 RECONNECT 那 3 秒定时器；
-   正在连接 / 已连上则什么也不做。 */
-/* 13.3【限次限频·宣告失败·杜绝死循环】：断线重连不再无限 3s 空转——间隔
-   逐次退避（3→6→12→24→48→封顶 60s），连续连不上达 RECONNECT_MAX 次即
-   停止自动重连并明确宣告失败（可点「连接诊断」手动重连、或刷新页面恢复）。 */
-function scheduleReconnect(){
-  if (S.failStreak >= RECONNECT_MAX){
-    diagLog('已连续 ' + S.failStreak + ' 次连不上中继服务器，停止自动重连（失败）；'
-            + '请检查网络，或点「连接诊断」手动重连', 'bad');
-    flash('连不上中继，已停止自动重连', 'var(--red)', 6000);
-    return;
+/* 2.216（0047 游客体验·第3件）：连接失败可自救——顶栏「↻ 重连」按钮三态
+   （正在重连…／已恢复／仍失败，N 秒后自动重试）；自动重试退避 10s→20s→30s 封顶。
+   日志只在退避档位变化/首断时写一条，绝不每拍刷屏。 */
+let _rcHold = 0, _rcHideT = 0;
+function reconnUi(label, color, holdMs){
+  const b = el && el.reconn; if (!b) return;
+  if (label != null) b.textContent = label;
+  b.style.color = color || '';
+  b.style.display = '';
+  if (holdMs){
+    _rcHold = 1; clearTimeout(_rcHideT);
+    _rcHideT = setTimeout(() => { _rcHold = 0; try { reconnSync(); } catch(e){} }, holdMs);
   }
-  const n = Math.min(Math.max(S.failStreak, 1) - 1, 5);
-  const delay = Math.min(RECONNECT * Math.pow(2, n), 60);
-  diagLog(delay + 's 后重连（第 ' + (S.failStreak + 1) + ' 次尝试）', 'dim');
+}
+function reconnSync(){
+  const b = el && el.reconn; if (!b || _rcHold) return;
+  const _show = !S.onLine && (S._rcOffline || S._manualRC
+    || S.failStreak > 0 || DIAG.reconn > 0);
+  if (_show){
+    b.style.display = '';
+    b.disabled = false;
+  } else {
+    b.style.display = 'none';
+    if (S.onLine){ b.disabled = false; b.textContent = '↻ 重连'; b.style.color = ''; }
+  }
+}
+function manualReconnect(){
+  S.failStreak = 0;
+  S._rcLastDelay = 0;
+  S._rcOffline = 1;
+  clearTimeout(reconnectTimer); reconnectTimer = null;
+  clearTimeout(S._manualRcT);
+  S._manualRC = 1;
+  diagLog('手动重连', 'warn');
+  if (el && el.reconn) el.reconn.disabled = true;
+  reconnUi('↻ 正在重连…', 'var(--orange)');
+  connect();
+  /* 假死/握手无回应兜底：12 秒仍未连上就拆旧转自动重试，绝不让按钮一直转圈 */
+  S._manualRcT = setTimeout(() => {
+    if (!S._manualRC) return;
+    S._manualRC = 0;
+    if (el && el.reconn) el.reconn.disabled = false;
+    diagLog('手动重连无回应，已转为自动重试', 'bad');
+    try { teardownWs(); } catch(e){}
+    try { scheduleReconnect(); } catch(e){}
+  }, 12000);
+}
+if (el && el.reconn) el.reconn.onclick = manualReconnect;
+
+function scheduleReconnect(){
+  /* 2.216：退避 10s→20s→30s 封顶（不再到上限就停摆）；只在档位变化时记一条日志。 */
+  S._rcOffline = 1;
+  const n = Math.min(Math.max(S.failStreak, 1) - 1, 2);
+  const delay = Math.min(10 * Math.pow(2, n), 30);
+  if (S._rcLastDelay !== delay){
+    S._rcLastDelay = delay;
+    diagLog(delay + 's 后重连（第 ' + ((S.failStreak || 0) + 1) + ' 次尝试）', 'dim');
+  }
   reconnectTimer = setTimeout(connect, delay * 1000);
+  reconnUi('↻ 仍失败，' + delay + ' 秒后自动重试', 'var(--red)');
 }
 function ensureConnect(){
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
-  if (S.failStreak >= RECONNECT_MAX) return;   /* 13.3：已达重连上限，改为手动重连 */
   clearTimeout(reconnectTimer);
   connect();
 }
