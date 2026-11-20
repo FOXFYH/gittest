@@ -71,7 +71,15 @@ if (!CFG.stats_keep) CFG.stats_keep = 10;
 /* 账本系统 V1.0（2026-11-18）：全部调控项集中在缓存查看器「③ 账本调控」tab
    （手机缓存查看器.js，设置页「小账本」按钮唯一入口），
    此处只定默认值；改值立即生效并落盘（cfgSave）。 */
-if (CFG.lb_period === undefined) CFG.lb_period = 60;     /* 主动核对周期（秒），默认 1 分钟 */
+/* 2.241（老板 2026-11-21 01:21）：主动核对周期默认 90 秒。
+   老版本留下的默认值 60 一次性迁到 90（迁一次打标记，之后用户手动改回 60 不再被覆盖）。 */
+if (CFG.lb_period === undefined) CFG.lb_period = 90;     /* 主动核对周期（秒），默认 90 秒 */
+try {
+  if (!localStorage.getItem('trae_webm_lb90')){
+    localStorage.setItem('trae_webm_lb90', '1');
+    if (CFG.lb_period === 60){ CFG.lb_period = 90; cfgSave(); }
+  }
+} catch(e){}
 if (CFG.lb_offline === undefined) CFG.lb_offline = 120;  /* 本地离线倒计时（秒） */
 if (CFG.lb_rounds === undefined) CFG.lb_rounds = 5;      /* 保留轮数（N）：2.204 起本地账本/预备画面/服务端补发默认三处同值 5 轮 */
 if (CFG.lb_think === undefined) CFG.lb_think = 5;        /* 思维流直播帧间隔（秒，只管 think 模块） */
