@@ -62,7 +62,7 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
   <button id="btnHome">⌂</button>
   <button id="btnFont">A</button>
   <button id="btnPick" title="选定当前文件夹（把路径回传给宿主页）" style="display:none">✅</button>
-  <button id="btnMore" title="文件夹操作（新建文件夹 / 新建TXT / 粘贴）" style="display:none">⋮</button>
+  <button id="btnMore" title="更多操作（上传文件 / 新建文件夹 / 新建TXT / 粘贴）" style="display:none">⋮</button>
   <button id="btnNew" title="新建文件夹" style="display:none">＋</button>
 </div>
 <div id="crumbs"></div>
@@ -72,6 +72,7 @@ body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSyst
 <div id="shade"></div>
 <div id="sheet"></div>
 <div id="toast"></div>
+<input type="file" id="fileUp" multiple style="display:none">
 <div id="setup" style="display:none;position:fixed;inset:0;z-index:50;background:var(--bg);color:var(--fg);padding:22px">
   <h3 style="margin:8px 0 10px">连接设置</h3>
   <p style="color:var(--sub);font-size:13px;line-height:1.6">这是线上公共页。只需填写「频道公共段」——即本人掌握的那段口令，本页会自动拼上文件专属后缀并记住；接口密钥与口令已内置默认值，无需填写。<br>宿主身份：<b id="stHost"></b></p>
@@ -377,8 +378,9 @@ let clip=null;                 // {op:'copy'|'cut', src, name}：待粘贴项
 let _toastT=null;
 function toast(m){const t=el("toast");t.textContent=m;t.style.display="block";
   clearTimeout(_toastT);_toastT=setTimeout(()=>{t.style.display="none";},2600);}
-function updateToolbar(){const on=(!inReader)&&!!curPath;
-  el("btnMore").style.display=on?"":"none";el("btnNew").style.display=on?"":"none";}
+function updateToolbar(){const on=!inReader;
+  el("btnMore").style.display=on?"":"none";
+  el("btnNew").style.display=(on&&curPath)?"":"none";}
 // 打开底部操作面板：items=[{label,cls?,act}]，末尾恒追加「取消」
 function showSheet(items){
   const s=el("sheet");s.innerHTML="";
@@ -395,13 +397,65 @@ function showSheet(items){
 }
 function closeSheet(){el("sheet").style.display="none";el("shade").style.display="none";}
 // 文件夹级操作面板（顶部 ⋮ / ＋）
+// 1.17：⋮ 在主页也亮出——第一项「⬆ 上传文件」目标＝当前目录；未进任何目录时
+//   沿用默认位置（起始根＝工作台），与「无选中文件夹」的既有口径一致。
 function openFolderSheet(){
-  if(!curPath){alert("请先进入一个文件夹");return;}
-  showSheet([
-    {label:"📁 新建文件夹", act:newFolder},
-    {label:"📄 新建 TXT 文件", act:newTxt},
-    {label:clip?"📥 粘贴（"+clip.name+"）":"📥 粘贴（剪贴板为空）", cls:clip?"":"off", act:doPaste},
-  ]);
+  const dir=curPath||BASE;
+  if(!dir){alert("尚未确定目标文件夹（服务端未连上）");return;}
+  const items=[];
+  items.push({label:"⬆ 上传文件到此文件夹（"+(curPath?"当前："+dir:"默认："+dir)+"）",
+              act:()=>pickUpload(dir)});
+  if(curPath){
+    items.push({label:"📁 新建文件夹", act:newFolder});
+    items.push({label:"📄 新建 TXT 文件", act:newTxt});
+    items.push({label:clip?"📥 粘贴（"+clip.name+"）":"📥 粘贴（剪贴板为空）", cls:clip?"":"off", act:doPaste});
+  }
+  showSheet(items);
+}
+// ============ 上传（1.17 并入原「传输附件」功能） ============
+// 分片经 WS 交本机服务端写盘：48KB/片（base64 约 64K），逐片等应答、错位即失败。
+const UP_CHUNK=49152;
+function pickUpload(dir){
+  const inp=el("fileUp");
+  inp.value="";
+  inp.onchange=()=>{const fs=Array.from(inp.files||[]);if(fs.length)upStart(fs,dir);};
+  inp.click();
+}
+function _readSlice(file,start,end){
+  return new Promise((res,rej)=>{const r=new FileReader();
+    r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("读取文件失败"));
+    r.readAsArrayBuffer(file.slice(start,end));});
+}
+function _b64(buf){
+  const u=new Uint8Array(buf);let s="";const CH=0x8000;
+  for(let i=0;i<u.length;i+=CH)s+=String.fromCharCode.apply(null,u.subarray(i,i+CH));
+  return btoa(s);
+}
+async function upOne(file,dir){
+  let off=0,name=file.name;const total=file.size;
+  if(!total){
+    const r=await req("upload",{path:dir,name:name,off:0,eof:true,data:""},60000);
+    if(!r||!r.ok)throw new Error((r&&r.err)||"服务端未响应");
+    return;
+  }
+  while(off<total){
+    const end=Math.min(off+UP_CHUNK,total);
+    const buf=await _readSlice(file,off,end);
+    const r=await req("upload",{path:dir,name:name,off:off,eof:end>=total,data:_b64(buf)},60000);
+    if(!r||!r.ok)throw new Error((r&&r.err)||"服务端未响应");
+    if(off===0&&r.name)name=r.name;          // 重名时服务端已自动改名，后续片沿用
+    off=end;
+    toast("上传中："+name+" "+Math.floor(off*100/total)+"%");
+  }
+}
+async function upStart(files,dir){
+  let okN=0;
+  for(const f of files){
+    try{await upOne(f,dir);okN++;}
+    catch(e){alert("上传失败："+f.name+"\n"+(e&&e.message||e));}
+  }
+  toast("已上传 "+okN+"/"+files.length+" 个文件到："+dir);
+  if(curPath&&curPath.replace(/[\\/]$/,"")===dir.replace(/[\\/]$/,""))openDir(curPath);
 }
 // 条目级操作面板（每个条目右侧 ⋮）
 function openItemSheet(it){
@@ -461,7 +515,7 @@ el("shade").onclick=closeSheet;
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.16");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.17");
 document.getElementById("stHost").textContent=HOST||"standalone";
 el("btnPick").style.display="";   // 1.15：✅ 头钮恒亮——任何模式都能把「当前目录」回传宿主
 function showSetup(){
