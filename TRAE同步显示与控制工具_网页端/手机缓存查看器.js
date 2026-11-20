@@ -376,31 +376,20 @@
     return '';
   }
   function kindOf(m){
+    /* 2.213（前端零拦截）：类型只认后端下发——行 index8（u/a/th）或对象 kind/type；
+       缺字段一律 ''，显示「类型未知」；前端不再按角色/完成卡自己推断。 */
     if (!m || typeof m !== 'object') return '';
-    if (Array.isArray(m)){
-      var k = _kindNorm(m[8]);
-      if (k) return k;
-      var role = String(m[0] || '').toLowerCase();
-      if (role === 'u') return 'human';
-      if (role === 'a') return (String(m[7] || '').trim() ? 'final' : 'think');
-      return '';
-    }
-    var k2 = _kindNorm(m.kind != null ? m.kind : m.type);
-    if (k2) return k2;
-    var r2 = String(m.role || m.r || '').toLowerCase();
-    if (r2 === 'u' || r2 === 'user') return 'human';
-    if (r2 === 'a' || r2 === 'ai') return 'final';
-    return '';
+    if (Array.isArray(m)) return _kindNorm(m[8]);
+    return _kindNorm(m.kind != null ? m.kind : m.type);
   }
   function kindText(m){
     var k = kindOf(m);
-    /* 2.212（老板 2026-11-20 07:28 bug②）：提前终极回复——人类连发打断、
-       残片含「已切换到新请求/手动终止输出」升格而来；仍算终极，另标来源。 */
+    /* 2.213：提前终极只认后端字段——数组行 index11=1（服务端 list 行）或
+       对象 early_final=1；不再读前端自造的 m[7]='提前终极'。 */
     var _early = Array.isArray(m)
-      ? ((m[11] == 1 || m[11] === '1')
-         || String(m[7] || '').trim() === '提前终极')
-      : !!(m && m.early_final == 1);
-    if (k === 'final' && _early) return 'AI 终极回复（提前）';
+      ? (m[11] == 1 || m[11] === '1')
+      : !!(m && (m.early_final == 1 || m.early_final === '1'));
+    if (_early) return 'AI 终极回复（提前）';
     return KIND_TEXT[k] || '类型未知';
   }
   /* 类型徽标（详情每条必显；色标仅供一眼分辨，文字为准） */
