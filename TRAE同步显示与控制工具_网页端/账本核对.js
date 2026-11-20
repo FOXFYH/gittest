@@ -885,6 +885,11 @@ function thinkCardSet(body, sidHint){
     const m = arr[i];
     if (!Array.isArray(m) || m[0] !== 'a' || !m[1]) continue;
     if (lbIsFinalRow(m)) continue;              /* 终极回复绝不进虚线框 */
+    /* 2.222（老板 2026-11-20 17:10 令）：虚线框只收思维流（index8='th'）。
+       服务端已带类型时，非 th 一律跳过（a/终极/人类绝不进框）；缺类型的老帧
+       仍按原口径（非 final 即可），不凭空丢内容。 */
+    const _k8 = (m.length > 8 ? String(m[8] || '').trim().toLowerCase() : '');
+    if (_k8 && _k8 !== 'th') continue;
     const _id = String((m.length > 6 && m[6]) || '').trim();
     if (_id && finalMids.has(_id)) continue;    /* 同 mid 已有 final：think 版作废 */
     txt = String(m[1]); textMid = _id; break;
