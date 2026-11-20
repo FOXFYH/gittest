@@ -61,9 +61,9 @@ select{font-size:12px;}
      WebView 会自作聪明按视觉锚点把 scrollTop 改走，程序刚设到底又被它拽回上面。
      这是「明明到底了、一转眼又在顶部」的元凶之一。 */
   overflow-anchor:none; -webkit-overflow-anchoring:none;}
-/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
+/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/输入行，
    消息区独占整屏，能看更多历史；body.fmsg 生效 */
-body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
+body.fmsg #hdr, body.fmsg #statebar,
 body.fmsg #input_row{ display:none; }
 #fexit{display:none; position:fixed; right:12px; bottom:16px;
   z-index:30; border:1px solid var(--blue); background:#fff;
@@ -283,21 +283,12 @@ body.fmsg #fexit{display:block;}
   margin-bottom:8px;}
 #finish .ft{font-weight:bold; color:var(--green);}
 #finish .ff{color:var(--green); font-size:12px;}
-/* ── 附件行 / 输入行 ── */
-#attach_row{display:none; gap:4px; padding:2px 8px; flex-wrap:wrap;
-  flex:none; background:#fff;}
-#attach_row.on{display:flex;}
-.chip{border-radius:5px; padding:2px 8px; font-size:12px;
-  display:inline-flex; gap:4px; align-items:center; min-height:26px;}
-.chip.pend{background:#eee; color:#666;}
-.chip.ok{background:#e3f0fb; color:var(--blue);}
-.chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
-  padding:0 2px;}
+/* ── 输入行 ── */
 #input_row{display:flex; gap:6px; align-items:center;
   padding:6px 8px;
   background:#fff; border-top:1px solid var(--bd); flex:none;}
-/* 1.39：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条） */
-#btn_attach,#btn_fvwr,#btn_copy{width:36px; min-width:36px;
+/* 1.39：输入行小按钮统一正方形 36×36 */
+#btn_fvwr,#btn_copy{width:36px; min-width:36px;
   height:36px; min-height:36px; padding:0; flex:none; font-size:15px;
   display:inline-flex; align-items:center; justify-content:center;}
 /* 1.40：📋 复制 只在输入框放大态出现，小态隐藏（省地方）。
@@ -319,7 +310,6 @@ body.fmsg #fexit{display:block;}
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
 #ent.grow{height:255px;}   /* 聚焦增高（约7倍单行高度+随内容自适应），对齐 TRAE 输入空间 */
 #input_row.grow{flex-wrap:wrap;}   /* 对齐 TRAE：聚焦时按钮跳顶行，输入框独占一行更大空间 */
-#input_row.grow #btn_attach,
 #input_row.grow #btn_fvwr,
 #input_row.grow #btn_send{order:1;}
 #input_row.grow #btn_send{margin-left:auto;}
@@ -599,17 +589,14 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 </div>
 
 <div id="msgs" data-page-node-id="XnFjXZMabtSI6IbQ4ddI7n"><div class="empty" data-page-node-id="Z2WUtyoEMfP5wFd9yarr6d">（暂无消息，发送一条开始对话）</div></div>
-<div id="attach_row" data-page-node-id="0FRu38I2Y9H4SjISPCj3qv"></div>
 <!-- 1.53：队列条目取回修改横幅（原文已从队列撤下、进输入框） -->
 <div id="edit_row"><span>✏️ 正在修改队列取回的一条：改好后点「放回」，或</span><button class="ecancel">取消修改（丢弃）</button></div>
 <div id="input_row" data-page-node-id="4SbcgInOVBwoSjxfG8vuPl">
-  <button id="btn_attach" title="选择附件（可多选，单个≤6MB）" data-page-node-id="q1IM5M3hw3aH5312SXUo07">📎</button>
   <button id="btn_fvwr" title="打开本地文件查看器，选路径插入" data-page-node-id="QRsCF9SzbHEwxBS7rqEsrK">📂</button>
   <button id="btn_copy" title="复制输入框内容到剪贴板" data-page-node-id="MzRkQwT9pLxVbNcH6yEjU3">📋</button>
   <button id="btn_urgent" title="加急插入对话流（勾上后本次发送若进托管队列则立即插队发送、不干等队尾；默认不记忆）" data-page-node-id="WBurgentT63Btn20261019">急</button>
   <textarea id="ent" placeholder="输入消息…" rows="1" enterkeyhint="enter"></textarea>
   <button id="btn_send" disabled data-page-node-id="gdIgB3SP1yAwwpnUE2Tfr8">发送</button>
-  <input type="file" id="file_pick" multiple style="display:none" data-page-node-id="4U5sO3osNoxDcE1JnNLQwG">
 </div>
 
 <button id="fexit" title="退出历史全屏">↓ 回到最新</button>
@@ -1197,7 +1184,6 @@ const S = {
   /* 2.31：批量签到的勾选——null=默认全选；否则 {账号键:1}（手动动过勾选框才变对象）。
      空对象＝全不选，但提交时按「空＝全部」处理（见 ckPickKeys）。 */
   ck_pick: null,
-  attach_pending: null,
   /* 2.41 活体投递：断网时点下的命令先排这里（localStorage 持久），连上自动补发。
      outN=队列长度（状态灯角标用，renderLink 读它）。 */
   outbox: [], outN: 0,
@@ -1334,13 +1320,13 @@ const el = {
   ports: null, points: $('lbl_points'), model: $('cmb_model'),
   acct_sel: $('cmb_acct'), acct_scan: $('btn_acct_scan'),   /* 1.89：登录账号切换 */
   acct: $('lbl_acct'),
-  state: $('statebar'), msgs: $('msgs'), attach_row: $('attach_row'),
+  state: $('statebar'), msgs: $('msgs'),
   edit_row: $('edit_row'),                    /* 1.53：队列取回修改横幅 */
-  attach: $('btn_attach'), ent: $('ent'), send: $('btn_send'),
+  ent: $('ent'), send: $('btn_send'),
   copy: $('btn_copy'),                       /* 1.40：复制输入框内容（放大态） */
   urgent: $('btn_urgent'),                   /* 2.03：加急插入勾选（放大态「急」） */
   input_row: $('input_row'),
-  file: $('file_pick'), drawer: $('drawer'), mask: $('mask'),
+  drawer: $('drawer'), mask: $('mask'),
   dclose: $('btn_dclose'), convs: $('convs'), new: $('btn_new'),
   launch: $('btn_launch'), net: $('btn_net'), netpage: $('page_net'),
   netback: $('btn_netback'), today: $('lbl_today'), tnet: $('tv_net'),
@@ -1411,7 +1397,7 @@ const SRV_CMD_LABELS = {
   rewind: '回退消息', del_msg: '删除消息',
   ask_pick: '选择答案', ask_other: '提交回答', ask_submit: '提交答案',
   ask_cancel: '取消提问', pick_opt: '选择选项',
-  attach_rm: '移除附件', model_list: '刷新模型', points: '刷新积分',
+  model_list: '刷新模型', points: '刷新积分',
   acct_switch: '切换账号', acct_scan: '重扫账号', acct_list: '读取账号列表',
   checkin_all: '批量签到', credits_refresh_all: '批量刷新积分',
   checkin_state: '读取签到状态', queue_sendnow: '立即插队发送',
@@ -1523,7 +1509,7 @@ function srvOpSend(c, a, label, extra, ms){
   srvOpFlash('sent', lb, typeof extra === 'string' ? extra : '', ms);
   return true;
 }
-/* 非 cmd 控制帧（boot/attach_files）的四态出口——同样带 id 登记在途。 */
+/* 非 cmd 控制帧（boot 等）的四态出口——同样带 id 登记在途。 */
 function srvOpSendJson(obj, label, extra, ms){
   const lb = label || '操作';
   const id = srvOpNewId();
@@ -3722,7 +3708,6 @@ function renderAll(){
      （协议字段 c='msg_seen'，rids 必为数组；同一 rid 只发一次）。 */
   msgSeenFlush(curMsgs(), Array.isArray(snap.msgs) && snap.msgs.length > 0);
   renderState(snap);
-  renderAttach(snap.attach || []);
   syncModel(snap.model || '');
   renderAcct();
   renderEditRow();                     /* 1.53：队列取回修改横幅 */
@@ -4904,7 +4889,7 @@ function msgSeenFlush(msgs, hasMsgs){
     /* 2 小时仍未等到落地就放弃（防 outRid 无限长大；acks 路径仍兜底） */
     if (Date.now() - (rec.ts || 0) > 7200000){ delete S.outRid[rid]; return; }
     for (const a of arrived){
-      /* 正文完全一致；带附件尾巴时按前缀认（只认发送基线之后的新消息） */
+      /* 正文完全一致；带尾巴时按前缀认（只认发送基线之后的新消息） */
       if (a.seq >= base && (a.txt === want
           || (want.length >= 2 && a.txt.indexOf(want) === 0))){
         hit.push(rid); break;
@@ -6049,37 +6034,6 @@ setInterval(() => {
   renderState(S.snap);
 }, 5000);
 
-function renderAttach(items){
-  const row = el.attach_row;
-  row.innerHTML = '';
-  if (S.attach_pending){
-    row.classList.add('on');
-    for (const nm of S.attach_pending){
-      const c = document.createElement('span');
-      c.className = 'chip pend';
-      c.textContent = '⏳ ' + nm;
-      row.appendChild(c);
-    }
-    return;
-  }
-  if (!items || !items.length){
-    row.classList.remove('on');
-    return;
-  }
-  row.classList.add('on');
-  items.forEach((it, i) => {
-    const c = document.createElement('span');
-    c.className = 'chip ok';
-    c.innerHTML = '📎 ' + esc(it.name)
-      + (it.size ? '  ' + esc(it.size) : '')
-      + ' <span class="rm" title="移除">✕</span>';
-    c.querySelector('.rm').onclick = e => {
-      e.stopPropagation(); srvOpSend('attach_rm', i, '移除附件');
-    };
-    row.appendChild(c);
-  });
-}
-
 /* ===== 1.15：模型收藏 =====
  * 官方模型列表经常变更（改名/下架），收藏按「模型真名」存
  * localStorage（wb_cli_fav_models），跨服务端通用。有收藏时
@@ -6471,7 +6425,7 @@ const APP_NAME = 'wb远程';
    ★2.72（2026-11-20）口径更新：条数/轮数两个参数合并成一个「保留轮数」
       （`wb_snap_rounds`，默认 5 轮≈10 条），上面②里的条数参数与查看器里的「保留条数」
       输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。 */
-const VER = '2.75';
+const VER = '2.76';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -7675,8 +7629,6 @@ function onEv(kind, v){
       S.reanchorPending = true;
       S.loadingConv = null;                   // 1.28：断了还挂占位没意义
       renderState({});
-      S.attach_pending = null;
-      renderAttach([]);
       break;
     case 'connected':
       if (v !== S.port) return;
@@ -7711,7 +7663,7 @@ function onEv(kind, v){
       /* 1.74：只在「本机自己发的这条」回执时清输入框（p 是按 rid 命中的我方占位卡）。
          别端/AI 的 sent 广播不得清掉本机正在打的草稿（用户 2026-10-04 定：
          Py 版输入框=公用，网页版=私用，操作公用不得波及网页私用草稿）。
-         本机自发早在 cmd() 里清过 → 此处对本地幂等；取消/附件的清空走各自本地路径。 */
+         本机自发早在 cmd() 里清过 → 此处对本地幂等；取消的清空走本地路径。 */
       if (p && rid && p.rid === rid) el.ent.value = '';
       refreshSendBtn();
       renderAll();
@@ -8128,23 +8080,6 @@ function onEv(kind, v){
       S.busy = false;
       flash(v);
       break;
-    case 'attach_done':
-      srvOpDone('attach_files');
-      S.attach_pending = null;
-      if (v.ok >= v.total && v.total)
-        flash('✅ 已附加 ' + v.ok + ' 个附件', 'var(--green)');
-      else if (v.ok)
-        flash('⚠ 仅附加成功 ' + v.ok + '/' + v.total + '（部分被 WorkBuddy 拒收）',
-              'var(--orange)');
-      else
-        flash('❌ 附件未出现在输入栏（类型被拒？）');
-      renderAttach(S.snap.attach || []);
-      break;
-    case 'attach_rm_done':
-      srvOpDone('attach_rm');
-      renderAttach(S.snap.attach || []);
-      flash('已移除附件', '#888');
-      break;
     case 'ports':
       S.alive = new Set(v || []);
       renderPorts();
@@ -8277,7 +8212,7 @@ function applySwitch(box, port, keepSnap){
      保留现有快照直接渲染，避免旧内容被清后白等下一拍 */
   S.snap = keepSnap ? S.snap : {};
   S.convs_key = null; S.msgs_key = null;
-  S.attach_pending = null; S.model_busy = false; S.verify = null;
+  S.model_busy = false; S.verify = null;
   S.histConv = ''; resetPaging();           /* 换目标：分页窗口作废重来 */
   /* 1.09：换目标——待确认项/切换在途条随旧目标作废（1.82：连同定时器一起清） */
   S.pending = []; switchEnd();
@@ -8972,35 +8907,6 @@ el.ck_refreshpts.onclick = () => {       /* 批量刷新积分：逐个账号查
   if (srvNeedOnline('批量刷新积分')) return;
   if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
   srvOpSend('credits_refresh_all', ckPickKeys(), '批量刷新积分');
-};
-
-/* —— 附件上传：本地读 base64 → FOX 分段上传（单个 ≤ 6MB） —— */
-
-el.attach.onclick = () => el.file.click();
-el.file.onchange = async () => {
-  const files = [...el.file.files];
-  el.file.value = '';
-  if (!files.length) return;
-  if (S.attach_pending){ flash('📎 正在附加上一批，请稍候…', 'var(--orange)'); return; }
-  if (srvNeedOnline('上传附件')) return;
-  const arr = [];
-  for (const f of files){
-    if (f.size > 6 * 1024 * 1024){
-      flash('「' + f.name + '」超过 6MB，远程通道暂不支持'); return;
-    }
-    const b64 = await new Promise((ok, no) => {
-      const r = new FileReader();
-      r.onload = () => ok(String(r.result).split(',')[1] || '');
-      r.onerror = no;
-      r.readAsDataURL(f);
-    }).catch(() => null);
-    if (b64 === null){ flash('读取 ' + f.name + ' 失败'); return; }
-    arr.push({n: f.name, d: b64});
-  }
-  S.attach_pending = arr.map(f => f.n);     // 反馈①：灰 chips 占位
-  renderAttach([]);
-  srvOpSendJson({t: 'attach_files', files: arr}, '上传附件',
-                '共 ' + arr.length + ' 个文件');
 };
 
 /* —— 1.07：导出功能整体移除（用户要求网页版不要导出）：
