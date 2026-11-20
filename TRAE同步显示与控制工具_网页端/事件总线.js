@@ -144,8 +144,18 @@ function onEv(kind, v){
            2.187：id（14 位 DID）命中本人待销卡的一律保留——消息刚进队那一下
            桌面选中/锚定可能还没对齐，整批剥掉会让这张卡销不掉（老板实测）。
            渲染层仍按 pendItemMine 逐条过滤，跨会话绝不串显。 */
-        v.pend = _penArr.filter(it => pendItemMine(it) === true
-            || (typeof pendDidOwn === 'function' && pendDidOwn(it)));
+        /* 2.231（老板 22:05「电脑 4 条、手机只看到 2 条」）：项级 sid 缺失
+           （老格式/旧服务端条目）pendItemMine 返回 null，旧写法当「别人的」
+           一并丢掉 ⇒ 混合队列只剩带 sid 的那两条。null＝无从判定，归属早已由
+           顶层 pend_sid 闸确认，此处放行；只有明确 false（项级 sid 指向别的
+           会话）才丢，跨会话串显红线不破。 */
+        v.pend = _penArr.filter(it => {
+          const _m = pendItemMine(it);
+          if (_m === true) return true;
+          if (typeof pendDidOwn === 'function' && pendDidOwn(it)) return true;
+          if (_m === false) return false;
+          return (!_penOwner || !_curSidNow || _penOwner === _curSidNow);
+        });
         _penMine = v.pend.length > 0;
       } else if (!_penOwner || !_curSidNow){
         _penMine = _penArr.some(it => {
