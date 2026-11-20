@@ -145,13 +145,16 @@ function _cvSchedCount(al, cfx){
   }
   return n;
 }
-/* 备注后缀 + 定时铃铛：备注可多条（去重），定时只认条数 */
+/* 备注后缀 + 定时铃铛：备注**只显示一条**（老板 2026-11-21 00:22「必须只有一个
+   位置，不要给我两个地方」）——按权威度取第一条：uid/终身号 → 前4位 → 稳定键 →
+   完整 sid → 会话名 → 旧完整 sid 归并；同一会话多键存的旧备注不再并排拼接。
+   定时只认条数。 */
 function _cvNoteSched(sKey, sid, title, uid, cfx){
   const sid4 = _cvSid4(sid);
   const al = _cvAliasKeys(sKey, sid, title, uid);
   const notes = _cvNoteTexts(al, uid, sid4);
   const n = _cvSchedCount(al, cfx);
-  return notes.map(t => '（' + t + '）').join('')
+  return (notes.length ? '（' + notes[0] + '）' : '')
     + (n ? (' ⏰' + (n > 1 ? '×' + n : '')) : '');
 }
 /* 文件夹组头节点：结构固定（名称 span + ➕ span） */
