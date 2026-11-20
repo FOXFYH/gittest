@@ -933,7 +933,21 @@ function thinkCardNow(msgs){
     }
     if (hi < 0) return null;
     const hmid = String((arr[hi].length > 6 && arr[hi][6]) || '').trim();
-    if (hmid !== c.anchorMid) return null;   /* ④锚定＝当前最新一条人类消息，否则不展示 */
+    /* 2.223（老板 2026-11-20 17:20 令·中间夹思维流）：官方偶发把活思维流夹在
+       两条人类发言之间，服务端 anchor 仍指向旧人类。此时**不撤卡**（撤了思维流
+       就没地方显示）——只要锚定那条人类仍在本屏，就把卡贴到最新人类下方。
+       锚定人类已不在本屏（被裁/换轮）才不展示，防旧卡死挂。 */
+    if (hmid !== c.anchorMid){
+      let _anchInView = false;
+      for (let i = 0; i < arr.length; i++){
+        const m = arr[i];
+        if (Array.isArray(m) && m[0] === 'u'
+            && String((m.length > 6 && m[6]) || '').trim() === c.anchorMid){
+          _anchInView = true; break;
+        }
+      }
+      if (!_anchInView) return null;
+    }
     /* 2.212（bug① 渲染层双保险）：卡片正文对应的 mid 一旦已有终极回复，
        think 版立即作废，虚线框绝不显示终极回复。 */
     if (c.textMid){
