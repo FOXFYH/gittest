@@ -442,8 +442,6 @@ function onEv(kind, v){
       flash('✘ 未连接（' + v + '）', 'var(--red)');
       S.snap = {};
       renderState({});
-      S.attach_pending = null;
-      renderAttach([]);
       break;
     case 'connected':
       if (v !== S.port) return;
@@ -661,7 +659,7 @@ function onEv(kind, v){
         S.livePrefetch = true;                 /* 标记：别被本地存帧覆盖 */
         S.liveFrame = {msgs: v.msgs || [], finish: v.finish || null,
                        tail: '', sendIdle: true, inputText: '',
-                       opts: [], ask: null, pend: [], attach: [], model: ''};
+                       opts: [], ask: null, pend: [], model: ''};
         renderAll();
       }
       break;
@@ -673,29 +671,6 @@ function onEv(kind, v){
     case 'boot_noop':
       S.busy = false;
       flash(v);
-      break;
-    case 'attach_done':
-      S.attach_pending = null;
-      if (v.ok >= v.total && v.total)
-        flash('✅ 已附加 ' + v.ok + ' 个附件', 'var(--green)');
-      else if (v.ok)
-        flash('⚠ 仅附加成功 ' + v.ok + '/' + v.total + '（部分被 TRAE 拒收）',
-              'var(--orange)');
-      else
-        flash('❌ 附件未出现在输入栏（类型被拒？）');
-      renderAttach(S.snap.attach || []);
-      break;
-    case 'attach_rm_done':
-      renderAttach(S.snap.attach || []);
-      flash('已移除附件', '#888');
-      break;
-    case 'attach_r2_open':          /* 2.151 附件 R2 直传：服务端回预签名 PUT 清单
-                                       v={task, uploads:[{n,key,url}], id?} → 开传 */
-      if (typeof attachR2FromReceipt === 'function') attachR2FromReceipt(v || {});
-      break;
-    case 'attach_r2_done':          /* 2.151 附件 R2 直传：服务端取件回音
-                                       v={task, ok, saved_dir, msg} → 绿/红 flash */
-      if (typeof attachR2DoneEcho === 'function') attachR2DoneEcho(v || {});
       break;
     case 'ports':
       S.alive = new Set(v || []);
@@ -839,16 +814,6 @@ function onRcpt(d){
   }
   /* ① 通用操作——按动作 id 匹配在途登记表（③④ 收口） */
   if (id) srvOpAck(id, stage, msg);
-  /* 2.151 附件 R2 直传：attach_r2_open 的终态回执若直接携带
-     {task, uploads:[…]} 载荷（服务端可走 rcpt done 或 ev 二选一），在此兜底接住。 */
-  try {
-    if (stage === 'done' && typeof attachR2FromReceipt === 'function'){
-      const rv = (d.v && d.v.task && d.v.uploads) ? d.v
-               : (d.data && d.data.task && d.data.uploads) ? d.data
-               : (d.task && d.uploads) ? d : null;
-      if (rv) attachR2FromReceipt(rv);
-    }
-  } catch(e){}
 }
 
 /* ============ 2.113：按需单会话（snap_pane）与「刷新当前会话」 ============
