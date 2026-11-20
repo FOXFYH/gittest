@@ -303,6 +303,7 @@
           if (c){
             var v = c.value || {};
             out.push({sk: v.sk || c.key, key: v.key || '', title: v.title || '', sid: v.sid || '',
+                      uid: v.uid || '',
                       srv: v.srv || '', srvName: v.srvName || '', srvFox: v.srvFox || '',
                       port: v.port, ts: v.ts || 0,
                       n: (v.frame && v.frame.msgs || []).length,
@@ -406,6 +407,11 @@
         out.push('第 ' + (i + 1) + ' 轮 · 第 ' + (j + 1) + ' 条：' + kindText(m) + (t ? ('　' + t) : ''));
       });
     });
+    /* 2.214：思维流只留最新一条，单独显示在账本最底部（不占轮次） */
+    if (rec && Array.isArray(rec.think)){
+      var _t = String(rec.think[1] || '').replace(/\s+/g, ' ').slice(0, 24);
+      out.push('账本底部：' + kindText(rec.think) + (_t ? ('　' + _t) : ''));
+    }
     if (!out.length) return '';
     return '<div class="cv_kinds">' + out.map(function(s){ return '<div>' + esc(s) + '</div>'; }).join('') + '</div>';
   }
@@ -435,6 +441,27 @@
     if (typeof foxHintBind === 'function'){ try { foxHintBind(host); } catch(e){} }
   }
 
+  /* 2.214：一张卡的身份（有权威终身号认终身号，否则认同名；无名才认 sid）。
+     同名只出一张卡，绝不再给第二张打「· 重复」标。 */
+  function _snapIdent(it){
+    var u = String((it && it.uid) || '').trim();
+    var _fake = false;
+    try { _fake = (typeof _lbIsSrvAcctLike === 'function' && _lbIsSrvAcctLike(u)); } catch(e){ _fake = false; }
+    if (/^\d{4}$/.test(u) && !_fake) return 'u:' + u;
+    var t = String((it && it.title) || '').trim();
+    if (t){
+      try { if (typeof lbNormTitle === 'function') t = lbNormTitle(t); } catch(e){}
+      return 't:' + t;
+    }
+    var s = String((it && it.sid) || '').trim();
+    return s ? ('s:' + s) : '';
+  }
+  /* 2.214：显示名不带「重复/（2）/副本」后缀（旧脏名归一显示）。 */
+  function _dispTitle(it){
+    var t = String((it && it.title) || '').trim() || '（无名会话）';
+    try { if (typeof lbNormTitle === 'function') t = lbNormTitle(t) || t; } catch(e){}
+    return t;
+  }
   /* ---------- ① 会话预备画面：两行一张卡片 ---------- */
   function renderPreview(host){
     host.innerHTML = '';
@@ -457,10 +484,32 @@
       var grid = document.createElement('div');
       grid.className = 'cv_grid';
       grid.style.marginTop = '10px';
-      var seen = {};
+      /* 2.214（老板 2026-11-20 08:08：不许出现「同名两本/打上重复」）：
+         同一身份只出一张卡——有权威终身号认终身号，否则认同名；同名/旧键残留
+         在展示层先收敛成一张（内存合并只读，不改缓存；落盘侧的合并见账本核对.js
+         lbMergeDuplicateBuckets）。 */
+      var _byKey = {}, _order = [];
       list.forEach(function(it){
-        var dup = it.sid && seen[it.sid];
-        if (it.sid) seen[it.sid] = true;
+        var key = _snapIdent(it);
+        if (!key){ _byKey['sk:' + it.sk] = it; _order.push('sk:' + it.sk); return; }
+        var prev = _byKey[key];
+        if (!prev){ _byKey[key] = it; _order.push(key); return; }
+        if ((it.n || 0) > (prev.n || 0)) _byKey[key] = it;
+      });
+      list = _order.map(function(k){ return _byKey[k]; });
+      list.sort(function(a, b){
+        function _lm(x){
+          var ms = (x && x.msgs) || [];
+          for (var i = ms.length - 1; i >= 0; i--){
+            var m = ms[i];
+            var s = (Array.isArray(m) && typeof midSec === 'function') ? midSec(m[6]) : NaN;
+            if (isFinite(s)) return s;
+          }
+          return 0;
+        }
+        return _lm(b) - _lm(a);
+      });
+      list.forEach(function(it){
         var sid = String(it.sid || '');
         /* 2.190（老板：小账本＝①，卡片行序按 V1.0 §十-353 定死）：
            ① 服务器归属「宿舍 · 1309107889」 ② 终身号 ③ 会话名 ④ N 条/更新于。 */
@@ -499,7 +548,7 @@
            第一行 左会话名 / 右服务器；第二行 左终身号 / 右 条数·更新于（＋当前会话徽标）。
            🗑 由下方 appendChild 塞进第二行最右，不再占独立一行。 */
         card.innerHTML =
-          '<div class="cv_r"><div class="cv_rt">' + esc(it.title || '（无名会话）') + (dup ? ' · 重复' : '') + '</div>'
+          '<div class="cv_r"><div class="cv_rt">' + esc(_dispTitle(it)) + '</div>'
             + '<div class="cv_rs">' + esc(srvTxt) + '</div></div>' +
           '<div class="cv_r"><div class="cv_rid' + (_uidOk ? '' : ' cv_lbpending') + '">' + esc(sidTxt) + '</div>'
             + '<div class="cv_rmeta">' + esc(_tsTxt)
@@ -546,7 +595,7 @@
   function renderDetail(host, it){
     var bar = document.createElement('div');
     bar.className = 'cv_dhd';
-    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(it.title || it.sid || it.sk) + '</div>';
+    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(_dispTitle(it) || it.sid || it.sk) + '</div>';
     bar.querySelector('button').onclick = function(){ view = 'list'; detailItem = null; renderPreview(host); host.scrollTop = 0; };
     host.appendChild(bar);
     var s = document.createElement('div');
@@ -558,7 +607,16 @@
     if (!it.msgs.length){
       box.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'（这份预备画面是空的）'}));
     } else {
+      /* 2.214（老板 2026-11-20 08:08）：思维流只留最新一条、固定排在最后一屏最底部；
+         旧版思维流不再逐条堆在正文中间（其余行原样保留、顺序不动）。 */
+      var _ms = [], _th = null;
       it.msgs.forEach(function(m){
+        var _k = kindOf(m);
+        if (_k === 'think'){ _th = m; return; }
+        _ms.push(m);
+      });
+      if (_th) _ms.push(_th);
+      _ms.forEach(function(m){
         var x = rowText(m);
         /* 2.208：类型以服务端下发为准（index8/kind）；缺则按角色＋终答推导；不得空白。 */
         var _k = kindOf(m);
