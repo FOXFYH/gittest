@@ -3243,7 +3243,11 @@ function reconAsk(why, force, sid){
     if (now - (_reconTs[sidX] || 0) < (force ? 5000 : RECON_GAP)) return;
     if (_reconIn[sidX]) return;                      /* 在途不重发 */
     const have = reconSeqs(sidX);
-    if (!have.length) return;                        /* 本地一条账都没有，无从对起 */
+    /* 3.26（老板 2026-11-20）：「主界面聊天记录就是小账本，小账本有什么就显示什么，
+       永远没有发白的机会，除非小账本里面本来就是白的」。
+       本地一条账都没有（新手机／清缓存／刚登录首屏）也必须开口——
+       服务端 recon 对 have=[] 会回最近 12 条做种，落盘后立刻铺屏。
+       原「无账就不问」正是「刚登录第一个会话永远发白、切走再切回才有」的根因。 */
     _reconTs[sidX] = now; _reconIn[sidX] = 1;
     const id = ++reqSeq;
     S_reqs[id] = {conv: sidX, ts: now, sk: 'recon'};
@@ -5162,6 +5166,19 @@ function renderMsgs(msgs, finish, opts, ask){
       S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
     }
   } else if (S.prepEmptyAt) S.prepEmptyAt = 0;
+  /* 3.26（老板 2026-11-20）：「软件的定位就是小账本显示器，主界面的聊天记录
+     就是小账本」——这一拍直播帧没带正文，但本会话的小账本里有，
+     就直接把小账本当预备帧铺上屏。不再出现「主界面白、小账本里有内容」两套账。 */
+  if (!(S.prepMsgs && S.prepMsgs.length) && _sidNow && !S.switch_pend
+      && S.snapCache && S.snapCache[_sidNow]){
+    const _cr = S.snapCache[_sidNow];
+    if (Array.isArray(_cr.msgs) && _cr.msgs.length){
+      S.prepMsgs = _cr.msgs;
+      S.prepSid = _sidNow;
+      S.prepIdle = (_cr.idle !== false);
+      S.prepFinish = _cr.finish || null;
+    }
+  }
   const prepOn = !!(S.prepMsgs && S.prepSid && !_liveOn);
   if (prepOn){
     msgs = S.prepMsgs; finish = S.prepFinish; opts = []; ask = null;
@@ -6357,7 +6374,7 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.70';
+const VER = '2.71';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -7482,6 +7499,13 @@ function onEv(kind, v){
          指纹/增量拼回 v.plans，再落 S.snap（保证这一拍渲染用的就是完整思维流） */
       try { _plansMerge(v); } catch(e){}
       S.snap = v;
+      /* 3.26（老板 2026-11-20）：「选中的对话是谁，这个信息平时都要落盘」——
+         用户没点过任何会话行时，把服务端当前会话也写进锚定；
+         下次打开/重启手机先按它铺小账本，第一屏就有内容。 */
+      try {
+        if (v.title && Array.isArray(v.convs) && v.convs.length && !anchorGet())
+          anchorSet(v.title, '');
+      } catch(e){}
       /* 2.62：拿真快照对锚——服务端不是锚定会话就自动补切一次（本次连接一次） */
       try { anchorFollow(v); } catch(e){}
       if (hasMsgs) snapCacheTouch(v);   /* 2.37：最新轮次赶紧记录（内存 + 盘） */
