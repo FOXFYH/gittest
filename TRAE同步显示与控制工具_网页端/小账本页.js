@@ -7,7 +7,7 @@
        闲置下线/切后台下线）＋倒计时展示 → 已并入 手机缓存查看器.js
        「③ 账本调控」tab；
      · 本地账本查看 → 缓存查看器「② 全部缓存」展开 IDB ledger_conv；
-     · 入口：2.186 起唯一入口＝左侧抽屉一级「📒 小账本」(btn_lb_drawer)
+     · 入口：2.186 起唯一入口＝左上角 ☰ 抽屉一级「📒 小账本」(btn_lb_drawer)
        → 设置与迁移.js lbOpenViewer（设置页 buildLedgerEntry 副入口已删）；
      · lbThinkIntAck 回执处理 → 收编进 账本核对.js；
      · html 引用已同步清理。
