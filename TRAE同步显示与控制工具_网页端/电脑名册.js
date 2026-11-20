@@ -142,7 +142,6 @@ function switchSrv(nm){
   el.convs.innerHTML = '';
   el.msgs.innerHTML = '<div class="empty">（正在连接 ' + esc(nm)
                      + ' …）</div>';
-  renderAttach([]);
   applySrvEntry();
   sendJson({t: 'hello'});
   helloWatch();                             /* 1.14：快照看门狗 */
