@@ -194,24 +194,19 @@ function lbStoreKey(sid, title){
   const s = String(sid || '').trim(), t = String(title || '').trim();
   return 'L' + lbSrvTag() + ':' + (s ? s : 't:' + t);
 }
-/* ============ 2.205（老板新令·人事部长ST 0023 转达）：无 ID 不入账 ============
-   两次口谕的边界（留痕，防止以后互相打架）：
-     · 2026-11-19 21:51 老板口谕：手机网页端＝诊断口，不设限、任何错误都不过滤、
-       照建诊断账本（2.202 已落地：缺名也建、半轮也落、lbDiagTitle 兜底命名）。
-     · 2026-11-19 23:29 老板新令（人事部长ST 0023 转达）：「没有 ID 号码，服务器那边
-       就别给我发东西过来了……不带 ID 号码的聊天记录不要发。」——本令【只】推翻
-       「无 ID 也照建」这一部分，边界严格限定为两类：
-         ① 缺消息 ID：mid（index6）与 did（index9）都为空；
-         ② 缺会话 ID：sid 为空，或为 10 位纯数字假号（2.204 B5 口径的无效 sid）。
-       命中①② → 不入账、不上屏、不建账，只 diagLog 记一行（不上屏）。
-     · 其它不合格数据（例如有 sid 但没名字）仍按 21:51 诊断口口径照建诊断账本，
-       绝不扩大化。 */
-function lbRowHasId(m){
-  /* 2.206（老板最终合并口径）：消息 ID 只认 24 位十六进制 mid——空／10 位数字／
-     中文名／带括号等一律视为无有效 ID；14 位 did 不再充当 ID 或时间来源。 */
-  if (!Array.isArray(m)) return false;
-  return (typeof midValid === 'function') ? midValid(m[6]) : /^[0-9a-fA-F]{24}$/.test(String(m[6] || '').trim());
-}
+/* ============ 2.213（老板 2026-11-20「最终合并版」·前端零拦截）============
+   前端只是显示器：后端发什么就原样显示、原样落盘——不判断、不筛选、不拦截、
+   不丢弃、不改名、不推断。凡是「收不收／删不删／算不算」的判断一律归后端
+   （后端已有 ID 校验）。本文件已撤的闸门：
+     · 假会话 ID / 缺 mid 不入账（lbSidValid／lbRowHasId 及三处入口调用）；
+     · 按轮过滤缺 ID 的行（lbRoundIdFilter）；
+     · 按 index8/index7 推断终极/思维流（lbMsgKind／lbTagKind）；
+     · 前端升格提前终极（lbPromoteEarlyFinals，改以后端 early_final/index11 显示）；
+     · 开机清理/迁移临时账本（lbCleanupTempLedgers 不再自动触发，见文件尾）；
+     · 按保留轮数裁剪（落账不再 slice(-lbRounds)）。
+   保留（属「显示/正确性」而非拦截）：换行/转义等最小格式化；排版规则
+   （思维流画虚线框、终极回复不进虚线框）；去重/幂等（同 mid 重复帧不重复插入）；
+   无合法 mid 不显示时间（只空该字段，其余内容照常）。 */
 /* 2.210（老板 2026-11-20 07:08 令·彻底消灭 1632 假终身号）：
    服务端实例号＝hello 自报的 srv_sid（本机 1632115233），它和它的任何截断
    （如 1632）都**不是**会话编号/终身号。会话编号只认：
@@ -255,40 +250,8 @@ function _lbFakeLedgerRec(rec){
   if (_lbIsSrvAcctLike(sid)) return true;
   return false;
 }
-function lbSidValid(sid){
-  const s = String(sid || '').trim();
-  if (!s) return false;                          /* 空＝假 ID */
-  if (/^\d{10}$/.test(s)) return false;          /* 2.204 B5：10 位纯数字＝假账号号源 */
-  if (_lbIsSrvAcctLike(s)) return false;         /* 2.210：实例号及其截断（1632）不是会话ID */
-  if (/[\u4e00-\u9fa5]/.test(s)) return false;   /* 2.206：中文名当 ID＝假 ID */
-  if (/[()（）\[\]【】]/.test(s)) return false;    /* 2.206：带括号＝假 ID */
-  return true;
-}
-let _lbNoIdT = 0;
-function _lbNoIdLog(what, sid, title){
-  const now = Date.now();
-  if (now - _lbNoIdT < 10000) return;            /* 10 秒节流，防高频帧刷屏 */
-  _lbNoIdT = now;
-  try { diagLog('因缺ID丢弃（' + what + '）sid=' + String(sid || '')
-    + ' title=' + String(title || ''), 'bad'); } catch(e){}
-}
-/* 2.205：把「缺 mid 且缺 did」的 u/a 行从轮次里剔除（入账前、上屏前同一口径）。 */
-function lbRoundIdFilter(rounds, sid, title){
-  return (rounds || []).map(r => {
-    if (!Array.isArray(r)) return null;
-    const rows = r.filter(m => {
-      if (!Array.isArray(m)) return false;
-      const t = String(m[0] || '').toLowerCase();
-      if (t !== 'u' && t !== 'a') return true;   /* 其它行交 lbMsgKind 再判 */
-      if (lbRowHasId(m)) return true;
-      _lbNoIdLog((t === 'u' ? '人类' : '终极') + '条目缺mid/did', sid, title);
-      return false;
-    });
-    return rows.length ? rows : null;
-  }).filter(Boolean);
-}
-/* 2.196（老板 2026-11-19·三类标记）：消息类型判定——只认三种，未知一律 think
-   （fail-closed，宁可不入账也绝不把思维流当终极）。index8 落盘标记，渲染不读。 */
+/* 2.213：lbSidValid／_lbNoIdLog／lbRoundIdFilter 已撤——不再按「假会话 ID」
+   「缺 mid」拒收或过滤，收不收由后端判断，前端只显示/落盘。 */
 /* 2.212（老板 2026-11-20 07:28 bug①）：终极回复的**唯一判据**——命中即 final，
    任何地方（尤其虚线思维流框）绝不再把它当 think。命中任一：
      · 完成卡摘要 index7 非空（标准 fin/rounds 终态都会写它）；
@@ -302,18 +265,8 @@ function lbIsFinalRow(m){
   if (lbPatchMarked(m)) return true;
   return String((m.length > 7 && m[7]) || '').trim() !== '';
 }
-function lbMsgKind(m){
-  if (!Array.isArray(m)) return 'think';
-  const t = String(m[0] || '').toLowerCase();
-  if (t === 'u') return 'human';
-  if (t === 'a'){
-    const mid = String((m.length > 6 && m[6]) || '').trim();
-    /* 2.204（C）：服务端打「本轮终极（补记）」标记的残缺思维流——按已认证终极收，
-       与人类发言凑成一轮；无标记的仍未定稿，按思维流。 */
-    return (lbIsFinalRow(m) && mid) ? 'final' : 'think';
-  }
-  return 'think';                                /* th/snap/未知 */
-}
+/* 2.213：lbMsgKind 已撤——类型一律以后端 index8 为准，前端不再按
+   index7／index8 推断「终极 or 思维流」；缺类型显示「类型未知」。 */
 /* ============ 2.204（C·老板 22:42 令）：本轮终极（补记） ============
    AI 还在思维流、终极回复未产生时人类又问新问题，残缺血思维流页不会再生长——
    服务端把它判为「本轮终极（补记）」下发。客户端识别标记后：把这段残缺思维流
@@ -338,63 +291,15 @@ function lbPatchMarked(m){
   if (String(m[8] || '').toLowerCase() === 'patched') return true;
   return (m.length > 10 && (m[10] === 1 || m[10] === '1' || m[10] === true));
 }
-/* ============ 2.212（老板 2026-11-20 07:28 bug②）：提前终极回复 ============
-   人类连续两条强制发言打断思维流，AI 没产出标准终极回复，但残片里带着
-   「已切换到新请求 / 手动终止输出」。规则（老板原话）：
-     · 夹在人类 A 与人类 B 之间、其间没有已认证终极；
-     · 残片含打断标志（兼容空白/全角/标点差异）；
-     · 有合法 24 位十六进制 mid；
-   ⇒ 升格为「AI 终极回复（提前）」：打 final 标签、当正经聊天记录入账，
-     并移出思维流（虚线框不再算它）。无合法 ID 的残片不升格（仍按无ID不发）。
-   幂等：已带 index7/fin 的行原样返回，重复扫描不重复入账。 */
-const LB_INTERRUPT_RE =
-  /已\s*切\s*换\s*[到至]\s*新\s*请\s*求|手\s*动\s*终\s*止\s*输\s*出/;
-function lbIsInterruptFragment(text){
-  return LB_INTERRUPT_RE.test(String(text == null ? '' : text));
-}
-function lbPromoteEarlyFinals(rounds){
-  const rs = Array.isArray(rounds) ? rounds : [];
-  return rs.map((r, i) => {
-    if (!Array.isArray(r) || !r.length) return r;
-    const next = rs[i + 1];
-    const hasU = String((r[0] && r[0][0]) || '').toLowerCase() === 'u';
-    const nxtU = !!(next && Array.isArray(next) && next.length
-      && String((next[0] && next[0][0]) || '').toLowerCase() === 'u');
-    if (!hasU || !nxtU) return r;             /* 必须夹在人类A、人类B之间 */
-    const a = r[r.length - 1];
-    if (!Array.isArray(a) || String(a[0] || '').toLowerCase() !== 'a') return r;
-    if (lbIsFinalRow(a)) return r;            /* 已是标准终极：幂等不动 */
-    const mid = String((a.length > 6 && a[6]) || '').trim();
-    if (!/^[0-9a-fA-F]{24}$/.test(mid)) return r;   /* 无合法 ID 不升格 */
-    if (!lbIsInterruptFragment(a[1])) return r;
-    const rr = r.map(m => Array.isArray(m) ? m.slice() : m);
-    const aa = rr[rr.length - 1];
-    while (aa.length < 12) aa.push('');
-    aa[7] = '提前终极';                        /* 完成卡摘要位＝来源标记（不是正文） */
-    aa[8] = 'a';
-    aa[11] = 1;                                /* index11＝提前终极标记 */
-    return rr;
-  });
-}
-function lbTagKind(m){
-  const x = m.slice();
-  const k = lbMsgKind(m);
-  x[8] = k;
-  /* 2.204（C）：补记终极原本没有完成卡摘要——补一个非空标记，
-     让它按「已认证终极」参与上报/对账，不再被服务端判缺反复补发。
-     正文（index1）保持残缺思维流原文，不冒充、不改写。 */
-  if (k === 'final' && !String(x[7] || '').trim()) x[7] = '补记';
-  return x;
-}
+/* 2.213：lbPromoteEarlyFinals／lbTagKind 已撤——「提前终极回复」不再由前端
+   升格：后端已落 index8=a 且带 early_final=1（list 行 index11=1），前端只据此显示
+   「AI 终极回复（提前）」（见 手机缓存查看器.js）；行类型也不再回写 index8。 */
 /* 四字段之一：uid＝终身号（只认权威来源，取不到即空＝未登记）；sid＝对话ID
    （原始会话 id，锚定路只有终身号时从会话列表反查）。title＝会话名（必有）。
    2.211（老板 2026-11-20 07:08）：**禁止任何字符串切片推导终身号**——
    本函数只做「无权威字段即返回空」，绝不再从 sid 截前 4 位。 */
 function lbUidOf(sid){
-  const s = String(sid || '').trim();
-  if (!s) return '';
-  if (/^\d{10}$/.test(s)){ _lbFakeIdLog('会话SID', s); return ''; }
-  if (_lbIsSrvAcctLike(s)){ _lbFakeIdLog('会话SID', s); return ''; }
+  /* 2.213：终身号只认后端权威 uid——前端不切片、不推导、不判真假（已撤拒收日志）。 */
   return '';
 }
 /* 2.204（B3·名字→编号别名映射）：只做映射，不改历史记录。同一本服的「会话名→终身号」
@@ -432,17 +337,10 @@ function lbAliasSet(uid, title){
    uid（含「<会话名>（临时）」及共享库既有段名）一律视为「待补号」→ 返回 ''，
    落账走 t:名称 临时键，与无 uid 时同一本账，绝不出现「uid 键 / t:名称 键」两本。 */
 function lbUidPick(serverUid, sid, title){
-  const s = String(sid || '').trim();
-  /* 2.210：10 位纯数字＝服务端实例号，按无编号处理并留痕。 */
-  if (/^\d{10}$/.test(s)){ _lbFakeIdLog('会话SID', s); return ''; }
+  /* 2.213：后端给什么 uid 就用什么——前端不判真假、不切片、不拒收。
+     无权威 uid 时只查「名字→权威编号」别名回锚（别名写入侧仍拒假号）。 */
   const u = String(serverUid || '').trim();
-  /* 2.210：服务端下发的 uid 命中实例号或其截断（1632）＝假终身号，拒 */
-  if (_lbIsSrvAcctLike(u)){ _lbFakeIdLog('服务端uid', u); return ''; }
-  if (_lbIsSrvAcctLike(s)){ _lbFakeIdLog('会话SID', s); return ''; }
-  if (/^\d{4}$/.test(u)) return u;          /* 服务端下发的权威 4 位终身号 */
-  if (u) return '';                         /* 非标准（含「名（临时）」）→ 无号 */
-  /* 2.211：无权威 uid 时只查「名字→权威编号」别名（别名写入时已拒假号），
-     绝不再从 sid 切片推导。 */
+  if (u) return u;
   return lbAliasGet(title) || '';
 }
 function lbRawSidOf(uid, title){
@@ -786,11 +684,8 @@ function ledgerThinkApply(sid, body){
     return;
   }
   if (f && typeof f === 'object' && Array.isArray(f.msgs)){
-    /* 2.196（三类标记）：思维流帧只做 kind 标记（think/human/final），不落账本。
-       2.208（老板 2026-11-19 23:50 令·每条记录必须带类型）：服务端已下发 index8
-       （WS桥 0.49 给 msgs 每行写 u/a/th）的**以服务端为准，不覆盖**；只有缺标识的
-       旧帧才就地推导，保证小账本详情显示的类型与服务端一致。 */
-    f.msgs.forEach(m => { if (Array.isArray(m) && !m[8]) m[8] = lbMsgKind(m); });
+    /* 2.213：类型只认服务端 index8（u/a/th），前端不再就地推导/补写；
+       缺 index8 的行走「类型未知」，原样上屏不丢。 */
     onEv('snap_pane', {sid: String(sid || ''), title: b.title || '',
                        msgs: f.msgs, finish: f.finish || null});
     S.lb_foldRounds = 0;                   /* 真画面到手 → 归零（2.183 修2：补发面板已撤§十二-2，状态位保留防渲染 key 漂移） */
@@ -926,9 +821,7 @@ function thinkCardNow(msgs){
     for (let i = hi + 1; i < arr.length; i++){
       const m = arr[i];
       if (!Array.isArray(m) || m[0] !== 'a') continue;
-      let kind = '';
-      try { kind = (typeof lbMsgKind === 'function') ? lbMsgKind(m) : ''; } catch(e){}
-      if (kind === 'final' || lbIsFinalRow(m)) return null;   /* ⑩终极回复优先：立刻撤卡 */
+      if (lbIsFinalRow(m)) return null;   /* ⑩终极回复优先（含提前终极）：立刻撤卡 */
     }
     return c;
   } catch(e){ return null; }
@@ -999,44 +892,31 @@ function lbRoundKey(r){
   }).join('#');
 }
 function lbRoundsFromMsgs(msgs){
-  /* 2.184 改3（规范§七 :194 同号不同态）：终极为空＝该轮未完成（思维流阶段/
-     生成中），绝不用 m[1] 思维流正文兜底冒充终极。2.202（老板 2026-11-19
-     21:51 令·手机网页端＝诊断口不设限）：半轮（只有人类行、终极未到）也照落，
-     不再整轮丢弃，便于一眼看出缺终极的毛病；纯 think 仍不入账。
-     2.204（C）：服务端打了「本轮终极（补记）」标记的残缺思维流＝终极，
-     与人类发言凑成一轮；正文用原文，fin 用补记标记。 */
+  /* 2.213（前端零拦截）：这里只做「u 起一轮」的分组，不筛不弃——
+     缺 mid／缺类型／未认证的 AI 行一律原样收；行类型照抄后端 index8（缺则空，
+     显示端显「类型未知」）。无人类行在前的 AI 行也单列一轮，绝不丢。 */
   const rounds = [];
   let cur = null;
   (msgs || []).forEach(m => {
     if (!Array.isArray(m)) return;
     if (m[0] === 'u'){
-      /* 2.205（老板新令）：人类条目缺 mid 且缺 did ⇒ 不入账、不上屏；
-         先收掉上一轮遗留的人类行，再断链（后续终极不得挂到上一轮）。 */
-      if (!lbRowHasId(m)){
-        _lbNoIdLog('人类条目缺mid/did', '', '');
-        if (cur && cur.length) rounds.push(cur);
-        cur = null;
-        return;
-      }
-      if (cur && cur.length) rounds.push(cur);       /* 2.202：半轮也落 */
+      if (cur && cur.length) rounds.push(cur);       /* 半轮也落 */
       cur = [m.slice()];
-    } else if (m[0] === 'a' && cur){
+    } else if (m[0] === 'a'){
       const fin = String((m.length > 7 && m[7]) || '').trim();
-      const mid = String((m.length > 6 && m[6]) || '').trim();
       const patch = lbPatchMarked(m);
-      /* 思维流/未认证终极（完成态或消息 ID 为空）不入账——既有入账范围不动。
-         2.204：带补记标记的按终极收（正文＝残缺思维流原文，绝不把「补记」
-         二字当正文）。2.205：mid 与 did 都空＝无消息 ID，不收。 */
-      if ((!fin && !patch) || !lbRowHasId(m)) return;
-      /* 2.212：'提前终极'/'补记' 是来源标记不是正文，正文必须保留残片原文。 */
+      /* '提前终极'/'补记' 是来源标记不是正文，正文保留残片原文（2.212 口径）。 */
       const _disp = (fin && fin !== '补记' && fin !== '提前终极')
         ? fin : (m[1] || '');
-      cur.push([m[0], _disp, '', 0, 0, '',
-                m[6] || '', fin || (patch ? '补记' : ''), patch ? 'patched' : '',
-                m[9] || '']);   /* 2.209：账本行不存时间（index2 恒空），显示时按 mid 现算 */
+      const row = [m[0], _disp, '', 0, 0, '', m[6] || '',
+                   fin || (patch ? '补记' : ''),
+                   String(m[8] || ''),          /* 2.213：类型照抄后端 index8，不推断 */
+                   m[9] || ''];                 /* 2.209：账本行不存时间（index2 恒空） */
+      if (cur) cur.push(row);
+      else rounds.push([row]);                      /* 2.213：无人类行的 AI 行原位保留 */
     }
   });
-  if (cur && cur.length) rounds.push(cur);           /* 2.202：半轮也落 */
+  if (cur && cur.length) rounds.push(cur);
   return rounds;
 }
 /* 2.183 修4b（老板实测：小账本以纯数字命名·落盘层兜底）：title 为空或纯数字
@@ -1157,7 +1037,7 @@ function lbMigrateTitle(sid, title){
           const rk = lbRoundKey(r);
           if (!seen.has(rk)){ seen.add(rk); base.push(r); }
         }));
-        const out = base.slice(-lbRounds());
+        const out = base.slice();          /* 2.213：归并也不按保留轮数裁剪 */
         const maxNum = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
         const rec = {
           sk: skSid, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
@@ -1218,44 +1098,18 @@ function ledgerStorePut(sid, title, rounds, opt){
     title = _dt.title;
     const _diag = _dt.diag;
     const _t = String(title || '').trim();
-    /* 2.205（老板新令）：会话 ID 无效（空／10 位假号）→ 不入账、不上屏、不建账
-       （含名称临时账本；21:51 诊断口口谕中「无 ID 也照建」这部分被本令推翻）。 */
+    /* 2.213（前端零拦截）：撤「会话 ID 无效不建账」「只收 human/final」「缺 mid 不收」
+       三道闸——收到什么就落什么；行类型照抄后端 index8，前端不推断、不回写。 */
     const _sidGate = String(sid || '').trim();
-    if (!lbSidValid(_sidGate)){
-      _lbNoIdLog('账本条目缺会话ID(sid)', _sidGate, _t);
-      /* 2.210：命中服务端实例号/截断（1632）时额外留「假终身号 拒建账」一行 */
-      if (_lbIsSrvAcctLike(_sidGate) || /^\d{10}$/.test(_sidGate))
-        _lbFakeIdLog('账本帧', _sidGate);
-      return;
-    }
     if (_diag){
       try { diagLog('收到无名条目（诊断口不设限）→ 已建诊断账本 title='
         + _t + ' sid=' + String(sid || ''), 'bad'); } catch(e){}
     }
-    /* 2.196 三类标记落账闸：只收 human 与 final 两种 kind 的行，think（th/snap/
-       未认证 a）一律剔除——这是老板既定的入账范围，不是数据合格闸。
-       2.202：末行不是 final（半轮）/缺 mid 一律照落（带 diag 标记），不再整轮丢。
-       2.205（老板新令）：缺 mid 且缺 did 的行一律不收（人类/终极同口径）。 */
     const _rs0 = (rounds || []).map(r => {
-      const rows = (r || []).filter(m => {
-        const k = lbMsgKind(m);
-        if (k !== 'human' && k !== 'final') return false;
-        if (!lbRowHasId(m)){
-          _lbNoIdLog((k === 'human' ? '人类' : '终极') + '条目缺mid/did', _sidGate, _t);
-          return false;
-        }
-        return true;
-      }).map(lbTagKind);
-      if (!rows.length) return null;                       /* 空壳/纯 think：入账范围外 */
-      const a = rows[rows.length - 1];
-      if (a[8] !== 'final' && a[8] !== 'human') return null;
-      if (a[8] === 'final' && !String(a[6] || '').trim()) _lbUnextLog(a);  /* 缺 mid 仅留痕 */
-      return rows;
+      const rows = (r || []).filter(m => Array.isArray(m)).map(m => m.slice());
+      return rows.length ? rows : null;
     }).filter(Boolean);
-    if (!_rs0.length){
-      try { diagLog('无人类/终极内容 未建账 sid=' + String(sid || '') + ' · ' + _t, 'bad'); } catch(e){}
-      return;
-    }
+    if (!_rs0.length) return;
     /* 2.196 四字段：srv＝服务端（srv/srvName/srvFox 同源）、uid＝终身号（可空）、
        title＝会话名（必有）、sid＝对话ID（原始会话 id，缺则反查会话列表）。 */
     const _rawSid = String(sid || '').trim();
@@ -1280,7 +1134,7 @@ function ledgerStorePut(sid, title, rounds, opt){
     const _run = (_effSid) => {
     const _uidEff = String(_effSid || '').trim();          /* 登记主键＝终身号 */
     const sk = lbStoreKey(_uidEff, _t), now = Date.now();
-    const rs = _rs0.slice(-lbRounds());                    /* H1：只留最新 N 轮 */
+    const rs = _rs0.slice();                               /* 2.213：落账不再按保留轮数裁剪 */
     /* put 成功之后的统一收口（2.184 改4：真存记账必须晚于落盘成功，
        原实现 put 前就 add＝落盘失败也假报「有账」）：真存集 + 摘要表 + 秒显回写。 */
     const _after = (out) => {
@@ -1341,7 +1195,6 @@ function ledgerStorePut(sid, title, rounds, opt){
           seen.add(rk);
           out.push(r);
         });
-        out = out.slice(-lbRounds());
       }
       /* 2.184 改6（老板 2026-11-19 09:58 / 规范§十 :271）：ts＝「最后更新时间」，
          只随真实内容变化走——仅查看（opt.touch）且轮身份全同 ⇒ 保留原 ts，
@@ -1482,19 +1335,10 @@ function ledgerHumanApply(sid, title, rec, opt){
   const _r = lbHumanRecNorm(rec);
   if (!String(_r.text || '').trim()) return false;
   const _sid = String(sid || '').trim();
-  /* 2.206（老板最终合并口径）：会话 ID 或消息 ID 无效的人类帧一律不收。
-     消息 ID 只认 24 位十六进制 mid（14 位 did 只是发送编号，不算 ID）。 */
-  if (!lbSidValid(_sid)){
-    _lbNoIdLog('人类帧缺会话ID(sid)', _sid, title);
-    if (_lbIsSrvAcctLike(_sid) || /^\d{10}$/.test(_sid)) _lbFakeIdLog('人类帧', _sid);
-    return false;
-  }
-  if (!(typeof midValid === 'function' ? midValid(_r.mid) : /^[0-9a-fA-F]{24}$/.test(String(_r.mid || '')))){
-    _lbNoIdLog('人类帧缺有效mid(24位hex)', _sid, title);
-    return false;
-  }
+  /* 2.213（前端零拦截）：撤「会话 ID 无效不收」「mid 非 24 位 hex 不收」——
+     缺 ID 照收照显（无合法 mid 只是不显示时间），收不收由后端判断。 */
   const _t = String(title || '').trim();
-  const row = ['u', _r.text, '', 0, 0, '', _r.mid || '', '', 'human'];  /* 2.209：index2 不存时间 */
+  const row = ['u', _r.text, '', 0, 0, '', _r.mid || '', '', 'u'];  /* 2.213：类型照后端口径 u；index2 不存时间 */
   if (_r.did) row[9] = _r.did;
   /* ② 按发送编号当场销卡（u 帧到达＝已进流，不等下一帧、不等 15 秒灰态） */
   let cleared = false;
@@ -1564,30 +1408,19 @@ function ledgerStoreApply(sid, body, ver){
      兜底命名并打 diag 标记）；think 不入账的入账范围不动。 */
   if (!body || !Array.isArray(body.rounds)) return;
   const _sid = String(sid || '').trim();
-  /* 2.205（老板新令）：缺会话 ID 的整帧不收——不入账、不上屏、不建账。
-     （21:51「诊断口不设限、无 ID 也照建」中的「无 ID」部分由此令推翻；
-     有 sid 但缺名仍按诊断口口径照建，边界不扩大。） */
-  if (!lbSidValid(_sid)){
-    _lbNoIdLog('账本帧缺会话ID(sid)', _sid, body.title || '');
-    if (_lbIsSrvAcctLike(_sid) || /^\d{10}$/.test(_sid)) _lbFakeIdLog('账本帧', _sid);
-    return;
-  }
-  /* 2.204（C）：先识别「本轮终极（补记）」标记，残缺轮照样与人类凑成一轮。
-     2.205：入账与上屏同一口径，先剔除缺 mid/did 的行。 */
-  /* 2.212（老板 2026-11-20 07:28 bug②）：先升格「提前终极回复」（人类连发打断
-     产生的残片），再走既有补记/无ID/落账链——升格后它就是正经 final，正常入账。 */
-  const _rounds = lbRoundIdFilter(
-    lbPatchRounds(lbPromoteEarlyFinals(body.rounds), body),
-    _sid, body.title || '');
-  /* 2.198：只含人类行、没有终极的轮次＝人类记录帧（u）——立即渲染入账，
-     不走「必须有已认证终极」闸门；其余轮次照旧走 ledgerStorePut。 */
+  /* 2.213（前端零拦截）：撤「缺会话 ID 整帧不收」「按轮过滤缺 ID 行」「前端升格
+     提前终极」——收到什么就落什么；提前终极由后端 index8=a+early_final 驱动显示。
+     仅保留补记标记识别（lbPatchRounds，只补标记不拒收）。 */
+  const _rounds = lbPatchRounds(body.rounds, body);
+  /* 2.198：只含人类行、没有 AI 行的轮次＝人类记录帧（u）——立即渲染入账；
+     其余轮次照旧走 ledgerStorePut。 */
   let _hasFinal = false;
   _rounds.forEach(r => {
     const _rows = Array.isArray(r) ? r : [];
     const _u = _rows.find(m => Array.isArray(m) && String(m[0] || '').toLowerCase() === 'u');
     const _hasA = _rows.some(m => Array.isArray(m) && String(m[0] || '').toLowerCase() === 'a');
-    if (_u && !_hasA) ledgerHumanApply(_sid, body.title || '', _u, {uid: body.uid});
-    else if (_hasA) _hasFinal = true;
+    if (_u && !_hasA && _rows.length === 1) ledgerHumanApply(_sid, body.title || '', _u, {uid: body.uid});
+    else if (_rows.length) _hasFinal = true;
   });
   /* 2.197：把服务端下发的终身号 body.uid 一并带入落账（缺失时 ledgerStorePut 回退自算）。 */
   if (_hasFinal)
@@ -1889,10 +1722,9 @@ function lbCleanupTempLedgers(force){
     }).catch(() => 0);
   } catch(e){ return Promise.resolve(0); }
 }
-/* 开机稍后跑一次（等 IDB/服务端标记就绪；幂等，可重复调用）。
-   2.211：第二拍等 hello 落下 S.curSid 后再跑一次，确保假桶迁移干净。 */
-try { setTimeout(() => { try { lbCleanupTempLedgers(); } catch(e){} }, 1500); } catch(e){}
-try { setTimeout(() => { try { lbCleanupTempLedgers(true); } catch(e){} }, 8000); } catch(e){}
+/* 2.213（前端零拦截）：开机不再自动清理/迁移临时账本——上面 lbCleanupTempLedgers
+   保留定义但**无任何调用方**（等于默认关闭，只记录不清理）；「删不删」归后端。
+   若将来确需一次性迁移，须另加显式开关且默认关，不得再开机自动跑。 */
 
 /* ================= ④ 主动核对（1 分钟周期+倒计时）与智能避让 ================= */
 setInterval(() => {
