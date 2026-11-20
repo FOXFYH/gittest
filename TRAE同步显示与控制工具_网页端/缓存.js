@@ -705,7 +705,7 @@ function _idbFrame(){
           msgs: _frameMsgs(Array.isArray(s.msgs) ? s.msgs.slice() : [], !!s.sendIdle),  /* 3.05 */
           finish: s.finish || null, tail: s.tail || '', sendIdle: s.sendIdle,
           inputText: s.inputText || '', opts: s.opts || [],
-          ask: s.ask || null, pend: [], attach: s.attach || [],
+          ask: s.ask || null, pend: [],
           model: s.model || ''};
 }
 /* ========== 2.126：本地快照「只进不退」统一闸 ==========
@@ -1044,7 +1044,6 @@ function liveOverlay(snap){
        串显，透出快照排队条交由渲染层逐条判归属。否则断网冷开「打开即活」
        时排队条会被这里的 [] 永久盖掉（等不到真帧回落）。 */
     pend: (snap.pend || []),
-    attach: f.attach || [],
     /* 2.173：model 同 pend 口径——存帧 model 为空（旧存帧无此值）时回落
        snap.model，避免 renderState 读到 '' 插「（模型未知）」占位盖掉固态恢复值 */
     model: f.model || snap.model || ''
@@ -1104,7 +1103,7 @@ function paneFrameStore(sid, title, v){
                    msgs: _frameMsgs(v.msgs.slice(), true),   /* 3.05：pane 帧按已结束处理 */
                    finish: v.finish || null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
-                   attach: [], model: ''};
+                   model: ''};
     /* 2.126：走「只进不退」统一闸——预取帧也不得用碎片／旧帧覆盖已存的完整帧 */
     _frameCommit(_sk, frame,
       {key: key, port: S.port, sid: String(sid), title: title || '', ts: now},
