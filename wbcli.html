@@ -1485,6 +1485,37 @@ function srvOpSend(c, a, label, extra, ms){
   if (!S.onLine || !foxReady()){
     outboxPush(d, lb);
     srvOpFlash('queued', lb, '断网已入队，连上自动送出');
+    /* 2.67（2026-11-20 老板：「切换个会话我要等 10 分钟」·0047 口径 ≤40 秒）：
+       切会话是"人盯着屏幕等"的动作，入队后不能一直排到 10 分钟 TTL。这里挂
+       一个 35 秒看门狗：到点还在队列里，就如实报「没送到」并把该条撤出队列。 */
+    if (c === 'switch'){
+      const _swTitle = String(a);
+      setTimeout(function(){
+        try{
+          let still = false;
+          for (let i = 0; i < S.outbox.length; i++){
+            const o = S.outbox[i];
+            if (o && o.d && o.d.c === 'switch' && String(o.d.a) === _swTitle) still = true;
+          }
+          if (!still) return;                       /* 已补发出去：不插手 */
+          S.outbox = S.outbox.filter(function(o){
+            return !(o && o.d && o.d.c === 'switch' && String(o.d.a) === _swTitle);
+          });
+          outboxSave();
+          const p = S.switch_pend;
+          if (p && String(p.title) === _swTitle && p.phase !== 'fail'){
+            p.phase = 'fail';
+            switchDisarm();
+            srvOpDone('switch');
+            S._swFail = {title: p.title, disp: p.disp || '', keepAnchor: true};
+            swTimingEnd(p.title, 'timeout');   /* 2.75：35 秒没送到 → 记 timeout */
+            srvOpFlash('fail', lb, '没送到：网络没连上，请重做');
+            renderAll();
+            setTimeout(function(){ if (S.switch_pend === p) switchEnd(); }, 4000);
+          }
+        }catch(e){}
+      }, 35000);
+    }
     return true;                          /* 已受理（不是失败，别让调用方当失败处理） */
   }
   srvOpTrack2(id, c, lb, typeof extra === 'string' ? extra : '');
@@ -2896,9 +2927,13 @@ function ledToArr(r){
   const meta = {};
   if (r.f) meta.f = r.f | 0;
   if (r.r) meta.r = r.r | 0;
+  /* 3.27 编号统一：第 8 元＝消息编号 mid（24 位小写 hex，服务端 msg_mid 同值），
+     第 9 元＝行级类型，老历史/翻页记录与快照行同构，两边编号可直接互查。 */
   return [r.role === 'u' ? 'u' : 'a', r.text || '', r.tm || '',
           r.can_rev ? 1 : 0, r.can_del ? 1 : 0,
-          r.seq | 0, (Object.keys(meta).length ? meta : '')];
+          r.seq | 0, (Object.keys(meta).length ? meta : ''),
+          r.mid || '', (r.kind === 'u' || r.kind === 'a') ? r.kind
+                    : (r.role === 'u' ? 'u' : 'a')];
 }
 /* —— 分页窗口：重置 / 请求 / 落地 —— */
 function resetPaging(){
@@ -3060,12 +3095,20 @@ function _turnsN(){
    同名会话（sid 相同或不同都可能），键直接存 sid 会互相覆盖。统一键＝「服务器标识|会话sid」，
    服务器标识取当前操控服务端的 10 位 sid（没有就用服务器名，再没有就 'local'）。 */
 function srvKey(){
+  /* 3.28（2026-11-21 老板）：服务器标识＝**实例号**，纯数字；会话号/终身号绝不冒充服务器号。 */
   var k = '';
   try{
-    if (S.cur && S.servers && S.servers[S.cur])
-      k = String(S.servers[S.cur].sid || S.cur);
+    var s = S.cur && S.servers && S.servers[S.cur];
+    var v = s && String(s.sid || '');
+    if (/^\d{6,}$/.test(v)) k = v;
+    else k = String((s && s.isid) || '');
   }catch(e){}
   return k || 'local';
+}
+/* 旧账里的 srv 若是会话号（wb…/sess_…）等非纯数字，一律归到当前服务器实例号下 */
+function normSrv(sv){
+  var v = String(sv || '');
+  return /^\d{6,}$/.test(v) ? v : srvKey();
 }
 function idbKey(sid){ return srvKey() + '|' + sid; }
 /* 2.56：库版本 2→3。真因（2026-11-17 CDP 实测）：线上某些用户的 `wbcli_turns`
@@ -3189,11 +3232,16 @@ async function idbLoadLatestSnap(){
     try{
       const rq = db.transaction('snaps').objectStore('snaps').openCursor();
       let best = null;
+      const _sk = srvKey();
       rq.onsuccess = () => {
         const c = rq.result;
         if (!c){ res(best); return; }
         const v = c.value || {};
-        if (Array.isArray(v.msgs) && v.msgs.length
+        /* 2.67（2026-11-20 老板：「切会话后账本归错服务器」）：磁盘键是
+           「服务器标识|会话sid」，取「最新一帧」时必须只认当前服务器的那些，
+           否则家里/宿舍两台服务端的账会互相顶掉，铺屏就铺成别人家的账。 */
+        const _keySrv = String(c.key).split('|')[0];
+        if (_keySrv === _sk && Array.isArray(v.msgs) && v.msgs.length
             && (!best || (v.ts || 0) > (best.ts || 0))){
           best = {msgs: v.msgs, idle: v.idle, finish: v.finish || null,
                   ts: v.ts || 0, sid: String(c.key).split('|').pop()};
@@ -4138,6 +4186,7 @@ function renderConvs(rows, conv_unread){
           drawerClose();
           return;
         }
+        swTimingStart(title);            /* 2.75：点击时刻（计时日志起点） */
         pendSwitchSet(title, disp, true); /* 1.82：本地发起（分档 + 10s补发/60s超时）
                                              1.32：传展示名，提示不再显示原始 sid */
         /* 2.14：切换同样走统一四级（②等待回应→③开始执行→④切换成功） */
@@ -4915,15 +4964,26 @@ function switchArm(p){
     }
     sendCmd('switch', p.title);           /* 补发同一条切换命令 */
   }, SWITCH_RESEND_MS);
-  /* 2.41：命令还在 outbox（断网没送出去）→ 不判死，续 25 秒等联网补发。
-     老板：「断网了我该怎么操作就怎么操作，你别当成失败。」 */
+  /* 2.41：命令还在 outbox（断网没送出去）→ 不判死，等联网补发。
+     老板：「断网了我该怎么操作就怎么操作，你别当成失败。」
+     2.67（2026-11-20 老板：「切换个会话我要等 10 分钟」）：以前这条命令会一直
+     躺在队列里等满 OUT_TTL(10 分钟) 才报「超时没送到」，用户就干等十分钟。
+     现在改成：主动催重连、每 5 秒查一次，最多 8 次(≈40 秒)；仍送不出去就如实
+     报「没送到」并把它撤出队列——绝不假装切换成功，也不让人白等十分钟。 */
   const _swDeadline = () => {
     if (S.switch_pend !== p) return;
     if (outboxHas('switch', p.title)){
       p.phase = 'connecting';
-      renderAll();
-      _swTmoT = setTimeout(_swDeadline, 25000);
-      return;
+      p.qWait = (p.qWait || 0) + 1;
+      if (p.qWait <= 8){
+        try { ensureConnect(); } catch(e){}
+        renderAll();
+        _swTmoT = setTimeout(_swDeadline, 5000);
+        return;
+      }
+      S.outbox = (S.outbox || []).filter(o => !(o && o.d && o.d.c === 'switch'
+                    && String(o.d.a) === String(p.title)));
+      try { outboxSave(); } catch(e){}
     }
     p.phase = 'fail';
     switchDisarm();
@@ -4932,6 +4992,7 @@ function switchArm(p){
        判失败也**不撤锚定**——屏上继续钉在目标会话的小账本上，只把「没切成功」
        这件事说清楚；重连成功时 anchorFollow 还会自动再补一次。 */
     S._swFail = {title: p.title, disp: p.disp || '', keepAnchor: true};
+    swTimingEnd(p.title, 'timeout');   /* 2.75：满 60 秒仍无 switched → 记 timeout */
     renderAll();
     _swFailT = setTimeout(() => { if (S.switch_pend === p) switchEnd(); }, 4000);
   };
@@ -5035,24 +5096,8 @@ function sendConvId(){
 }
 /* 首帧真快照到达后对锚：服务端当前会话不是锚定会话 → 本次连接自动补发一次 switch。
    成功走原有 switched；失败由 switchArm 的 10s 补发 / 60s 判失败收口，锚定不撤。 */
-/* 3.20：补切熔断后的唯一提示——顶部横幅，8 秒自动收，不挡操作。 */
-function anchorOccupyBanner(){
-  try{
-    let bx = document.getElementById('anchor_occupy');
-    if (!bx){
-      bx = document.createElement('div');
-      bx.id = 'anchor_occupy';
-      bx.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
-        + 'background:#b26a00;color:#fff;font-size:13px;line-height:20px;'
-        + 'padding:6px 10px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.25);';
-      (document.body || document.documentElement).appendChild(bx);
-    }
-    bx.textContent = '⚠ 会话被另一端占用，已停止自动切回（点会话可手动切换）';
-    bx.style.display = 'block';
-    clearTimeout(bx._hideT);
-    bx._hideT = setTimeout(function(){ bx.style.display = 'none'; }, 8000);
-  }catch(e){}
-}
+/* 2.67（2026-11-20 老板）：撤掉「会话被另一端占用」互斥横幅——允许多端同时操控，
+   不再用顶部横幅劝退谁。补切频率仍由 anchorFollow 里的 60 秒间隔兜底。 */
 
 function anchorFollow(v){
   const an = anchorGet();
@@ -5070,11 +5115,12 @@ function anchorFollow(v){
   if (S.switch_pend) return;            /* 已有在途切换，别叠加 */
   /* 3.20（2026-11-18 切换战争）：老闸门 anchor_tried 会被 anchorSet() 当场清成
      false（pendSwitchSet(local=true)→anchorSet），形同虚设——两台客户端锚不同
-     会话就 1Hz 互切（实测 3 分钟 102 次）。改用不受 anchorSet 影响的独立计数：
-     同一 WS 连接最多 1 次；且距上次自动补切 ≥60 秒；超限只出横幅，不再自动切。 */
+     会话就 1Hz 互切（实测 3 分钟 102 次）。改用不受 anchorSet 影响的
+     anchor_fix_last（上次自动补切毫秒）做节流。 */
+  /* 2.67：不再卡「本连接只补 1 次」——允许多端同时操控；只留 60 秒间隔防两端
+     1Hz 互切，间隔内静默跳过（不弹互斥横幅、不撤锚定）。 */
   const _afNow = Date.now();
-  if ((S.anchor_fix_n || 0) >= 1 || (_afNow - (S.anchor_fix_last || 0) < 60000)){
-    anchorOccupyBanner();
+  if ((_afNow - (S.anchor_fix_last || 0)) < 60000){
     S.anchor_hold = false;
     return;
   }
@@ -5084,6 +5130,34 @@ function anchorFollow(v){
   S.anchor_hold = false;
   pendSwitchSet(String(an.sid), an.disp || '', true);
   srvOpSend('switch', String(an.sid), '回到上次会话');
+}
+/* 2.75（2026-11-20 老板令·0047 批准）：切换计时日志。
+   只写 localStorage 环形 50 条，不弹 UI、不联网上传。
+   字段：t=点击时刻(ms) / ms=收到 switched 的毫秒数 / sid=目标会话 / r='ok'|'timeout' */
+const SW_TM_KEY = 'wb_sw_timing', SW_TM_MAX = 50;
+function swTimingAdd(sid, ms, r){
+  try {
+    let a = [];
+    try { a = JSON.parse(localStorage.getItem(SW_TM_KEY) || '[]'); } catch(e){ a = []; }
+    if (!Array.isArray(a)) a = [];
+    a.push({t: Date.now(), ms: Math.max(0, Math.round(ms || 0)),
+            sid: String(sid || ''), r: r || 'ok'});
+    if (a.length > SW_TM_MAX) a = a.slice(a.length - SW_TM_MAX);
+    localStorage.setItem(SW_TM_KEY, JSON.stringify(a));
+  } catch(e){}
+}
+function swTimingStart(sid){
+  const s = String(sid || '');
+  if (S.sw_tm && S.sw_tm.sid === s) return;
+  S.sw_tm = {t: Date.now(), sid: s};
+}
+function swTimingEnd(sid, r){
+  if (!S.sw_tm) return;
+  if (sid && String(sid) !== S.sw_tm.sid) return;
+  const d = Date.now() - S.sw_tm.t;
+  const s = S.sw_tm.sid;
+  S.sw_tm = null;
+  swTimingAdd(s, d, r);
 }
 function pendSwitchSet(title, disp, local){
   title = title || '';
@@ -6397,7 +6471,7 @@ const APP_NAME = 'wb远程';
    ★2.72（2026-11-20）口径更新：条数/轮数两个参数合并成一个「保留轮数」
       （`wb_snap_rounds`，默认 5 轮≈10 条），上面②里的条数参数与查看器里的「保留条数」
       输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。 */
-const VER = '2.74';
+const VER = '2.75';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -7190,8 +7264,14 @@ function regSrv(nm, d){
   if (!s) s = S.servers[nm] = {name: nm, ts: 0, seen: 0, conn: false};
   s.ts = Date.now();
   touchSrvSeen(s);                            /* 1.43：记最后出现时间（落盘） */
-  if (d.sid) s.sid = d.sid;
-  if (d.sid) followRename(nm, d.sid);         /* 1.86：改名跟随（按稳定 sid 认人） */
+  /* 3.28（2026-11-20 老板报「第一次切换快、之后一直等待服务器」）：
+     服务端身份 sid 只认 hello/srv 两帧。3.23 的 vack/mod 顶层 sid 是**会话 sid**，
+     旧写法无条件覆盖 → 本机名册 sid 被改成 wb00016bcvfl 这类会话号，
+     此后每一帧的 to 都指向一个不存在的服务端，服务端静默丢弃 → 永远卡在
+     「等待服务器回应…」。 */
+  const _srvFrame = (d.t === 'hello' || d.t === 'srv');
+  if (_srvFrame && d.sid) s.sid = d.sid;
+  if (_srvFrame && d.sid) followRename(nm, d.sid);   /* 1.86：改名跟随（按稳定 sid 认人） */
   if (d.v) s.v = d.v;
   if (d.nick !== undefined) s.nick = d.nick;   /* 13.1：记住对方昵称（能显示就显示） */
   if (d.t === 'hello' || d.t === 'srv'){
@@ -7304,6 +7384,10 @@ function switchSrv(nm){
   cacheKey = cacheKeyNow();
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  /* 2.67（2026-11-20 老板：「切会话后账本归错服务器」）：内存小账本 S.snapCache
+     只以 sid 为键，两台服务端同名/同 sid 的会话会互相顶掉——换台必须整清，
+     否则一进来就把上一台的账当成这台的铺上去。 */
+  S.snapCache = {}; S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
   /* 2.56：换台也先铺「这台上次的小账本」，等它的首帧到达再换（老板：任何情况不许白） */
   setTimeout(prepaintFromIDB, 120);
   S.pending = []; switchEnd(); S._swFail = null;   /* 1.82：连带清在途定时器 */
@@ -8029,6 +8113,7 @@ function onEv(kind, v){
       applySwitch(v[0], v[1], hasTarget || freshNew);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now(), disp: swD} : null;
+      if (hadPend) swTimingEnd(swT, 'ok');   /* 2.75：点击→switched 耗时入计时环 */
       if (hadPend) switchOk(swD || swT);   /* 1.82：闪现「切换成功」2s 后交回状态灯 */
       if (!hadPend && freshNew) switchOk('', true);  /* 2.13：本端新建 → 状态栏闪「新会话」 */
       /* 2.62：新建成功 → 这个新会话就是新的锚定（下次打开直接进它） */
@@ -9147,7 +9232,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
      只留「账本」；「缓存管理」按钮只做在 TRAE 网页版设置页。
    ★ 小账本＝现成查看器，禁止另造页面；配置项只放本页 ③。 */
 (function(){
-  var built = false, CV_VER = '1.13', tab = 'ledger', cur = null;
+  var built = false, CV_VER = '1.14', tab = 'ledger', cur = null;
   var NKEY = 'wb_turns_n';
   var LS_CLEAN = 'wb_lb_autoclean', LS_HUD = 'wb_lb_hud', LS_OFFE = 'wb_lb_offline_on',
       LS_OFF = 'wb_lb_offline', LS_PER = 'wb_lb_period', LS_THINK = 'wb_lb_think',
@@ -9319,6 +9404,10 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
   /* 终身号：只认权威号（4 位全数字），绝不拿 sid／实例号截断推导；
      查不到就显「⏳ 待补号」。来源：会话名本身 → 长期名字字典 → 当前快照 convs 行。 */
   function lnOf(sid, mp){
+    /* 3.28：WB 口径——终身号＝完整 SID（wb_cli\cmd_router.py 847-850），
+       wb…/sess_… 本身就是权威终身号，直接给，绝不再推「待补号」。 */
+    var _s = String(sid || '');
+    if (/^(wb|sess_)[A-Za-z0-9]{4,}$/.test(_s)) return _s;
     var nm = String((mp && mp[sid]) || '');
     if (/^\d{4}$/.test(nm)) return nm;
     try{
@@ -9355,7 +9444,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     var card = document.createElement('div'); card.className = 'tv_card';
     card.innerHTML =
       '<div class="tv_r"><div class="tv_nm">' + esc(nm) + '</div>' +
-      '<div class="tv_sv">' + esc(srvName(it.srv || '')) + '</div></div>' +
+      '<div class="tv_sv">' + esc(srvName(normSrv(it.srv || ''))) + '</div></div>' +
       '<div class="tv_r"><div class="tv_no' + (ln ? '' : ' na') + '">'
         + (ln ? esc(ln) : '⏳ 待补号') + '</div>' +
       '<div class="tv_ts">' + esc(String(it.msgs.length || 0) + ' 条'
@@ -9408,8 +9497,9 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     host.appendChild(sec);
     openAll().then(function(list){
       var ck = String(srvKey());
-      var mine = list.filter(function(it){ return String(it.srv) === ck; });
-      var others = list.filter(function(it){ return String(it.srv) !== ck; });
+      /* 3.28：按**实例号**归组；旧账里被会话号污染的 srv 一并归回当前实例，不再一台会话分一堆 */
+      var mine = list.filter(function(it){ return normSrv(it.srv) === ck; });
+      var others = list.filter(function(it){ return normSrv(it.srv) !== ck; });
       mine.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
       others.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
       sec.querySelector('.n').textContent = mine.length + ' 个当前 · ' + others.length +
@@ -9451,7 +9541,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     host.appendChild(bar);
     var meta = document.createElement('div'); meta.className = 'tv_hint';
     meta.style.cssText = 'background:#fff;border:1px solid #e6ebf0;border-radius:10px;margin:0 0 10px;color:#4a5a6a';
-    meta.textContent = '服务器：' + srvName(cur.srv || '') + ' · 终身号：' + (ln || '⏳ 待补号')
+    meta.textContent = '服务器：' + srvName(normSrv(cur.srv || '')) + ' · 终身号：' + (ln || '⏳ 待补号')
       + ' · ' + (cur.msgs.length || 0) + ' 条' + (cur.ts ? ' · 更新于 ' + tsTxt(cur.ts) : '');
     host.appendChild(meta);
     var sec = document.createElement('div'); sec.className = 'tv_sec';
