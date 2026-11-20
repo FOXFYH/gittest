@@ -532,7 +532,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   /* 2.223（老板 2026-11-20 17:20 令·思维流卡位置）：卡紧贴最新人类发言下方，
      且必须排在**官方排队条之前**（2.207 原「插在排队条之后」被本令取代）。
      此处插在正文/提问卡/完成任务卡之后、排队条与占位气泡之前，
-     DOM 顺序＝人类·终极 → 思维流卡 → 占位 → 官方排队条。 */
+     DOM 顺序＝人类·终极 → 思维流卡 → 占位 → 官方排队条。
+     ★2.224：本处是思维流卡的**唯一插入点**，全文件只此一处插入 _thinkCard，
+       禁止在别处再插（2.223 曾同时保留底部旧插入点 ⇒ 同一 _think 画两张）。 */
   if (_think) el.msgs.insertAdjacentHTML('beforeend', _thinkCardHtml(_think));
   /* 1.29：插话排队条管理面板——快照 pend（TRAE pendingMessageList）。
      生成中插队/排队的消息在这里列出，可删除/立即发送/取出编辑，
@@ -664,9 +666,17 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      章节才有的）；TRAE 的思维流＝正在进入思维流阶段时定时把有变化的情况
      发过来，仅此而已。S.lb_foldRounds 状态位保留防渲染 key 漂移。 */
   renderPending();                  // 1.09：占位气泡永远排在末尾
-  /* 2.207（V1.0 §五-8/10）：思维流卡永远在排版最底部——插在全部消息/排队条/
-     占位卡之后，其下不再出现任何人类或 AI 回复；终极一到 _think=null 即撤。 */
-  if (_think) el.msgs.insertAdjacentHTML('beforeend', _thinkCardHtml(_think));
+  /* 2.224（老板 2026-11-20 17:53「思维小卡片重复」）：这里**不再插入**思维流卡
+     ——唯一插入点＝上方 538（排队条之前）。2.223 两处都插，同一 _think 被追加
+     两次 ⇒ 同屏两张一模一样的虚线卡（实测 .thinklive=2、data-think 相同）。
+     只做最后收口：同一时刻全屏只留一张卡，万一有重复保留最后一个（最新内容）。 */
+  try {
+    const _tc = el.msgs.querySelectorAll('.thinklive');
+    for (let i = 0; i < _tc.length - 1; i++){
+      const _n = _tc[i];
+      if (_n && _n.parentNode) _n.parentNode.removeChild(_n);
+    }
+  } catch(e){}
   if (inF && !S.pinBottom){
     fprog(savedTop);                /* 2.64：改走 fprog（程序滚动）——设静默期 + 作废手势窗口，
                                        位置不被快照拽回，也不会误触发上翻判定；
