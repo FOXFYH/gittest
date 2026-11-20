@@ -1100,7 +1100,6 @@ function ledgerStorePut(sid, title, rounds, opt){
     const _t = String(title || '').trim();
     /* 2.213（前端零拦截）：撤「会话 ID 无效不建账」「只收 human/final」「缺 mid 不收」
        三道闸——收到什么就落什么；行类型照抄后端 index8，前端不推断、不回写。 */
-    const _sidGate = String(sid || '').trim();
     if (_diag){
       try { diagLog('收到无名条目（诊断口不设限）→ 已建诊断账本 title='
         + _t + ' sid=' + String(sid || ''), 'bad'); } catch(e){}
