@@ -823,10 +823,14 @@ function ledgerThinkApply(sid, body){
       /* 2.225（老板 2026-11-20 19:15 排队条翻倍）：按跨形态统一键去重——
          旧格式 {t:'<DID> 正文'} 与新格式 {id:'<DID>',text} 同一句必须算一条；
          旧写法「有 id 用 id、没 id 用原文」会让两种形态各留一份。 */
+      /* 2.234（老板 2026-11-20 23:09）：去重键**绝不允许为空就丢条**——旧写法
+         无 pendTxtKey 时退回 `String(it.id)`，AI 间总管命令 id 为空串 ⇒ 键空
+         ⇒ `if (!k ...) return` 整条被吞（又一处在「只认 DID」）。现：键空＝无从
+         判重，直接放行；有键才参与去重。 */
       const k = (typeof pendTxtKey === 'function') ? pendTxtKey(it)
-                                                   : String(it.id != null ? it.id : _tx);
-      if (!k || _seen.has(k)) return;
-      _seen.add(k);
+              : String((it.id != null && String(it.id).trim()) ? it.id : _tx);
+      if (k && _seen.has(k)) return;
+      if (k) _seen.add(k);
       mine.push(it);
     });
     if (!S.snap || typeof S.snap !== 'object') S.snap = {};
