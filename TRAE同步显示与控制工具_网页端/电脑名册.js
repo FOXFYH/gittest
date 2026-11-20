@@ -196,7 +196,10 @@ setInterval(() => {
 function renderTop(){
   const s = S.servers[S.cur];
   const on = s && s.conn;
-  el.srv.textContent = '操控:' + (S.cur || '—') + (on ? ' ●' : ' ○');
+  /* 2.234：圆球单独包 span.srvdot——核对在途由 账本核对.js 的 lbChkBall
+     给它加 .chk（橙色闪烁），连接态仍按绿/灰，文字语义不变。 */
+  el.srv.innerHTML = '操控:' + esc(S.cur || '—')
+    + ' <span class="srvdot">' + (on ? '●' : '○') + '</span>';
   el.srv.style.color = on ? 'var(--green)' : 'var(--gray)';
 }
 function renderSrvList(){
