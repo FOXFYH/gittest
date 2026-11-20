@@ -166,6 +166,8 @@ function renderLink(){
   el.rlink.textContent = txt;
   el.rlink.style.color = col;
   el.rlink.title = doc || LINKDOC[txt] || '';   // 1.61：白话解释
+  /* 2.216（0047 第3件）：断线/连不上时顶部显示「↻ 重连」，连上自动收起 */
+  try { if (typeof reconnSync === 'function') reconnSync(); } catch(e){}
 }
 function srvSeen(){                    // 服务端来向消息：判活 + 即时刷新
   S.lastSrv = Date.now();
