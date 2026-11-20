@@ -133,6 +133,30 @@ function srvOpQueuedPending(){
   }
   return false;
 }
+/* 2.226（老板 2026-11-20 19:18「四步感受不到」）：发送/插话走 route_send、
+   不经 srvOpSend，但帧上同样带 opId ⇒ 在此登记在途，让 rcpt 的 ③④ 也能推进
+   顶栏四态。超时静默清账（发送的权威反馈在占位卡，顶栏不误报「待确认」）。 */
+function srvOpRegister(id, label, extra, ttl){
+  if (!id) return;
+  const op = {label: label, extra: extra, timer: null, stage: 'queued', at: Date.now()};
+  op.timer = setTimeout(() => {
+    const _op = srvOpAcct[id];
+    if (_op === op) delete srvOpAcct[id];
+  }, ttl || 120000);
+  srvOpAcct[id] = op;
+}
+/* 2.226：当前最靠前的在途阶段——供 renderState 在快照间隙常显四步文案
+   （queued/sent 已提交 → accepted 已受理 → running 开始执行），不再一闪就没。 */
+function srvOpStageAny(){
+  const order = ['running', 'accepted', 'queued', 'sent'];
+  for (const s of order){
+    for (const k in srvOpAcct){
+      const op = srvOpAcct[k];
+      if (op && op.stage === s) return s;
+    }
+  }
+  return '';
+}
 /* 本专项 A2/A3：切换文案唯一出口——状态栏（输入界面.js）、
    会话点击提示（会话列表.js）两处共用此函数，杜绝
    「正在切换」/「正在切换到」两套文案漂移。
@@ -407,6 +431,24 @@ function stripPendTail(t){
   if (idx === 0) return '';
   if (idx > 0) s = s.slice(0, idx);
   return s.replace(/\n{3,}/g, '\n\n').trim();
+}
+/* 2.225（老板 2026-11-20 19:15「官方排队条有时翻倍成 4 条」）：
+   排队条去重键必须跨形态统一。服务端两条路下发同一句时形态不同——
+   旧格式 {t:'<14位DID> 正文…'}（DID 在 t 头部）、新格式 {id:'<14位DID>', text:'正文…'}。
+   旧写法「有 id 用 id、没 id 用原文」⇒ 同一句算出两个键、去重失效，
+   2.206 合并把上一拍那份再追加一遍 ⇒ 2 条显示成 4 条（还会让下标错位、误删）。
+   现统一：① 优先 id；② 次取正文开头 14 位 DID（旧格式的 id 就在这）；③
+   两者都没有才退回「去全部空白的正文」。返回空串＝该条无从判重。
+   ★ 口径只此一处，事件总线 / 账本核对 / 消息渲染 三处必须同调。 */
+function pendTxtKey(it){
+  if (!it || typeof it !== 'object') return '';
+  const _id = (it.id != null) ? String(it.id).trim() : '';
+  if (_id) return '\u0001D' + _id;
+  const _tx = String((it.text != null) ? it.text : ((it.t != null) ? it.t : ''));
+  const _d = pendDidOf(_tx);
+  if (_d) return '\u0001D' + _d;
+  const _s = _tx.replace(/\s+/g, '');
+  return _s ? ('\u0001T' + _s) : '';
 }
 function resolveTimes(msgs){
   /* 2.206（老板最终合并口径）：每行时间只由「该行自己的 mid」推导——
