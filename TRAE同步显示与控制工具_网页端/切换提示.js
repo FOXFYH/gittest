@@ -53,7 +53,9 @@
            「服务器处理中」；三阶段之原文照抄不换字。 */
         if (ph === 'connecting') show('WS连接中' + (t ? '（目标「' + t + '」）' : ''), 'busy');
         else if (ph === 'waiting') show('服务器处理中' + (t ? '（目标「' + t + '」）' : ''), 'busy');
-        else if (ph === 'ledger_check') show('已变更选中会话，等待账本核对中' + (t ? '（「' + t + '」）' : ''), 'busy');   /* 账本V1.0（C2 三阶段之二：vack stage:1，账本核对.js 置相） */
+        /* 2.229（老板 2026-11-20 22:01）：强核对/账本核对阶段不再弹这条长文案悬浮条
+           （太闪、字多、挡屏幕）——该阶段只由顶部状态横幅统一显示「核对中」。 */
+        else if (ph === 'ledger_check'){ elBar && (elBar.className = ''); }
         else if (ph === 'ok'){
           if (lastPhase !== 'ok'){ okUntil = now + 2200; }
           if (now < okUntil) show('✓ 切换成功' + (t ? ' · ' + t : ''), 'ok', Math.max(200, okUntil - now));
