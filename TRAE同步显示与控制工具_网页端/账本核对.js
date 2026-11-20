@@ -45,9 +45,14 @@ const LS_LBVER = 'trae_webm_lbver';          /* 版本底账落盘（按服务�
 let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
           frozen: false, frozenT: null,      /* frozen＝切换期间核对冻结（追加单 2026-11-18，取代 20s 叠加） */
           lbHave: new Set(),                 /* V2 验收 Y11：本地【真存】会话集合——ledger 上报只认它，收帧记下的版本不算存 */
-          lbSum: {}};                        /* 2.184 改4（规范§七 :194）：本地账本摘要表——键＝终身号，
+          lbSum: {},                         /* 2.184 改4（规范§七 :194）：本地账本摘要表——键＝终身号，
                                                 值＝{rounds, codes:[{mid, fin, hash}]}，put 成功后才记；
                                                 vcheck 按它上报编码集合＋完成态＋正文指纹 */
+          /* 2.227（人事部长ST 0023 派单·强核对可见反馈）：最近 20 条强核对记录
+             {act,ts,sid,st:'sent|same|need',cost,need,seq}，仅运行期内存——不落盘、
+             不上行、不改协议；查看器「③ 调控·强核对」只读它，四契机共用这一份。 */
+          vchkLog: [],
+          vchkCnt: {login: 0, svr: 0, switch: 0, timer: 0}};   /* 本次打开以来各契机发出计数 */
 let lbLastAct = Date.now();                  /* 离线倒计时锚点（任意操作重置） */
 let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默认关，追加单 2026-11-18） */
 
@@ -484,7 +489,23 @@ function ledgerVcheckSend(act, sid){
   try {
     if (!S.onLine || !ws || ws.readyState !== 1) return false;
     if (act === 'login' || act === 'svr') lbVerLoad();   /* 换服务端/重登：按当前服务端重载底账，绝不串用旧服务端版本 */
-    sendJson(ledgerVcheckBuild(act, sid));
+    const _fr = ledgerVcheckBuild(act, sid);
+    sendJson(_fr);
+    /* 2.227（人事部长ST 0023 派单）：四契机统一记账——发出即入 LB.vchkLog，
+       查看器「③ 调控·强核对」立刻可见；login/svr 另给一条短闪条，不再全程静默。
+       结果（一致/补发/超时）由 ledgerVack 回填；不改协议、不加 WS 字段。 */
+    try {
+      const _it = {act: String(act), ts: Date.now(), sid: String(sid || ''),
+                   st: 'sent', cost: 0, need: 0, seq: _fr.req_seq};
+      if (!LB.vchkLog) LB.vchkLog = [];
+      if (!LB.vchkCnt) LB.vchkCnt = {login: 0, svr: 0, switch: 0, timer: 0};
+      LB.vchkCnt[act] = (LB.vchkCnt[act] | 0) + 1;
+      LB.vchkLog.unshift(_it);
+      if (LB.vchkLog.length > 20) LB.vchkLog.length = 20;
+      if ((act === 'login' || act === 'svr') && typeof ftoast === 'function'){
+        ftoast('强核对·' + (act === 'login' ? '登录重登' : '切换服务器') + ' 核对中…', 'rgba(51,122,183,.95)', 2200);
+      }
+    } catch(e){}
     if (act === 'timer') LB.checking = true;
     /* 追加单 2026-11-18（规范§三「切换期间的核对冻结」）：switch 一经发出，
        主动核对倒计时立即重置并冻结，期间绝不发 timer 帧；直到本轮切换出
@@ -537,6 +558,31 @@ function ledgerVack(d){
   }
   /* stage:2 —— 正式成功终态：版本一致（same）或差额补发清单（need） */
   LB.checking = false;
+  /* 2.227（人事部长ST 0023 派单）：回填强核对结果——按 req_seq 精确对号
+     （服务端 vack 原样回带），找不到再按 act 取最近一条仍为 sent 的记录。
+     login/svr/timer 完成时给一条短闪条（switch 已有切换横幅，不重复）。
+     只写 LB、只读 vack 既有字段，不改协议。 */
+  try {
+    const _L = Array.isArray(LB.vchkLog) ? LB.vchkLog : [];
+    let _h = null;
+    if (d.req_seq != null){
+      _h = _L.find(function(x){ return x && x.st === 'sent' && String(x.seq) === String(d.req_seq); }) || null;
+    }
+    if (!_h){
+      const _aid = String(d.act || '');
+      _h = _L.find(function(x){ return x && x.st === 'sent' && String(x.act) === _aid; }) || null;
+    }
+    if (_h){
+      _h.st = d.same ? 'same' : 'need';
+      _h.need = Array.isArray(d.need) ? d.need.length : 0;
+      _h.cost = Math.max(0, Date.now() - _h.ts);
+      if ((_h.act === 'login' || _h.act === 'svr' || _h.act === 'timer') && typeof ftoast === 'function'){
+        const _nm = {login: '登录重登', svr: '切换服务器', timer: '定时主动'}[_h.act] || _h.act;
+        ftoast('强核对·' + _nm + ' ' + (d.same ? '一致' : ('补发中' + (_h.need ? '（' + _h.need + ' 项）' : ''))),
+               d.same ? 'rgba(39,174,96,.95)' : 'rgba(243,156,18,.95)', 2600);
+      }
+    }
+  } catch(e){}
   if (d.mods && typeof d.mods === 'object') lbModsSet(d.mods);   /* 存底，供下轮比对 */
   /* 智能避让（I3 修订版·追加单 2026-11-18）：切换成功＝终态 → 解冻并按完整
      周期重新起算；login/svr 强核对完成 → 倒计时直接重置为完整周期。
@@ -757,8 +803,12 @@ function ledgerThinkApply(sid, body){
       if (it.t != null) it.t = stripPendTail(it.t);
       const _tx = (it.text != null) ? it.text : it.t;
       if (!String(_tx || '').trim()) return;
-      const k = String(it.id != null ? it.id : _tx);
-      if (_seen.has(k)) return;
+      /* 2.225（老板 2026-11-20 19:15 排队条翻倍）：按跨形态统一键去重——
+         旧格式 {t:'<DID> 正文'} 与新格式 {id:'<DID>',text} 同一句必须算一条；
+         旧写法「有 id 用 id、没 id 用原文」会让两种形态各留一份。 */
+      const k = (typeof pendTxtKey === 'function') ? pendTxtKey(it)
+                                                   : String(it.id != null ? it.id : _tx);
+      if (!k || _seen.has(k)) return;
       _seen.add(k);
       mine.push(it);
     });
