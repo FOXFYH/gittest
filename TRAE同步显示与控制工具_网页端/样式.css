@@ -31,6 +31,11 @@ select{font-size:12px;}
 #lbl_srv{font-weight:bold; font-size:12px; color:var(--blue);
   white-space:nowrap; max-width:34%; overflow:hidden;
   text-overflow:ellipsis; cursor:pointer;}
+/* 2.234（老板 2026-11-20 23:42）：核对在途 → 「操控:」旁圆球变橙闪烁
+   （账本核对.js lbChkBall 负责加/去 .chk；只改颜色不动连接态语义） */
+.srvdot{color:inherit;}
+.srvdot.chk{color:#f39c12 !important; animation:srvchk 1s ease-in-out infinite;}
+@keyframes srvchk{0%,100%{opacity:1}50%{opacity:.25}}
 .h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
   flex-wrap:nowrap;}   /* 2.133：不许换行撑高顶栏；窄屏只压缩非关键元素 */
 #cmb_box{flex:0 1 auto; max-width:30%; min-width:0;}
