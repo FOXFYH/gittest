@@ -1222,12 +1222,12 @@ function lbMergeForConv(sid, title){
     });
     if (rows.length < 2) return false;
     let uid = '';
-    rows.forEach(r => { if (!uid) uid = lbUidAuth(r.uid); });
-    /* 落名优先用「不带重复尾巴」的真名（诊断名最后才用） */
-    let name = '';
+    rows.forEach(r => { if (!uid) uid = lbUidAuth(r.uid) || lbUidName(r.uid); });
+    /* 落名优先用「不带重复尾巴」的真名（诊断名最后才用）；名称兜底终身号优先 */
+    let name = lbUidName(uid);
     rows.forEach(r => {
       const n = String(r.title || '').trim();
-      if (n && !/^（无名）/.test(n) && (!name || lbNormTitle(n) === n)) name = lbNormTitle(n) || name;
+      if (!name && n && !/^（无名）/.test(n) && (!name || lbNormTitle(n) === n)) name = lbNormTitle(n) || name;
     });
     name = name || t || String(rows[0].title || '').trim();
     const sk = name ? lbStoreKey(uid, name) : String(rows[0].sk || '');
