@@ -1257,7 +1257,7 @@ function lbWriteBackSnap(sid, title, rounds){
     if (!_rows.length) return;
     const frame = {msgs: _rows, finish: null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
-                   attach: [], model: ''};
+                   model: ''};
     _frameCommit(sk, frame,
       {key: (typeof frameKey === 'function') ? frameKey() : '',
        port: S.port, sid: s, uid: _uidAuth, title: String(title || ''), ts: Date.now()});
@@ -1771,7 +1771,7 @@ function ledgerHumanApply(sid, title, rec, opt){
       if (typeof _liveLockOn === 'function' && _liveLockOn()){
         if (!S.liveFrame || !Array.isArray(S.liveFrame.msgs))
           S.liveFrame = {msgs: [], finish: null, tail: '', sendIdle: true,
-                         inputText: '', opts: [], ask: null, pend: [], attach: [], model: ''};
+                         inputText: '', opts: [], ask: null, pend: [], model: ''};
         shown = lbMsgsAppend(S.liveFrame.msgs, row) || shown;
       }
       if (!S.snap || typeof S.snap !== 'object') S.snap = {};
@@ -1879,7 +1879,7 @@ function ledgerStoreApply(sid, body, ver){
       S.livePend = S.anchorSid;
       S.liveFrame = {msgs: _merged, finish: null, tail: '', sendIdle: true,
                      inputText: '', opts: [], ask: null, pend: [],
-                     attach: [], model: ''};
+                     model: ''};
       /* 2.183 修2：S.lb_foldRounds 赋值行撤——补发面板已撤（§十二-2），
          状态位只在真画面到手时由 :328 处归零防 key 漂移 */
       renderAll();
