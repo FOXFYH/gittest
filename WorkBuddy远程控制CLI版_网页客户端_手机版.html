@@ -1007,7 +1007,15 @@ function srvIdleMount(){
 try { srvIdleMount(); } catch(e){}
 const SRV_DEAD_MS = 60000;      // ≥60s 无消息 = 报「服务器无响应」
 const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 150s 无心跳判下线
-const IDLE_MS = 5 * 60 * 1000;  // 闲置超 5 分钟才退出登录（1.25 起唯一的下线条件）
+/* 1.12（账本系统 V1.0 §九·调控）：闲置下线秒数改由「③ 调控」配置——键 wb_lb_offline
+   （默认 300 ＝保持原有 5 分钟体验），wb_lb_offline_on=0 时永不到点下线。 */
+function lbOffMs(){
+  try{
+    if (localStorage.getItem('wb_lb_offline_on') === '0') return Infinity;
+    var v = parseInt(localStorage.getItem('wb_lb_offline') || '', 10);
+    return (v >= 15 && v <= 3600 ? v : 300) * 1000;
+  }catch(e){ return 300000; }
+}
 const FAIL_ALERT = 3;           // 连续 N 次「压根没连上」→ 判为连不上服务器
 const FOX_HDR = 57;     // 协议头固定字节数
 const FOX_MAX = 64 * 1024 - FOX_HDR;   // 单段正文上限（UTF-8 字节；2026-10-26 10KB→64KB）
@@ -1136,6 +1144,10 @@ async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中
   return true;
 }
 function sendJson(d){
+  /* 2.69：挂起期统一外发闸门——已 logout 的页面除了 login/logout 本身，任何帧
+     （ctl_hb / ctl_free / cmd / req / act / who …）一律丢弃，杜绝频道零外发被
+     定时器或渲染副作用打穿。用 try 包住，避免初始化阶段 TDZ 误伤。 */
+  try { if (cliSuspended && (!d || (d.t !== 'login' && d.t !== 'logout'))) return; } catch(e){}
   /* 13.1【有则必报】：凡外发 JSON 帧一律附本机昵称——昵称只进载荷可选字段
      （FOX 帧头 【FOXID:…=cut(…)】 一字不动）；服务端无则回落电脑名。 */
   if (d && d.nick === undefined) d.nick = MY_NICK;
@@ -1163,7 +1175,8 @@ function sendCmd(c, a, extra){
   /* 1.60 纯 ID 双寻址·会话层：发消息带上目标会话 sid（convs 行 r[1]，
      显示名会变、sid 不变），服务端据此投递，不再只信它自己记的 current。 */
   if (c === 'send' && !d.conv){
-    const cid = curConvId();
+    /* 2.62：优先按「本机会话锚定」投递——断网/切换未达成时也不会落回旧会话 */
+    const cid = sendConvId();
     if (cid) d.conv = cid;
   }
   return sendJson(d);
@@ -1247,6 +1260,11 @@ const S = {
      prep*=正在显示的预备帧（prepSid=它属于哪个会话）；snapCache=内存快照账。 */
   prepMsgs: null, prepSid: '', prepIdle: true, prepFinish: null,
   snapCache: {},
+  /* 3.20（网页 2.66）：快照省流配套——plans 全文只在变化时下发，平时只带
+     plans_fp；这里记着「最近一份全文」{sid, fp, segs}，指纹对上就沿用，
+     对不上（刚刷新/落后太多）走 c=='plans_cur' 现取一次补齐。 */
+  plansCache: null,
+  plansWaitAt: 0,                    /* 3.20：plans_cur 现取的 10 秒节流 */
   qopen: {},                         /* 1.67：托管排队条「展开全文」态（键=条目 id） */
   pend_head: 100,                    /* 1.23 遗留：确认匹配字数（1.63 起已不再用于比对，
                                        仅保留字段兼容 hello/pendcfg 握手） */
@@ -1269,6 +1287,13 @@ const S = {
   /* F7：切换失败观察——超时兜底重拉 hello 后，下一拍仍未激活目标
      会话时轻提示「切换未完成」（一次性，消费即清） */
   _swFail: null,
+  /* 2.62 会话锚定：anchor_tried=本次连接已自动补切过一次（连上/重连时重置）；
+     anchor_hold=冷启动先按锚定会话铺了盘上账，等首帧快照对账后再放开，
+     防上一会话的常规快照把锚定会话的预备帧清掉。 */
+  anchor_tried: false, anchor_hold: false,
+  /* 3.20 补切熔断：anchorSet() 会清 anchor_tried，故另立独立计数——
+     anchor_fix_n=本次连接已自动补切次数（上限 1）；anchor_fix_last=上次自动补切毫秒（间隔≥60s）。 */
+  anchor_fix_n: 0, anchor_fix_last: 0,
   /* 1.12 多服务端：在线名册（name → {sid,v,box,port,boxes,alive,
      conn,ts,seen}）+ 当前操控的服务端名（localStorage 记忆）
      1.43：seen=最后出现毫秒（落盘 LS_SRVS）*/
@@ -1453,8 +1478,8 @@ function srvOpSend(c, a, label, extra, ms){
   if (extra && typeof extra === 'object') for (const k in extra) ex[k] = extra[k];
   const d = {t: 'cmd', c: c, a: a};
   for (const k in ex) d[k] = ex[k];
-  if (c === 'send' && !d.conv){          /* 与 sendCmd 同规则：带目标会话 sid */
-    const cid = curConvId();
+  if (c === 'send' && !d.conv){          /* 与 sendCmd 同规则：带目标会话 sid（2.62 认锚定） */
+    const cid = sendConvId();
     if (cid) d.conv = cid;
   }
   if (!S.onLine || !foxReady()){
@@ -1882,8 +1907,23 @@ function stripHintMarks(txt){
 const FPLAY_ANY = /\(@fox-play\d?\s*\)/g;
 const FASK_ANY  = /\(@fox-ask\d?\s*\)/g;
 const FH_ANY    = /\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g;
+/* 2.60（老板 2026-11-17）：总管命令投递的「自报家门头」两行——回填输入框/复制时必须剥掉。
+   与 TRAE 侧 卡片TTS.js `_stripFromHead` 同口径：只认行首固定标记，**连剥到不是这两行为止**
+   （多层投递会叠多组）；剥完只剩空白 → 返回空串（调用方保持空输入框）。 */
+function _stripFromHead(txt){
+  let t = String(txt == null ? '' : txt);
+  for (let i = 0; i < 6; i++){
+    const before = t;
+    t = t.replace(/^\s*【来自(?:·仿微信)?】[^\n]*\n?/, '');
+    t = t.replace(/^\s*【回信用】[^\n]*\n?/, '');
+    t = t.replace(/^\s*\n/, '');
+    if (t === before) break;
+  }
+  return t;
+}
 function foxStripTail(txt){
-  let s = String(txt == null ? '' : txt);
+  const _s0 = _stripFromHead(txt);
+  let s = String(_s0 == null ? '' : _s0);
   if (s.indexOf('(@fox-') < 0) return s;
   const raw = s;
   s = s.replace(FPLAY_ANY, '').replace(FASK_ANY, '');
@@ -2310,7 +2350,9 @@ function ttsFoxSend(obj){
   return true;
 }
 function ttsConnect(){
-  /* 建 TTS 直连（静默：无 ping/无 hello/无 login）。 */
+  /* 建 TTS 直连（静默：无 ping/无 hello/无 login）。2.68：按需连、静置断。 */
+  ttsManualOff = false;
+  ttsTouch();
   if (ttsWs){ try { ttsWs.onopen = ttsWs.onmessage = ttsWs.onclose = ttsWs.onerror = null; ttsWs.close(); } catch(e){} }
   clearTimeout(ttsReconnectTimer); ttsReconnectTimer = null;
   if (!(CFG.channel || '').trim()){ ttsWs = null; return; }   // 无密钥：等填完再连
@@ -2318,6 +2360,7 @@ function ttsConnect(){
   const w = ttsWs;
   w.onopen = () => {
     ttsOnLine = true; ttsFailStreak = 0; ttsDeadline = 0;
+    ttsTouch();                        // 2.68：起算静置 60 秒
     diagLog('TTS 直连频道已就绪（静默待命）', 'ok');
     ttsFlushWait();                    // 连上即把仍在等待的请求改走直连（不再回落）
   };
@@ -2325,6 +2368,7 @@ function ttsConnect(){
   w.onerror = () => { /* 统一交给 onclose 走退避重连 */ };
   w.onclose = () => {
     ttsOnLine = false;
+    if (ttsManualOff) return;          /* 2.68：静置主动断开 → 绝不重连 */
     if (!ttsDeadline) ttsDeadline = Date.now() + TTS_DEADLINE;
     if (ttsFailStreak >= TTS_BACKOFF.length || Date.now() > ttsDeadline){
       diagLog('TTS 直连不可达（重连 ' + ttsFailStreak + ' 次用尽），已停手', 'bad');
@@ -2341,6 +2385,20 @@ function ttsEnsure(){
   ttsConnect();
   return false;
 }
+/* 2.68（老板 2026-11-19 频道规范第 5 条）：TTS 频道「播完静置 60 秒」自动断开，
+   未使用期间该频道 0 帧、0 连接。ttsTouch() 在连接建立与每次收到分片时刷新。 */
+let ttsIdleAt = 0, ttsManualOff = false;
+function ttsTouch(){ ttsIdleAt = Date.now(); }
+function ttsClose(reason){
+  ttsManualOff = true;
+  clearTimeout(ttsReconnectTimer); ttsReconnectTimer = null;
+  if (ttsWs){ try { ttsWs.onopen = ttsWs.onmessage = ttsWs.onclose = ttsWs.onerror = null; ttsWs.close(); } catch(e){} }
+  ttsWs = null; ttsOnLine = false; ttsFailStreak = 0; ttsDeadline = 0; ttsIdleAt = 0;
+  diagLog('TTS 频道已静置断开' + (reason ? '（' + reason + '）' : ''), 'ok');
+}
+setInterval(() => {
+  if (ttsOnLine && ttsIdleAt && Date.now() - ttsIdleAt > 60000) ttsClose('静置60秒');
+}, 20000);
 const FoxInTts = {                       // TTS 通道 FOX 拼装器（60s 残包超时）
   buf: {},
   feed(msg){
@@ -2371,6 +2429,7 @@ function ttsOnMsg(msg){
        被当成"残余段"丢弃 → 服务端 250ms 就回的 recv/conv 一个都收不到，只能硬等
        30 秒看门狗切「服务端中转」。此处兼收两种：FOX 帧照旧；'{' 开头的纯 JSON 直收。 */
   statsAdd(msg.length, 0, 1, 0);
+  ttsTouch();                        /* 2.68：有分片到达＝仍在使用，续命 60 秒 */
   let body = '';
   const r = FoxInTts.feed(msg);
   if (r){
@@ -2940,6 +2999,17 @@ function onRes(id, k, v){
     reconApply((rq && rq.conv) || v.conv || '', v);
     return;
   }
+  else if (k === 'plans_cur'){                   /* 3.20：本轮思维流现取（省流补齐） */
+    const sid = String(v.sid || (rq && rq.conv) || '');
+    const segs = Array.isArray(v.segs) ? v.segs : [];
+    if (sid) S.plansCache = {sid: sid, fp: String(v.fp || ''), segs: segs};
+    if (S.snap && String(S.snap.title || '') === sid){
+      S.snap.plans = segs;
+      S.plansWaitAt = 0;
+      renderAll();
+    }
+    return;
+  }
   else if (k === 'turncast'){                    /* 2.10b：登录/换会话现取回包 */
     if (v.tc && rq && rq.conv === S.histConv) onTurncast(v.tc);
     return;
@@ -3119,11 +3189,15 @@ async function prepaintFromIDB(){
     if (document.body.classList.contains('fmsg')) return;   /* 历史全屏时不抢 */
     if (S.snap && S.snap._hasMsgs) return;                 /* 直播已到 */
     if (S.prepMsgs && S.prepMsgs.length) return;           /* 已有预备帧 */
-    const rec = await idbLoadLatestSnap();
+    /* 2.62：有会话锚定就先铺它自己的账——重启手机/刷新后第一屏就是它 */
+    const an = anchorGet();
+    const rec = (an && an.sid) ? await idbLoadSnap(String(an.sid))
+                               : await idbLoadLatestSnap();
     if (!rec || !rec.msgs || !rec.msgs.length) return;
     if (S.snap && S.snap._hasMsgs) return;                 /* 等盘期间直播到了 */
     S.prepMsgs = rec.msgs;
-    S.prepSid = String(rec.sid || '');
+    S.prepSid = (an && an.sid) ? String(an.sid) : String(rec.sid || '');
+    if (an && an.sid) S.anchor_hold = true;   /* 锚定会话的预备帧，等首帧快照对锚 */
     S.prepIdle = (rec.idle !== false);
     S.prepFinish = rec.finish || null;
     renderAll();
@@ -3169,7 +3243,11 @@ function reconAsk(why, force, sid){
     if (now - (_reconTs[sidX] || 0) < (force ? 5000 : RECON_GAP)) return;
     if (_reconIn[sidX]) return;                      /* 在途不重发 */
     const have = reconSeqs(sidX);
-    if (!have.length) return;                        /* 本地一条账都没有，无从对起 */
+    /* 3.26（老板 2026-11-20）：「主界面聊天记录就是小账本，小账本有什么就显示什么，
+       永远没有发白的机会，除非小账本里面本来就是白的」。
+       本地一条账都没有（新手机／清缓存／刚登录首屏）也必须开口——
+       服务端 recon 对 have=[] 会回最近 12 条做种，落盘后立刻铺屏。
+       原「无账就不问」正是「刚登录第一个会话永远发白、切走再切回才有」的根因。 */
     _reconTs[sidX] = now; _reconIn[sidX] = 1;
     const id = ++reqSeq;
     S_reqs[id] = {conv: sidX, ts: now, sk: 'recon'};
@@ -3209,6 +3287,134 @@ function reconApply(sid, v){
   }
   diagLog('账本对账：补了 ' + got + ' 条', 'ok');
 }
+/* ===== 3.23（V1.0 批C）：模块版本核对 vcheck / vack / mod =====
+   §A.2/A.3/A.4 铁律：上行只带各模块 ver（十几字节）；服务端逐模块比对，
+   相同的一条实体都不发；实体下发一律单模块单帧，本端只改该模块那块，
+   其余一概不碰。触发点＝登录应答 / 切会话收尾 / 主动核对定时器。 */
+function modvKey(){ return 'wb_modv:' + String(S.cur || ''); }
+function modvLoad(){
+  const k = modvKey();
+  if (S._modvKey === k) return;
+  S._modvKey = k; S.modv = {};
+  try{
+    const o = JSON.parse(localStorage.getItem(k) || 'null');
+    if (o && typeof o === 'object') S.modv = o;
+  }catch(e){}
+}
+function modvSave(){
+  try{ localStorage.setItem(modvKey(), JSON.stringify(S.modv || {})); }catch(e){}
+}
+let _mdSeq = 0, _mdIn = 0, _mdTs = 0;
+function modCheck(act, force){
+  try{
+    if (!S.onLine || !S.cur) return;
+    const now = Date.now();
+    if (!force && _mdIn && now - _mdTs < 6000) return;   /* 在途不重发（6s 兜底） */
+    modvLoad();
+    _mdIn = 1; _mdTs = now;
+    const sid = reconSid();
+    const seq = ++_mdSeq;
+    sendJson({t: 'vcheck', act: String(act || 'timer'), sid: sid,
+              mods: S.modv || {}, req_seq: seq});
+  }catch(e){ _mdIn = 0; }
+}
+function onVack(d){
+  _mdIn = 0;
+  if (!d || (d.stage | 0) !== 2) return;      /* stage1＝已收到，不动账 */
+  if (d.mods && typeof d.mods === 'object'){
+    modvLoad();
+    ['sig','snote','macct','convs','ledger','didp','think'].forEach(function(k){
+      if (d.mods[k] !== undefined && d.mods[k] !== null) S.modv[k] = d.mods[k];
+    });
+    modvSave();
+  }
+  if (d.same) diagLog('模块核对：全部一致', 'ok');
+}
+/* 实体帧：只改该模块那一块，别的模块/屏幕不动 */
+function onMod(d){
+  const m = String((d && d.m) || ''), v = (d && d.v) || '', p = (d && d.d) || {};
+  if (!m) return;
+  modvLoad();
+  if (m === 'ledger' && p.sid){
+    const o = (S.modv.ledger && typeof S.modv.ledger === 'object') ? S.modv.ledger : {};
+    o[String(p.sid)] = v; S.modv.ledger = o;
+  } else {
+    S.modv[m] = v;
+  }
+  modvSave();
+  if (!S.snap) S.snap = {};
+  const sn = S.snap;
+  switch (m){
+    case 'sig': {
+      /* 信号灯序列：[{sid,light,orange}] → 回填 convs 行第5元 + conv_unread */
+      const map = {};
+      (p.convs || []).forEach(function(r){ if (r && r.sid) map[String(r.sid)] = r; });
+      if (Array.isArray(sn.convs)){
+        sn.convs = sn.convs.map(function(r){
+          if (!(Array.isArray(r) && r[0] === 'c')) return r;
+          const g = map[String(r[1] || '')];
+          if (!g) return r;
+          const c = r.slice();
+          c[4] = (g.light === 'busy') ? 'run' : 'done';
+          return c;
+        });
+      }
+      sn.conv_unread = (p.convs || []).filter(function(x){ return x && x.orange; })
+        .map(function(x){ return String(x.sid); });
+      scheduleRenderAll();
+      break;
+    }
+    case 'snote':                      /* 备注 + 定时清单 */
+      sn['备注'] = (p.notes && typeof p.notes === 'object') ? p.notes : {};
+      sn.sched = Array.isArray(p.sched) ? p.sched : [];
+      scheduleRenderAll();
+      break;
+    case 'convs':                      /* 会话列表全表 */
+      if (Array.isArray(p.convs) && p.convs.length) sn.convs = p.convs;
+      scheduleRenderAll();
+      break;
+    case 'macct':                      /* 模型列表 + 当前账号 */
+      if (p.acct !== undefined){ S.acct = String(p.acct || ''); renderAcct(); }
+      if (Array.isArray(p.models)){
+        S.models_full = p.models; rebuildModelOptions(); checkFavInvalid();
+      }
+      break;
+    case 'ledger':                     /* 账本走既有按号核对（只补缺） */
+      try{ reconAsk('mod:ledger', true, p.sid || ''); }catch(e){}
+      break;
+    case 'think':                      /* 3.25：排队段变动即推 → 只刷新排队条 */
+      if (Array.isArray(p.pend)){
+        sn.queue = p.pend.map(function(x){
+          if (Array.isArray(x)) return {id: String(x[0] || ''), text: String(x[1] || ''),
+                                        sid: String(x[2] || '')};
+          return x;
+        });
+        scheduleRenderAll();
+      }
+      break;
+    default:                           /* didp：先只存 ver */
+      break;
+  }
+}
+/* 1.12（账本系统 V1.0 §五·主动核对）：按「③ 调控 · 主动核对周期」（键 wb_lb_period，
+   默认 60 秒）自动对号。规矩：切后台不跑；切换在途冻结（不定账）；多个核对只执行
+   最新一个（reconAsk 自带在途锁与 20 秒节流）；到点确实没核对过才发。
+   省流：核对只上行「我有哪些序号」，回包只补缺，绝不整包重拉。 */
+setInterval(function(){
+  try{
+    if (document.hidden || !S.onLine || !S.cur) return;
+    if (S.switch_pend) return;                       /* 切换在途：冻结 */
+    var sid = reconSid();
+    if (!sid) return;
+    var per = (function(){
+      var v = parseInt(localStorage.getItem('wb_lb_period') || '', 10);
+      return (v >= 15 && v <= 3600) ? v : 60;
+    })();
+    if (Date.now() - ((_reconTs && _reconTs[sid]) || 0) < per * 1000) return;
+    reconAsk('timer');
+    try { modCheck('timer'); } catch(e){}   /* 3.23：同拍做一次模块 ver 核对 */
+  }catch(e){}
+}, 5000);
 /* 2.50：snapTrimDisk() 已删除。老板新口径＝每个会话都保存，只限每个会话的条数；
    条数在 snapCacheTouch() 写入时就按 _snapN() 裁好，所以盘上不需要再按会话数裁。 */
 /* 每拍真快照落地就记一份（内存立刻，盘上 400ms 防写爆；生成刚结束则立刻落盘） */
@@ -3267,6 +3473,9 @@ function turnAudit(){
 }
 async function onTurncast(tc){
   if (!tc) return;
+  /* 3.21 防串台兜底：任何入口（snap 内嵌/req 回包/广播）带了 sid 的，
+     必须与当前选中会话一致，否则丢弃——思维卡只属于它自己那一轮。 */
+  if (tc.sid && String(tc.sid) !== String(curConvId())) return;
   /* ① prev（最新历史轮）并入本地账 */
   if (tc.prev && tc.prev.uid){
     let t = findTurn(tc.prev.uid);
@@ -3465,10 +3674,15 @@ function scheduleRenderAll(){
        （放在 renderAll 之后，避免被 renderState 立刻盖掉） */
     if (S._swFail){
       const f = S._swFail; S._swFail = null;
-      const cv = (S.snap.convs || []);
-      const act = cv.find(r => r[0] === 'c' && r[2]);
-      if (!act || act[1] !== f.title)
-        flash('⚠ 切换未完成，会话可能已不存在', 'var(--orange)');
+      if (f.keepAnchor){
+        /* 2.65：超时判失败 ≠ 会话不存在。屏上仍钉在目标的小账本上，只说「没切成功」 */
+        flash('⚠ 切换未完成，仍停在「' + (f.disp || '目标会话') + '」', 'var(--orange)');
+      } else {
+        const cv = (S.snap.convs || []);
+        const act = cv.find(r => r[0] === 'c' && r[2]);
+        if (!act || act[1] !== f.title)
+          flash('⚠ 切换未完成，会话可能已不存在', 'var(--orange)');
+      }
     }
   });
 }
@@ -3768,7 +3982,8 @@ function renderConvs(rows, conv_unread){
   const key = rows.map(r => r.join('|')).join('#')
     + '#ur:' + Array.from(ur).sort().join('|')
     + '#sc:' + Array.from(schedSids).sort().join('|')
-    + '#nt:' + noteKey;
+    + '#nt:' + noteKey
+    + '#an:' + (function(){ const a = anchorGet(); return a ? String(a.sid || '') : ''; })();
   /* 2026-11-13 老板「优先显示会话名」：随手把 sid→显示名 增量记进 LS_NAMES。
      换服务器 / 断网 / 骨架缓存被清掉时，轮播账查看器仍能显示会话名而不是一串 sid。 */
   try{
@@ -3796,6 +4011,10 @@ function renderConvs(rows, conv_unread){
   const _oldTop = el.convs ? el.convs.scrollTop : 0;
   const frag = document.createDocumentFragment();
   let inFolder = false, idx = 0;
+  /* 2.62：选中标志认「本机会话锚定」——点下去立刻打勾，不等服务端确认；
+     锚定就在本列表里时只认锚定（保证永远只有一个选中行），不在（换了台电脑）才认服务端 flag。 */
+  const _anRow = anchorGet(), _anSid = _anRow ? String(_anRow.sid || '') : '';
+  const _useAnchor = !!_anSid && rows.some(r => r && r[0] === 'c' && String(r[1]) === _anSid);
   /* 1.31：按位取值（兼容旧 4 元组）——r[4]=状态灯 run/done/fail/stop/'' */
   for (const r of rows){
     /* 2.40：单行容错——某一行数据畸形只跳过这一行，绝不让整张列表建到一半就停住。
@@ -3833,7 +4052,8 @@ function renderConvs(rows, conv_unread){
       inFolder = true;
     } else {
       const d = document.createElement('div');
-      d.className = 'convo item' + (flag ? ' act' : '');
+      d.className = 'convo item'
+        + ((_useAnchor ? (String(title) === _anSid) : !!flag) ? ' act' : '');
       d.style.paddingLeft = inFolder ? '28px' : '14px';
       /* 1.31：对齐原版状态灯口径——只在这几种显示灯：
          run=蓝·脉动(进行中) fail=红 stop=灰；st=='done' 且该会话在 conv_unread
@@ -3881,13 +4101,28 @@ function renderConvs(rows, conv_unread){
       d.addEventListener('touchcancel', stopLP);
       d.onclick = () => {
         if (lpFired){ lpFired = false; return; }  // 长按后不放行切换
-        if (!flag){
-          pendSwitchSet(title, disp, true); /* 1.82：本地发起（分档 + 10s补发/60s超时）
-                                               1.32：传展示名，提示不再显示原始 sid */
-          /* 2.14：切换同样走统一四级（②等待回应→③开始执行→④切换成功） */
-          srvOpSend('switch', title, '切换会话');   /* 1.29：传 sid(即 title) 根治索引错位 */
+        /* 2.65：服务端当前就在这一行（flag 亮），可本机屏上未必是它——上一轮切失败、
+           锚定还钉在别的会话。这时点它＝**本地归位**：立刻按手里的真快照重画，并把
+           锚定改成它。不这样，切失败之后用户点「服务端正在的那个会话」会得到零反应，
+           看着像点不动。 */
+        if (flag){
+          const an = anchorGet();
+          const anSid = (an && an.sid) ? String(an.sid) : '';
+          const showing = String(S.prepSid || curConvId() || '');
+          if (anSid !== String(title) || showing !== String(title)){
+            anchorSet(title, (disp && disp !== title) ? disp : '');
+            S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
+            S.anchor_hold = false; S.convs_key = null; S.msgs_key = null;
+            renderAll();
+          }
           drawerClose();
+          return;
         }
+        pendSwitchSet(title, disp, true); /* 1.82：本地发起（分档 + 10s补发/60s超时）
+                                             1.32：传展示名，提示不再显示原始 sid */
+        /* 2.14：切换同样走统一四级（②等待回应→③开始执行→④切换成功） */
+        srvOpSend('switch', title, '切换会话');   /* 1.29：传 sid(即 title) 根治索引错位 */
+        drawerClose();
       };
       frag.appendChild(d);
       idx++;
@@ -4673,6 +4908,10 @@ function switchArm(p){
     p.phase = 'fail';
     switchDisarm();
     srvOpDone('switch');       /* 2.14：切换失败即收口在途，免 65s 后又被「待确认」盖掉 */
+    /* 2.65（老板：「切换失败也不会退到之前的会话，就锚定当前这个」）：
+       判失败也**不撤锚定**——屏上继续钉在目标会话的小账本上，只把「没切成功」
+       这件事说清楚；重连成功时 anchorFollow 还会自动再补一次。 */
+    S._swFail = {title: p.title, disp: p.disp || '', keepAnchor: true};
     renderAll();
     _swFailT = setTimeout(() => { if (S.switch_pend === p) switchEnd(); }, 4000);
   };
@@ -4682,6 +4921,9 @@ function switchEnd(){          /* 结束一次切换（成功/失败/换目标�
   switchDisarm();
   if (_swFailT){ clearTimeout(_swFailT); _swFailT = 0; }
   S.switch_pend = null;
+  /* 3.23（V1.0 批C）：切换收尾＝一次强核对（WB 无 CDP，CLI 确认即第三阶段），
+     把全模块 ver 交给服务端逐条比对，缺什么补什么。 */
+  try { modCheck('switch', true); } catch(e){}
 }
 function switchOk(disp, isNew){ /* 1.82：闪现「切换成功」2 秒后交回状态灯；
                                   2.13：本端新建走 isNew=true → 闪「新会话」 */
@@ -4737,6 +4979,92 @@ function turnsSwitchTo(sid){
      缺的补过来）。400ms 后再发：先让本端把缓存/IDB 的路走完，别自相打架。 */
   setTimeout(() => { try { reconAsk('切会话', true, sid); } catch(e){} }, 400);
 }
+/* 2.62：会话锚定——本机最后一次在会话列表里点选的会话。
+   老板 2026-11-17 定：点下去就算锚定，不管服务端切没切成功；刷新、重启手机、
+   断网恢复后都先回到这个会话。只存本机 localStorage，不写服务端、不影响别的设备。 */
+const LS_ANCHOR = 'wb_cli_anchor';
+function anchorGet(){
+  try {
+    const o = JSON.parse(localStorage.getItem(LS_ANCHOR) || 'null');
+    if (o && o.sid) return o;
+  } catch(e){}
+  return null;
+}
+function anchorSet(sid, disp){
+  sid = String(sid || '');
+  if (!sid) return;
+  try {
+    const old = anchorGet();
+    const nm = String(disp || (old && old.sid === sid ? old.disp : '') || '');
+    localStorage.setItem(LS_ANCHOR, JSON.stringify({sid: sid, disp: nm, ts: Date.now()}));
+  } catch(e){}
+  S.anchor_tried = false;      /* 又点了一次 → 允许按新目标再对一次 */
+  S.anchor_hold = false;
+  S.convs_key = null;          /* 选中标志立刻换行（不等服务端快照） */
+}
+function anchorClear(){
+  try { localStorage.removeItem(LS_ANCHOR); } catch(e){}
+  S.convs_key = null;
+}
+/* 发送目标：锚定会话还没切过去（或断网中）时，消息就投给它——服务端 cmd_send
+   支持 conv 一步直达。锚定为空/已达成则照旧用服务端当前会话。 */
+function sendConvId(){
+  const an = anchorGet();
+  if (an && an.sid && String(an.sid) !== String(curConvId() || '')) return String(an.sid);
+  return curConvId();
+}
+/* 首帧真快照到达后对锚：服务端当前会话不是锚定会话 → 本次连接自动补发一次 switch。
+   成功走原有 switched；失败由 switchArm 的 10s 补发 / 60s 判失败收口，锚定不撤。 */
+/* 3.20：补切熔断后的唯一提示——顶部横幅，8 秒自动收，不挡操作。 */
+function anchorOccupyBanner(){
+  try{
+    let bx = document.getElementById('anchor_occupy');
+    if (!bx){
+      bx = document.createElement('div');
+      bx.id = 'anchor_occupy';
+      bx.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;'
+        + 'background:#b26a00;color:#fff;font-size:13px;line-height:20px;'
+        + 'padding:6px 10px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.25);';
+      (document.body || document.documentElement).appendChild(bx);
+    }
+    bx.textContent = '⚠ 会话被另一端占用，已停止自动切回（点会话可手动切换）';
+    bx.style.display = 'block';
+    clearTimeout(bx._hideT);
+    bx._hideT = setTimeout(function(){ bx.style.display = 'none'; }, 8000);
+  }catch(e){}
+}
+
+function anchorFollow(v){
+  const an = anchorGet();
+  if (!an || !an.sid) return;
+  const cur = String((v && v.title) || '');
+  if (!cur) return;
+  if (cur === String(an.sid)){ S.anchor_hold = false; return; }
+  /* 锚定必须在本机的会话表里（防着「换到另一台电脑」时拿上一台的 sid 去瞎切）：
+     快照带了 convs 却找不到这个 sid → 不补切、也不撤锚定（回原电脑还能接着用）。 */
+  const rows = Array.isArray(v && v.convs) ? v.convs : [];
+  if (rows.length && !rows.some(x => x && x[0] === 'c' && String(x[1]) === String(an.sid))){
+    S.anchor_hold = false;
+    return;
+  }
+  if (S.switch_pend) return;            /* 已有在途切换，别叠加 */
+  /* 3.20（2026-11-18 切换战争）：老闸门 anchor_tried 会被 anchorSet() 当场清成
+     false（pendSwitchSet(local=true)→anchorSet），形同虚设——两台客户端锚不同
+     会话就 1Hz 互切（实测 3 分钟 102 次）。改用不受 anchorSet 影响的独立计数：
+     同一 WS 连接最多 1 次；且距上次自动补切 ≥60 秒；超限只出横幅，不再自动切。 */
+  const _afNow = Date.now();
+  if ((S.anchor_fix_n || 0) >= 1 || (_afNow - (S.anchor_fix_last || 0) < 60000)){
+    anchorOccupyBanner();
+    S.anchor_hold = false;
+    return;
+  }
+  S.anchor_fix_n = (S.anchor_fix_n || 0) + 1;
+  S.anchor_fix_last = _afNow;
+  S.anchor_tried = true;
+  S.anchor_hold = false;
+  pendSwitchSet(String(an.sid), an.disp || '', true);
+  srvOpSend('switch', String(an.sid), '回到上次会话');
+}
 function pendSwitchSet(title, disp, local){
   title = title || '';
   disp = disp || '';
@@ -4750,6 +5078,8 @@ function pendSwitchSet(title, disp, local){
     if (row) disp = row[3] || '';
   }
   const view = (disp && disp !== title) ? disp : '新会话';
+  /* 2.62：本机点的会话 = 立即锚定（不等服务端回执；断网/失败/刷新都不撤） */
+  if (local && title) anchorSet(title, (disp && disp !== title) ? disp : '');
   /* 1.82：本地发起 → 按「连上没」定首档（connecting/waiting）；
      他端（PC 面板）广播来的 → 服务端已在切，直接 switching，不补发 */
   const phase0 = local ? ((S.onLine && foxReady()) ? 'waiting' : 'connecting')
@@ -4836,6 +5166,19 @@ function renderMsgs(msgs, finish, opts, ask){
       S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
     }
   } else if (S.prepEmptyAt) S.prepEmptyAt = 0;
+  /* 3.26（老板 2026-11-20）：「软件的定位就是小账本显示器，主界面的聊天记录
+     就是小账本」——这一拍直播帧没带正文，但本会话的小账本里有，
+     就直接把小账本当预备帧铺上屏。不再出现「主界面白、小账本里有内容」两套账。 */
+  if (!(S.prepMsgs && S.prepMsgs.length) && _sidNow && !S.switch_pend
+      && S.snapCache && S.snapCache[_sidNow]){
+    const _cr = S.snapCache[_sidNow];
+    if (Array.isArray(_cr.msgs) && _cr.msgs.length){
+      S.prepMsgs = _cr.msgs;
+      S.prepSid = _sidNow;
+      S.prepIdle = (_cr.idle !== false);
+      S.prepFinish = _cr.finish || null;
+    }
+  }
   const prepOn = !!(S.prepMsgs && S.prepSid && !_liveOn);
   if (prepOn){
     msgs = S.prepMsgs; finish = S.prepFinish; opts = []; ask = null;
@@ -6031,7 +6374,57 @@ const APP_NAME = 'wb远程';
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
       改后下一拍生效。 */
-const VER = '2.59';
+const VER = '2.71';
+                      /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
+                         这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
+                         聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
+                         切换，那是后话，切换失败也不会退到之前的会话，就锚定当前这个」）：
+                           ① 点会话＝**同步**铺该会话的小账本（内存 S.snapCache 优先，其次
+                              IDB snaps），不等服务端；屏上立刻是它的正文 + 「正在切换」条；
+                           ② 判「切换失败」也不撤锚定、不清预备帧——服务端后来推的**别的
+                              会话**常规快照一律不许把锚定会话的账清掉（旧版 60 秒一收就
+                              悄悄退回上一个会话）；
+                           ③ 失败文案改成「切换未完成，仍停在「X」」，不误导成会话不存在；
+                           ④ 服务端当前就在某行（flag 亮）而本机屏上不是它（上轮切失败）
+                              → 点它＝本地归位：立刻按真快照重画、锚定改成它（否则零反应）。 */
+                      /* 2.64（2026-11-17，接 2.63）：选中行永远只亮一个——锚定就在本列表里
+                         时只认锚定（否则服务端 flag 与锚定会同时亮两行）；锚定不在本列表
+                         （换了台电脑）才退回认服务端 flag。 */
+                      /* 2.63（2026-11-17，接 2.62）：锚定补一道「同一台电脑」闸门——
+                         多服务端名册下，快照带 convs 却找不到锚定 sid（＝那台电脑上没有
+                         这个会话）时，不补切、也不撤锚定；换回原电脑仍可继续回锚定。 */
+                      /* 2.62（2026-11-17 老板原话：「只要我在会话列表执行的切换，不管最终
+                         切换成功还是失败，手机网页版就记好了，我们已经切换到这个会话了…
+                         哪怕切换失败…拼命刷新、拼命重启手机，下次也是直接进入这个会话」）：
+                         **会话锚定（本地选中标志）**——
+                           ① 点会话行＝立刻把 sid 写进 localStorage（wb_cli_anchor），不等
+                              服务端回执；断网/超时/切换失败都不撤销；
+                           ② 冷启动/刷新/重启手机：先按锚定会话铺盘上小账本（prepaint），
+                              连上后若服务端当前会话 ≠ 锚定会话，自动补发一次 switch（走原有
+                              10s 补发 / 60s 判失败链路）；
+                           ③ 掉线重连成功同样补一次（老板：「突然间恢复网络了，也锚定这个会话」）；
+                           ④ 断网时发消息按锚定会话投递（send 的 conv 用锚定 sid，服务端
+                              cmd_send 支持一步直达），不再带服务端旧会话；
+                           ⑤ 只有服务端明确回「目标会话不存在」才清锚定（防死循环）；
+                              新建对话成功后由新会话 sid 覆盖锚定。 */
+                      /* 2.61（2026-11-17 老板原话：「网页版切换到一个新会话以后会突然变成
+                         纯白色的聊天记录，啥也没有，还得手动点刷新才能解决」）：
+                         CDP 实测复现（headless Edge + 线上 2.58~2.60 + 真频道 CLI/7001）：
+                           点会话 → 0.0s 切起（预备帧 4 条铺上）→ 1.2s 预备帧被**上一个会话**
+                           的常规快照清掉 → 9.2s 目标正文帧到达 → 9.27s **第二帧 switched**
+                           → applySwitch(keepSnap=false) 把刚到手的目标 S.snap 清成 {}
+                           → 10.4s「（暂无消息…）」→ 之后服务端指纹没变、一帧不再发 →
+                           永久空白，只有手动刷新能回来。
+                         两处根因（都在本页）：
+                           ① 切换在途时 onEv('snap') 的「非预备帧会话 → 预备帧退场」把目标
+                              预备帧提前清掉；现在 switch_pend 在途一律留着；
+                           ② 同一次切换的重复 switched（本端 10s 补发 + 服务端「已在该会话」
+                              再广播）走后把目标正文清空；现在的判据＝「手里这份快照正是屏上
+                              正在显示、且有正文」→ 这一帧只重画不换账（跨机切换、迟到的重复帧
+                              同理受保护），彻底不擦屏。
+                        服务端配套（3.19）：cmd_router.py 的 cmd_switch「已在该会话」两条分支
+                        （sid 命中 / 索引命中）在广播 switched 前也补一次 refresh_snap()，
+                        任何原因把账清空了，下一帧就能把正文推回来。 */
                       /* 2.59（2026-11-17，接 2.58）：**误判重连阈值 20s → 45s**——老板原话
                          「那个 20 秒放宽到 45」。计时口径：页面发出任何 cmd/req 起算，
                          收到服务端任何一帧即清零；每 3s 由 renderLink 判一次。副B 拉一份
@@ -6503,8 +6896,16 @@ function connect(){
 let cliHbTimer = null, cliLoggedIn = false, cliIdleAt = Date.now();
 let cliLastBeat = 0;           /* 1.25：最后一次成功发出登录心跳的时刻 */
 let cliActSent = 0;            /* 1.64：最后一次上报「人工活动」的时刻（节流用） */
+/* 2.69（2026-11-19 A1 实测整改）：logout 后「挂起」——频道广播仍在往本页面
+   推 snap（PieSocket 是频道级广播，服务端无法只发给在线客户端），旧逻辑照
+   收照渲染，渲染里 plans_fp 对不上就又发 cmd plans_cur；ctl 定时器也只管
+   5 分钟窗口、不看登录态，继续发 ctl_hb。实测 logout 后 10 分钟仍外发 16 帧。
+   现在：logout 即置 suspended，来帧只记账不处理、任何外发一律短路；回前台
+   doLogin 复位。 */
+let cliSuspended = false;
 function doLogin(){
   cliIdleAt = Date.now();
+  cliSuspended = false;                    /* 2.69：回前台复位，恢复处理与发送 */
   if (!cliLoggedIn){
     cliLoggedIn = true;
     try { sendJson({t: 'login', fg: !document.hidden, nick: MY_NICK}); } catch(e){}
@@ -6514,21 +6915,24 @@ function doLogin(){
 function cliLogout(reason){
   if (!cliLoggedIn) return;
   cliLoggedIn = false;
+  cliSuspended = true;                     /* 2.69：挂起——零处理、零外发 */
+  cliIdleAt = 0;
   if (cliHbTimer){ clearInterval(cliHbTimer); cliHbTimer = null; }
+  /* 2.69：离场顺手还操控锁（在 logout 帧之前发，属同一次离场，不计入观察窗） */
+  try { if (ctlHeld){ ctlHeld = false; sendJson({t: 'ctl_free'}); } ctlAt = 0; } catch(e){}
   try { sendJson({t: 'logout', r: reason || ''}); } catch(e){}
 }
 function startCliHb(){
-  clearInterval(cliHbTimer);
-  cliHbTimer = setInterval(() => {
-    if (!S.onLine || !cliLoggedIn) return;
-    /* 1.25：后台也照发（保活）——发得出去就发，被系统冻结也无害 */
-    try { sendJson({t: 'hb', fg: !document.hidden, nick: MY_NICK}); cliLastBeat = Date.now(); } catch(e){}
-  }, HB_SEC * 1000);
+  /* 2.68（老板 2026-11-19 频道使用规范第 5 条）：**周期 hb 已删**。
+     进出场只走 login / logout，中间零保活帧；服务端判活同步改为「logout 才摘除」
+     （wb_cli\bridge.py 的 900 秒无 hb 摘人已放宽到 12 小时）。 */
+  clearInterval(cliHbTimer); cliHbTimer = null;
 }
 function cliTouch(){                       // 任意操作 = 在线（续登录）
   cliIdleAt = Date.now();
   if (!cliLoggedIn) doLogin();             // 有操作且未登录 → 自动登录
   cliActPing();                            // 1.64：把「人在操作」告诉服务端
+  try { ctlTouch(); } catch(e){}           // 2.68：同步续上操控租约的 5 分钟窗口
 }
 /* 1.64：人工活动上报——服务端据此判定「你正看着本对话」：本对话跑完也不
    吵你；你离开（无操作超时 / 页面切后台）才亮橙灯提醒。高频事件，故节流
@@ -6546,8 +6950,9 @@ function cliActAway(){
   try { sendCmd('away', ''); } catch(e){}   // 人走了：本对话跑完即可亮橙灯
 }
 setInterval(() => {                        // 1.25：仅「前台且闲置」才退登停播
-  if (!document.hidden && cliLoggedIn && Date.now() - cliIdleAt > IDLE_MS)
-    cliLogout('闲置5分钟');
+  /* 1.12：秒数取「③ 调控」的离线倒计时（默认 300s，关掉则永不下线） */
+  if (!document.hidden && cliLoggedIn && Date.now() - cliIdleAt > lbOffMs())
+    cliLogout('闲置下线');
 }, 15000);
 /* 1.25：回前台/回页面 —— 能省则省地续上（不无脑整包重放） */
 function cliResume(){
@@ -6557,15 +6962,11 @@ function cliResume(){
     ensureConnect();
     return;
   }
-  const stale = !cliLastBeat || (Date.now() - cliLastBeat > 120000);
-  if (cliLoggedIn && !stale){
-    /* 没断线、心跳也新鲜 → 只补一个心跳，秒续，免重放 */
-    try { sendJson({t: 'hb', fg: true, nick: MY_NICK}); cliLastBeat = Date.now(); } catch(e){}
-  } else {
-    /* 服务端可能已按「150 秒无心跳」把我们判下线 → 重新登录（整包重放） */
-    cliLoggedIn = false;
-    doLogin();
-  }
+  /* 2.68：不再靠心跳「续命」判活——没退登就说明服务端还在推，静默即可；
+     已退登（切后台超 60 秒）才重新 login 并接受一次整包重放。 */
+  if (cliLoggedIn) return;
+  cliLoggedIn = false;
+  doLogin();
 }
 function ensureConnect(){
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
@@ -6574,13 +6975,30 @@ function ensureConnect(){
 }
 /* 1.25：切后台/锁屏不再主动下线；回前台自动续上
    1.64：切后台/锁屏也算「人走了」——上报 away，本对话跑完即可亮橙灯。 */
+/* 2.68（老板 2026-11-19 频道规范第 5 条）：切后台/锁屏超过 60 秒 = 人走了
+   → 主动 logout，服务端停播、该频道零消耗；回前台再 login（一次整包重放）。 */
+let hideLogoutTimer = null;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden){
     /* 2.47：手机切后台/锁屏时定时器会被冻结，这段时间「没收到回应」
        不能算服务器没回——撤销本次等回应，避免回前台瞬间误报。 */
     S.waitT = 0; S.waitN = 0; S.waitLast = 0;
-    cliActAway(); return;
+    cliActAway();
+    clearTimeout(hideLogoutTimer);
+    /* 1.12：切后台下线秒数取「③ 调控」（键 wb_lb_bgout，默认 60；0＝不自动下线） */
+    var bgMs = (function(){
+      var v = parseInt(localStorage.getItem('wb_lb_bgout') || '', 10);
+      if (!isFinite(v)) v = 60;
+      return (v <= 0 ? 0 : Math.min(1800, v)) * 1000;
+    })();
+    if (bgMs > 0){
+      hideLogoutTimer = setTimeout(() => {
+        if (document.hidden && cliLoggedIn) cliLogout('切后台' + (bgMs / 1000) + '秒');
+      }, bgMs);
+    }
+    return;
   }
+  clearTimeout(hideLogoutTimer); hideLogoutTimer = null;
   cliResume();
   /* 2.58：回前台＝人类又要用了——顺手跟大账本对一次号（20 秒节流） */
   setTimeout(() => { try { reconAsk('回前台'); } catch(e){} }, 800);
@@ -6604,8 +7022,51 @@ function sendHello(){
     }, 3000);
 }
 
+/* 3.20（网页 2.66）：快照省流配套——服务端 plans 全文只在「指纹变了」时下发，
+   平时只带 plans_fp（末段变长时带 plans_tail 增量）。这里把它拼回 v.plans：
+     ① 带 plans 全文 → 直接记账；
+     ② 带 plans_tail 且本地同会话同前缀 → 追加到末段；
+     ③ 指纹与本地那份相同 → 沿用本地全文；
+     ④ 都对不上（刚刷新/落后太多）→ 走 c=='plans_cur' 现取一次（10 秒节流）。
+   拼不上且取不到时，渲染层的老键兜底（snap.plan 单块）照常生效，不会白屏。 */
+function _plansMerge(v){
+  if (!v || typeof v !== 'object') return;
+  const sid = String(v.title || '');
+  const fp = String(v.plans_fp || '');
+  if (Array.isArray(v.plans)){
+    S.plansCache = {sid: sid, fp: fp, segs: v.plans};
+    return;
+  }
+  if (!fp) return;                    /* 老服务端：没有省流字段，走老键 */
+  const pc = S.plansCache;
+  if (v.plans_tail && pc && pc.segs && pc.sid === sid){
+    const segs = pc.segs.slice();
+    const last = segs.length ? segs[segs.length - 1] : null;
+    if (last) last.x = String(last.x || '') + String(v.plans_tail);
+    else segs.push({id: '', x: String(v.plans_tail), t: 0});
+    v.plans = segs;
+    S.plansCache = {sid: sid, fp: fp, segs: segs};
+    return;
+  }
+  if (pc && pc.segs && pc.sid === sid && pc.fp === fp){
+    v.plans = pc.segs;
+    return;
+  }
+  const now = Date.now();
+  if (sid && sid === String(S.histConv || curConvId() || '')
+      && now - (S.plansWaitAt || 0) > 10000){
+    S.plansWaitAt = now;
+    const id = srvOpNewId();
+    S_reqs[id] = {conv: sid, sk: 'plans_cur'};
+    sendCmd('plans_cur', sid, {id: id});
+  }
+}
+
 function onMsg(msg){
   statsAdd(msg.length, 0, 1, 0);
+  /* 2.69：挂起期（已 logout）只记账，不处理任何来帧——snap 继续广播过来也不
+     触发渲染/plans_cur 现取，保证频道零外发。回前台 doLogin 复位。 */
+  if (cliSuspended) return;
   const r = FoxIn.feed(msg);
   if (r === null){
     /* 无 FOX 头：本端只发 FOX 帧，不可能撞自己回声——兜底收对端
@@ -6653,6 +7114,9 @@ function handleBody(body){
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
   /* 1.33 全新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
+  /* 3.23（V1.0 批C）：模块核对回执 / 单模块实体帧 */
+  if (d.t === 'vack') { try { onVack(d); } catch(e){} return; }
+  if (d.t === 'mod')  { try { onMod(d);  } catch(e){} return; }
   if (d.t === 'hello') onHello(d);
   /* 1.84：主频道承载**备用兜底**的 TTS 回包——直连走不通时经服务端本机中转，
      回 tts_ack（阶段回执）+ tts_resp（整段 b64 / err）。 */
@@ -6807,6 +7271,7 @@ function switchSrv(nm){
   if (!S.servers[nm] || nm === S.cur) return;
   /* 1.13：切走前向旧目标显式还锁（ctl_free），不等超时自动释放 */
   if (S.cur && S.onLine) sendJson({t: 'ctl_free'});
+  try { ctlHeld = false; ctlAt = 0; } catch(e){}    /* 2.68：放锁即停 ctl_hb */
   exitFmsg();                  /* 1.14：换目标先退出历史全屏 */
   setCur(nm);
   /* 2.51：换台先按「这台记着的服务端版本号」重算缓存键，再去取它自己的档案——
@@ -6881,8 +7346,21 @@ setInterval(pruneSrv, 5000);
    （服务端默认 60 秒无操作释放；不发心跳即视为离开）
    2.21（老板 2026-10-25 23:46 令）：心跳只允许每分钟一条；服务端锁 60 秒，
    60000 正好卡边界（抖动一下就被判超时），实际取 55000（55 秒）更稳。 */
-setInterval(() => { if (S.onLine && S.cur) sendJson({t: 'ctl_hb'}); },
-            55000);
+/* 2.68（老板 2026-11-19 频道规范第 5 条）：**ctl_hb 只在真持有操控租约时发**。
+   判据＝最近 5 分钟内有过操控动作（触摸/按键/操控命令 → ctlTouch 刷新）。
+   窗口一过期立即 ctl_free 放锁并停止外发，不再「在线就一路续占」。 */
+let ctlHeld = false, ctlAt = 0;
+function ctlTouch(){ ctlAt = Date.now(); }
+setInterval(() => {
+  if (!cliLoggedIn) return;                    /* 2.69：logged-out 一律不发 ctl_* */
+  if (!S.onLine || !S.cur) return;
+  if (!ctlAt || Date.now() - ctlAt > 300000){
+    if (ctlHeld){ ctlHeld = false; try { sendJson({t: 'ctl_free'}); } catch(e){} }
+    return;
+  }
+  ctlHeld = true;
+  sendJson({t: 'ctl_hb'});
+}, 55000);
 
 function renderTop(){
   const s = S.servers[S.cur];
@@ -6959,6 +7437,10 @@ el.srv.onclick = () => { drawerOpen(); renderSrvList(); };
 function onEv(kind, v){
   switch (kind){
     case 'turncast':                   /* 2.10：轮播轻广播（旧服务端兼容路） */
+      /* 3.21 定向：只认本服务端 + 本会话的思维卡；别台的/别会话的一律丢，
+         防止手机看着 A 会话却把 B 会话的思维卡记进账（多服务端/切换在途会串）。 */
+      if (v && v._port && v._port !== S.port) return;
+      if (v && v.sid && String(v.sid) !== String(curConvId())) return;
       onTurncast(v);
       return;
     case 'pendcfg':                    /* 1.23：确认匹配参数变更即时跟随 */
@@ -6996,12 +7478,36 @@ function onEv(kind, v){
           v.msgs = _prevSnap.msgs;
       }
       /* 2.56：直播帧已带正文、且不是预备帧那条会话 → 预备帧当场退场。
-         不这样，冷启动预铺的「上次画面」会顶在别的会话名下来回换，看着像闪。 */
-      if (hasMsgs && S.prepMsgs
+         不这样，冷启动预铺的「上次画面」会顶在别的会话名下来回换，看着像闪。
+         ★2.61（2026-11-17 CDP 实测复现）：切换在途时（switch_pend 还在），服务端
+         仍会推**上一个会话**的常规快照——那不是"目标已到"，却把刚铺好的目标
+         预备帧当场清掉，于是切换那几秒只剩空屏。切换在途一律留着预备帧，
+         等 switched 之后目标自己的帧（title 对上 prepSid）再接班。 */
+      /* 2.65（2026-11-17 老板原话：「服务器那边也确认切换了会话，但是客户端这边要做足
+         工作……切换失败也不会退到之前的会话，就锚定当前这个」）：
+         预备帧若是**锚定会话**的账，别的会话（服务端还没切过来的那个）推来的快照
+         一律不许把它清掉——否则切失败 60 秒后开关一收，屏上就悄悄退回旧会话。
+         只有「锚定会话自己的真帧到了」才由 _liveOn 正常接班。 */
+      const _anHold = anchorGet();
+      const _anHoldSid = (_anHold && _anHold.sid) ? String(_anHold.sid) : '';
+      const _keepPrep = !!(_anHoldSid && String(S.prepSid || '') === _anHoldSid);
+      if (hasMsgs && S.prepMsgs && !S.switch_pend && !S.anchor_hold && !_keepPrep
           && String(v.title || '') !== String(S.prepSid || '')){
         S.prepMsgs = null; S.prepSid = ''; S.prepEmptyAt = 0;
       }
+      /* 3.20（省流配套）：服务端 plans 全文只在变化时下发——先把缺的正文按
+         指纹/增量拼回 v.plans，再落 S.snap（保证这一拍渲染用的就是完整思维流） */
+      try { _plansMerge(v); } catch(e){}
       S.snap = v;
+      /* 3.26（老板 2026-11-20）：「选中的对话是谁，这个信息平时都要落盘」——
+         用户没点过任何会话行时，把服务端当前会话也写进锚定；
+         下次打开/重启手机先按它铺小账本，第一屏就有内容。 */
+      try {
+        if (v.title && Array.isArray(v.convs) && v.convs.length && !anchorGet())
+          anchorSet(v.title, '');
+      } catch(e){}
+      /* 2.62：拿真快照对锚——服务端不是锚定会话就自动补切一次（本次连接一次） */
+      try { anchorFollow(v); } catch(e){}
       if (hasMsgs) snapCacheTouch(v);   /* 2.37：最新轮次赶紧记录（内存 + 盘） */
       srvOpSnapDone();       /* 2.14：快照刷新＝业务成功信号 → 静默收口在途动作 */
       /* 分页窗口元数据随快照更新：游标（翻页基准）、窗口前的「我」条数
@@ -7479,11 +7985,31 @@ function onEv(kind, v){
         && (Date.now() - S.new_conv_pends[0] < 8000)
         && !!(S.snap && S.snap._port === v[1] && S.snap.online);
       if (!swT && S.new_conv_pends.length) S.new_conv_pends.shift();  /* 2.13：一帧认领一个 */
+      /* ★2.61（2026-11-17 CDP 实测复现）：一次切换会收到**两帧 switched**——
+         本端 10 秒补发又把 switch 发了一遍，服务端「已在该会话」再广播一次。
+         第一帧已把 pending 消费掉，第二帧 hadPend=false → 照旧走
+         applySwitch(..., keepSnap=false)，把**刚到手、已经画在屏上的目标正文
+         S.snap 清成 {}**；服务端指纹没变不会再补发那一拍 → 整片空白，
+         只能手动刷新才回来（老板原话：「切换到一个新会话…纯白色…还得手动点刷新」）。
+         判据：没有在途切换、也没有新建要认领，而手里这份快照**正是屏幕上正在显示的
+         那个会话且有正文** → 这一帧 switched 只会把屏擦白，直接忽略（只重画）。
+         跨机切换同样受保护：新目标快照先到、switched 后到（swT 为空）时不再被擦。 */
+      const _onScreen = !!(S.snap && S.snap.online && S.paintSid
+        && Array.isArray(S.snap.msgs) && S.snap.msgs.length
+        && String(S.snap.title || '') === String(S.paintSid));
+      const _dupSw = !hadPend && !freshNew && _onScreen;
+      if (_dupSw){
+        S.msgs_key = null;
+        scheduleRenderAll();
+        break;
+      }
       applySwitch(v[0], v[1], hasTarget || freshNew);
       S.loadingConv = (swT && !hasTarget)
         ? {title: swT, ts: Date.now(), disp: swD} : null;
       if (hadPend) switchOk(swD || swT);   /* 1.82：闪现「切换成功」2s 后交回状态灯 */
       if (!hadPend && freshNew) switchOk('', true);  /* 2.13：本端新建 → 状态栏闪「新会话」 */
+      /* 2.62：新建成功 → 这个新会话就是新的锚定（下次打开直接进它） */
+      if (freshNew && S.snap && S.snap.title) anchorSet(String(S.snap.title), '');
       S.msgs_key = null;               /* 强制重画消息区（撤条/占位） */
       scheduleRenderAll();
       break;
@@ -7536,6 +8062,13 @@ function onEv(kind, v){
       if (S.switch_pend || S.loadingConv){
         switchEnd(); S.loadingConv = null;      /* 1.82：连同在途定时器一起清 */
         S.switch_target = null; renderAll();
+      }
+      /* 2.62：只有服务端明确说「目标会话不存在」才撤锚定——否则每次打开都补切，
+         永远切不进去、死循环。其它失败（超时/断网/忙）一律保留锚定。 */
+      if (/目标会话不存在/.test(emsg)){
+        anchorClear(); S.anchor_hold = false;
+        S.prepMsgs = null; S.prepSid = '';
+        try { sendJson({t: 'hello'}); } catch(e){}
       }
       document.querySelectorAll('.optbtn.picked').forEach(b => {
         b.disabled = false;
@@ -7624,7 +8157,8 @@ function onHello(d){
   if (d.conn) onEv('connected', S.port);
   /* 2.58：连上 / 手动刷新 / 掉线重连成功 —— 都是一次「重大切换」，
      跟大账本对一次号（只比序号，缺的补过来；全对上就零动作）。 */
-  setTimeout(() => { try { reconAsk('连上', true); } catch(e){} }, 600);
+  setTimeout(() => { try { reconAsk('连上', true); } catch(e){}
+                     try { modCheck('login', true); } catch(e){} }, 600);
 }
 
 function applySwitch(box, port, keepSnap){
@@ -7673,6 +8207,12 @@ function setOnLine(b){
       sendCmd('switch', S.switch_pend.title);
       renderAll();
     }
+    /* 2.62：重连成功 → 再给一次「回到锚定会话」的机会（首帧快照到了就补切） */
+    S.anchor_tried = false;
+    S.anchor_fix_n = 0;      /* 3.20：新连接重新给 1 次，但 60 秒间隔照旧 */
+    setTimeout(() => {
+      try { if (S.onLine && S.snap && S.snap.online) anchorFollow(S.snap); } catch(e){}
+    }, 1200);
   }
   /* 1.69：网络恢复 → 自动把「掉线时撞顶没拉成」的历史补回来，
      省得用户先看到「请刷新网络」还得自己再滑一次。 */
@@ -8537,7 +9077,7 @@ function channelPrompt(){
     ov.remove();
     flash('频道密钥已保存，正在连接…', 'var(--blue)');
     connect();
-    ttsConnect();                             // 1.83：TTS 直连同步启动
+    /* 2.68：不再顺带启动 TTS 直连——按需（首次播放）才连，规范第 2 条。 */
   };
   $('chanok').onclick = go;
   inp.onkeydown = e => {
@@ -8569,12 +9109,27 @@ checkVerBump();
 pendRestore();
 /* 1.45：加密频道——首用无密钥（且无 ?ws= 覆盖）→ 弹窗输入，不自动连 */
 const wsOV = new URLSearchParams(location.search).get('ws');
-if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
+/* 2.68（老板 2026-11-19 频道规范第 2 条）：TTS 频道**按需连接**——启动不再
+   连（原来 connect() 后紧跟 ttsConnect()，手机同时在线两个频道）。
+   首次点播放时由 ttsEnsure() 拉起，播完静置 60 秒自动断开。 */
+if (wsOV || CFG.channel){ connect(); } else channelPrompt();
 
-/* ======== 小账本查看器（原「轮播账查看器」；2.49 起改读快照账 snaps） ======== */
+/* ======== 小账本查看器（快照账 snaps） V1.0 三页签 ========
+   1.11（2026-11-20）：按《手机网页端账本系统 V1.0》§十整改——
+   ① 账本（小账本本体，只显当前服务器；卡片两行左右分栏：名/服务器、终身号/条数·更新时间＋删除）
+   ② 缓存（原样保留，全部服务器可查）
+   ③ 调控（唯一集中入口：自动清理、悬浮倒计时、离线倒计时、核对周期、保留条数、
+           思维流帧间隔、切后台下线）
+   ★ 小账本＝现成查看器，禁止另造页面；配置项只放本页 ③。 */
 (function(){
-  var built = false, CV_VER = '1.10', view = 'list', cur = null;
+  var built = false, CV_VER = '1.11', tab = 'ledger', cur = null;
   var NKEY = 'wb_turns_n';
+  var LS_CLEAN = 'wb_lb_autoclean', LS_HUD = 'wb_lb_hud', LS_OFFE = 'wb_lb_offline_on',
+      LS_OFF = 'wb_lb_offline', LS_PER = 'wb_lb_period', LS_THINK = 'wb_lb_think',
+      LS_BG = 'wb_lb_bgout';
+  function lsN(k, d){ var v = parseInt(localStorage.getItem(k) || '', 10); return isFinite(v) ? v : d; }
+  function lsB(k, d){ var v = localStorage.getItem(k); return v == null ? d : (v === '1'); }
+  function lsSet(k, v){ try { localStorage.setItem(k, String(v)); } catch(e){} }
   function nGet(){ try{ var v = parseInt(localStorage.getItem(NKEY) || '5', 10); return (v >= 2 && v <= 60) ? v : 5; }catch(e){ return 5; } }
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   /* 老板 2026-11-07 19:42：轮播账按 sid 锚定（不变），但**显示以会话名为准**
@@ -8627,25 +9182,54 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
     st.textContent =
       '#tv_page{position:fixed;inset:0;z-index:99999;background:#f6f8fa;display:none;flex-direction:column;color:#222}' +
       '#tv_page.on{display:flex}' +
-      '#tv_hd{flex:none;display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fff;border-bottom:1px solid #e3e8ee}' +
-      '#tv_hd .t{flex:1;font-size:16px;font-weight:600}' +
-      '#tv_hd button{border:1px solid #d5dbe1;background:#fff;border-radius:8px;padding:7px 10px;font-size:13px}' +
-      '#tv_bd{flex:1;overflow:auto;padding:10px 10px 40px}' +
+      '#tv_hd{flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px;background:#fff;border-bottom:1px solid #e3e8ee}' +
+      '#tv_hd .t{flex:1;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '#tv_hd button{border:1px solid #d5dbe1;background:#fff;border-radius:8px;padding:6px 9px;font-size:13px;min-height:0}' +
+      '#tv_tabs{flex:none;display:flex;gap:6px;padding:7px 10px;background:#fff;border-bottom:1px solid #e3e8ee}' +
+      '#tv_tabs button{flex:1;border:1px solid #d5dbe1;background:#fff;border-radius:8px;padding:7px 4px;font-size:13px;min-height:0;color:#222}' +
+      '#tv_tabs button.on{background:#2f6fed;border-color:#2f6fed;color:#fff}' +
+      '#tv_bd{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 10px 40px}' +
       '.tv_sec{background:#fff;border:1px solid #e6ebf0;border-radius:12px;margin:0 0 12px;overflow:hidden}' +
-      '.tv_sec>h3{margin:0;padding:12px 14px;font-size:15px;font-weight:600;background:#eef4fb;border-bottom:1px solid #e6ebf0}' +
-      '.tv_sec>h3 .n{font-size:12px;color:#6b7b8c;font-weight:400}' +
-      '.tv_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;padding:10px}' +
-      '.tv_card{background:#fff;border:1px solid #e6ebf0;border-radius:12px;padding:10px 12px;min-height:56px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}' +
+      '.tv_sec>h3{margin:0;padding:11px 13px;font-size:14px;font-weight:600;background:#eef4fb;border-bottom:1px solid #e6ebf0}' +
+      '.tv_sec>h3 .n{font-size:11px;color:#6b7b8c;font-weight:400}' +
+      '.tv_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:8px;padding:9px}' +
+      '.tv_card{position:relative;background:#fff;border:1px solid #e6ebf0;border-radius:12px;padding:5px 10px;' +
+        'min-height:0;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}' +
       '.tv_card:active{background:#f2f6ff}' +
-      '.tv_l1{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
-      '.tv_l2{margin-top:5px;font-size:11px;color:#8a98a6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.tv_r{display:flex;align-items:center;gap:6px;line-height:17px}' +
+      '.tv_r+.tv_r{margin-top:2px}' +
+      '.tv_nm{flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.tv_sv{flex:none;font-size:10px;color:#8a98a6;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.tv_no{flex:1;min-width:0;font-size:11px;color:#33404d;font-family:Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.tv_no.na{color:#b8821b;font-family:inherit}' +
+      '.tv_ts{flex:none;font-size:10px;color:#8a98a6;white-space:nowrap}' +
+      '.tv_del{flex:none;width:24px;height:22px;min-height:0;line-height:1;padding:0;border:1px solid #e3c8c8;' +
+        'background:#fff;color:#c62828;border-radius:6px;font-size:12px}' +
+      '.tv_empty{padding:14px;font-size:13px;color:#8a98a6}' +
+      '.tv_hint{padding:8px 13px;font-size:11px;color:#8a98a6;line-height:1.6}' +
       '.tv_dhd{display:flex;align-items:center;gap:8px;margin:0 0 10px}' +
-      '.tv_dhd button{flex:none;border:1px solid #2f6fed;background:#fff;color:#2f6fed;border-radius:8px;padding:6px 10px;font-size:13px}' +
-      '.tv_dhd .dt{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.tv_dhd button{flex:none;border:1px solid #2f6fed;background:#fff;color:#2f6fed;border-radius:8px;padding:6px 10px;font-size:13px;min-height:0}' +
+      '.tv_dhd .dt{flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.tv_turn{padding:9px 11px;margin:6px 0;border:1px solid #eef1f4;border-radius:8px;background:#fff}' +
-      '.tv_turn .u{font-size:13px;color:#1a3d6d;white-space:pre-wrap;word-break:break-word}' +
-      '.tv_turn .a{font-size:13px;color:#222;margin-top:6px;white-space:pre-wrap;word-break:break-word}' +
-      '.tv_turn .m{font-size:11px;color:#8a98a6;margin-top:6px}';
+      '.tv_turn .kd{display:inline-block;font-size:10px;line-height:15px;padding:0 5px;margin-right:5px;border:1px solid transparent;border-radius:4px}' +
+      '.tv_turn .kd.u{background:#e8f0fe;color:#1a56c4;border-color:#cfe0ff}' +
+      '.tv_turn .kd.a{background:#e8f7ee;color:#1a7f37;border-color:#c8ead4}' +
+      '.tv_turn .kd.th{background:#fff4e5;color:#9a5b00;border-color:#ffe0b2}' +
+      '.tv_turn .kd.q{background:#f2f4f7;color:#8a98a6;border-color:#e3e8ee}' +
+      '.tv_turn .bd{font-size:13px;color:#222;white-space:pre-wrap;word-break:break-word;margin-top:5px}' +
+      '.tv_turn .m{font-size:10px;color:#8a98a6;margin-top:6px;font-family:Menlo,monospace}' +
+      '.tv_ctlrow{display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid #f1f4f7;font-size:13px}' +
+      '.tv_ctlrow:last-child{border-bottom:0}' +
+      '.tv_ctlrow label{flex:1;min-width:0;line-height:1.45}' +
+      '.tv_ctlrow input[type=number]{width:70px;padding:5px 7px;font-size:13px;border:1px solid #d5dbe1;border-radius:6px;min-height:0}' +
+      '#tv_hud{padding:10px 13px;font-size:14px;font-weight:600;color:#337ab7;letter-spacing:1px}' +
+      '#tv_mask{position:fixed;inset:0;z-index:100000;background:rgba(15,25,40,.42);display:none;align-items:center;justify-content:center;padding:20px}' +
+      '#tv_mask.on{display:flex}' +
+      '#tv_box{background:#fff;border-radius:12px;max-width:320px;width:100%;padding:16px}' +
+      '#tv_box .q{font-size:14px;line-height:1.6;margin:0 0 12px;white-space:pre-line}' +
+      '#tv_box .b{display:flex;gap:8px;justify-content:flex-end}' +
+      '#tv_box .b button{border:1px solid #d5dbe1;background:#fff;border-radius:8px;padding:8px 14px;font-size:13px;min-height:0}' +
+      '#tv_box .b button.dg{border-color:#c62828;background:#c62828;color:#fff}';
     document.head.appendChild(st);
   }
   /* 2.49：改读**快照账**（snaps）。轮播账（conv）已退役，库里那条路不再有数据。 */
@@ -8659,57 +9243,166 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
   }
   function openAll(){
     return new Promise(function(res){
-      var rq = indexedDB.open('wbcli_turns', 2);
-      rq.onsuccess = function(){
-        var db = rq.result, out = [];
+      var out = [];
+      idbOpen().then(function(db){
+        if (!db){ res(out); return; }
         try{
           var tx = db.transaction('snaps', 'readonly');
-          var cur2 = tx.objectStore('snaps').openCursor();
-          cur2.onsuccess = function(){
-            var c = cur2.result;
-            if (c){
-              /* 键形如「服务器标识|会话sid」；老键没有 '|' → srv='local' */
-              var k = String(c.key), i = k.indexOf('|');
-              out.push({
-                srv: (i > 0 ? k.slice(0, i) : 'local'),
-                sid: (i > 0 ? k.slice(i + 1) : k),
-                msgs: (c.value && c.value.msgs) || [],
-                idle: !(c.value && c.value.idle === false),
-                ts: (c.value && c.value.ts) || 0
-              });
-              c.continue();
-            }
+          var rq = tx.objectStore('snaps').openCursor();
+          rq.onsuccess = function(){
+            var c = rq.result;
+            if (!c){ res(out); return; }
+            /* 键形如「服务器标识|会话sid」；老键没有 '|' → srv='local' */
+            var k = String(c.key), i = k.indexOf('|'), v = c.value || {};
+            out.push({
+              key: k,
+              srv: (i > 0 ? k.slice(0, i) : 'local'),
+              sid: (i > 0 ? k.slice(i + 1) : k),
+              msgs: v.msgs || [],
+              idle: !(v.idle === false),
+              ts: v.ts || 0
+            });
+            c.continue();
           };
-          tx.oncomplete = function(){ res(out); };
-          tx.onerror = function(){ res(out); };
+          rq.onerror = function(){ res(out); };
         }catch(e){ res(out); }
-      };
-      rq.onerror = function(){ res([]); };
+      });
     });
+  }
+  function delSnap(key){
+    return new Promise(function(res){
+      idbOpen().then(function(db){
+        if (!db){ res(false); return; }
+        try{
+          var tx = db.transaction('snaps', 'readwrite');
+          tx.objectStore('snaps').delete(key);
+          tx.oncomplete = function(){ res(true); };
+          tx.onerror = function(){ res(false); };
+        }catch(e){ res(false); }
+      });
+    });
+  }
+  /* 自动清理 14 天没看过的小账本（只在 ③ 勾了「自动清理」时开页跑一次） */
+  function cleanStale(days){
+    var lim = Date.now() - (days || 14) * 86400000, n = 0;
+    return openAll().then(function(list){
+      var old = list.filter(function(it){ return (it.ts || 0) < lim; });
+      return Promise.all(old.map(function(it){ n++; return delSnap(it.key); }))
+        .then(function(){ return n; });
+    });
+  }
+  /* 终身号：只认权威号（4 位全数字），绝不拿 sid／实例号截断推导；
+     查不到就显「⏳ 待补号」。来源：会话名本身 → 长期名字字典 → 当前快照 convs 行。 */
+  function lnOf(sid, mp){
+    var nm = String((mp && mp[sid]) || '');
+    if (/^\d{4}$/.test(nm)) return nm;
+    try{
+      var d = JSON.parse(localStorage.getItem('wb_cli_convnames') || 'null');
+      var v = d && d[String(sid)];
+      if (v && /^\d{4}$/.test(String(v))) return String(v);
+    }catch(e){}
+    try{
+      var rows = (S && S.snap && S.snap.convs) || [];
+      for (var i = 0; i < rows.length; i++){
+        var r = rows[i];
+        if (!r || r[0] !== 'c' || String(r[1]) !== String(sid)) continue;
+        for (var j = 2; j < r.length; j++){
+          if (/^\d{4}$/.test(String(r[j] || ''))) return String(r[j]);
+        }
+      }
+    }catch(e){}
+    return '';
+  }
+  /* 每条记录的类型（服务端下发为准）：u=人类发言 / a=AI 终极回复 / th=思维流 / 其它=类型未知 */
+  function kindOf(m){
+    /* 3.24（V1.0 §五）：服务端行级类型优先（行数组 index8），缺失才按角色推导 */
+    var t8 = String((m && m[8]) || '');
+    if (t8 === 'u' || t8 === 'a' || t8 === 'th') return t8;
+    var k = String((m && m[0]) || '');
+    if (k === 'u' || k === 'user' || k === 'human') return 'u';
+    if (k === 'th' || k === 'think') return 'th';
+    if (k === 'a' || k === 'ai' || k === 'assistant' || k === 'final') return 'a';
+    return 'q';
+  }
+  var KD_TXT = {u: '人类发言', a: 'AI 终极回复', th: '思维流', q: '类型未知'};
+  function cardOf(it, mp, withDel, host){
+    var nm = nmOf(it.sid, mp), ln = lnOf(it.sid, mp);
+    var card = document.createElement('div'); card.className = 'tv_card';
+    card.innerHTML =
+      '<div class="tv_r"><div class="tv_nm">' + esc(nm) + '</div>' +
+      '<div class="tv_sv">' + esc(srvName(it.srv || '')) + '</div></div>' +
+      '<div class="tv_r"><div class="tv_no' + (ln ? '' : ' na') + '">'
+        + (ln ? esc(ln) : '⏳ 待补号') + '</div>' +
+      '<div class="tv_ts">' + esc(String(it.msgs.length || 0) + ' 条'
+        + (it.ts ? ' · 更新于 ' + tsTxt(it.ts) : '') + (it.idle ? '' : ' · 生成中')) + '</div>' +
+      (withDel ? '<button class="tv_del" title="删除本机缓存">🗑</button>' : '') + '</div>';
+    card.onclick = function(){ cur = it; render(host); host.scrollTop = 0; };
+    if (withDel){
+      var db = card.querySelector('.tv_del');
+      db.onclick = function(ev){
+        try { ev.stopPropagation(); } catch(e){}
+        askDel(it, host);
+      };
+    }
+    return card;
+  }
+  /* 删除二次确认：自绘一层（不用系统 confirm，与整页风格一致） */
+  function askDel(it, host){
+    var mk = document.getElementById('tv_mask');
+    if (!mk){
+      mk = document.createElement('div'); mk.id = 'tv_mask';
+      mk.innerHTML = '<div id="tv_box"><div class="q"></div><div class="b">' +
+        '<button class="ok">取消</button><button class="dg">删除</button></div></div>';
+      document.body.appendChild(mk);
+    }
+    mk.querySelector('.q').textContent = '删除这个小账本？\n' + nmOf(it.sid, nameMap())
+      + '\n只删本机缓存，不动服务器与云端。';
+    mk.classList.add('on');
+    mk.querySelector('.ok').onclick = function(){ mk.classList.remove('on'); };
+    mk.querySelector('.dg').onclick = function(){
+      mk.classList.remove('on');
+      delSnap(it.key).then(function(ok){
+        try { diagLog('小账本' + (ok ? '已删：' : '删除失败：') + it.key, ok ? 'ok' : 'bad'); } catch(e){}
+        render(host);
+      });
+    };
   }
   function render(host){
     host.innerHTML = '';
+    if (cur){ renderDetail(host); return; }
+    if (tab === 'ctl') renderCtl(host);
+    else if (tab === 'cache') renderCache(host);
+    else renderLedger(host);
+  }
+  /* ① 账本：小账本本体——只显当前服务器的会话，按更新时间倒序，两行卡片 */
+  function renderLedger(host){
+    var sec = document.createElement('div'); sec.className = 'tv_sec';
+    sec.innerHTML = '<h3>📒 小账本 · 本机 <span class="n">读取中…</span></h3>' +
+      '<div class="tv_hint">只显当前服务器 <b>' + esc(srvName(srvKey())) + '</b> 的会话；' +
+      '每个会话只留最新 N 条，切会话时先铺的就是它。改条数/清理去「③ 调控」。</div>';
+    host.appendChild(sec);
+    openAll().then(function(list){
+      var mine = list.filter(function(it){ return String(it.srv) === String(srvKey()); });
+      mine.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
+      sec.querySelector('.n').textContent = mine.length + ' 个会话（盘上共 ' + list.length + ' 个）';
+      if (!mine.length){
+        var e = document.createElement('div'); e.className = 'tv_empty';
+        e.textContent = '（当前服务器还没有小账本，切几个会话就会攒起来）';
+        sec.appendChild(e); return;
+      }
+      var g = document.createElement('div'); g.className = 'tv_grid';
+      var mp = nameMap();
+      mine.forEach(function(it){ g.appendChild(cardOf(it, mp, true, host)); });
+      sec.appendChild(g);
+    });
+  }
+  /* ② 缓存：原样保留，全部服务器都能查（按服务器分组） */
+  function renderCache(host){
     var cfg = document.createElement('div'); cfg.className = 'tv_sec';
-    cfg.innerHTML = '<h3>小账本（快照账）<span class="n">手机只留这一套 · 每个会话都存</span></h3>' +
-      '<div style="padding:10px 14px 8px;font-size:13px;color:#6b7b8c;line-height:1.7">' +
-      '切会话时先铺的就是它，与直播画面同一套渲染，所以切过去不抖、不闪、没有多余提示条。<br>' +
-      '规则：<b>每个会话都保存</b>（不限会话个数），但每个会话只留<b>最新 N 条</b>，' +
-      '超出的自动删最旧的。轮播账（旧那套）已整体退役，不再写盘、不再显示。</div>' +
-      '<div style="padding:0 14px 12px;font-size:13px;display:flex;align-items:center;gap:8px">' +
-      '每个会话保留最新 <input id="tv_sn" type="number" min="1" max="200" step="1" ' +
-      'style="width:72px;border:1px solid #d5dbe1;border-radius:6px;padding:5px 6px;font-size:13px"> 条' +
-      '<span style="color:#8a98a6;font-size:11px">（默认 5）</span></div>';
+    cfg.innerHTML = '<h3>缓存说明 <span class="n">全部服务器 · 原样保留</span></h3>' +
+      '<div class="tv_hint">「小账本」＝切会话时先铺的那份缓存，与直播同一套渲染，切过去不抖不闪。' +
+      '规则：每个会话都保存（不限会话个数），每个会话只留最新 N 条，超出自动删最旧。</div>';
     host.appendChild(cfg);
-    var sne = cfg.querySelector('#tv_sn');
-    sne.value = _snapN();
-    sne.onchange = function(){
-      var v = parseInt(sne.value, 10);
-      if (!(v >= 1)) v = SNAP_N_DEF;
-      if (v > SNAP_N_MAX) v = SNAP_N_MAX;
-      sne.value = v;
-      try { localStorage.setItem(SNAP_N_KEY, String(v)); } catch(e){}
-    };
-    if (view === 'detail' && cur){ renderDetail(host); return; }
     var sec = document.createElement('div'); sec.className = 'tv_sec';
     sec.innerHTML = '<h3>本地快照账 <span class="n">读取中…</span></h3>';
     host.appendChild(sec);
@@ -8717,14 +9410,11 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       list.sort(function(a, b){ return (b.ts || 0) - (a.ts || 0); });
       sec.querySelector('.n').textContent = list.length + ' 个会话有本地快照账';
       if (!list.length){
-        sec.appendChild(Object.assign(document.createElement('div'),
-          {style:'padding:14px;color:#8a98a6;font-size:13px',
-           textContent:'（本地还没有快照账，切几个会话就会攒起来）'}));
-        return;
+        var e = document.createElement('div'); e.className = 'tv_empty';
+        e.textContent = '（本地还没有快照账，切几个会话就会攒起来）';
+        sec.appendChild(e); return;
       }
-      var mp = nameMap();
-      /* 按服务器分组（家里 / 宿舍两台服务端会话同名也不会混淆） */
-      var groups = {}, order = [];
+      var mp = nameMap(), groups = {}, order = [];
       list.forEach(function(it){
         if (!groups[it.srv]){ groups[it.srv] = []; order.push(it.srv); }
         groups[it.srv].push(it);
@@ -8733,60 +9423,183 @@ if (wsOV || CFG.channel){ connect(); ttsConnect(); } else channelPrompt();
       order.forEach(function(sv){
         var gs = document.createElement('div'); gs.className = 'tv_sec';
         gs.innerHTML = '<h3>服务器：' + esc(srvName(sv)) + ' <span class="n">'
-          + groups[sv].length + ' 个会话有本地快照账</span></h3>';
+          + groups[sv].length + ' 个会话</span></h3>';
         var g = document.createElement('div'); g.className = 'tv_grid';
-        groups[sv].forEach(function(it){
-          var firstu = '';
-          for (var q = 0; q < it.msgs.length; q++){
-            if (it.msgs[q] && it.msgs[q][0] === 'u'){ firstu = String(it.msgs[q][1] || ''); break; }
-          }
-          var nm = nmOf(it.sid, mp);
-          var card = document.createElement('div'); card.className = 'tv_card';
-          card.innerHTML = '<div class="tv_l1">' + esc(nm) + '</div>' +
-            '<div class="tv_l2">' + esc(it.msgs.length + ' 条 · ' + tsTxt(it.ts)
-              + (it.idle ? '' : ' · 生成中')
-              + (firstu ? ' · ' + firstu.slice(0, 20) : '')
-              + ' · ' + String(it.sid).slice(0, 8)) + '</div>';
-          card.setAttribute('data-sid', it.sid);
-          card.setAttribute('data-srv', sv);
-          card.onclick = function(){ cur = it; view = 'detail'; render(host); host.scrollTop = 0; };
-          g.appendChild(card);
-        });
-        gs.appendChild(g);
-        host.appendChild(gs);
+        groups[sv].forEach(function(it){ g.appendChild(cardOf(it, mp, false, host)); });
+        gs.appendChild(g); host.appendChild(gs);
       });
     });
   }
   function renderDetail(host){
+    var mp = nameMap(), ln = lnOf(cur.sid, mp);
     var bar = document.createElement('div'); bar.className = 'tv_dhd';
-    bar.innerHTML = '<button>‹ 返回列表</button><div class="dt">' + esc(nmOf(cur.sid, nameMap()))
-      + ' <span style="font-weight:400;color:#8a98a6;font-size:11px">'
-      + esc(srvName(cur.srv || '') + ' · ' + String(cur.sid).slice(0, 8)
-            + ' · ' + tsTxt(cur.ts)) + '</span></div>';
-    bar.querySelector('button').onclick = function(){ view = 'list'; cur = null; render(host); host.scrollTop = 0; };
+    bar.innerHTML = '<button>‹ 返回</button><div class="dt">' + esc(nmOf(cur.sid, mp)) + '</div>';
+    bar.querySelector('button').onclick = function(){ cur = null; render(host); host.scrollTop = 0; };
     host.appendChild(bar);
+    var meta = document.createElement('div'); meta.className = 'tv_hint';
+    meta.style.cssText = 'background:#fff;border:1px solid #e6ebf0;border-radius:10px;margin:0 0 10px;color:#4a5a6a';
+    meta.textContent = '服务器：' + srvName(cur.srv || '') + ' · 终身号：' + (ln || '⏳ 待补号')
+      + ' · ' + (cur.msgs.length || 0) + ' 条' + (cur.ts ? ' · 更新于 ' + tsTxt(cur.ts) : '');
+    host.appendChild(meta);
     var sec = document.createElement('div'); sec.className = 'tv_sec';
-    sec.innerHTML = '<h3>快照账 · ' + esc(cur.msgs.length + ' 条') + '</h3>';
+    sec.innerHTML = '<h3>快照账 · ' + esc(String(cur.msgs.length || 0)) +
+      ' 条 <span class="n">每条都带类型：人类发言／AI 终极回复／思维流</span></h3>';
     var box = document.createElement('div'); box.style.padding = '6px 10px 12px';
     cur.msgs.forEach(function(m, i){
-      var isU = (m && (m[0] === 'u' || m[0] === 'user'));
-      var d = document.createElement('div'); d.className = 'tv_turn';
-      d.innerHTML = '<div class="' + (isU ? 'u' : 'a') + '">'
-        + esc((isU ? '你：' : 'AI：') + String((m && m[1]) || '')) + '</div>'
-        + '<div class="m">' + esc('第 ' + (i + 1) + ' 条') + '</div>';
+      var kd = kindOf(m), d = document.createElement('div'); d.className = 'tv_turn';
+      d.innerHTML = '<div><span class="kd ' + kd + '">' + KD_TXT[kd] + '</span>' +
+        '<span class="m" style="display:inline;margin:0">第 ' + (i + 1) + ' 条</span></div>' +
+        '<div class="bd">' + esc(String((m && m[1]) || '')) + '</div>' +
+        '<div class="m">' + esc('序号 ' + (m && typeof m[5] === 'number' ? m[5] : '—')) + '</div>';
       box.appendChild(d);
     });
     sec.appendChild(box); host.appendChild(sec);
   }
+  /* ③ 调控：账本系统 V1.0 全部调控项（唯一集中入口），改值立即生效并保存 */
+  function renderCtl(host){
+    var cfg = document.createElement('div'); cfg.className = 'tv_sec';
+    cfg.innerHTML = '<h3>预备账册参数 <span class="n">每个会话只留最新 N 条</span></h3>' +
+      '<div class="tv_ctlrow"><label>保留条数（本地小账本＝切会话预备画面）</label>' +
+      '<input id="tv_n" type="number" min="1" max="200" step="1"></div>' +
+      '<div class="tv_hint">默认 5。只留人类发言＋AI 终极回复；思维流不入账。</div>';
+    host.appendChild(cfg);
+    var hud = document.createElement('div'); hud.className = 'tv_sec';
+    hud.innerHTML = '<h3>核对与离线倒计时 <span class="n">每秒递减；任意操作即重置</span></h3>' +
+      '<div id="tv_hud">—</div>';
+    host.appendChild(hud);
+    var fs = document.createElement('div'); fs.className = 'tv_sec';
+    fs.innerHTML = '<h3>账本调控 <span class="n">改值立即生效并保存</span></h3>' +
+      '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_clean"> 自动清理无用小账本（14 天未查看自动删）</label></div>' +
+      '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_hud"> 悬浮倒计时条（默认关；勾选即左下角走字）</label></div>' +
+      '<div class="tv_ctlrow"><label>离线倒计时（秒）</label><input type="number" id="tv_in_offline" min="15" max="3600"></div>' +
+      '<div class="tv_ctlrow"><label>主动核对周期（秒）</label><input type="number" id="tv_in_period" min="15" max="3600"></div>' +
+      '<div class="tv_ctlrow"><label>保留轮数（本地小账本＝服务端默认同值）</label><input type="number" id="tv_in_rounds" min="1" max="200"></div>' +
+      '<div class="tv_ctlrow"><label>思维流帧间隔（秒，0＝不限频一变即发）</label><input type="number" id="tv_in_think" min="0" max="120"></div>' +
+      '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_idleout"> 离线倒计时启用（走完发下线信号）</label></div>' +
+      '<div class="tv_ctlrow"><label>切后台自动下线（秒，0＝不自动下线）</label><input type="number" id="tv_in_bg" min="0" max="1800"></div>' +
+      '<div class="tv_hint">以上为账本系统 V1.0 调控项（唯一集中入口）。小账本本体在「① 账本」，原始缓存仍在「② 缓存」。</div>';
+    host.appendChild(fs);
+    var q = function(id){ return fs.querySelector('#' + id); };
+    var nEl = cfg.querySelector('#tv_n');
+    function applyN(v){
+      v = parseInt(v, 10);
+      if (!(v >= 1)) v = SNAP_N_DEF;
+      if (v > SNAP_N_MAX) v = SNAP_N_MAX;
+      try { localStorage.setItem(SNAP_N_KEY, String(v)); } catch(e){}
+      return v;
+    }
+    nEl.value = _snapN();
+    nEl.onchange = function(){
+      nEl.value = applyN(nEl.value);
+      var r = q('tv_in_rounds'); if (r) r.value = nEl.value;
+    };
+    q('tv_ck_clean').checked = lsB(LS_CLEAN, false);
+    q('tv_ck_hud').checked = lsB(LS_HUD, false);
+    q('tv_ck_idleout').checked = lsB(LS_OFFE, true);
+    q('tv_in_offline').value = lsN(LS_OFF, 300);
+    q('tv_in_period').value = lsN(LS_PER, 60);
+    q('tv_in_rounds').value = _snapN();
+    q('tv_in_think').value = lsN(LS_THINK, 3);
+    q('tv_in_bg').value = lsN(LS_BG, 60);
+    q('tv_ck_clean').onchange = function(){ lsSet(LS_CLEAN, this.checked ? 1 : 0); };
+    q('tv_ck_hud').onchange = function(){ lsSet(LS_HUD, this.checked ? 1 : 0); };
+    q('tv_ck_idleout').onchange = function(){ lsSet(LS_OFFE, this.checked ? 1 : 0); };
+    q('tv_in_offline').onchange = function(){
+      var v = Math.min(3600, Math.max(15, parseInt(this.value, 10) || 300));
+      this.value = v; lsSet(LS_OFF, v);
+    };
+    q('tv_in_period').onchange = function(){
+      var v = Math.min(3600, Math.max(15, parseInt(this.value, 10) || 60));
+      this.value = v; lsSet(LS_PER, v);
+    };
+    q('tv_in_rounds').onchange = function(){
+      this.value = applyN(this.value); nEl.value = this.value;
+    };
+    q('tv_in_think').onchange = function(){
+      var v = Math.min(120, Math.max(0, parseInt(this.value, 10) || 0));
+      this.value = v; lsSet(LS_THINK, v);
+      try { sendJson({t: 'set_think_int', v: v}); } catch(e){}
+    };
+    q('tv_in_bg').onchange = function(){
+      var v = Math.min(1800, Math.max(0, parseInt(this.value, 10) || 0));
+      this.value = v; lsSet(LS_BG, v);
+    };
+  }
+  /* 倒计时文本：核对（距下次主动核对）· 离线（距自动下线） */
+  function hudText(){
+    var txt = [];
+    try{
+      var per = lsN(LS_PER, 60) * 1000, last = 0, sid = '';
+      try { sid = reconSid(); } catch(e){}
+      try { last = (_reconTs && _reconTs[sid]) || 0; } catch(e){}
+      var left = per - (Date.now() - last); if (left < 0) left = 0;
+      txt.push('核对 ' + Math.round(left / 1000) + 's');
+    }catch(e){ txt.push('核对 —'); }
+    try{
+      if (lsB(LS_OFFE, true) && cliLoggedIn){
+        var off = lsN(LS_OFF, 300) * 1000;
+        var l2 = off - (Date.now() - cliIdleAt); if (l2 < 0) l2 = 0;
+        txt.push('离线 ' + Math.round(l2 / 1000) + 's');
+      } else txt.push('离线 —');
+    }catch(e){ txt.push('离线 —'); }
+    return txt.join(' · ');
+  }
   function build(){
     if (built) return; built = true; inject();
     var pg = document.createElement('div'); pg.id = 'tv_page';
-    pg.innerHTML = '<div id="tv_hd"><button id="tv_back">‹ 返回</button><div class="t">小账本查看器 v' + CV_VER + '</div><button id="tv_reload">刷新</button></div><div id="tv_bd"></div>';
+    pg.innerHTML = '<div id="tv_hd"><button id="tv_back">‹ 返回</button>' +
+      '<div class="t">小账本查看器 v' + CV_VER + '</div><button id="tv_reload">刷新</button></div>' +
+      '<div id="tv_tabs"><button data-t="ledger" class="on">① 账本</button>' +
+      '<button data-t="cache">② 缓存</button><button data-t="ctl">③ 调控</button></div>' +
+      '<div id="tv_bd"></div>';
     document.body.appendChild(pg);
+    var hb = document.createElement('div'); hb.id = 'tv_hudbar';
+    hb.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99998;background:rgba(20,32,48,.82);' +
+      'color:#e8f1ff;font-size:11px;padding:3px 8px;border-radius:8px;display:none;font-family:Menlo,monospace';
+    document.body.appendChild(hb);
     var bd = pg.querySelector('#tv_bd');
-    pg.querySelector('#tv_back').onclick = function(){ pg.classList.remove('on'); };
-    pg.querySelector('#tv_reload').onclick = function(){ view = 'list'; cur = null; render(bd); };
-    window._tvOpen = function(){ pg.classList.add('on'); render(bd); };
+    pg.querySelector('#tv_back').onclick = function(){ pg.classList.remove('on'); hb.style.display = 'none'; };
+    pg.querySelector('#tv_reload').onclick = function(){ cur = null; render(bd); };
+    var tabs = pg.querySelectorAll('#tv_tabs button');
+    Array.prototype.forEach.call(tabs, function(b){
+      b.onclick = function(){
+        cur = null; tab = b.getAttribute('data-t');
+        Array.prototype.forEach.call(tabs, function(x){ x.classList.toggle('on', x === b); });
+        render(bd); bd.scrollTop = 0;
+      };
+    });
+    window._tvOpen = function(){
+      tab = 'ledger'; cur = null;
+      Array.prototype.forEach.call(tabs, function(x){
+        x.classList.toggle('on', x.getAttribute('data-t') === 'ledger');
+      });
+      pg.classList.add('on'); render(bd); bd.scrollTop = 0;
+      /* 自动清理：勾了「自动清理」且今天还没跑过 → 开页跑一次 */
+      try{
+        var day = new Date().toDateString();
+        if (lsB(LS_CLEAN, false) && localStorage.getItem('wb_lb_clean_day') !== day){
+          localStorage.setItem('wb_lb_clean_day', day);
+          cleanStale(14).then(function(n){
+            if (!n) return;
+            try { diagLog('小账本自动清理 ' + n + ' 个（14 天未查看）', 'ok'); } catch(e){}
+            if (!cur) render(bd);
+          });
+        }
+      }catch(e){}
+    };
+    if (!build._tick){
+      build._tick = setInterval(function(){
+        var txt = hudText();
+        var el = document.getElementById('tv_hud');
+        if (el) el.textContent = txt;
+        var e2 = document.getElementById('tv_hudbar');
+        if (e2){
+          var on = lsB(LS_HUD, false) && pg.classList.contains('on');
+          e2.textContent = txt;
+          e2.style.display = on ? 'block' : 'none';
+        }
+      }, 1000);
+    }
   }
   function bind(){
     var b = document.getElementById('btn_turnview');
