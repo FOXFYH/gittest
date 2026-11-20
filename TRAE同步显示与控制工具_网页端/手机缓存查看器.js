@@ -1,15 +1,14 @@
 'use strict';
 /* 手机缓存查看器.js（网页端）  版本 2.228  日期 2026-11-20
+   2.234（老板 2026-11-20 23:42）：③ 调控页原 2.227 的「强核对」独立分组整段删除
+     （四契机清单／最近一次／计数／「立即强核对」按钮全部清空，不留壳）；核对状态
+     只保留两处轻提示——顶部横幅「核对中 · 会话名」＋顶栏「操控:」旁圆球变橙。
    2.228（2026-11-20·老板 21:37 亲令「小账本全量展示」）：① 会话预备画面不再只
      显示当前服务器——readSnapConvs 去掉 srv===lbSrvTag() 过滤，全部服务器的小账本
      都读出来；renderPreview 改为按 srv 分组渲染：本服务器组置顶，其它服务器组按
      各自最新记录时间倒序，组内同样「最后更新越新越靠前」（取最后一条 mid，无 mid
      退回落盘 ts）；未标 srv 的老记录单独落「未标服务器（旧缓存）」组垫底，绝不改挂
      到任一服务器名下（跨服串显仍是红线）。组内仍按身份去重、每条仍带 🗑。
-   2.227（2026-11-20·WB+TR整改ST·人事部长ST 0023 派单「强核对」）：③ 调控页新增
-     独立分组「强核对」——四契机清单／最近一次（act/时间/sid/结果/耗时）／各 act
-     计数／「立即强核对」按钮（只调 ledgerVcheckSend('switch', 当前锚定 sid)，不另造
-     函数）；状态只读 账本核对.js 的 LB.vchkLog/vchkCnt，不改协议、不加 WS 字段。
    2.226（2026-11-20·WB+TR整改ST·人事部长ST 0023 转达老板令「账本缓存合并」）：
      查看器页签只留「① 账本」「② 调控」，原「② 缓存」页签删除；缓存全量渲染
      renderAllCache 整段保留复用，新增顶层 window.cvOpenCache() 供设置页
@@ -980,73 +979,8 @@
          夹 1~600、v<=0 关限频，免重启生效），回执 think_int_ack 由 账本核对.js 处理 */
       try { if (typeof sendJson === 'function') sendJson({t: 'set_think_int', v: CFG.lb_think | 0}); } catch(e){}
     };
-    /* 2.227（人事部长ST 0023 派单·强核对）：独立分组「强核对」——四契机清单、
-       最近一次（act/时间/sid/结果/耗时）、各 act 计数、一个「立即强核对」按钮。
-       按钮只调 ledgerVcheckSend('switch', 当前锚定 sid)，与点会话同一条路；
-       状态只读 账本核对.js 的 LB（vchkLog/vchkCnt），不发额外帧、不改协议。 */
-    var vk = document.createElement('div');
-    vk.className = 'cv_sec';
-    vk.innerHTML = '<h3>强核对 <span class="n">四契机共用同一段发送代码（账本核对.js）</span></h3>' +
-      '<div class="cv_lbhint" style="padding:10px 14px 4px;line-height:1.9">' +
-      '<b>login</b> 登录/重登后核一次（连接.js）<br>' +
-      '<b>svr</b> 切换服务器后核一次（上线与界面.js）<br>' +
-      '<b>switch</b> 点会话、自带刷新、重锚都走这条（事件总线/会话列表/待办卡）<br>' +
-      '<b>timer</b> 主动核对周期到点（账本核对.js）</div>' +
-      '<div class="cv_lbrow" style="display:block"><div id="cv_vk_last" style="font-size:13px;line-height:1.55">—</div></div>' +
-      '<div id="cv_vk_cnt" class="cv_lbhint">本次打开以来：—</div>' +
-      '<div class="cv_lbrow"><label>立即强核对（当前锚定会话，等同点会话那一条）</label>' +
-      '<button id="cv_vk_go" type="button" style="flex:none;border:1px solid #2f6fed;background:#2f6fed;' +
-      'color:#fff;border-radius:8px;padding:7px 10px;font-size:13px;min-height:0">立即强核对</button></div>' +
-      '<div id="cv_vk_msg" class="cv_lbhint">—</div>';
-    host.appendChild(vk);
-    var VK_NM = {login: '登录重登', svr: '切换服务器', switch: '切会话/刷新', timer: '定时主动'};
-    var vkLastEl = vk.querySelector('#cv_vk_last');
-    var vkCntEl = vk.querySelector('#cv_vk_cnt');
-    var vkMsgEl = vk.querySelector('#cv_vk_msg');
-    var vkRefresh = function(){
-      var L = (typeof LB === 'object' && LB && Array.isArray(LB.vchkLog)) ? LB.vchkLog : [];
-      var now = Date.now(), it = L[0] || null;
-      if (it){
-        var res;
-        if (it.st === 'same') res = '一致';
-        else if (it.st === 'need') res = '需补发' + (it.need ? '（' + it.need + ' 项）' : '');
-        else res = (now - it.ts > 90000) ? '超时（90 秒无回执）' : '核对中…';
-        var cost = (it.st === 'sent') ? (now - it.ts) : (it.cost || 0);
-        var nm = '';
-        try { nm = lbTitleOf({sid: it.sid}) || ''; } catch(e){}
-        vkLastEl.innerHTML = '<b>' + esc(it.act) + ' · ' + esc(VK_NM[it.act] || '') + '</b> → ' +
-          esc(res) + ' · ' + (cost / 1000).toFixed(1) + 's' +
-          '<div class="cv_meta" style="margin:3px 0 0">' + esc(new Date(it.ts).toLocaleString()) +
-          ' · sid ' + esc(String(it.sid || '（无）')) + (nm ? '（' + esc(nm) + '）' : '') + '</div>';
-      } else {
-        vkLastEl.textContent = '本次打开以来还没有发出强核对（刷新或点会话即可）';
-      }
-      var c = (typeof LB === 'object' && LB && LB.vchkCnt) ? LB.vchkCnt : {};
-      vkCntEl.textContent = '本次打开以来：login ' + (c.login | 0) + ' · svr ' + (c.svr | 0) +
-        ' · switch ' + (c.switch | 0) + ' · timer ' + (c.timer | 0) + ' 条';
-    };
-    vk.querySelector('#cv_vk_go').onclick = function(){
-      var sid = '';
-      try {
-        sid = (typeof S !== 'undefined' && S)
-          ? (S.anchorFull || ((typeof curSid === 'function') ? curSid() : '')) : '';
-      } catch(e){}
-      var ok = false;
-      try { ok = (typeof ledgerVcheckSend === 'function') ? ledgerVcheckSend('switch', sid || '') : false; } catch(e){ ok = false; }
-      vkMsgEl.textContent = ok
-        ? ('已发出 switch 强核对（sid ' + (sid || '空') + '），等 vack 回执…')
-        : '未发送（WS 未连）';
-      vkMsgEl.style.color = ok ? '#1a7f37' : '#c62828';
-      vkRefresh();
-    };
-    vkRefresh();
-    renderLedgerCtl._vkRefresh = vkRefresh;   /* 每秒刷新复用；重渲染自动换新 */
-    if (!renderLedgerCtl._vkTick){
-      renderLedgerCtl._vkTick = setInterval(function(){
-        if (!document.getElementById('cv_vk_last')) return;   /* 已离开该 tab，不空转 */
-        try { if (renderLedgerCtl._vkRefresh) renderLedgerCtl._vkRefresh(); } catch(e){}
-      }, 1000);
-    }
+    /* 2.234（老板 2026-11-20 23:42）：原「强核对」独立分组整段删除——不再需要
+       大面板。核对状态只看两处轻提示：顶部横幅「核对中 · 会话名」＋顶栏圆球变橙。 */
     if (!renderLedgerCtl._tick){
       renderLedgerCtl._tick = setInterval(function(){
         var el2 = document.getElementById('cv_lb_hud');
