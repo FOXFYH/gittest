@@ -1,5 +1,9 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.219  日期 2026-11-20
+/* 手机缓存查看器.js（网页端）  版本 2.220  日期 2026-11-20
+   2.220（老板 2026-11-20 16:21「保留最近 5 轮没起作用」收尾）：③ 保留轮数
+    改值后 lbRoundsApplied 除裁本地账本外，同步 lbTrimAllSnaps(true) 按新 N
+    裁预备画面（snap_conv）；① 卡片「N 条」直接读裁后的 frame.msgs，条数与
+    实际留存一致。思维流仍不计入轮次。
    老板要求：进去先看「会话预备画面」——按会话名列出本地缓存的、切换会话时会先显示的那份内容；
    另一个标签页才是「全部缓存」全量查看。
    两个页面都**只读 IndexedDB / LocalStorage**，不联网、不发帧、不触发广播。
@@ -833,6 +837,8 @@
      mods.lb_rounds 上报服务端（服务端 _采纳lb轮数 立即调整下发轮数）。 */
   function lbRoundsApplied(){
     try { if (typeof lbTrimAllRounds === 'function') lbTrimAllRounds(true); } catch(e){}
+    /* 2.220：预备画面（snap_conv）与本地账本同一把尺子——改值当拍即按新 N 裁。 */
+    try { if (typeof lbTrimAllSnaps === 'function') lbTrimAllSnaps(true); } catch(e){}
     try {
       var sid = (typeof S !== 'undefined' && S)
         ? (S.anchorFull || ((typeof curSid === 'function') ? curSid() : '')) : '';
