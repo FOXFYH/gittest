@@ -522,7 +522,11 @@
            4 位数字且非实例号截断 1632）；取不到不编造，显「终身号未登记」。
            绝不把会话 sid / 实例号当终身号展示。 */
         var _uid2 = String(it.uid || '').trim();
-        var _uidOk = /^\d{4}$/.test(_uid2) && _uid2 !== '1632';
+        var _uidOk = false;
+        try {
+          _uidOk = (typeof lbUidAuth === 'function') ? !!lbUidAuth(_uid2)
+            : (/^\d{4}$/.test(_uid2) && _uid2 !== '1632');
+        } catch(e){ _uidOk = false; }
         var sidTxt = _uidOk ? _uid2 : '终身号未登记';
         /* 2.206：缓存记录的接口/落盘时间（it.ts）不再作为任何显示时间。 */
         var _cur = '';
