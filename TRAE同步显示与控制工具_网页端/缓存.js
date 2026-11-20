@@ -617,8 +617,9 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
     if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
     _idbReq('snap_conv', 'readwrite', st => {
       st.delete(meta.key + '|@snap');
-      /* 2.211：记录另存真实 sid 与**权威 uid**（终身号）；显示端只认 uid，
-         取不到显「终身号未登记」，绝不把 sid/实例号当终身号。 */
+      /* 2.215：记录另存真实 sid 与**权威终身号**——标准 4 位号或会话名称兜底
+         （lbUidPick 已含名称兜底）；显示端按「号 / 名称（按名称）/ 未登记」三档，
+         绝不把完整 sid / 实例号当终身号。 */
       let _uid = String(meta.uid || '').trim();
       if (!_uid && typeof lbUidPick === 'function')
         { try { _uid = String(lbUidPick(null, meta.sid, meta.title) || ''); } catch(e){ _uid = ''; } }
