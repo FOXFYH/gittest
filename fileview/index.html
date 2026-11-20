@@ -413,8 +413,8 @@ function openFolderSheet(){
   showSheet(items);
 }
 // ============ 上传（1.17 并入原「传输附件」功能） ============
-// 分片经 WS 交本机服务端写盘：48KB/片（base64 约 64K），逐片等应答、错位即失败。
-const UP_CHUNK=49152;
+// 分片经 WS 交本机服务端写盘：192KB/片（base64 约 256K、64 帧），逐片等应答、错位即失败。
+const UP_CHUNK=196608;
 function pickUpload(dir){
   const inp=el("fileUp");
   inp.value="";
@@ -434,14 +434,14 @@ function _b64(buf){
 async function upOne(file,dir){
   let off=0,name=file.name;const total=file.size;
   if(!total){
-    const r=await req("upload",{path:dir,name:name,off:0,eof:true,data:""},60000);
+    const r=await req("upload",{path:dir,name:name,off:0,eof:true,data:""},120000);
     if(!r||!r.ok)throw new Error((r&&r.err)||"服务端未响应");
     return;
   }
   while(off<total){
     const end=Math.min(off+UP_CHUNK,total);
     const buf=await _readSlice(file,off,end);
-    const r=await req("upload",{path:dir,name:name,off:off,eof:end>=total,data:_b64(buf)},60000);
+    const r=await req("upload",{path:dir,name:name,off:off,eof:end>=total,data:_b64(buf)},120000);
     if(!r||!r.ok)throw new Error((r&&r.err)||"服务端未响应");
     if(off===0&&r.name)name=r.name;          // 重名时服务端已自动改名，后续片沿用
     off=end;
