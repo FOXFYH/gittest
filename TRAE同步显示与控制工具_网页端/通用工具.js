@@ -843,7 +843,6 @@ function adoptSnap(v){
   v.finish = old.finish;
   v.inputText = old.inputText || '';
   v.ask = old.ask || null;
-  v.attach = old.attach || [];
   v.tail = old.tail;
   v.sendIdle = old.sendIdle;
   /* 2.132：锚定冻结期不沿用上一会话排队条（残影根因）——本拍 pend 属桌面选中会话，一律清空 */
@@ -985,7 +984,6 @@ function renderAll(){
   }
   renderState(snap);
   revertRefill(snap);              // 1.62：撤回后把被撤回的话补回输入框
-  renderAttach(snap.attach || []);
   syncModel(snap.model || '');
 }
 
