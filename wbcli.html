@@ -3120,19 +3120,39 @@ function purgeConvStore(){
    填个 5 吧。按照这样的逻辑来管理，超出的就自动删掉比较旧的。」）：
    ★口径改成「**会话不限量、每会话限条数**」——
      · 会话：取消原来 30 个的上限，用过的每个会话都留一份（内存 S.snapCache + IDB snaps）。
-     · 条数：单会话只留**最新 N 条**（N 可配、默认 5，见 _snapN()），更旧的自动丢掉。
+     · 条数：单会话只留**最新 N 条**（2.72 起 N 已并入「保留轮数」，见 _snapRounds()/_snapSlice()），更旧的自动丢掉。
    原常量 SNAP_KEEP=30（会话数上限）、SNAP_MSGS_MAX=400（单会话条数上限）已按新口径废除；
    snapTrim()（按会话数裁内存）与 snapTrimDisk()（按会话数裁盘）随之删除——
    现在每会话只有 N 条，总量 = 会话数 × N，本来就不大，不需要再按会话数裁。 */
-const SNAP_N_KEY = 'wb_snap_n';      /* localStorage 键：每个会话保留多少条 */
-const SNAP_N_DEF = 5;                /* 老板定的默认值 */
-const SNAP_N_MAX = 200;              /* 参数护栏：最多 200 条 */
-function _snapN(){
+/* 2.72（老板 2026-11-20）：「调控的轮数……这边有两个参数，一个按条数、一个按轮数，
+   合并成一个就好，该删除的就删除。就按照轮数吧，5 轮，也就是大概 10 条。」
+   口径：**只留一个参数「保留轮数」**（1 轮 = 1 条人类发言 + 其后若干 AI 回复），
+   旧的「保留条数」wb_snap_n 及其全部引用删除；旧键在首次读取时顺手清掉。 */
+const SNAP_ROUNDS_KEY = 'wb_snap_rounds';  /* localStorage 键：每个会话保留多少轮 */
+const SNAP_ROUNDS_DEF = 5;                 /* 老板定的默认值：5 轮 ≈ 10 条 */
+const SNAP_ROUNDS_MAX = 200;
+let _snapNKeyPurged = false;
+function _snapRounds(){
   try{
-    var v = parseInt(localStorage.getItem(SNAP_N_KEY) || '', 10);
-    if (v >= 1 && v <= SNAP_N_MAX) return v;
+    if (!_snapNKeyPurged){
+      _snapNKeyPurged = true;
+      try { localStorage.removeItem('wb_snap_n'); } catch(e){}   /* 2.72：旧条数参数作废 */
+    }
+    var v = parseInt(localStorage.getItem(SNAP_ROUNDS_KEY) || '', 10);
+    if (v >= 1 && v <= SNAP_ROUNDS_MAX) return v;
   }catch(e){}
-  return SNAP_N_DEF;
+  return SNAP_ROUNDS_DEF;
+}
+/* 按「轮」裁：从倒数第 R 条人类发言处截断；一条人类发言都没有时按 1 轮≈2 条兜底 */
+function _snapSlice(msgs){
+  const arr = Array.isArray(msgs) ? msgs : [];
+  if (!arr.length) return arr;
+  const r = _snapRounds();
+  const u = [];
+  for (let i = 0; i < arr.length; i++){ if (arr[i] && arr[i][0] === 'u') u.push(i); }
+  if (!u.length) return arr.slice(-(r * 2));
+  const from = u.length <= r ? 0 : u[u.length - r];
+  return arr.slice(from);
 }
 let _snapSaveT = {};
 /* 2.50：原 snapTrim()（按会话数裁内存，SNAP_KEEP=30）已删除——会话不再限量，
@@ -3273,7 +3293,7 @@ function reconApply(sid, v){
   });
   if (!got) return;
   const all = Object.keys(map).map(k => map[k]).sort((a, b) => (a[5] | 0) - (b[5] | 0));
-  const keep = all.slice(-Math.max(_snapN(), 8));
+  const keep = _snapSlice(all);
   const rec2 = {msgs: keep, idle: rec ? (rec.idle !== false) : true,
                 finish: rec ? (rec.finish || null) : null, ts: Date.now()};
   if (!S.snapCache) S.snapCache = {};
@@ -3416,15 +3436,15 @@ setInterval(function(){
   }catch(e){}
 }, 5000);
 /* 2.50：snapTrimDisk() 已删除。老板新口径＝每个会话都保存，只限每个会话的条数；
-   条数在 snapCacheTouch() 写入时就按 _snapN() 裁好，所以盘上不需要再按会话数裁。 */
+   2.72 起条数参数并轨成「轮数」，在 snapCacheTouch() 写入时按 _snapSlice() 裁好。 */
 /* 每拍真快照落地就记一份（内存立刻，盘上 400ms 防写爆；生成刚结束则立刻落盘） */
 function snapCacheTouch(snap){
   if (!snap || !Array.isArray(snap.msgs) || !snap.msgs.length) return;
   const sid = String(snap.title || '');
   if (!sid) return;
   const prev = S.snapCache[sid];
-  /* 2.50：只留最新 N 条（默认 5）——超出的自动删最旧的。会话本身不限量。 */
-  const msgs = snap.msgs.slice(-_snapN());
+  /* 2.72：只留最新 R 轮（默认 5 轮≈10 条）——超出的自动删最旧的。会话本身不限量。 */
+  const msgs = _snapSlice(snap.msgs);
   const idle = (snap.sendIdle !== false);
   const rec = {msgs: msgs, idle: idle, finish: snap.finish || null, ts: Date.now()};
   S.snapCache[sid] = rec;
@@ -6373,8 +6393,11 @@ const APP_NAME = 'wb远程';
    ③ snapTrim()（按会话数裁内存）与 snapTrimDisk()（按会话数裁盘）一并删除——
       每会话只有 N 条，总量 = 会话数 × N，本来就不大；
    ④ 查看器里那个说明块改回可改参数：新增「每个会话保留最新 N 条」输入框（默认 5），
-      改后下一拍生效。 */
-const VER = '2.71';
+      改后下一拍生效。
+   ★2.72（2026-11-20）口径更新：条数/轮数两个参数合并成一个「保留轮数」
+      （`wb_snap_rounds`，默认 5 轮≈10 条），上面②里的条数参数与查看器里的「保留条数」
+      输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。 */
+const VER = '2.72';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -9457,12 +9480,6 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
   }
   /* ③ 调控：账本系统 V1.0 全部调控项（唯一集中入口），改值立即生效并保存 */
   function renderCtl(host){
-    var cfg = document.createElement('div'); cfg.className = 'tv_sec';
-    cfg.innerHTML = '<h3>预备账册参数 <span class="n">每个会话只留最新 N 条</span></h3>' +
-      '<div class="tv_ctlrow"><label>保留条数（本地小账本＝切会话预备画面）</label>' +
-      '<input id="tv_n" type="number" min="1" max="200" step="1"></div>' +
-      '<div class="tv_hint">默认 5。只留人类发言＋AI 终极回复；思维流不入账。</div>';
-    host.appendChild(cfg);
     var hud = document.createElement('div'); hud.className = 'tv_sec';
     hud.innerHTML = '<h3>核对与离线倒计时 <span class="n">每秒递减；任意操作即重置</span></h3>' +
       '<div id="tv_hud">—</div>';
@@ -9473,32 +9490,26 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
       '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_hud"> 悬浮倒计时条（默认关；勾选即左下角走字）</label></div>' +
       '<div class="tv_ctlrow"><label>离线倒计时（秒）</label><input type="number" id="tv_in_offline" min="15" max="3600"></div>' +
       '<div class="tv_ctlrow"><label>主动核对周期（秒）</label><input type="number" id="tv_in_period" min="15" max="3600"></div>' +
-      '<div class="tv_ctlrow"><label>保留轮数（本地小账本＝服务端默认同值）</label><input type="number" id="tv_in_rounds" min="1" max="200"></div>' +
+      '<div class="tv_ctlrow"><label>小账本保留轮数（1 轮≈2 条，默认 5）</label><input type="number" id="tv_in_rounds" min="1" max="200"></div>' +
       '<div class="tv_ctlrow"><label>思维流帧间隔（秒，0＝不限频一变即发）</label><input type="number" id="tv_in_think" min="0" max="120"></div>' +
       '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_idleout"> 离线倒计时启用（走完发下线信号）</label></div>' +
       '<div class="tv_ctlrow"><label>切后台自动下线（秒，0＝不自动下线）</label><input type="number" id="tv_in_bg" min="0" max="1800"></div>' +
       '<div class="tv_hint">以上为账本系统 V1.0 调控项（唯一集中入口）。小账本本体在「① 账本」，原始缓存仍在「② 缓存」。</div>';
     host.appendChild(fs);
     var q = function(id){ return fs.querySelector('#' + id); };
-    var nEl = cfg.querySelector('#tv_n');
-    function applyN(v){
+    function applyRounds(v){
       v = parseInt(v, 10);
-      if (!(v >= 1)) v = SNAP_N_DEF;
-      if (v > SNAP_N_MAX) v = SNAP_N_MAX;
-      try { localStorage.setItem(SNAP_N_KEY, String(v)); } catch(e){}
+      if (!(v >= 1)) v = SNAP_ROUNDS_DEF;
+      if (v > SNAP_ROUNDS_MAX) v = SNAP_ROUNDS_MAX;
+      try { localStorage.setItem(SNAP_ROUNDS_KEY, String(v)); } catch(e){}
       return v;
     }
-    nEl.value = _snapN();
-    nEl.onchange = function(){
-      nEl.value = applyN(nEl.value);
-      var r = q('tv_in_rounds'); if (r) r.value = nEl.value;
-    };
     q('tv_ck_clean').checked = lsB(LS_CLEAN, false);
     q('tv_ck_hud').checked = lsB(LS_HUD, false);
     q('tv_ck_idleout').checked = lsB(LS_OFFE, true);
     q('tv_in_offline').value = lsN(LS_OFF, 300);
     q('tv_in_period').value = lsN(LS_PER, 60);
-    q('tv_in_rounds').value = _snapN();
+    q('tv_in_rounds').value = _snapRounds();
     q('tv_in_think').value = lsN(LS_THINK, 3);
     q('tv_in_bg').value = lsN(LS_BG, 60);
     q('tv_ck_clean').onchange = function(){ lsSet(LS_CLEAN, this.checked ? 1 : 0); };
@@ -9513,7 +9524,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
       this.value = v; lsSet(LS_PER, v);
     };
     q('tv_in_rounds').onchange = function(){
-      this.value = applyN(this.value); nEl.value = this.value;
+      this.value = applyRounds(this.value);
     };
     q('tv_in_think').onchange = function(){
       var v = Math.min(120, Math.max(0, parseInt(this.value, 10) || 0));
