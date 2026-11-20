@@ -1854,30 +1854,35 @@ function ledgerStoreApply(sid, body, ver){
     const _liveN = (S.liveFrame && Array.isArray(S.liveFrame.msgs))
       ? lbRoundsFromMsgs(S.liveFrame.msgs).length : 0;
     const _newN = _rounds.length;
-    if (!(S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length)
-        || _newN > _liveN){
+    /* 2.237（老板 2026-11-20 23:21「等很久正文不来，切到小账本回复已到，刷新才出现」）：
+       旧判据只比「轮数」——AI 回复补进**同一轮**（人类半轮早到过）时轮数不变
+       （_newN == _liveN）⇒ 永不顶屏；而账本侧照常落库 ⇒ 小账本有、正文不动。
+       现改：轮数更多，或「账本行并入屏后比屏上更多」，都顶屏；等厚/更薄不动（防回退旧帧）。 */
+    const _curArr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : [];
+    const _liveArr = (S.liveFrame && Array.isArray(S.liveFrame.msgs))
+      ? S.liveFrame.msgs : [];
+    const _屏Rows = Math.max(_curArr.length, _liveArr.length);
+    const _spNow = S.switch_pend;
+    /* 底稿取「屏上更厚的那份」（当前屏可能是 liveFrame 持屏、也可能是 S.snap），
+       避免顶屏时把更厚的屏换成更薄的一份（2.237 防回退）。 */
+    const _baseSrc = (_liveArr.length > _curArr.length) ? _liveArr : _curArr;
+    const _base = (!(_spNow && _spNow.lockTarget && !_spNow.arrived))
+      ? _baseSrc.slice() : [];
+    const rows = [];
+    _rounds.forEach(r => (r || []).forEach(m => {
+      if (Array.isArray(m)) rows.push(m);
+    }));
+    const _merged = _base.slice();
+    rows.forEach(m => { lbMsgsAppend(_merged, m); });
+    if (rows.length && (!_屏Rows || _newN > _liveN || _merged.length > _屏Rows)){
       if (S.livePend){ S.livePend = ''; S.liveFrame = null; }   /* 解锁旧帧，交账本轮顶屏 */
-      const rows = [];
-      _rounds.forEach(r => (r || []).forEach(m => {
-        if (Array.isArray(m)) rows.push(m);
-      }));
-      if (rows.length){
-        /* 2.198（老板实测「一来新消息只剩最新两条」）：账本顶屏必须与已在屏的
-           当前会话正文合并——旧消息一条不藏；只在切换在途（目标别会话）时
-           不拿旧会话正文作底，防串台。 */
-        const _spNow = S.switch_pend;
-        const _base = (!(_spNow && _spNow.lockTarget && !_spNow.arrived)
-                       && S.snap && Array.isArray(S.snap.msgs))
-          ? S.snap.msgs.slice() : [];
-        rows.forEach(m => { lbMsgsAppend(_base, m); });
-        S.livePend = S.anchorSid;
-        S.liveFrame = {msgs: _base, finish: null, tail: '', sendIdle: true,
-                       inputText: '', opts: [], ask: null, pend: [],
-                       attach: [], model: ''};
-        /* 2.183 修2：S.lb_foldRounds 赋值行撤——补发面板已撤（§十二-2），
-           状态位只在真画面到手时由 :328 处归零防 key 漂移 */
-        renderAll();
-      }
+      S.livePend = S.anchorSid;
+      S.liveFrame = {msgs: _merged, finish: null, tail: '', sendIdle: true,
+                     inputText: '', opts: [], ask: null, pend: [],
+                     attach: [], model: ''};
+      /* 2.183 修2：S.lb_foldRounds 赋值行撤——补发面板已撤（§十二-2），
+         状态位只在真画面到手时由 :328 处归零防 key 漂移 */
+      renderAll();
     }
   }
 }
