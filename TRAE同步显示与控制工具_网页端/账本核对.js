@@ -1,5 +1,10 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.02  日期 2026-11-20
+/* 账本核对.js（网页端）  版本 1.03  日期 2026-11-20
+   【2.219 保留轮数真正生效】老板 2026-11-20 16:21「保留最近 5 轮这个参数没起作用」：
+     本地账本落账/归并/迁移/开机清理统一按 N（CFG.lb_rounds）裁 rounds——
+     lbRoundKey 去重后 slice(-N)，只裁 rounds 数组，整条记录其余字段不动；
+     被裁轮次记一条 `账本裁剪|键=…|裁前=n|裁后=N`（不记正文）。前端零拦截不变：
+     屏幕上的消息照旧显示，裁的只是本地账本存量。
    【2.215 终身号唯一算法】标准＝24hex sid 前 4 位数字；提取失败＝会话名原样兜底；
      新增 lbUidName/lbUidAny；lbUidPick 无号时回落到会话名；桶键只用「号」或「名称」。
    【2.200 补 m=u/input 路由】
@@ -237,6 +242,9 @@ function lbStoreKey(uidOrSid, title){
      · 前端升格提前终极（lbPromoteEarlyFinals，改以后端 early_final/index11 显示）；
      · 开机清理/迁移临时账本（lbCleanupTempLedgers 不再自动触发，见文件尾）；
      · 按保留轮数裁剪（落账不再 slice(-lbRounds)）。
+   注（2.219）：上一条「不按轮裁」指的是**不拒收、不丢当前屏内容**；老板
+   2026-11-20 16:21 令「保留最近 N 轮必须真正生效」——本地账本存量改由
+   lbLedgerTrimRounds 按 N 裁（只裁 rounds 数组），屏幕消息一律照旧显示。
    保留（属「显示/正确性」而非拦截）：换行/转义等最小格式化；排版规则
    （思维流画虚线框、终极回复不进虚线框）；去重/幂等（同 mid 重复帧不重复插入）；
    无合法 mid 不显示时间（只空该字段，其余内容照常）。 */
@@ -1026,6 +1034,28 @@ function lbRoundsFromMsgs(msgs){
   if (cur && cur.length) rounds.push(cur);
   return rounds;
 }
+/* 2.219（保留轮数真正生效）：本地账本唯一裁剪入口——lbRoundKey 去重后截尾
+   最新 N 轮（N＝lbRounds()）。**只裁 rounds 数组**，整条记录的 ts/lastTs/
+   lastView/pend/diag/think 一律保留；屏幕上的消息不受影响（零拦截不变）。
+   quiet=true 时不逐本记日志（开机批量只记一条汇总）。 */
+function lbLedgerTrimRounds(rounds, key, quiet){
+  const n = lbRounds();
+  const arr = Array.isArray(rounds) ? rounds : [];
+  const seen = new Set(), uniq = [];
+  arr.forEach(r => {
+    if (!Array.isArray(r) || !r.length) return;
+    const k = lbRoundKey(r);
+    if (seen.has(k)) return;
+    seen.add(k); uniq.push(r);
+  });
+  if (uniq.length <= n) return uniq;
+  const out = uniq.slice(-n);
+  if (!quiet){
+    try { diagLog('账本裁剪|键=' + String(key || '') + '|裁前=' + uniq.length
+      + '|裁后=' + n, 'ok'); } catch(e){}
+  }
+  return out;
+}
 /* 2.183 修4b（老板实测：小账本以纯数字命名·落盘层兜底）：title 为空或纯数字
    （/^\d+$/，服务端 TRAE本地账本.py 键常为 4 位序号，显示名在服务端 _名 映射
    未随帧下发）→ 先按 sid 从本地会话列表解析显示名（只读，不发帧）；解析不到
@@ -1244,6 +1274,8 @@ function lbMergeForConv(sid, title){
       if (r.think && (Number(r.ts) || 0) >= thinkTs){ think = r.think; thinkTs = Number(r.ts) || 0; }
     });
     const base = rows.find(r => r.sk === sk) || order[order.length - 1] || {};
+    /* 2.219：合并结果同样只留最新 N 轮（只裁 rounds，不删整条记录） */
+    const kept = lbLedgerTrimRounds(out, sk);
     const maxNum = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
     const rec = {
       sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
@@ -1251,7 +1283,7 @@ function lbMergeForConv(sid, title){
       ts: rows.reduce((m, x) => maxNum(m, x.ts), 0) || Date.now(),
       lastTs: rows.reduce((m, x) => maxNum(m, x.lastTs), 0),
       lastView: rows.reduce((m, x) => maxNum(m, x.lastView), 0),
-      pend: uid ? 0 : 1, diag: base.diag ? 1 : 0, rounds: out
+      pend: uid ? 0 : 1, diag: base.diag ? 1 : 0, rounds: kept
     };
     if (think) rec.think = think;
     const dels = rows.map(r => r.sk).filter(k => k !== sk);
@@ -1260,7 +1292,7 @@ function lbMergeForConv(sid, title){
         _idbReq('ledger_conv', 'readwrite', st => st.delete(k)).catch(() => {}))))
       .then(() => {
         try { diagLog('同名账本合并|' + name + '|桶 ' + rows.length + '→1，轮次 '
-          + rows.reduce((n, r) => n + ((r.rounds || []).length), 0) + '→' + out.length, 'ok'); } catch(e){}
+          + rows.reduce((n, r) => n + ((r.rounds || []).length), 0) + '→' + kept.length, 'ok'); } catch(e){}
         try { if (typeof window.cvLbDirty === 'function') window.cvLbDirty(); } catch(e){}
         return true;
       });
@@ -1427,6 +1459,9 @@ function ledgerStorePut(sid, title, rounds, opt){
           out.push(r);
         });
       }
+      /* 2.219（保留轮数真正生效）：落账统一按 N 裁——lbRoundKey 去重后只留
+         最新 N 轮（只裁 rounds，记录其余字段不动）。 */
+      out = lbLedgerTrimRounds(out, sk);
       /* 2.184 改6（老板 2026-11-19 09:58 / 规范§十 :271）：ts＝「最后更新时间」，
          只随真实内容变化走——仅查看（opt.touch）且轮身份全同 ⇒ 保留原 ts，
          小账本卡片按 ts 倒序就不会因为「点开看一眼」而跳位。 */
@@ -1472,12 +1507,14 @@ function ledgerStorePut(sid, title, rounds, opt){
           .catch(() => {}).then(() => _apply(old));
       });
     }).catch(() => {
+      /* 2.219：兜底新建同样只留最新 N 轮 */
+      const _rsT = lbLedgerTrimRounds(rs, sk);
       return _idbReq('ledger_conv', 'readwrite', st => st.put({
         sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
         uid: _uidEff, sid: _dialogSid || '', title: title || '',
         ts: now, lastTs: now, lastView: opt.touch ? now : 0,
-        pend: _uidEff ? 0 : 1, diag: _diag, think: null, rounds: rs}))
-        .then(() => _after(rs));
+        pend: _uidEff ? 0 : 1, diag: _diag, think: null, rounds: _rsT}))
+        .then(() => _after(_rsT));
     });
     };
     /* 2.196 登记顺序（老板原话，顺序不可乱）：
@@ -1765,6 +1802,42 @@ function lbCleanStale(){
 }
 setInterval(() => { try { lbCleanStale(); } catch(e){} }, 10 * 60 * 1000);
 
+/* ============ 2.219：开机/改值后按保留轮数 N 批量裁本地账本 ============
+   幂等、批量、不弹窗：逐本只裁 rounds（lbLedgerTrimRounds，quiet），整条记录
+   （ts/lastTs/lastView/pend/diag/think）不动；跑完记一条汇总日志（会话数＋
+   总裁掉轮数）。与「前端零拦截」不冲突：屏幕上的消息照样显示，只裁本地存量。 */
+let _lbTrimAllAt = 0;
+function lbTrimAllRounds(force){
+  try {
+    const now = Date.now();
+    if (!force && now - _lbTrimAllAt < 5000) return Promise.resolve(0);
+    _lbTrimAllAt = now;
+    let nBooks = 0, nCut = 0;
+    const tasks = [];
+    return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
+      (rows || []).forEach(rec => {
+        if (!rec || lbIsLegacyRec(rec) || !Array.isArray(rec.rounds)) return;
+        const kept = lbLedgerTrimRounds(rec.rounds, rec.sk, true);
+        if (kept.length === rec.rounds.length
+            && rec.rounds.every((r, i) => r === kept[i])) return;   /* 未超 N */
+        nBooks++;
+        nCut += Math.max(0, rec.rounds.length - kept.length);
+        const nrec = Object.assign({}, rec, {rounds: kept});
+        tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(nrec)).catch(() => {}));
+        try { lbSumSet(rec.uid || rec.sid, rec.title, kept); } catch(e){}
+      });
+      return Promise.all(tasks).then(() => {
+        if (nBooks){
+          try { diagLog('账本保留轮数 ' + lbRounds() + ' 轮：裁剪会话 ' + nBooks
+            + ' 本、共裁掉 ' + nCut + ' 轮（只裁本地存量，其余字段不动）', 'ok'); } catch(e){}
+        }
+        try { if (typeof window.cvLbDirty === 'function') window.cvLbDirty(); } catch(e){}
+        return nBooks;
+      });
+    }).catch(() => 0);
+  } catch(e){ return Promise.resolve(0); }
+}
+
 /* ============ 2.205/2.211：历史账本一次性清理（假桶只迁不删） ============
    背景：21:51 诊断口口径曾允许「无 sid 也按名称建临时账本（键 t:名称、标待补号）」；
    23:29 新令后这类账本一律不再产生。2.211（老板 2026-11-20 07:08 令）：
@@ -1821,7 +1894,7 @@ function lbCleanupTempLedgers(force){
             const seen = new Set(base.map(lbRoundKey));
             rounds.forEach(r => { const rk = lbRoundKey(r);
               if (!seen.has(rk)){ seen.add(rk); base.push(r); } });
-            const out = base.slice(-lbRounds());
+            const out = lbLedgerTrimRounds(base, nk);   /* 2.219：迁移后同样只留最新 N 轮 */
             /* 迁移记录尽量补回**真实会话 sid**（按会话名反查会话列表，只读）；查不到留空，
                键仍用名称键，绝不再写实例号/1632。 */
             let _rsid = '';
@@ -2251,7 +2324,14 @@ function lbThinkIntAck(d){
 /* ================= 启动 ================= */
 lbVerLoad();
 /* 2.214（老板 2026-11-20 08:08）：开机把存量重复桶合并成唯一一本（只合并内容，
-   不删聊天）。刷新/重启凭 localStorage 标记不重复跑；换服务器会重新跑一次。 */
-try { setTimeout(() => { try { lbMergeDuplicateBuckets(); } catch(e){} }, 2500); } catch(e){}
+   不删聊天）。刷新/重启凭 localStorage 标记不重复跑；换服务器会重新跑一次。
+   2.219（老板 16:21「保留最近 N 轮没起作用」）：合并完成后紧接按 N 批量裁本地
+   账本存量（幂等、只裁 rounds、一条汇总日志；屏幕消息不受影响）。 */
+try { setTimeout(() => {
+  try {
+    Promise.resolve(lbMergeDuplicateBuckets()).catch(() => 0)
+      .then(() => { try { return lbTrimAllRounds(); } catch(e){} });
+  } catch(e){}
+}, 2500); } catch(e){}
 /* 2.204（B4）：开机静默回补最近 2 天坏时间（幂等，5 分钟节流） */
 try { setTimeout(() => { try { lbTimeBackfill(2); } catch(e){} }, 4000); } catch(e){}
