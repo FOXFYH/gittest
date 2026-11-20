@@ -48,11 +48,9 @@ let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
           lbSum: {},                         /* 2.184 改4（规范§七 :194）：本地账本摘要表——键＝终身号，
                                                 值＝{rounds, codes:[{mid, fin, hash}]}，put 成功后才记；
                                                 vcheck 按它上报编码集合＋完成态＋正文指纹 */
-          /* 2.227（人事部长ST 0023 派单·强核对可见反馈）：最近 20 条强核对记录
-             {act,ts,sid,st:'sent|same|need',cost,need,seq}，仅运行期内存——不落盘、
-             不上行、不改协议；查看器「③ 调控·强核对」只读它，四契机共用这一份。 */
-          vchkLog: [],
-          vchkCnt: {login: 0, svr: 0, switch: 0, timer: 0}};   /* 本次打开以来各契机发出计数 */
+          /* 2.234（老板 2026-11-20 23:42）：原 2.227「强核对」可见反馈字段
+             （vchkLog/vchkCnt）随大面板一并清除，核对状态只走横幅＋圆球。 */
+          chkUntil: 0};                      /* 圆球指示窗截止时刻（四契机通用，10s） */
 let lbLastAct = Date.now();                  /* 离线倒计时锚点（任意操作重置） */
 let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默认关，追加单 2026-11-18） */
 
@@ -491,28 +489,18 @@ function ledgerVcheckSend(act, sid){
     if (act === 'login' || act === 'svr') lbVerLoad();   /* 换服务端/重登：按当前服务端重载底账，绝不串用旧服务端版本 */
     const _fr = ledgerVcheckBuild(act, sid);
     sendJson(_fr);
-    /* 2.233（老板 2026-11-20 23:07）：强核对在途期间，顶部横幅临时显示
-       「核对中 · 会话名」（输入界面.js 只读这三个字段，不改原四态逻辑）。
-       发帧即开窗、vack 终态即关窗、10 秒硬兜底防丢包卡字。 */
+    /* 2.234（老板 2026-11-20 23:42）：核对一律不再弹框/闪条——
+       用户可见的只有两处轻提示：① 顶部横幅「核对中 · 会话名」（仅用户主动
+       触发的 login/switch/svr 才占用，timer 主动核对不打扰横幅）；② 顶栏
+       「操控:」旁圆球变橙色闪烁（四契机全亮）。原「强核对」大面板与
+       ftoast 闪条代码已整段删除，不留壳。 */
     try {
-      LB.vchkOpen = 1;
-      LB.vchkEndAt = Date.now() + 10000;
-      LB.vchkTitle = String((S.switch_pend && S.switch_pend.title)
-                            || (typeof curTitle === 'function' ? curTitle() : '') || '');
-    } catch(e){}
-    /* 2.227（人事部长ST 0023 派单）：四契机统一记账——发出即入 LB.vchkLog，
-       查看器「③ 调控·强核对」立刻可见；login/svr 另给一条短闪条，不再全程静默。
-       结果（一致/补发/超时）由 ledgerVack 回填；不改协议、不加 WS 字段。 */
-    try {
-      const _it = {act: String(act), ts: Date.now(), sid: String(sid || ''),
-                   st: 'sent', cost: 0, need: 0, seq: _fr.req_seq};
-      if (!LB.vchkLog) LB.vchkLog = [];
-      if (!LB.vchkCnt) LB.vchkCnt = {login: 0, svr: 0, switch: 0, timer: 0};
-      LB.vchkCnt[act] = (LB.vchkCnt[act] | 0) + 1;
-      LB.vchkLog.unshift(_it);
-      if (LB.vchkLog.length > 20) LB.vchkLog.length = 20;
-      if ((act === 'login' || act === 'svr') && typeof ftoast === 'function'){
-        ftoast('强核对·' + (act === 'login' ? '登录重登' : '切换服务器') + ' 核对中…', 'rgba(51,122,183,.95)', 2200);
+      LB.chkUntil = Date.now() + 10000;      /* 圆球指示窗（四契机通用） */
+      if (act !== 'timer'){
+        LB.vchkOpen = 1;
+        LB.vchkEndAt = Date.now() + 10000;
+        LB.vchkTitle = String((S.switch_pend && S.switch_pend.title)
+                              || (typeof curTitle === 'function' ? curTitle() : '') || '');
       }
     } catch(e){}
     if (act === 'timer') LB.checking = true;
@@ -567,33 +555,8 @@ function ledgerVack(d){
   }
   /* stage:2 —— 正式成功终态：版本一致（same）或差额补发清单（need） */
   LB.checking = false;
-  /* 2.233：核对已出终态 → 立刻收「核对中 · 会话名」横幅窗，让位给切换成功/四态 */
-  LB.vchkOpen = 0; LB.vchkEndAt = 0;
-  /* 2.227（人事部长ST 0023 派单）：回填强核对结果——按 req_seq 精确对号
-     （服务端 vack 原样回带），找不到再按 act 取最近一条仍为 sent 的记录。
-     login/svr/timer 完成时给一条短闪条（switch 已有切换横幅，不重复）。
-     只写 LB、只读 vack 既有字段，不改协议。 */
-  try {
-    const _L = Array.isArray(LB.vchkLog) ? LB.vchkLog : [];
-    let _h = null;
-    if (d.req_seq != null){
-      _h = _L.find(function(x){ return x && x.st === 'sent' && String(x.seq) === String(d.req_seq); }) || null;
-    }
-    if (!_h){
-      const _aid = String(d.act || '');
-      _h = _L.find(function(x){ return x && x.st === 'sent' && String(x.act) === _aid; }) || null;
-    }
-    if (_h){
-      _h.st = d.same ? 'same' : 'need';
-      _h.need = Array.isArray(d.need) ? d.need.length : 0;
-      _h.cost = Math.max(0, Date.now() - _h.ts);
-      if ((_h.act === 'login' || _h.act === 'svr' || _h.act === 'timer') && typeof ftoast === 'function'){
-        const _nm = {login: '登录重登', svr: '切换服务器', timer: '定时主动'}[_h.act] || _h.act;
-        ftoast('强核对·' + _nm + ' ' + (d.same ? '一致' : ('补发中' + (_h.need ? '（' + _h.need + ' 项）' : ''))),
-               d.same ? 'rgba(39,174,96,.95)' : 'rgba(243,156,18,.95)', 2600);
-      }
-    }
-  } catch(e){}
+  /* 2.234：核对出终态 → 关横幅窗、灭圆球，让位给切换成功/四态 */
+  LB.vchkOpen = 0; LB.vchkEndAt = 0; LB.chkUntil = 0;
   if (d.mods && typeof d.mods === 'object') lbModsSet(d.mods);   /* 存底，供下轮比对 */
   /* 智能避让（I3 修订版·追加单 2026-11-18）：切换成功＝终态 → 解冻并按完整
      周期重新起算；login/svr 强核对完成 → 倒计时直接重置为完整周期。
@@ -2473,6 +2436,20 @@ function lbHudText(){
   } catch(e){ return '—'; }
 }
 if (typeof window !== 'undefined') window.lbHudText = lbHudText;
+
+/* 2.234（老板 2026-11-20 23:42）：核对状态改用顶栏「操控:」旁圆球——
+   核对在途（四契机任一）圆球变橙闪烁，终态/10 秒兜底自动恢复原绿/灰。
+   只改 class，不碰圆球文本与连接态语义；每 500ms 自愈一次（renderTop 重建
+   innerHTML 后 <1 秒内必然重新点亮，不依赖渲染时机）。 */
+function lbChkBall(){
+  try {
+    const b = document.querySelector('#lbl_srv .srvdot');
+    if (!b) return;
+    const on = !!(LB.chkUntil && Date.now() < LB.chkUntil);
+    b.classList.toggle('chk', on);
+  } catch(e){}
+}
+setInterval(lbChkBall, 500);
 
 /* 悬浮倒计时条（追加单 2026-11-18 改开关式：规范§九-4 修订——默认关不悬浮，
    开关在缓存查看器「③ 账本调控」区 CFG.lb_hud；开才创建并走字，关即撤）。 */
