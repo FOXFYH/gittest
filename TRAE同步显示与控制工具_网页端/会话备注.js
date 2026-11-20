@@ -6,9 +6,16 @@
    依赖：S（状态与DOM.js）、sendCmd（fox协议.js）、flash（通用工具.js）。 */
 
 function 备注入快照(snap){
-  /* 快照到达：把备注字典落到全局，供渲染/指纹读取（缺失或非对象时清空）。 */
-  const d = snap && snap['备注'];
-  S.备注 = (d && typeof d === 'object') ? d : {};
+  /* 快照到达：把备注字典落到全局，供渲染/指纹读取。
+     2.221（与 2.79 定时同口径）：**只有快照确实带「备注」字段才覆盖**——
+     抓取轮询在「命令排队让路」那一拍照样下发快照但跳过备注读取（纯本地富化
+     整段跳过），旧实现把缺字段当空字典清掉；下一拍 snote 指纹没变又不补发，
+     备注就永久消失。缺字段＝沿用上一次，绝不清空。 */
+  if (snap && Object.prototype.hasOwnProperty.call(snap, '备注')){
+    const d = snap['备注'];
+    S.备注 = (d && typeof d === 'object') ? d : {};
+  }
+  if (!S.备注 || typeof S.备注 !== 'object') S.备注 = {};
   return S.备注;
 }
 
