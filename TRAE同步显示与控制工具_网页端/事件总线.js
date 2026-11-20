@@ -120,6 +120,13 @@ function onEv(kind, v){
          会把别人的 pend 原样留在屏幕上），也不拿它销卡。字段都缺 ⇒ 维持旧
          行为、不新增丢弃。 */
       const _penArr = Array.isArray(v.pend) ? v.pend : [];
+      /* 2.229（老板 2026-11-20 22:05·插队/立即发送无效）：给服务端原数组每条记下
+         真实下标 __i——后面的归属过滤/去重/补遗留都会改变数组顺序，渲染层必须按
+         __i 与服务端官方队列 DOM 对位，不能再用过滤后的局部下标（会导致点错行）。 */
+      _penArr.forEach((it, _ix) => {
+        if (it && typeof it === 'object' && typeof it.__i !== 'number') it.__i = _ix;
+      });
+      const _pendRawN = _penArr.length;   /* 2.229：原始条数（取证用） */
       const _penOwner = String(v.pend_sid || v.selSid || '');
       const _curSidNow = String((typeof curSid === 'function' ? curSid() : '') || '');
       /* 2.132：有排队条但归属不明 ⇒ 当「不是本会话」，宁可不画也不留残影 */
@@ -177,8 +184,12 @@ function onEv(kind, v){
         if (it.t != null) it.t = stripPendTail(it.t);
         const _tx = (it.text != null) ? it.text : it.t;
         if (!String(_tx || '').trim()) return;
-        const k = String(it.id != null ? it.id : _tx);
-        if (_seen2.has(k)) return;
+        /* 2.225（老板 2026-11-20 19:15 排队条翻倍）：去重键跨形态统一——
+           旧格式 {t:'<DID> 正文'} 与新格式 {id:'<DID>',text} 必须算出同一个键，
+           否则同一句两种形态交替到达时各算一条（2→4）。 */
+        const k = (typeof pendTxtKey === 'function') ? pendTxtKey(it)
+                                                     : String(it.id != null ? it.id : _tx);
+        if (!k || _seen2.has(k)) return;
         _seen2.add(k);
         _pv.push(it);
       });
@@ -195,20 +206,39 @@ function onEv(kind, v){
             const d = pendDidOf(m[1]) || String(m[9] || '');
             if (d) _landed.add(d);
           });
-          const _have = new Set(_pv.map(it => String(
-            it.id != null ? it.id : ((it.text != null) ? it.text : it.t))));
+          /* 2.225（老板 2026-11-20 19:15 排队条翻倍）：本集合必须与上方 _pv 用
+             同一个跨形态键，否则「上一拍旧格式 + 本拍新格式」同一句各算一条，
+             合并后 2 条显示成 4 条。 */
+          const _have = new Set(_pv.map(it => (typeof pendTxtKey === 'function')
+              ? pendTxtKey(it)
+              : String(it.id != null ? it.id : ((it.text != null) ? it.text : it.t))));
           _prevPend.forEach(it => {
             if (!it || typeof it !== 'object') return;
-            const _d = String(it.id || '');
+            const _d = String(it.id || '') || pendDidOf((it.text != null) ? it.text : it.t);
             const _txt = String((it.text != null) ? it.text : (it.t || ''));
             if (_d && _landed.has(_d)) return;          /* 已落地：淘汰 */
-            const k = String(it.id != null ? it.id : _txt);
-            if (_have.has(k)) return;
-            _have.add(k); _pv.push(it);
+            const k = (typeof pendTxtKey === 'function') ? pendTxtKey(it)
+                                                        : String(it.id != null ? it.id : _txt);
+            if (!k || _have.has(k)) return;
+            _have.add(k);
+            /* 2.225：上一拍遗留、本拍未出现的条目——它与 TRAE 官方队列的下标
+               已不可能对位，打 _ghost 标记：渲染层只展示、不出操作按钮，
+               杜绝「显示 4 条后按错删除」。 */
+            try { it._ghost = 1; } catch(e){}
+            _pv.push(it);
           });
         }
       } catch(e){}
       v.pend = _pv;
+      /* 2.229（取证·排队条 4 条只显示 2 条）：只记账不改行为——把「服务端原样
+         条数 → 屏上保留条数」写进诊断日志；差值来自归属过滤/空文本丢弃/去重，
+         下次老板再遇到可直接看诊断定位是哪一层丢的。 */
+      try {
+        if (typeof diagLog === 'function' && _pendRawN !== _pv.length){
+          diagLog('[pend] 服务端 ' + _pendRawN + ' 条 → 屏上 ' + _pv.length + ' 条',
+                  'warn');
+        }
+      } catch(e){}
       if (Array.isArray(v.pend) && v.pend.length){
         v.pend_sid = String((typeof curSid === 'function' ? curSid() : '')
                             || _penOwner || '');
@@ -735,13 +765,23 @@ function onRcpt(d){
      故 did 配不上且 id 恰为 14 位纯数字（DID 格式；动作 id 恒为 'a'+base36-seq
      形如 a1m3xk2-3，绝不与 14 位数字撞）时用 id 试配。根修仍在服务端
      （回执带全 did），本兜底只防「两条路全断」。 */
-  const _didHit = (did ? S.pending.find(x => x.did === did) : null)
+  /* 2026-11-20（接手回执）：认卡三优先——① 命令 id（每条发送独占，同秒 DID
+     撞号也绝不串卡，见 上线与界面.js cmd 的 opId）② rcpt.did ③ id 恰为 14 位
+     DID（旧服务端回执不带 did 时的兜底）。 */
+  const _cardHit = (id ? S.pending.find(x => x.opId && x.opId === id) : null);
+  const _didHit = _cardHit
+                || (did ? S.pending.find(x => x.did === did) : null)
                 || (/^\d{14}$/.test(id) ? S.pending.find(x => x.did === id) : null);
   if (_didHit){
     {
       const p = _didHit;
-      if (stage === 'accepted')      p.state = 'accepted';   /* ③ 服务器已受理 */
-      else if (stage === 'running')  p.state = 'typed';      /* ③ 服务器开始执行 */
+      /* 2026-11-20：服务端一接手（accepted/running）就把卡翻成「服务器已收到，
+         正在处理…」，该阶段按 sent 处理；销卡判据不变——只认 msgs 出现该 DID。 */
+      /* 2.226（老板 2026-11-20 19:18「四步感受不到」）：accepted 与 running
+         不再合并成同一态——受理=「服务器已受理，等待执行…」，开始执行=
+         「服务器已收到，正在处理…」，四步各有各的文案，逐级推进。 */
+      if (stage === 'accepted')      p.state = 'accepted';
+      else if (stage === 'running')  p.state = 'running';
       else if (stage === 'done'){
         p.state = 'done';                                     /* ④ 完成 */
         /* 2.178 Y26（连发占位滞留）：done 打上时间戳，15s 内正文还没浮现
