@@ -76,6 +76,9 @@ function applySwitch(box, port){
   renderAttach([]);
   el.model.value = '';
   renderVer(box);
+  /* 2.232（老板 2026-11-20 23:06）：换服务器不许白屏——立刻还原这台服务器上次的
+     列表 / 锚定会话 / 六模块（备注·定时·模型·账号），服务端快照到达后照常覆盖。 */
+  try { if (typeof srvPackRestore === 'function') srvPackRestore(box, port); } catch(e){}
 }
 
 function setOnLine(b){
@@ -238,6 +241,7 @@ function cmd(c, a, convSid){
      ①快照首行抓到 ②did_pool 池子 销卡。**仅网页版发送才带**（AI 借输入框
      发的消息不带 DID、绝不出卡）。不再用 10 位随机 did / did_ack。 */
   let did = '';
+  let opId = '';               /* 2026-11-20（接手回执）：本条发送独占的命令 id */
   if ((c === 'send' || c === 'interject') && typeof a === 'string'
       && a.trim()){
     /* v2.84（老板实测 · Bug B）：插入新 DID 前先【剥净正文里已有的 14 位
@@ -252,10 +256,15 @@ function cmd(c, a, convSid){
     }
     did = didNow();
     a = did + '\n' + a;              /* 唯一首行 DID ＋ 原正文 */
+    /* 2026-11-20（接手回执）：每条发送单配一个独占「命令 id」（'a'+base36-seq，
+       绝不与 14 位 DID 撞）——随帧 id 上行，服务端 rcpt 原样回投，前端凭它认卡；
+       认卡不再只靠 DID（同一秒连发两条 DID 相同会串卡）。 */
+    opId = srvOpNewId();
     /* 占位卡挂 did（pendAdd 内部再按首行 DID 校验）；重发传了锁定 sid →
        新卡片也绑回原会话，与投递目标一致。 */
     const pp = pendAdd(c, a);
     if (pp){ pp.did = did;
+      pp.opId = opId;                /* 2026-11-20：卡自己的命令 id（rcpt 认卡用） */
       if (convSid) pp.convSid = convSid; }
     /* 记下「自己刚发过的文本」（含首行 DID）——服务端稍后回显 pend 时不再
        重复建卡（占位卡只由本端 cmd 建）。 */
@@ -265,7 +274,11 @@ function cmd(c, a, convSid){
        绝不说「已排队/已执行/已送达」（那些是服务端信号才有的终态）。 */
     if (c === 'send') srvOpFlash('sent', '发送');
   }
-  sendCmd(c, a, did, convSid);
+  /* 2.226（老板 2026-11-20 19:18）：发送/插话也登记在途，rcpt 的 accepted/
+     running/done 才能推进顶栏四步（此前只有占位卡吃回执、顶栏停在②）。 */
+  if (opId && typeof srvOpRegister === 'function')
+    srvOpRegister(opId, (c === 'send' ? '发送' : '插话'));
+  sendCmd(c, a, did, convSid, opId);
   /* 2.25：发消息/插话=真实人类操作 → actSend('send')（闸门见 通用工具.js） */
   if (c === 'send' || c === 'interject') actSend('send');
   if (c === 'send' || c === 'interject'){
