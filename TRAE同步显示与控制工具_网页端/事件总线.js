@@ -188,11 +188,18 @@ function onEv(kind, v){
       const _seen2 = new Set();
       (Array.isArray(v.pend) ? v.pend : []).forEach(it => {
         if (!it || typeof it !== 'object') return;
+        const _raw = (it.text != null) ? String(it.text)
+                  : (it.t != null ? String(it.t) : '');
         /* 2.187：新格式条目（WS桥 0.26 起 {id,text,sid,canEdit}）正文在 text，
            旧格式在 t——只认 t 会把新格式逐条判空丢掉（排队条不上屏＋销卡失效）。 */
         if (it.text != null) it.text = stripPendTail(it.text);
         if (it.t != null) it.t = stripPendTail(it.t);
-        const _tx = (it.text != null) ? it.text : it.t;
+        let _tx = (it.text != null) ? it.text : it.t;
+        /* 2.236：剥尾后整条为空也不丢——回退原始正文，绝不因「无 DID / 被剥空」吞条。 */
+        if (!String(_tx || '').trim()){
+          _tx = (typeof stripHeadDid === 'function') ? stripHeadDid(_raw) : _raw;
+          if (it.text != null) it.text = _tx; else it.t = _tx;
+        }
         if (!String(_tx || '').trim()) return;
         /* 2.225（老板 2026-11-20 19:15 排队条翻倍）：去重键跨形态统一——
            旧格式 {t:'<DID> 正文'} 与新格式 {id:'<DID>',text} 必须算出同一个键，
