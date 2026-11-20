@@ -403,29 +403,10 @@ function _markNoMid(m){
   return m;
 }
 function orderMsgs(list){
+  /* 2.213（前端零拦截）：顺序完全按后端下发——不排序、不剔除、不挪位。
+     无有效 mid 的行原位保留（只是该行不显示时间）；同 mid 重复也不重排。 */
   try {
-    if (!Array.isArray(list) || !list.length) return list;
-    if (typeof timeFromMid !== 'function' || typeof midSec !== 'function') return list;
-    _midCollect(list);
-    const src = _midPromote(list.slice());
-    /* 2.206（老板最终合并口径）：排序唯一依据＝mid 前 8 位十六进制秒数。
-       ① 没有有效 24 位十六进制 mid 的 u/a 行＝无有效 ID ⇒ 不上屏，直接剔除；
-       ② 其余按秒数升序；同秒内以 mid 本身作稳定序，仍相同再按原数组顺序。 */
-    const arr = [];
-    src.forEach((m, i) => {
-      if (!Array.isArray(m)){ arr.push({m: m, i: i, s: -Infinity}); return; }
-      const t = String(m[0] || '').toLowerCase();
-      const s = midSec(m[6]);
-      if ((t === 'u' || t === 'a') && !isFinite(s)) return;   /* 无有效ID：不上屏 */
-      arr.push({m: m, i: i, s: isFinite(s) ? s : -Infinity});
-    });
-    arr.sort((a, b) => {
-      if (a.s !== b.s) return a.s - b.s;
-      const am = msgMid(a.m), bm = msgMid(b.m);
-      if (am && bm && am !== bm) return am < bm ? -1 : 1;
-      return a.i - b.i;
-    });
-    return arr.map(x => _markNoMid(x.m));
+    return Array.isArray(list) ? list : [];
   } catch(e){ return list; }
 }
 function _swSnapIsTargetNow(sp){
@@ -576,43 +557,22 @@ function _msgOrd(m, i){
   return i;
 }
 function _frameMsgs(msgs, idle){
+  /* 2.213（前端零拦截）：原样落盘——不再按「无 mid」「思维流关键词」丢弃任何行，
+     也不再按保留轮数裁剪；顺序按后端下发（不重排）。
+     AI 行有终答（index7 非空）时正文取终答，其余保留后端原文（最小格式化）。 */
   if (!Array.isArray(msgs)) return [];
-  const rows = [];
-  msgs.forEach(function(m, i){
+  const out = [];
+  msgs.forEach(function(m){
     if (!Array.isArray(m)) return;
-    /* 2.206：无有效 24 位十六进制 mid 的 u/a 行不入预备账册（无 ID 不落盘）。 */
-    if ((m[0] === 'u' || m[0] === 'a')
-        && !(typeof midSec === 'function' && isFinite(midSec(m[6])))) return;
-    if (m[0] === 'u'){ rows.push({m: m, o: _msgOrd(m, i)}); return; }
+    const r = m.slice();
     if (m[0] === 'a'){
-      /* 3.05（老板 2026-11-06 03:02「连续 4 条全是人类」）：3.04 把「无第 8 位的
-         AI 行」整行丢弃，导致 DOM 未给完成卡摘要的 AI 行全没了、只剩人类。
-         现改为三分支：
-           ① 有终答（第 8 位非空）→ 正文＝终答；
-           ② 生成中（idle===false）且无终答 → 思维流，整行不存；
-           ③ 已结束/未知（idle true 或未传）但无终答字段 → **原文兜底**（此时原文
-             已是最终版，绝不再把 AI 行丢掉）。 */
-      const r = m.slice();
+      /* '提前终极'/'补记' 是来源标记不是正文，正文保持后端原文。 */
       const fin = (m.length > 7) ? String(m[7] || '').trim() : '';
-      /* 2.212：'提前终极'/'补记' 是来源标记，不是正文——正文保持残片原文，
-         且该行已按终极认证，绝不能走「思维流关键词」丢弃分支。 */
-      if (fin && fin !== '补记' && fin !== '提前终极'){
-        r[1] = fin;
-      } else if (!fin) {
-        /* 3.06（老板 2026-11-06 03:05「有时又变回全是人类」）：不再用 sendIdle 判丢
-           （快照没带空闲标记时会把 AI 行全部丢掉）。改为【只按思维流关键词】判：
-           正文开头/前段命中「思考过程 / 已深度思考 / 正在思考」才视为思维流、不落盘；
-           其余 AI 行一律保留原文（宁可留着真实回答，也绝不只剩人类发言）。 */
-        const _t = String(r[1] || '');
-        if (/^(思考过程|思考中|正在思考|已深度思考)/.test(_t.trim().slice(0, 40))
-            || /思考过程|已深度思考|正在思考/.test(_t.slice(0, 200))) return;
-      }
-      rows.push({m: r, o: _msgOrd(m, i)});
+      if (fin && fin !== '补记' && fin !== '提前终极') r[1] = fin;
     }
+    out.push(r);
   });
-  rows.sort(function(a, b){ return a.o - b.o; });
-  /* 2.204（B1/B2）：按「轮」裁剪（默认 5 轮），不再按「条」——杜绝「只剩最新两条」。 */
-  return _frameRoundTrim(rows, _frameKeepN()).map(function(x){ return x.m; });
+  return out;
 }
 function _idbFrame(){
   const s = S.snap || {};
