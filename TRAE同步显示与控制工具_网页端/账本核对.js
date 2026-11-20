@@ -816,9 +816,18 @@ function ledgerThinkApply(sid, body){
          别的会话（false）才丢，无从判定（null）一律显示。 */
       return _m !== false;
     }).forEach(it => {
+      const _raw = (it.text != null) ? String(it.text)
+                : (it.t != null ? String(it.t) : '');
       if (it.text != null) it.text = stripPendTail(it.text);
       if (it.t != null) it.t = stripPendTail(it.t);
-      const _tx = (it.text != null) ? it.text : it.t;
+      let _tx = (it.text != null) ? it.text : it.t;
+      /* 2.236（老板 2026-11-20 23:09「照原来的做法，别只认 DID」）：剥尾后
+         整条被剥空时，旧写法直接 return（条被吞）。回退原始正文（剥掉首行
+         DID 后）继续显示——宁可多显示一条，也不让队列里的消息凭空消失。 */
+      if (!String(_tx || '').trim()){
+        _tx = (typeof stripHeadDid === 'function') ? stripHeadDid(_raw) : _raw;
+        if (it.text != null) it.text = _tx; else it.t = _tx;
+      }
       if (!String(_tx || '').trim()) return;
       /* 2.225（老板 2026-11-20 19:15 排队条翻倍）：按跨形态统一键去重——
          旧格式 {t:'<DID> 正文'} 与新格式 {id:'<DID>',text} 同一句必须算一条；
@@ -1052,7 +1061,12 @@ function thinkCardsReport(){
 
 /* 项级归属判定：true=本会话 / false=别会话 / null=无项级 sid（交回顶层判定） */
 function pendItemMine(it){
-  if (!it || typeof it !== 'object' || it.sid == null) return null;
+  if (!it || typeof it !== 'object') return null;
+  /* 2.236（老板 2026-11-20 23:09 再核）：空串 sid 与「无 sid」同口径。
+     旧写法只拦 null/undefined，`sid:''` 会走到下面与 cs 比对 ⇒ 空串≠cs
+     ⇒ 返回 false（被判「确凿是别人的」）⇒ AI 之间走总管命令的排队项整条被丢，
+     只剩带 DID 的人类发言（老板看到的「两条只显示一条」）。 */
+  if (it.sid == null || String(it.sid).trim() === '') return null;
   const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
   /* 2.234（老板 2026-11-20 23:09「只认带 DID 的、AI 间总管命令不显示，倒退」）：
      本端还没锚定/拿不到当前 sid 时，旧写法返回 false＝「确凿是别人的」，
