@@ -61,9 +61,9 @@ select{font-size:12px;}
 /* ── 消息区 ── */
 #msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   padding:8px 8px 4px; background:#f5f5f5;}   /* 2.91：对齐原版画布 #f5f5f5 */
-/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
+/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/输入行，
    消息区独占整屏，能看更多历史；body.fmsg 生效 */
-body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
+body.fmsg #hdr, body.fmsg #statebar,
 body.fmsg #input_row{ display:none; }
 #fexit{display:none; position:fixed; right:12px; bottom:16px;
   z-index:30; border:1px solid var(--blue); background:#fff;
@@ -412,16 +412,7 @@ body.fmsg #msgs{padding-top:22px;}
 #fullswarn .fsw_btns button:first-child{background:#fff3d6; color:#8a5a00;
   border:1px solid #e6b04a;}
 #fullswarn .fsw_btns button:last-child{background:#b26a00; color:#fff;}
-/* ── 附件行 / 输入行 ── */
-#attach_row{display:none; gap:4px; padding:2px 8px; flex-wrap:wrap;
-  flex:none; background:#fff;}
-#attach_row.on{display:flex;}
-.chip{border-radius:5px; padding:2px 8px; font-size:12px;
-  display:inline-flex; gap:4px; align-items:center; min-height:26px;}
-.chip.pend{background:#eee; color:#666;}
-.chip.ok{background:#e3f0fb; color:var(--blue);}
-.chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
-  padding:0 2px;}
+/* ── 输入行 ── */
 /* 1.78：输入行底部同样去掉 env(safe-area-inset-bottom)——主界面底部
    约两行空白元凶；固定 6px 上下留白，输入行顶到屏幕下缘。 */
 #input_row{display:flex; gap:6px; align-items:center;
@@ -429,7 +420,7 @@ body.fmsg #msgs{padding-top:22px;}
   background:#fff; border-top:1px solid var(--bd); flex:none;}
 /* 1.76：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条）
    T63：新增「急」加急插入勾选，同款正方形、与既有 4 个风格统一 */
-#btn_attach,#btn_bench,#btn_take,#btn_copy,#btn_urgent{width:36px;
+#btn_bench,#btn_take,#btn_copy,#btn_urgent{width:36px;
   min-width:36px; height:36px; min-height:36px; padding:0; flex:none;
   font-size:15px; display:inline-flex; align-items:center;
   justify-content:center;}
@@ -445,11 +436,10 @@ body.fmsg #msgs{padding-top:22px;}
 #ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
-/* 1.27：聚焦增高 255px（原 170 再 +50%）；增高时 📎/📂/发送 跳到
+/* 1.27：聚焦增高 255px（原 170 再 +50%）；增高时 📂/发送 跳到
    顶行，输入框独占整行矩形（原来左右被按钮夹住，宽度受限） */
 #ent.grow{height:255px;}
 #input_row.grow{flex-wrap:wrap;}
-#input_row.grow #btn_attach,
 #input_row.grow #btn_bench,
 #input_row.grow #btn_send{order:1;}
 #input_row.grow #btn_send{margin-left:auto;}
