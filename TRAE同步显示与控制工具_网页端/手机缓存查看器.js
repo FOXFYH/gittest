@@ -1,5 +1,11 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.227  日期 2026-11-20
+/* 手机缓存查看器.js（网页端）  版本 2.228  日期 2026-11-20
+   2.228（2026-11-20·老板 21:37 亲令「小账本全量展示」）：① 会话预备画面不再只
+     显示当前服务器——readSnapConvs 去掉 srv===lbSrvTag() 过滤，全部服务器的小账本
+     都读出来；renderPreview 改为按 srv 分组渲染：本服务器组置顶，其它服务器组按
+     各自最新记录时间倒序，组内同样「最后更新越新越靠前」（取最后一条 mid，无 mid
+     退回落盘 ts）；未标 srv 的老记录单独落「未标服务器（旧缓存）」组垫底，绝不改挂
+     到任一服务器名下（跨服串显仍是红线）。组内仍按身份去重、每条仍带 🗑。
    2.227（2026-11-20·WB+TR整改ST·人事部长ST 0023 派单「强核对」）：③ 调控页新增
      独立分组「强核对」——四契机清单／最近一次（act/时间/sid/结果/耗时）／各 act
      计数／「立即强核对」按钮（只调 ledgerVcheckSend('switch', 当前锚定 sid)，不另造
@@ -351,18 +357,14 @@
         });
       }
       return mp.then(function(migrated){
-        /* 2.190（老板：只显示当前登录服务器的预备画面）：写 srv 与读时过滤，
-           同一个函数 lbSrvTag() 算的同一个值；没有 srv 的老缓存不显示、只报条数。 */
+        /* 2.228（老板 2026-11-20 21:37 亲令）：小账本改全量展示——所有服务器的记录
+           都读出来列，本服务器由 renderPreview 顶置分组，故这里不再按 srv 过滤。
+           没有 srv 的老记录照实落「未标服务器」组，绝不改挂到别的服务器名下
+           （跨服串显仍是红线：只标记、不猜测）。 */
         var hidden = 0, list = all;
-        if (cur){
-          list = all.filter(function(x){
-            var ok = String(x.srv || '') === cur;
-            if (!ok) hidden++;
-            return ok;
-          });
-        }
         /* 2.209：会话列表「最近时间」一律取该会话最后一条消息的 ID 时间
-           （mid 前 8 位 hex），不再用落盘时间 ts 排序。 */
+           （mid 前 8 位 hex），不再用落盘时间 ts 排序；2.228 起无 mid 的记录
+           退回落盘 ts（秒）参与排序，保证「最后更新越新越靠前」不落空。 */
         function _lastMidSec(x){
           var ms = (x && x.msgs) || [], v = 0;
           for (var i = ms.length - 1; i >= 0; i--){
@@ -370,10 +372,11 @@
             var s = (Array.isArray(m) && typeof midSec === 'function') ? midSec(m[6]) : NaN;
             if (isFinite(s)){ v = s; break; }
           }
+          if (!v && x && x.ts) v = Math.floor(Number(x.ts) / 1000) || 0;
           return v;
         }
         list.sort(function(a,b){ return _lastMidSec(b) - _lastMidSec(a); });
-        return {list: list, hidden: hidden, timeout: timedOut, migrated: (migrated || 0)};
+        return {list: list, hidden: hidden, cur: cur, timeout: timedOut, migrated: (migrated || 0)};
       });
     }).catch(function(){ return {list: [], hidden: 0, timeout: false, migrated: 0}; });
   }
@@ -491,7 +494,7 @@
     try { if (typeof lbNormTitle === 'function') t = lbNormTitle(t) || t; } catch(e){}
     return t;
   }
-  /* ---------- ① 会话预备画面：两行一张卡片 ---------- */
+  /* ---------- ① 会话预备画面：全服务器小账本，本机顶置 ---------- */
   function renderPreview(host){
     host.innerHTML = '';
     if (view === 'detail' && detailItem){ renderDetail(host, detailItem); return; }
@@ -502,50 +505,90 @@
     host.appendChild(s);
     readSnapConvs().then(function(r){
       var list = (r && r.list) || [], _hid = (r && r.hidden) || 0;
+      var cur = String((r && r.cur) || '');
+      /* 2.228（老板 2026-11-20 21:37 亲令）：小账本全量展示——所有服务器的记录都列，
+         本服务器置顶，组内按「最后更新时间」倒序（越新越前，无 mid 退回落盘 ts）；
+         未标 srv 的老记录单独落「未标服务器」组，绝不改挂到任一服务器名下。 */
+      function _lm(x){
+        var ms = (x && x.msgs) || [];
+        for (var i = ms.length - 1; i >= 0; i--){
+          var m = ms[i];
+          var v = (Array.isArray(m) && typeof midSec === 'function') ? midSec(m[6]) : NaN;
+          if (isFinite(v)) return v;
+        }
+        return (x && x.ts) ? (Math.floor(Number(x.ts) / 1000) || 0) : 0;
+      }
+      var gmap = {}, gorder = [];
+      list.forEach(function(it){
+        var k = String(it.srv || '').trim();
+        if (!gmap[k]){ gmap[k] = []; gorder.push(k); }
+        gmap[k].push(it);
+      });
+      /* 2.214：组内同一身份只出一张卡（有权威终身号认终身号，否则认同名），
+         再按时间倒序；组与组之间不合并，绝不把 A 服务器的卡吞进 B 服务器。 */
+      gorder.forEach(function(k){
+        var arr = gmap[k], _byKey = {}, _order = [];
+        arr.forEach(function(it){
+          var key = _snapIdent(it);
+          if (!key){ _byKey['sk:' + it.sk] = it; _order.push('sk:' + it.sk); return; }
+          var prev = _byKey[key];
+          if (!prev){ _byKey[key] = it; _order.push(key); return; }
+          if ((it.n || 0) > (prev.n || 0)) _byKey[key] = it;
+        });
+        arr = _order.map(function(x){ return _byKey[x]; });
+        arr.sort(function(a, b){ return _lm(b) - _lm(a); });
+        gmap[k] = arr;
+      });
+      /* 组排序：本服务器第一；其它服务器按组内最新一条记录的时间倒序；
+         未标服务器（'' 组）永远垫底。 */
+      var ownK = (cur && gmap[cur]) ? cur : null;
+      var otherKs = gorder.filter(function(k){ return k && k !== ownK; });
+      otherKs.sort(function(a, b){
+        return (_lm((gmap[b] || [])[0]) || 0) - (_lm((gmap[a] || [])[0]) || 0);
+      });
+      var unknownK = Object.prototype.hasOwnProperty.call(gmap, '') ? '' : null;
+      var _mineN = ownK ? gmap[ownK].length : 0, _otherN = 0;
+      otherKs.forEach(function(k){ _otherN += (gmap[k] || []).length; });
       s.querySelector('.n').textContent = list.length + ' 个会话有本地预备画面'
-        + (_hid ? (' · 另有 ' + _hid + ' 条其它服务器/无服务器标记的缓存已隐藏') : '');
+        + '（本服务器 ' + _mineN + ' · 其它服务器 ' + _otherN
+        + (unknownK !== null ? (' · 未标服务器 ' + gmap[unknownK].length) : '') + '）'
+        + (_hid ? (' · ' + _hid + ' 条读取异常已跳过') : '');
       if (!list.length){
         s.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty',
           textContent: (r && r.timeout) ? '读取超时（缓存库被占用），稍后点「刷新」再看'
                                         : '（本地还没有任何会话存帧）'}));
         return;
       }
-      var grid = document.createElement('div');
-      grid.className = 'cv_grid';
-      grid.style.marginTop = '10px';
-      /* 2.214（老板 2026-11-20 08:08：不许出现「同名两本/打上重复」）：
-         同一身份只出一张卡——有权威终身号认终身号，否则认同名；同名/旧键残留
-         在展示层先收敛成一张（内存合并只读，不改缓存；落盘侧的合并见账本核对.js
-         lbMergeDuplicateBuckets）。 */
-      var _byKey = {}, _order = [];
-      list.forEach(function(it){
-        var key = _snapIdent(it);
-        if (!key){ _byKey['sk:' + it.sk] = it; _order.push('sk:' + it.sk); return; }
-        var prev = _byKey[key];
-        if (!prev){ _byKey[key] = it; _order.push(key); return; }
-        if ((it.n || 0) > (prev.n || 0)) _byKey[key] = it;
-      });
-      list = _order.map(function(k){ return _byKey[k]; });
-      list.sort(function(a, b){
-        function _lm(x){
-          var ms = (x && x.msgs) || [];
-          for (var i = ms.length - 1; i >= 0; i--){
-            var m = ms[i];
-            var s = (Array.isArray(m) && typeof midSec === 'function') ? midSec(m[6]) : NaN;
-            if (isFinite(s)) return s;
-          }
-          return 0;
+      function srvLabelOf(key){
+        var arr = gmap[key] || [], sn = '', fx = '';
+        for (var i = 0; i < arr.length; i++){
+          sn = String(arr[i].srvName || '').trim() || sn;
+          fx = String(arr[i].srvFox || '').trim() || fx;
+          if (sn && fx) break;
         }
-        return _lm(b) - _lm(a);
-      });
-      list.forEach(function(it){
+        if (!sn && /^\d+$/.test(String(key))) fx = fx || String(key);
+        return (sn || (key ? '服务器 ' + key : '服务器未知')) + (fx ? (' · ' + fx) : '');
+      }
+      function paintSec(title, arr){
+        var sec = document.createElement('div');
+        sec.className = 'cv_sec';
+        sec.style.marginTop = '12px';
+        sec.innerHTML = '<h3>' + esc(title) + ' <span class="n">' + arr.length + ' 个会话</span></h3>';
+        var grid = document.createElement('div');
+        grid.className = 'cv_grid';
+        grid.style.marginTop = '10px';
+        arr.forEach(function(it){ grid.appendChild(cardOf(it)); });
+        sec.appendChild(grid);
+        host.appendChild(sec);
+      }
+      function cardOf(it){
         var sid = String(it.sid || '');
         /* 2.190（老板：小账本＝①，卡片行序按 V1.0 §十-353 定死）：
            ① 服务器归属「宿舍 · 1309107889」 ② 终身号 ③ 会话名 ④ N 条/更新于。 */
         var _sn = String(it.srvName || '').trim();
         var _fx = String(it.srvFox || '').trim();
-        if (!_sn){ try { _sn = (typeof lbSrvName === 'function') ? String(lbSrvName() || '') : ''; } catch(e){ _sn = ''; } }
         if (!_fx && /^\d+$/.test(String(it.srv || ''))) _fx = String(it.srv);
+        /* 2.228：跨服务器展示时不再拿本机服务器名兜底——没有归属就照实写「服务器未知」。 */
         var srvTxt = (_sn || _fx) ? ((_sn || '未知服务器') + (_fx ? (' · ' + _fx) : '')) : '服务器未知';
         /* 2.215（老板 2026-11-20 09:11）：第二行显示口径——
            ① 标准终身号（24hex sid 前 4 位数字）→ 原样（如 0047）；
@@ -577,12 +620,12 @@
            两个来源都取不到时只显示条数（绝不显示缓存落盘时间，也不留空变量）。 */
         var _tsTxt = it.n + ' 条';
         try {
-          var _ms = it.msgs || [], _lm = '';
+          var _ms = it.msgs || [], _lm0 = '';
           for (var _mi = _ms.length - 1; _mi >= 0; _mi--){
             var _mr = _ms[_mi];
-            if (Array.isArray(_mr) && _mr[6]){ _lm = String(_mr[6]); break; }
+            if (Array.isArray(_mr) && _mr[6]){ _lm0 = String(_mr[6]); break; }
           }
-          var _upd = _lm ? String((typeof timeFromMid === 'function' ? timeFromMid(_lm) : '') || '') : '';
+          var _upd = _lm0 ? String((typeof timeFromMid === 'function' ? timeFromMid(_lm0) : '') || '') : '';
           if (_upd) _tsTxt += ' · 更新于 ' + _upd;
         } catch(e){}
         var card = document.createElement('div');
@@ -631,9 +674,13 @@
           renderPreview(host);
           host.scrollTop = 0;
         };
-        grid.appendChild(card);
+        return card;
+      }
+      if (ownK){ paintSec('📒 本服务器小账本 · ' + srvLabelOf(ownK), gmap[ownK]); }
+      otherKs.forEach(function(k){
+        paintSec('🗄 其它服务器 · ' + srvLabelOf(k), gmap[k]);
       });
-      s.appendChild(grid);
+      if (unknownK !== null){ paintSec('❓ 未标服务器（旧缓存）', gmap[unknownK]); }
     });
   }
   /* 2.10：单会话详情（人类发言按主代码格式折叠） */
