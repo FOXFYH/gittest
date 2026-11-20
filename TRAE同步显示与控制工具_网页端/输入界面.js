@@ -385,12 +385,16 @@ function renderState(snap){
   }
   /* 2.229（老板 2026-11-20 22:01）：强核对不再有独立大悬浮窗——复用本条顶部
      横幅，临时改文案「核对中」，终态后由 LB.vchkOpen 清位自动恢复原四态文案。
-     放在最末＝优先级最高（压过忙闲/四步/切换）；30 秒硬兜底防卡死。
-     只在原本该显示忙闲的位置覆盖，「输出中」等逻辑一字不改。 */
+     2.233（老板 2026-11-20 23:07）：只写「核对中」三个字等于没替换——必须带
+     上正在核对哪个会话，与「输出中/切换成功」同口径：`核对中 · 会话名`。
+     放在最末＝优先级最高（压过忙闲/四步/切换）；窗口由 账本核对.js 发送时
+     登记（LB.vchkOpen/vchkEndAt/vchkTitle），终态或 10 秒兜底自动让位。 */
   try {
     if (typeof LB !== 'undefined' && LB && LB.vchkOpen){
       if (!LB.vchkEndAt || Date.now() < LB.vchkEndAt){
-        el.state.textContent = '核对中';
+        const _vt = String(LB.vchkTitle || curTitle() || '').trim();
+        el.state.textContent = '核对中'
+          + (_vt ? ' · ' + (_vt.length > 14 ? _vt.slice(0, 14) + '…' : _vt) : '');
         el.state.style.color = 'var(--blue)';
       } else {
         LB.vchkOpen = 0; LB.vchkEndAt = 0;
