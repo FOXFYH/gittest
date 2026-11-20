@@ -995,13 +995,13 @@ try { srvIdleMount(); } catch(e){}
 const SRV_DEAD_MS = 60000;      // ≥60s 无消息 = 报「服务器无响应」
 const HB_SEC = 60;              // 登录心跳间隔（秒）——服务端 150s 无心跳判下线
 /* 1.12（账本系统 V1.0 §九·调控）：闲置下线秒数改由「③ 调控」配置——键 wb_lb_offline
-   （默认 300 ＝保持原有 5 分钟体验），wb_lb_offline_on=0 时永不到点下线。 */
+   （2.77 起默认 120 秒，与切后台共用同一条「自动下线」），wb_lb_offline_on=0 时永不到点下线。 */
 function lbOffMs(){
   try{
     if (localStorage.getItem('wb_lb_offline_on') === '0') return Infinity;
     var v = parseInt(localStorage.getItem('wb_lb_offline') || '', 10);
-    return (v >= 15 && v <= 3600 ? v : 300) * 1000;
-  }catch(e){ return 300000; }
+    return (v >= 15 && v <= 3600 ? v : 120) * 1000;
+  }catch(e){ return 120000; }
 }
 const FAIL_ALERT = 3;           // 连续 N 次「压根没连上」→ 判为连不上服务器
 const FOX_HDR = 57;     // 协议头固定字节数
@@ -3159,7 +3159,7 @@ function purgeConvStore(){
    旧的「保留条数」wb_snap_n 及其全部引用删除；旧键在首次读取时顺手清掉。 */
 const SNAP_ROUNDS_KEY = 'wb_snap_rounds';  /* localStorage 键：每个会话保留多少轮 */
 const SNAP_ROUNDS_DEF = 5;                 /* 老板定的默认值：5 轮 ≈ 10 条 */
-const SNAP_ROUNDS_MAX = 200;
+const SNAP_ROUNDS_MAX = 50;                /* 2.77：与服务端一致（cfg ledger_rounds 钳 1~50） */
 let _snapNKeyPurged = false;
 function _snapRounds(){
   try{
@@ -3451,7 +3451,7 @@ function onMod(d){
   }
 }
 /* 1.12（账本系统 V1.0 §五·主动核对）：按「③ 调控 · 主动核对周期」（键 wb_lb_period，
-   默认 60 秒）自动对号。规矩：切后台不跑；切换在途冻结（不定账）；多个核对只执行
+   默认 90 秒）自动对号。规矩：切后台不跑；切换在途冻结（不定账）；多个核对只执行
    最新一个（reconAsk 自带在途锁与 20 秒节流）；到点确实没核对过才发。
    省流：核对只上行「我有哪些序号」，回包只补缺，绝不整包重拉。 */
 setInterval(function(){
@@ -3462,7 +3462,7 @@ setInterval(function(){
     if (!sid) return;
     var per = (function(){
       var v = parseInt(localStorage.getItem('wb_lb_period') || '', 10);
-      return (v >= 15 && v <= 3600) ? v : 60;
+      return (v >= 15 && v <= 3600) ? v : 90;
     })();
     if (Date.now() - ((_reconTs && _reconTs[sid]) || 0) < per * 1000) return;
     reconAsk('timer');
@@ -6424,8 +6424,10 @@ const APP_NAME = 'wb远程';
       改后下一拍生效。
    ★2.72（2026-11-20）口径更新：条数/轮数两个参数合并成一个「保留轮数」
       （`wb_snap_rounds`，默认 5 轮≈10 条），上面②里的条数参数与查看器里的「保留条数」
-      输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。 */
-const VER = '2.76';
+      输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。
+   ★2.77（2026-11-21 老板）：调控页「离线倒计时/离线倒计时启用/切后台自动下线」三项合并成
+      「自动下线」（默认 120 秒，0＝不下线）；「主动核对周期」（即强制核对）默认 90 秒。 */
+const VER = '2.77';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -7026,7 +7028,7 @@ function ensureConnect(){
 }
 /* 1.25：切后台/锁屏不再主动下线；回前台自动续上
    1.64：切后台/锁屏也算「人走了」——上报 away，本对话跑完即可亮橙灯。 */
-/* 2.68（老板 2026-11-19 频道规范第 5 条）：切后台/锁屏超过 60 秒 = 人走了
+/* 2.68（老板 2026-11-19 频道规范第 5 条）：切后台/锁屏超过调控页配置的秒数 = 人走了
    → 主动 logout，服务端停播、该频道零消耗；回前台再 login（一次整包重放）。 */
 let hideLogoutTimer = null;
 document.addEventListener('visibilitychange', () => {
@@ -7036,11 +7038,12 @@ document.addEventListener('visibilitychange', () => {
     S.waitT = 0; S.waitN = 0; S.waitLast = 0;
     cliActAway();
     clearTimeout(hideLogoutTimer);
-    /* 1.12：切后台下线秒数取「③ 调控」（键 wb_lb_bgout，默认 60；0＝不自动下线） */
+    /* 1.12/2.77：切后台下线秒数取「③ 调控」的「自动下线」（键 wb_lb_bgout，与前台闲置共用同值；
+       默认 120 秒；0＝不自动下线） */
     var bgMs = (function(){
       var v = parseInt(localStorage.getItem('wb_lb_bgout') || '', 10);
-      if (!isFinite(v)) v = 60;
-      return (v <= 0 ? 0 : Math.min(1800, v)) * 1000;
+      if (!isFinite(v)) v = 120;
+      return (v <= 0 ? 0 : Math.min(3600, v)) * 1000;
     })();
     if (bgMs > 0){
       hideLogoutTimer = setTimeout(() => {
@@ -9129,18 +9132,31 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
 /* ======== 小账本查看器（快照账 snaps） V1.0 两页签 ========
    1.11（2026-11-20）：按《手机网页端账本系统 V1.0》§十整改——
    ① 账本（小账本本体，只显当前服务器；卡片两行左右分栏：名/服务器、终身号/条数·更新时间＋删除）
-   ③ 调控（唯一集中入口：自动清理、悬浮倒计时、离线倒计时、核对周期、保留轮数、
-           思维流帧间隔、切后台下线）
+   ③ 调控（唯一集中入口：自动清理、悬浮倒计时、自动下线、核对周期、保留轮数、
+           思维流帧间隔）
    ★ 1.12（2026-11-20 人事部长ST 0023 派单）：「账本」与「缓存」两页功能重复，
      WB 网页版不需要缓存页 —— 整页删除（② 缓存 tab、renderCache 渲染器一并删），
      只留「账本」；「缓存管理」按钮只做在 TRAE 网页版设置页。
+   ★ 2.77（老板 2026-11-21）：原「离线倒计时(秒)」「离线倒计时启用」「切后台自动下线(秒)」
+     三项语义雷同，合并为一个「自动下线(秒，0＝不自动下线)」；自动下线默认 120 秒、
+     强制核对（主动核对周期）默认 90 秒，老设备首次加载做一次性归一。
    ★ 小账本＝现成查看器，禁止另造页面；配置项只放本页 ③。 */
 (function(){
   var built = false, CV_VER = '1.14', tab = 'ledger', cur = null;
   var NKEY = 'wb_turns_n';
   var LS_CLEAN = 'wb_lb_autoclean', LS_HUD = 'wb_lb_hud', LS_OFFE = 'wb_lb_offline_on',
       LS_OFF = 'wb_lb_offline', LS_PER = 'wb_lb_period', LS_THINK = 'wb_lb_think',
-      LS_BG = 'wb_lb_bgout';
+      LS_BG = 'wb_lb_bgout', LS_MERGE1 = 'wb_lb_merge1';
+  /* 2.77：三项并轨后的老值归一（每个浏览器只做一次，之后以调控页改的值为准） */
+  try{
+    if (localStorage.getItem(LS_MERGE1) !== '1'){
+      localStorage.setItem(LS_OFF, '120');
+      localStorage.setItem(LS_BG, '120');
+      localStorage.setItem(LS_OFFE, '1');
+      localStorage.setItem(LS_PER, '90');
+      localStorage.setItem(LS_MERGE1, '1');
+    }
+  }catch(e){}
   function lsN(k, d){ var v = parseInt(localStorage.getItem(k) || '', 10); return isFinite(v) ? v : d; }
   function lsB(k, d){ var v = localStorage.getItem(k); return v == null ? d : (v === '1'); }
   function lsSet(k, v){ try { localStorage.setItem(k, String(v)); } catch(e){} }
@@ -9472,13 +9488,11 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     fs.innerHTML = '<h3>账本调控 <span class="n">改值立即生效并保存</span></h3>' +
       '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_clean"> 自动清理无用小账本（14 天未查看自动删）</label></div>' +
       '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_hud"> 悬浮倒计时条（默认关；勾选即左下角走字）</label></div>' +
-      '<div class="tv_ctlrow"><label>离线倒计时（秒）</label><input type="number" id="tv_in_offline" min="15" max="3600"></div>' +
+      '<div class="tv_ctlrow"><label>自动下线（秒，0＝不自动下线）</label><input type="number" id="tv_in_offline" min="0" max="3600"></div>' +
       '<div class="tv_ctlrow"><label>主动核对周期（秒）</label><input type="number" id="tv_in_period" min="15" max="3600"></div>' +
-      '<div class="tv_ctlrow"><label>小账本保留轮数（1 轮≈2 条，默认 5）</label><input type="number" id="tv_in_rounds" min="1" max="200"></div>' +
+      '<div class="tv_ctlrow"><label>小账本保留轮数（1 轮≈2 条，默认 5，最多 50）</label><input type="number" id="tv_in_rounds" min="1" max="50"></div>' +
       '<div class="tv_ctlrow"><label>思维流帧间隔（秒，0＝不限频一变即发）</label><input type="number" id="tv_in_think" min="0" max="120"></div>' +
-      '<div class="tv_ctlrow"><label><input type="checkbox" id="tv_ck_idleout"> 离线倒计时启用（走完发下线信号）</label></div>' +
-      '<div class="tv_ctlrow"><label>切后台自动下线（秒，0＝不自动下线）</label><input type="number" id="tv_in_bg" min="0" max="1800"></div>' +
-      '<div class="tv_hint">以上为账本系统 V1.0 调控项（唯一集中入口）。小账本本体就在「① 账本」；1.12 起不再单列缓存分页。</div>';
+      '<div class="tv_hint">「自动下线」＝前台闲置与切后台共用这一条（原「离线倒计时／离线倒计时启用／切后台自动下线」三项已合并）；0＝永不自动下线。以上为账本系统 V1.0 调控项（唯一集中入口）。小账本本体就在「① 账本」；1.12 起不再单列缓存分页。</div>';
     host.appendChild(fs);
     var q = function(id){ return fs.querySelector('#' + id); };
     function applyRounds(v){
@@ -9490,41 +9504,41 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     }
     q('tv_ck_clean').checked = lsB(LS_CLEAN, false);
     q('tv_ck_hud').checked = lsB(LS_HUD, false);
-    q('tv_ck_idleout').checked = lsB(LS_OFFE, true);
-    q('tv_in_offline').value = lsN(LS_OFF, 300);
-    q('tv_in_period').value = lsN(LS_PER, 60);
+    q('tv_in_offline').value = lsB(LS_OFFE, true) ? lsN(LS_OFF, 120) : 0;
+    q('tv_in_period').value = lsN(LS_PER, 90);
     q('tv_in_rounds').value = _snapRounds();
     q('tv_in_think').value = lsN(LS_THINK, 3);
-    q('tv_in_bg').value = lsN(LS_BG, 60);
     q('tv_ck_clean').onchange = function(){ lsSet(LS_CLEAN, this.checked ? 1 : 0); };
     q('tv_ck_hud').onchange = function(){ lsSet(LS_HUD, this.checked ? 1 : 0); };
-    q('tv_ck_idleout').onchange = function(){ lsSet(LS_OFFE, this.checked ? 1 : 0); };
     q('tv_in_offline').onchange = function(){
-      var v = Math.min(3600, Math.max(15, parseInt(this.value, 10) || 300));
-      this.value = v; lsSet(LS_OFF, v);
+      var raw = parseInt(this.value, 10);
+      if (!isFinite(raw)) raw = 0;
+      var v = raw <= 0 ? 0 : Math.min(3600, Math.max(15, raw));
+      this.value = v;
+      lsSet(LS_OFF, v); lsSet(LS_BG, v); lsSet(LS_OFFE, v > 0 ? 1 : 0);
     };
     q('tv_in_period').onchange = function(){
-      var v = Math.min(3600, Math.max(15, parseInt(this.value, 10) || 60));
+      var v = Math.min(3600, Math.max(15, parseInt(this.value, 10) || 90));
       this.value = v; lsSet(LS_PER, v);
     };
     q('tv_in_rounds').onchange = function(){
-      this.value = applyRounds(this.value);
+      var v = applyRounds(this.value);
+      this.value = v;
+      /* 2.77：服务端原来写死 5 轮，网页调了等于没调。这里上行 set_rounds，
+         服务端按它切账本（host._mod_payload 读 cfg['ledger_rounds']）。 */
+      try { sendJson({t: 'set_rounds', v: v}); } catch(e){}
     };
     q('tv_in_think').onchange = function(){
       var v = Math.min(120, Math.max(0, parseInt(this.value, 10) || 0));
       this.value = v; lsSet(LS_THINK, v);
       try { sendJson({t: 'set_think_int', v: v}); } catch(e){}
     };
-    q('tv_in_bg').onchange = function(){
-      var v = Math.min(1800, Math.max(0, parseInt(this.value, 10) || 0));
-      this.value = v; lsSet(LS_BG, v);
-    };
   }
   /* 倒计时文本：核对（距下次主动核对）· 离线（距自动下线） */
   function hudText(){
     var txt = [];
     try{
-      var per = lsN(LS_PER, 60) * 1000, last = 0, sid = '';
+      var per = lsN(LS_PER, 90) * 1000, last = 0, sid = '';
       try { sid = reconSid(); } catch(e){}
       try { last = (_reconTs && _reconTs[sid]) || 0; } catch(e){}
       var left = per - (Date.now() - last); if (left < 0) left = 0;
@@ -9532,7 +9546,7 @@ if (wsOV || CFG.channel){ connect(); } else channelPrompt();
     }catch(e){ txt.push('核对 —'); }
     try{
       if (lsB(LS_OFFE, true) && cliLoggedIn){
-        var off = lsN(LS_OFF, 300) * 1000;
+        var off = lsN(LS_OFF, 120) * 1000;
         var l2 = off - (Date.now() - cliIdleAt); if (l2 < 0) l2 = 0;
         txt.push('离线 ' + Math.round(l2 / 1000) + 's');
       } else txt.push('离线 —');
