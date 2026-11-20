@@ -139,6 +139,7 @@ const el = {
   srvrefresh: $('btn_srvrefresh'),
   points: $('lbl_points'), model: $('cmb_model'),
   state: $('statebar'), loginbar: $('loginbar'),
+  reconn: $('btn_reconn'), reconnbar: $('reconnbar'),
   msgs: $('msgs'), attach_row: $('attach_row'),
   input_row: $('input_row'),
   attach: $('btn_attach'), ent: $('ent'), take: $('btn_take'),
