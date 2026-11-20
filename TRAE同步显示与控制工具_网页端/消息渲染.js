@@ -140,11 +140,18 @@ function _thinkNoHostHtml(){
 /* 2.207（V1.0 §五-8）：小账本最底部固定挂的「一张」思维流卡——只展示，
    走不到 ledger 落盘/轮次统计/终极回复任何一条路。样式内联，免改 css。 */
 function _thinkCardHtml(c){
-  const tm = c.time ? '<span class="tm">' + esc(c.time) + '</span>' : '';
-  const ver = '<span class="tm">v' + (parseInt(c.thinkVer, 10) || 1) + '</span>';
+  /* 2.231（老板 22:36 令·恢复 2.229 头部口径）：只留 🧠 + 会话名 + HH:MM + 版本号，
+     不写「思维流」三字；会话名 flex:1 可省略，时间/版本不缩。 */
+  const _m = String(c.time || '').match(/(\d{1,2}):(\d{2})/);
+  const hm = _m ? (('0' + _m[1]).slice(-2) + ':' + _m[2]) : '';
+  const tm = hm ? '<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">' + hm + '</span>' : '';
+  const ver = '<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">v' + (parseInt(c.thinkVer, 10) || 1) + '</span>';
+  const ttl = '<span class="tk" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;'
+       + 'white-space:nowrap;margin-left:6px">' + esc(c.title || '') + '</span>';
   return '<div class="msg agent thinklive" data-think="' + esc(c.thinkId || '') + '"'
        + ' style="border:1px dashed #4a9eff;border-radius:10px;padding:8px 10px;margin-top:8px">'
-       + '<div class="who">🧠 思维流 · ' + esc(c.title || '') + tm + ver + '</div>'
+       + '<div class="who" style="display:flex;align-items:center;min-width:0">'
+       + '<span style="flex-shrink:0">🧠</span>' + ttl + tm + ver + '</div>'
        + '<div class="body" style="white-space:pre-wrap;word-break:break-word;'
        + 'max-height:45vh;overflow:auto">' + _mdBody(String(c.text || '')) + '</div></div>';
 }
@@ -180,20 +187,6 @@ function guideBoot(){
     if (el.msgs.querySelector('.msg')) return;
     el.msgs.innerHTML = guideHtml();
   } catch(e){}
-}
-
-/* 3.01（老板 2026-11-20 令·未终结 AI 壳行上屏）：当前会话【最后一条】、
-   index8==='th' 且 index7 为空（未终结）⇒ 判为「生成中壳行」，原位出实时占位。 */
-function _isLiveShellRow(m, i, n){
-  if (!Array.isArray(m)) return false;
-  const k8 = (m.length > 8 ? String(m[8] || '').trim().toLowerCase() : '');
-  const fin7 = (m.length > 7 ? String(m[7] || '').trim() : '');
-  return k8 === 'th' && !fin7 && i === n - 1;
-}
-/* 3.01：壳行占位文案——正文里数「已执行 X 条命令」，没有就写「正在思考」。 */
-function _shellPhrase(text){
-  const m = /已执行\s*(\d+)\s*条命令/.exec(String(text == null ? '' : text));
-  return m ? ('已执行 ' + m[1] + ' 条命令') : '正在思考';
 }
 
 function renderMsgs(msgs, finish, opts, ask, pend){
@@ -292,21 +285,12 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     /* 2.222（老板 2026-11-20 17:10 令·思维流与终极回复位置混装）：行级类型
        只认后端 index8——`th` 只画虚线框，绝不进普通消息区（防同一行两处同显）；
        `u`/`a`/`?` 照常上屏（`?` 不猜、不丢）。本处是位置分流，不是筛选。
-       3.01（老板 2026-11-20 令·未终结 AI 壳行上屏）：当前会话【最后一条】且
-       index7 为空的 `th` 行不再整行跳过——原位显示「正在思考 / 已执行 N 条命令」
-       实时占位；整轮结束（index7 非空）后仍按后端 index8 正常显示，本处不改判。 */
+       2.231（老板 22:36 令·撤 3.01 状态占位）：未终结 `th` 行也不再占位显示，
+       该位置只留给终极回复；思维流只走底部虚线卡。 */
     const _k8 = (m.length > 8 ? String(m[8] || '').trim().toLowerCase() : '');
-    if (_k8 === 'th' && !_isLiveShellRow(m, i, msgs.length)) return;
-    if (_k8 === 'th'){
-      const _sd = document.createElement('div');
-      _sd.className = 'msg agent thinking';
-      _sd.innerHTML = '<div class="who">TraeWork'
-        + (times[i] ? '<span class="tm">' + esc(times[i]) + '</span>' : '')
-        + '</div><div class="body" style="font-style:italic;opacity:.7">'
-        + esc(_shellPhrase(m[1])) + '</div>';
-      el.msgs.appendChild(_sd);
-      return;
-    }
+    /* 2.231（老板 22:36 令）：TH 行一律不进普通消息区、不显示任何「思考中/执行中」
+       状态占位——那个位置只留给终极回复；思维流只走底部虚线卡。 */
+    if (_k8 === 'th') return;
     const user = m[0] === 'u';
     let acts = '';
     /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息——把
