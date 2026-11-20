@@ -199,8 +199,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   /* 1.06：key 纳入 [rev,del] 标志（空闲/生成切换时按钮随之出没）
      与 opts（选项卡答完即销毁）；2.112（X2-1）：纳入「时间未知」标记 m[7]
      （无 mid 行置顶并标注，标记变化必须重画）。 */
+  /* 2.222：行级类型（index8）也进指纹——th→a 翻转但正文没变时必须重画，
+     否则「思维流藏起来、终极回复却没上屏」。 */
   let key = msgs.map(m => m[0] + ':' + m[1] + ':' + (m[3] || 0)
-                              + (m[4] || 0) + ':' + (m[7] || 0)).join('#');
+                              + (m[4] || 0) + ':' + (m[7] || 0)
+                              + ':' + (m[8] || '')).join('#');
   if (finish)
     key += '#fin:' + (finish.inLast ? 'L' : '-') + '|'
            + (finish.files || []).join('|') + '~'
@@ -272,6 +275,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   const times = resolveTimes(msgs);
   let ui = -1;                       // 「我」的消息序号（rewind/del_msg 用）
   msgs.forEach((m, i) => {
+    /* 2.222（老板 2026-11-20 17:10 令·思维流与终极回复位置混装）：行级类型
+       只认后端 index8——`th` 只画虚线框，绝不进普通消息区（防同一行两处同显）；
+       `u`/`a`/`?` 照常上屏（`?` 不猜、不丢）。本处是位置分流，不是筛选。 */
+    const _k8 = (m.length > 8 ? String(m[8] || '').trim().toLowerCase() : '');
+    if (_k8 === 'th') return;
     const user = m[0] === 'u';
     let acts = '';
     /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息——把
