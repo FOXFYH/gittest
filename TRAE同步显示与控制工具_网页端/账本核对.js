@@ -52,7 +52,11 @@ let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
              {act,ts,sid,st:'sent|same|need',cost,need,seq}，仅运行期内存——不落盘、
              不上行、不改协议；查看器「③ 调控·强核对」只读它，四契机共用这一份。 */
           vchkLog: [],
-          vchkCnt: {login: 0, svr: 0, switch: 0, timer: 0}};   /* 本次打开以来各契机发出计数 */
+          vchkCnt: {login: 0, svr: 0, switch: 0, timer: 0},   /* 本次打开以来各契机发出计数 */
+          /* 2.229（老板 2026-11-20 22:01）：强核对不再弹独立悬浮窗，改复用顶部
+             状态横幅临时显示「核对中」——vchkOpen=1 期间输入界面.js 末尾覆盖文案，
+             vchkEndAt 为 30 秒硬兜底（防回执丢失导致横幅卡死）。 */
+          vchkOpen: 0, vchkEndAt: 0};
 let lbLastAct = Date.now();                  /* 离线倒计时锚点（任意操作重置） */
 let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默认关，追加单 2026-11-18） */
 
@@ -502,8 +506,12 @@ function ledgerVcheckSend(act, sid){
       LB.vchkCnt[act] = (LB.vchkCnt[act] | 0) + 1;
       LB.vchkLog.unshift(_it);
       if (LB.vchkLog.length > 20) LB.vchkLog.length = 20;
-      if ((act === 'login' || act === 'svr') && typeof ftoast === 'function'){
-        ftoast('强核对·' + (act === 'login' ? '登录重登' : '切换服务器') + ' 核对中…', 'rgba(51,122,183,.95)', 2200);
+      /* 2.229（老板 2026-11-20 22:01）：强核对不再弹悬浮吐司，只把顶部状态
+         横幅临时改成「核对中」；终态（vack stage:2）清位即自动恢复原文案，
+         30 秒硬兜底防回执丢失卡死。不改协议、不动输出中逻辑。 */
+      if (act === 'login' || act === 'svr'){
+        LB.vchkOpen = 1; LB.vchkEndAt = Date.now() + 30000;
+        if (typeof renderAll === 'function') renderAll();
       }
     } catch(e){}
     if (act === 'timer') LB.checking = true;
@@ -551,6 +559,8 @@ function ledgerVack(d){
         sp.phase = 'ledger_check';
         sp.ts = Date.now();
         clearTimeout(sp._resendT);         /* 服务器已受理：停补发（同 switch_ack 口径） */
+        /* 2.229（老板 22:01）：切换后的账本核对同样只在顶部横幅显示「核对中」 */
+        LB.vchkOpen = 1; LB.vchkEndAt = Date.now() + 30000;
         renderAll();
       }
     }
@@ -558,10 +568,11 @@ function ledgerVack(d){
   }
   /* stage:2 —— 正式成功终态：版本一致（same）或差额补发清单（need） */
   LB.checking = false;
+  /* 2.229（老板 22:01）：终态一到即撤「核对中」横幅，恢复原状态文案。 */
+  if (LB.vchkOpen){ LB.vchkOpen = 0; LB.vchkEndAt = 0; }
   /* 2.227（人事部长ST 0023 派单）：回填强核对结果——按 req_seq 精确对号
      （服务端 vack 原样回带），找不到再按 act 取最近一条仍为 sent 的记录。
-     login/svr/timer 完成时给一条短闪条（switch 已有切换横幅，不重复）。
-     只写 LB、只读 vack 既有字段，不改协议。 */
+     只写 LB、只读 vack 既有字段，不改协议。（2.229 起不再弹结果吐司） */
   try {
     const _L = Array.isArray(LB.vchkLog) ? LB.vchkLog : [];
     let _h = null;
@@ -576,13 +587,9 @@ function ledgerVack(d){
       _h.st = d.same ? 'same' : 'need';
       _h.need = Array.isArray(d.need) ? d.need.length : 0;
       _h.cost = Math.max(0, Date.now() - _h.ts);
-      if ((_h.act === 'login' || _h.act === 'svr' || _h.act === 'timer') && typeof ftoast === 'function'){
-        const _nm = {login: '登录重登', svr: '切换服务器', timer: '定时主动'}[_h.act] || _h.act;
-        ftoast('强核对·' + _nm + ' ' + (d.same ? '一致' : ('补发中' + (_h.need ? '（' + _h.need + ' 项）' : ''))),
-               d.same ? 'rgba(39,174,96,.95)' : 'rgba(243,156,18,.95)', 2600);
-      }
     }
   } catch(e){}
+  if (typeof renderAll === 'function') renderAll();
   if (d.mods && typeof d.mods === 'object') lbModsSet(d.mods);   /* 存底，供下轮比对 */
   /* 智能避让（I3 修订版·追加单 2026-11-18）：切换成功＝终态 → 解冻并按完整
      周期重新起算；login/svr 强核对完成 → 倒计时直接重置为完整周期。
