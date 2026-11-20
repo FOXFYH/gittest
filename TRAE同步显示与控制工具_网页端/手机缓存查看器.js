@@ -946,6 +946,7 @@
       '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_hud"> 悬浮倒计时条（左下角，默认关；勾选即悬浮走字）</label></div>' +
       '<div class="cv_lbrow"><label>离线倒计时（秒）</label><input type="number" id="lb_in_offline" min="15" max="3600"></div>' +
       '<div class="cv_lbrow"><label>主动核对周期（秒）</label><input type="number" id="lb_in_period" min="15" max="3600"></div>' +
+      '<div class="cv_lbhint">核对契机共 4 个：① 登录 / 打开网页版（login）② 手机切换会话（switch）③ 切换操控服务端（svr）④ 到点主动核对（timer，按本周期）。①②③ 由操作触发、立即发一次；④ 只在网页在线时按周期发。网页不在线 → 一律不发（0 WS）。</div>' +
       '<div class="cv_lbrow"><label>保留轮数（本地账本＝预备画面＝服务端默认同值）</label><input type="number" id="lb_in_rounds" min="1" max="50"></div>' +
       '<div class="cv_lbrow"><label>思维流直播帧间隔（秒，0＝不限频一变即发）</label><input type="number" id="lb_in_think" min="0" max="120"></div>' +
       '<div class="cv_lbrow"><label><input type="checkbox" id="lb_ck_idleout"> 离线倒计时启用（走完发下线信号）</label></div>' +
@@ -959,7 +960,7 @@
     q('lb_ck_idleout').checked = !!(typeof CFG !== 'undefined' && CFG.lb_idleout);
     q('lb_ck_bgout').checked = !!(typeof CFG !== 'undefined' && CFG.lb_bgout);
     q('lb_in_offline').value = (typeof lbOfflineSecs === 'function') ? lbOfflineSecs() : 120;
-    q('lb_in_period').value = (typeof CFG !== 'undefined' && parseInt(CFG.lb_period)) || 60;
+    q('lb_in_period').value = (typeof CFG !== 'undefined' && parseInt(CFG.lb_period)) || 90;
     q('lb_in_rounds').value = (typeof lbRounds === 'function') ? lbRounds() : 5;
     q('lb_in_think').value = (typeof CFG !== 'undefined' && CFG.lb_think !== undefined) ? CFG.lb_think : 5;
     q('lb_ck_clean').onchange = function(){ CFG.lb_autoclean = this.checked ? 1 : 0; save(); try { if (typeof lbCleanStale === 'function') lbCleanStale(); } catch(e){} };
@@ -970,7 +971,7 @@
     q('lb_ck_idleout').onchange = function(){ CFG.lb_idleout = this.checked ? 1 : 0; save(); try { if (typeof lbLastAct !== 'undefined') lbLastAct = Date.now(); } catch(e){} };
     q('lb_ck_bgout').onchange = function(){ CFG.lb_bgout = this.checked ? 1 : 0; save(); };
     q('lb_in_offline').onchange = function(){ CFG.lb_offline = Math.max(15, parseInt(this.value, 10) || 120); this.value = CFG.lb_offline; save(); try { if (typeof lbLastAct !== 'undefined') lbLastAct = Date.now(); } catch(e){} };
-    q('lb_in_period').onchange = function(){ CFG.lb_period = Math.max(15, parseInt(this.value, 10) || 60); this.value = CFG.lb_period; save(); };
+    q('lb_in_period').onchange = function(){ CFG.lb_period = Math.max(15, parseInt(this.value, 10) || 90); this.value = CFG.lb_period; save(); };
     q('lb_in_rounds').onchange = function(){ CFG.lb_rounds = Math.min(50, Math.max(1, parseInt(this.value, 10) || 5)); this.value = CFG.lb_rounds; save(); try { localStorage.setItem('trae_webm_frame_n', String(CFG.lb_rounds)); } catch(e){} var n0 = document.getElementById('cv_n'); if (n0) n0.value = CFG.lb_rounds; lbRoundsApplied(); };
     q('lb_in_think').onchange = function(){
       CFG.lb_think = Math.max(0, parseInt(this.value, 10) || 0);
