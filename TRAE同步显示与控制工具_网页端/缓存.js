@@ -78,7 +78,10 @@ let srvPackLastSave = 0;
 function srvPackKey(box, port){
   const b = (box != null) ? box : S.box;
   const p = (port != null) ? port : S.port;
-  return String(b || '') + '|' + String(p || '');
+  /* 2.242（老板 2026-11-21 02:20 切服列表不跟随）：键里加服务器名。
+     两台电脑的 TRAE 窗口名/调试端口常常一模一样（同为 9599），旧键 box|port
+     会撞车——切到 B 却还原出 A 的列表。 */
+  return String(S.cur || '') + '|' + String(b || '') + '|' + String(p || '');
 }
 function _srvPacksRead(){
   try {
@@ -110,7 +113,12 @@ function srvPackSave(){
 }
 function srvPackRestore(box, port){
   try {
-    const p = _srvPacksRead()[srvPackKey(box, port)];
+    const _all = _srvPacksRead();
+    /* 2.242：新键（带服务器名）没有时回退读旧键（box|port），只为减少切换瞬间
+       的空白；新服首帧一到即整份覆盖（见 通用工具.js _convsSolidGuard 2.242），
+       不会像旧版那样把旧服列表永久钉在屏幕上。 */
+    const p = _all[srvPackKey(box, port)]
+           || _all[String(box || '') + '|' + String(port || '')];
     if (!p) return false;
     if (!S.snap || typeof S.snap !== 'object') S.snap = {};
     if (Array.isArray(p.convs) && p.convs.length){
@@ -745,7 +753,7 @@ function _frameTrimN(msgs, sk, quiet){
   } catch(e){}
   return msgs;
 }
-function _frameCommit(sk, frame, meta, onOk, memNow){
+function _frameCommit(sk, frame, meta, onOk, memNow, force){
   const _mk = String(meta.title || '').trim();
   /* 3.01：给存帧盖「当前服务器」归属，供小账本短路按 srv+sid 校验（切服不串显）。 */
   try { if (frame && typeof frame === 'object' && typeof lbSrvTag === 'function')
@@ -780,7 +788,7 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
     /* 2.220：旧内存帧也先按 N 裁再比，避免旧帧「条数更多」压住裁后新帧。 */
     if (_frameMem[sk] && Array.isArray(_frameMem[sk].msgs))
       _frameMem[sk].msgs = _frameTrimN(_frameMem[sk].msgs, sk, true);
-    if (!_frameNewerOrEqual(frame, _frameMem[sk])) return false;
+    if (!force && !_frameNewerOrEqual(frame, _frameMem[sk])) return false;
     _put();
     return true;
   }
@@ -790,6 +798,7 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
   if (memNow && frame && Array.isArray(frame.msgs) && frame.msgs.length){
     _frameMem[sk] = frame;
     if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
+    if (force){ _put(); return true; }              /* 2.243：强制覆盖，跳过磁盘比对 */
     _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
       const old = (rec && rec.frame) || null;
       if (old && Array.isArray(old.msgs)) old.msgs = _frameTrimN(old.msgs, sk, true);
@@ -804,6 +813,7 @@ function _frameCommit(sk, frame, meta, onOk, memNow){
     return true;
   }
   /* 内存里还没有该会话：先读 IDB 已存帧做比较（首启/未点过的会话） */
+  if (force){ _put(); return true; }              /* 2.243：强制覆盖，跳过磁盘比对 */
   _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
     const old = (rec && rec.frame) || null;
     if (old && Array.isArray(old.msgs)) old.msgs = _frameTrimN(old.msgs, sk, true);
@@ -1081,6 +1091,9 @@ function snapIdbShow(sid, title){
     if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
     if (S.livePrefetch) return;                 /* 2.67：服务端已预取该会话正文帧，别用本地存帧覆盖 */
     if (_mem) return;                           /* 2.112：内存帧已上屏（且更新），不拿 IDB 旧帧回盖 */
+    /* 2.243：小账本已先合并上屏（冷启动 lbBootMerge），空/旧存帧不得再把它盖回空 */
+    if (!(rec && rec.frame && Array.isArray(rec.frame.msgs) && rec.frame.msgs.length)
+        && S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length) return;
     S.liveFrame = (rec && rec.frame) || null;   /* 有存帧 → 一次性上屏 */
     renderAll();
   }).catch(() => {
@@ -1144,6 +1157,9 @@ function snapIdbBoot(sk){
          （刚升级清空骨架、或首拍还没到）时，直接用【本地持久化锚定】顶出
          预备画面——刷新/登录＝切换，绝不留白。 */
       if (S.anchorSid) snapIdbShow(S.anchorSid, S.anchorTitle || '');
+      /* 2.243：快照先秒显，再用本地小账本补全/替换同会话内容 */
+      if (typeof lbBootMerge === 'function')
+        lbBootMerge(S.anchorFull || S.anchorSid, S.anchorTitle || '');
       return;
     }
     const key = 稳定键(sel[4], sel[1]);
@@ -1153,6 +1169,8 @@ function snapIdbBoot(sk){
       S.anchorSid = key; S.anchorTitle = sel[1] || ''; S.anchorFull = sel[4] || '';
     }
     snapIdbShow(key, sel[1]);
+    /* 2.243：快照先秒显，再用本地小账本补全/替换同会话内容 */
+    if (typeof lbBootMerge === 'function') lbBootMerge(sel[4], sel[1]);
   }catch(e){}
 }
 setInterval(() => snapIdbTick(), 10000);                       /* 2.98：10 秒节流（原 5 秒） */
