@@ -47,13 +47,6 @@
       var sp = (typeof S !== 'undefined') ? S.switch_pend : null;
       var now = Date.now();
       if (sp){
-        /* 2.252（老板 2026-11-21 22:10 令）：桌面快照已经选中目标会话＝实际已切成功。
-           即便 switch_ack/switch_ok 在途中丢了，也在这里立刻收口，绝不再挂
-           「服务器处理中」、更不会每 15 秒重发。 */
-        try {
-          var _ss = (S.snap && S.snap.selSid) || '';
-          if (_ss && sp.sid && _ss === sp.sid && sp.phase !== 'ok') switchOk();
-        } catch(e){}
         var ph = sp.phase || 'switching';
         var t = nm(sp.title || '');
         /* V2 验收 Y15（2026-11-18）：文案对齐规范§三原文——「WS连接中」
