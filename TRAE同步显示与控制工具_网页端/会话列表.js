@@ -414,6 +414,20 @@ function convMenuOpen(title, sid, sKey){
   const _wKey = _cvUidOf(sid, title, _cfm) || _cvSid4(sid) || sKey;
   if (window.备注菜单项) 备注菜单项(_wKey, title, ov);
   if (window.自我激活菜单项) 自我激活菜单项(_wKey, title, ov);
+  /* 2.247（老板 2026-11-21 10:47）：长按菜单按常用度重排——①设置备注 ②重命名 ③定时，
+     其余（置顶/删除/取消）保持原顺序跟在后面。两个钩子各自「插到取消前」，
+     这里统一搬到最前三位，避免改钩子影响可摘除设计。 */
+  try {
+    const _sheet = ov.querySelector('.cmsheet');
+    const _q = a => _sheet ? _sheet.querySelector('button[data-act="' + a + '"]') : null;
+    const _note = _q('note'), _ren = _q('ren'), _sched = _q('sched');
+    if (_sheet && _note && _ren && _sched){
+      const _tt = _sheet.querySelector('.cmtitle');
+      _sheet.insertBefore(_note, _tt ? _tt.nextSibling : _sheet.firstChild);
+      _sheet.insertBefore(_ren, _note.nextSibling);
+      _sheet.insertBefore(_sched, _ren.nextSibling);
+    }
+  } catch(e){}
 }
 
 /* ============ 2.87：重命名就地弹层 + 四态反馈 ============
