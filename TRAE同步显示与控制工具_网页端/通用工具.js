@@ -707,6 +707,17 @@ const CONV_EMPTY_HINT_N = 3;      /* 连续 3 拍空才出顶部提示 */
 const CONV_SHRINK_ACCEPT_N = 8;   /* 连续 8 拍骤减认作真实删减，放行 */
 function _convsSolidGuard(v){
   try {
+    /* 2.242（老板 2026-11-21 02:20「切换服务器时左侧会话列表没跟着切换」）：
+       服务器身份（名|FOX号）变了＝这是新服的第一帧，必须整份采用并清空护栏
+       计数——旧写法拿上一台服务器的列表条数做「空帧/骤减不落地」比对，新服
+       会话少一半以上就被永久拦下；空帧时还会从全局骨架缓存回填旧服列表，
+       于是左侧列表一直显示旧服务器。首帧直接 return（不拦、不回填）。 */
+    const _sidNow = String(S.cur || '') + '|' + String(S.curSid || '');
+    if (_sidNow !== String(S.convs_srv_id || '')){
+      S.convs_srv_id = _sidNow;
+      S.convs_shrink_n = 0; S.convs_empty_n = 0; S.convs_stale_hint = 0;
+      return;
+    }
     const old = (S.snap && Array.isArray(S.snap.convs) && S.snap.convs.length)
       ? S.snap.convs : null;
     const _fillSkel = () => {
