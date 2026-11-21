@@ -56,6 +56,10 @@ function pendStat(p){
      发出、服务端尚未回报任何阶段) / ③「服务器开始执行…」(typed，服务端
      已确认写入输入框) / 更后「已进官方排队条」「TRAE 已执行」只认服务端
      sent 事件推来的阶段；超时如实说「可能未送达」。 */
+  /* 2026-11-20（接手回执）：服务端一接手（rcpt accepted/running）就把卡翻成
+     「服务器已收到，正在处理…」，不再干等「等待服务器回应…」；该阶段按 sent
+     处理。销卡判据不变——仍只认 msgs 里出现该条 DID。 */
+  if (p.state === 'running') return ['服务器已收到，正在处理…', 'ok'];
   if (p.state === 'accepted') return ['服务器已受理，等待执行…', ''];
   if (p.state === 'typed')   return ['服务器开始执行…（已输入 TRAE）', ''];
   if (p.state === 'queued')  return ['已进 TRAE 官方排队条，等待 AI 处理…', 'ok'];
@@ -377,6 +381,15 @@ function switchReArm(){
 function switchResend(){
   const sp = S.switch_pend; if (!sp) return;
   if (sp.phase !== 'waiting') return;   /* 2.81：仅 waiting 补发；收 ack 后静默 */
+  /* 2.252（老板 2026-11-21 22:10）：桌面快照已选中目标＝实际切成功——即便回执
+     丢了也不再补发，直接按成功收口（治「切换已完成却每 15 秒重发」）。 */
+  const _ss = (S.snap && S.snap.selSid) || '';
+  let _sid = sp.sid || '';
+  if (!_sid && sp.title && S.snap && Array.isArray(S.snap.convs)){
+    const _r = S.snap.convs.find(x => x && x[0] === 'c' && x[1] === sp.title);
+    if (_r && _r[4]) _sid = _r[4];      /* 空目标自动切换：按名字认回 sid */
+  }
+  if (_ss && _sid && _ss === _sid){ switchOk(); return; }
   sendCmd('switch', switchRef());       /* 补发（服务端同目标幂等，不会重复点） */
   sp.ts = Date.now();
   switchReArm();
