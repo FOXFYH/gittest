@@ -170,6 +170,12 @@ function onEv(kind, v){
       if (_penArr.length && !_penMine) v.pend = [];
       const liveSid = selSidOf(v);
       const liveKey = 稳定键(liveSid, selTitleOf(v));   /* 终身号：跨天也能认出直播帧归属 */
+      /* 2.245（老板 2026-11-21 10:25）：唯一账里已有、快照没带的 AI 终极先补回本帧，
+         再 adoptSnap —— 屏幕/落盘/对账此后全用补全版，小账本有前台就一定有。 */
+      try {
+        if (typeof lbFillFinals === 'function' && Array.isArray(v.msgs) && v.msgs.length)
+          v.msgs = lbFillFinals(liveSid, selTitleOf(v), v.msgs);
+      } catch(e){}
       /* 2.203（老板 2026-11-19 22:02 令）：撤 2.178 的「页面选中与服务器选中不一致」
          橙色胶囊提醒；改为静默自愈——1 号 + 无人借框 + 无在途切换时自动发 switch
          把桌面切回页面选中会话；非 1 号不提示也不抢切（见 待办卡.js anchorSelfHeal）。 */
@@ -657,7 +663,13 @@ function onEv(kind, v){
             && Array.isArray(S.switch_pend.prevMsgs)
             && sameConvBody(v.msgs, S.switch_pend.prevMsgs)) break;
         S.livePrefetch = true;                 /* 标记：别被本地存帧覆盖 */
-        S.liveFrame = {msgs: v.msgs || [], finish: v.finish || null,
+        /* 2.245：预取帧同样先补唯一账里的 AI 终极，避免切换途中先闪一版半截 */
+        let _pfm = v.msgs || [];
+        try {
+          if (typeof lbFillFinals === 'function' && Array.isArray(_pfm) && _pfm.length)
+            _pfm = lbFillFinals(v.sid, v.title || S.switch_pend.title || '', _pfm);
+        } catch(e){}
+        S.liveFrame = {msgs: _pfm, finish: v.finish || null,
                        tail: '', sendIdle: true, inputText: '',
                        opts: [], ask: null, pend: [], model: ''};
         renderAll();
