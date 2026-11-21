@@ -30,6 +30,10 @@
      ① 先把全部存帧预读进内存，再 boot（内存命中即 0ms 上屏，绝不白屏）；
      ② 锚定已在上面 anchorRestore 恢复，登录首拍会补发一次 pane_req 索要直播帧。 */
   Promise.resolve()
+    /* 2.244（老板令·一套账）：开机先把旧 ledger_conv 一次性并入唯一正文账
+       snap_conv 并清表（只跑一次），再按正文账重建真存集/摘要表（vcheck 上报口径不变）。 */
+    .then(function(){ return (typeof lbLedgerMigrateOnce === 'function') ? lbLedgerMigrateOnce() : null; })
+    .then(function(){ try { if (typeof lbHaveLoad === 'function') return lbHaveLoad(); } catch(e){} })
     .then(function(){ return snapIdbPrewarm(); })
     .catch(function(){})
     .then(function(){ snapIdbBoot(sk); });
