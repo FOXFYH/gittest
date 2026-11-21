@@ -764,7 +764,26 @@ function _convsSolidGuard(v){
     S.convs_empty_n = 0; S.convs_shrink_n = 0; S.convs_stale_hint = 0;
   } catch(e){}
 }
+/* 3.02（老板 2026-11-21 12:21/12:23 令「AI 终极回复被当成思维流」「前端直接和
+   小账本短路」）：行级类型在快照入口统一校正，判据与服务端 WS桥 0.66 同构——
+     · role='a' 且类型为 th/snap，后面还有任何消息 ⇒ 本轮早已结束 ⇒ 升 'a'；
+     · 整段最后一条 AI 行：sendIdle 定稿时才升 'a'；
+     · 只升不降，'a' 绝不改回 'th'。
+   校正后 S.snap、落盘 snap_conv、小账本读到的永远是同一份类型。 */
+function _修AI行类型(msgs, idle){
+  if (!Array.isArray(msgs) || !msgs.length) return msgs;
+  const out = msgs.map(m => Array.isArray(m) ? m.slice() : m);
+  for (let i = 0; i < out.length; i++){
+    const r = out[i];
+    if (!Array.isArray(r) || String(r[0] || '').toLowerCase() !== 'a') continue;
+    const k = String((r.length > 8 && r[8]) || '').trim().toLowerCase();
+    if (k !== 'th' && k !== 'snap') continue;
+    if (i < out.length - 1 || idle) r[8] = 'a';
+  }
+  return out;
+}
 function adoptSnap(v){
+  try { if (v && Array.isArray(v.msgs)) v.msgs = _修AI行类型(v.msgs, !!v.sendIdle); } catch(e){}
   /* 2.200：会话列表空帧/骤减不落地（切会话不白屏的唯一数据层护栏） */
   _convsSolidGuard(v);
   /* 用户口径：「网页版是锚定的，它锚定哪个对话，不切换就一直显示这个
