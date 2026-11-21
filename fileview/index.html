@@ -132,7 +132,7 @@ function setStatus(cls,txt){document.getElementById("dot").className="dot "+cls;
 function connect(){
   setStatus("","连接中…");
   try{ws=new WebSocket(wsUrl());}catch(e){setStatus("off","连接失败");return;}
-  ws.onopen=()=>{connected=true;setStatus("on","已连接");initLoc();};
+  ws.onopen=()=>{connected=true;setStatus("on","已连接");initLoc();refreshR2();};
   ws.onclose=()=>{connected=false;setStatus("off","离线，重连中…");setTimeout(connect,5000);};
   ws.onerror=()=>{setStatus("off","连接异常");};
   ws.onmessage=(ev)=>onMessage(ev.data);
@@ -399,12 +399,18 @@ function closeSheet(){el("sheet").style.display="none";el("shade").style.display
 // 文件夹级操作面板（顶部 ⋮ / ＋）
 // 1.17：⋮ 在主页也亮出——第一项「⬆ 上传文件」目标＝当前目录；未进任何目录时
 //   沿用默认位置（起始根＝工作台），与「无选中文件夹」的既有口径一致。
+// 1.18：上传一律走 R2；R2 不可用则入口置灰并明确报错，绝不回退 WS 直传。
 function openFolderSheet(){
   const dir=curPath||BASE;
   if(!dir){alert("尚未确定目标文件夹（服务端未连上）");return;}
   const items=[];
-  items.push({label:"⬆ 上传文件到此文件夹（"+(curPath?"当前："+dir:"默认："+dir)+"）",
-              act:()=>pickUpload(dir)});
+  if(R2_OK){
+    items.push({label:"⬆ 上传文件到此文件夹（"+(curPath?"当前："+dir:"默认："+dir)+"）",
+                act:()=>pickUpload(dir)});
+  }else{
+    items.push({label:"⬆ 上传（R2 不可用，已禁用）", cls:"off",
+                act:()=>alert("上传已禁用：R2 不可用\n"+(R2_ERR||"请检查设置页 R2 配置"))});
+  }
   if(curPath){
     items.push({label:"📁 新建文件夹", act:newFolder});
     items.push({label:"📄 新建 TXT 文件", act:newTxt});
@@ -412,49 +418,65 @@ function openFolderSheet(){
   }
   showSheet(items);
 }
-// ============ 上传（1.17 并入原「传输附件」功能） ============
-// 分片经 WS 交本机服务端写盘：192KB/片（base64 约 256K、64 帧），逐片等应答、错位即失败。
-const UP_CHUNK=196608;
+// ============ 上传（1.18：网页直传 Cloudflare R2 → 本机取回归档） ============
+// 网页 upload_open 拿预签名 PUT → XHR 直传 R2（显示进度）→ upload_commit 通知本机
+// 校验机器 id 后下载到当前文件夹 → 服务端删 R2 对象与挂单（取走即卸载）。
+let R2_OK=false, R2_ERR="正在检测 R2…";
+function refreshR2(){
+  req("r2_status",{},8000).then(r=>{
+    if(r&&r.ok){ R2_OK=!!r.available; R2_ERR=r.available?"":(r.err||"R2 不可用"); }
+    else { R2_OK=false; R2_ERR=(r&&r.err)||"本地服务未响应"; }
+  });
+}
 function pickUpload(dir){
+  if(!R2_OK){ alert("上传已禁用：R2 不可用\n"+(R2_ERR||"")); return; }
   const inp=el("fileUp");
   inp.value="";
   inp.onchange=()=>{const fs=Array.from(inp.files||[]);if(fs.length)upStart(fs,dir);};
   inp.click();
 }
-function _readSlice(file,start,end){
-  return new Promise((res,rej)=>{const r=new FileReader();
-    r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("读取文件失败"));
-    r.readAsArrayBuffer(file.slice(start,end));});
-}
-function _b64(buf){
-  const u=new Uint8Array(buf);let s="";const CH=0x8000;
-  for(let i=0;i<u.length;i+=CH)s+=String.fromCharCode.apply(null,u.subarray(i,i+CH));
-  return btoa(s);
-}
-async function upOne(file,dir){
-  let off=0,name=file.name;const total=file.size;
-  if(!total){
-    const r=await req("upload",{path:dir,name:name,off:0,eof:true,data:""},120000);
-    if(!r||!r.ok)throw new Error((r&&r.err)||"服务端未响应");
-    return;
-  }
-  while(off<total){
-    const end=Math.min(off+UP_CHUNK,total);
-    const buf=await _readSlice(file,off,end);
-    const r=await req("upload",{path:dir,name:name,off:off,eof:end>=total,data:_b64(buf)},120000);
-    if(!r||!r.ok)throw new Error((r&&r.err)||"服务端未响应");
-    if(off===0&&r.name)name=r.name;          // 重名时服务端已自动改名，后续片沿用
-    off=end;
-    toast("上传中："+name+" "+Math.floor(off*100/total)+"%");
-  }
+// 直传 R2：用 XHR 以便拿上传进度。不设自定义 Content-Type（与 TRAE 附件同做法）。
+function _r2Put(url,file,onProg){
+  return new Promise((resolve,reject)=>{
+    const x=new XMLHttpRequest();
+    x.open("PUT",url,true);
+    x.upload.onprogress=e=>{ if(e.lengthComputable&&onProg)onProg(e.loaded,e.total); };
+    x.onload=()=>{
+      if(x.status>=200&&x.status<300)resolve(true);
+      else reject(new Error("R2 HTTP "+x.status+" "+String(x.responseText||"").slice(0,160)));
+    };
+    x.onerror=()=>reject(new Error("R2 网络错误（域名不可达或未配置 CORS）"));
+    x.ontimeout=()=>reject(new Error("R2 上传超时"));
+    try{ x.send(new Blob([file])); }catch(e){ reject(e); }
+  });
 }
 async function upStart(files,dir){
-  let okN=0;
-  for(const f of files){
-    try{await upOne(f,dir);okN++;}
-    catch(e){alert("上传失败："+f.name+"\n"+(e&&e.message||e));}
+  let open;
+  try{ open=await req("upload_open",{path:dir,names:files.map(f=>f.name),mid:SRV_ID},30000); }
+  catch(e){ open={ok:false,err:String(e)}; }
+  if(!open||!open.ok){ alert("上传失败（开单）："+((open&&open.err)||"本地服务未响应")); return; }
+  const task=open.task, mid=open.mid||SRV_ID, ups=open.uploads||[];
+  if(ups.length!==files.length){ alert("上传失败：服务端返回的文件清单数量不符"); return; }
+  const done=[];
+  try{
+    for(let i=0;i<files.length;i++){
+      const f=files[i], u=ups[i];
+      await _r2Put(u.url,f,(loaded,total)=>{
+        toast("上传到 R2："+f.name+" "+Math.floor(loaded*100/total)+"%");
+      });
+      done.push({n:u.n||f.name,key:u.key,size:f.size});
+      toast("已传到 R2："+f.name+"（"+done.length+"/"+files.length+"）");
+    }
+  }catch(e){
+    // PUT 失败：清掉本次 R2 暂存，避免残留
+    try{ await req("upload_abort",{task:task,mid:mid},15000); }catch(_){}
+    alert("上传到 R2 失败："+((e&&e.message)||e)+"\n已清理本次 R2 暂存。");
+    return;
   }
-  toast("已上传 "+okN+"/"+files.length+" 个文件到："+dir);
+  toast("R2 上传完成，等待本机取回…");
+  const c=await req("upload_commit",{task:task,path:dir,files:done,mid:mid},300000);
+  if(!c||!c.ok){ alert("本机取回失败："+((c&&c.err)||"本地服务未响应")); return; }
+  toast("已上传 "+done.length+" 个文件到："+dir);
   if(curPath&&curPath.replace(/[\\/]$/,"")===dir.replace(/[\\/]$/,""))openDir(curPath);
 }
 // 条目级操作面板（每个条目右侧 ⋮）
@@ -515,7 +537,7 @@ el("shade").onclick=closeSheet;
 document.addEventListener("click",e=>{ if(e.target.id==="more") pullChunk(); });
 
 // ============ 启动 ============
-document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("__VER__")||"1.17");
+document.getElementById("stVer").textContent=(HOST||"standalone")+" v"+(_raw("1.18")||"1.18");
 document.getElementById("stHost").textContent=HOST||"standalone";
 el("btnPick").style.display="";   // 1.15：✅ 头钮恒亮——任何模式都能把「当前目录」回传宿主
 function showSetup(){
