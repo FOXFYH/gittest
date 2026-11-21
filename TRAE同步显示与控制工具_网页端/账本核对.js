@@ -1145,6 +1145,9 @@ function lbRoundsFromMsgs(msgs){
       if (cur && cur.length) rounds.push(cur);       /* 半轮也落 */
       cur = [m.slice()];
     } else if (m[0] === 'a'){
+      /* 3.02（老板 12:21 令）：思维流永远只有一条、挂账本最底部、不占保留轮数
+         ——轮次里只收 AI 终极回复('a')，th 一律不进轮次。 */
+      if (String((m.length > 8 && m[8]) || '').toLowerCase() === 'th') return;
       const fin = String((m.length > 7 && m[7]) || '').trim();
       const patch = lbPatchMarked(m);
       /* '提前终极'/'补记' 是来源标记不是正文，正文保留残片原文（2.212 口径）。 */
@@ -1435,7 +1438,11 @@ function _lbLedgerTop(loc, target){
       for (let i = 0; i < out.length; i++){ if (_msgKey(out[i]) === k){ at = i; break; } }
       if (at >= 0){
         const ot = String(out[at][1] || ''), nt = String(m[1] || '');
-        if (nt.length > ot.length) out[at] = m;
+        const _ok = String((out[at].length > 8 && out[at][8]) || '').toLowerCase();
+        const _nk = String((m.length > 8 && m[8]) || '').toLowerCase();
+        /* 3.02（老板 12:21 令）：只升不降——新帧已判终极('a')时，必须覆盖旧帧
+           存下的思维流类型('th')，否则旧类型会被唯一账一直沿用、终答永远被藏。 */
+        if ((_nk === 'a' && _ok !== 'a') || nt.length > ot.length) out[at] = m;
         return;
       }
       /* 只收账本里没有的新行：有正式 mid 且比账本末条更新；无 mid 行不补（防历史重复） */
