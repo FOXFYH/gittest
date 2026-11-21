@@ -95,6 +95,11 @@ function onEv(kind, v){
         pendLandingScan(_inc.msgs,
           (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend : []);
       renderAll();
+      /* 2.246：单会话帧同样补终答——同步没补到的，异步读小账本补回并回写。 */
+      try {
+        if (typeof lbFillFinalsAsync === 'function')
+          lbFillFinalsAsync(psid, pv.title || '');
+      } catch(e){}
       break;
     }
     case 'snap': {
@@ -402,6 +407,13 @@ function onEv(kind, v){
       /* 账本V1.0（H1/H8）：本地账本落盘（只留最新 N 轮）+ 触碰 lastView；
          真快照正文到手 → 历史补发折叠面板退场（账本核对.js）。 */
       try { if (window.ledgerOnSnap) ledgerOnSnap(); } catch(e){}
+      /* 2.246（老板 2026-11-21 10:42「新内容来了同时落小账本和内存」）：同步合并
+         没补到（内存帧空/被人类快照占住）时，异步读唯一账 snap_conv 把 AI 终答
+         补回本会话屏上，补完整屏重画并回写——前台与小账本始终同一份。 */
+      try {
+        if (typeof lbFillFinalsAsync === 'function')
+          lbFillFinalsAsync(liveSid, selTitleOf(v));
+      } catch(e){}
       break;
     }
     case 'profiles': {
