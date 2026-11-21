@@ -328,12 +328,19 @@
           var c = rq.result;
           if (c){
             var v = c.value || {};
+            var _msAll = (v.frame && v.frame.msgs) || [];
+            /* 2.249（老板 2026-11-21 11:37）：「N 条」只算人类发言＋AI 终极回复，
+               思维流单独计数（thN），不再混进总条数导致「10 条里混了思维流」。 */
+            var _nVis = 0, _nTh = 0;
+            _msAll.forEach(function(mm){
+              if (kindOf(mm) === 'think') _nTh++; else _nVis++;
+            });
             out.push({sk: v.sk || c.key, key: v.key || '', title: v.title || '', sid: v.sid || '',
                       uid: v.uid || '',
                       srv: v.srv || '', srvName: v.srvName || '', srvFox: v.srvFox || '',
                       port: v.port, ts: v.ts || 0,
-                      n: (v.frame && v.frame.msgs || []).length,
-                      msgs: (v.frame && v.frame.msgs) || [],
+                      n: _nVis, thN: _nTh,
+                      msgs: _msAll,
                       _raw: v});
             c.continue();
           }
@@ -381,7 +388,15 @@
   }
   function rowText(m){
     /* 2.209：不读记录里的 tm（账本已不存时间）；显示只用 mid 现算。 */
-    if (Array.isArray(m)) return {role: m[0], text: m[1] || '', mid: m[6] || ''};
+    if (Array.isArray(m)){
+      var _tx = m[1] || '';
+      /* 2.249：AI 行正文若只在 index7（终答），此处兜底取出，避免「有记录却空白看不见」。 */
+      if (!_tx && m[0] === 'a'){
+        var _fn = String(m[7] || '').trim();
+        if (_fn && _fn !== '补记' && _fn !== '提前终极') _tx = _fn;
+      }
+      return {role: m[0], text: _tx, mid: m[6] || ''};
+    }
     return {role: (m && (m.role || m.r)) || '', text: (m && (m.text || m.t)) || '', mid: ''};
   }
   /* ===== 2.208（老板 2026-11-19 23:50 令）=====
@@ -403,8 +418,16 @@
     /* 2.213（前端零拦截）：类型只认后端下发——行 index8（u/a/th）或对象 kind/type；
        缺字段一律 ''，显示「类型未知」；前端不再按角色/完成卡自己推断。 */
     if (!m || typeof m !== 'object') return '';
-    if (Array.isArray(m)) return _kindNorm(m[8]);
-    return _kindNorm(m.kind != null ? m.kind : m.type);
+    var k = Array.isArray(m) ? _kindNorm(m[8])
+                             : _kindNorm(m.kind != null ? m.kind : m.type);
+    /* 2.249（老板 2026-11-21 11:37）：TRAE 思维流与终极回复同号，后端有时把
+       「带终答的 AI 行」也标成 th —— 只要该行有真终答（index7 非空且非来源标记），
+       一律按 AI 终极回复认，不让它被当成思维流折叠吞掉。 */
+    if (k === 'think' && Array.isArray(m) && m[0] === 'a'){
+      var fin = String(m[7] || '').trim();
+      if (fin && fin !== '补记' && fin !== '提前终极') return 'final';
+    }
+    return k;
   }
   function kindText(m){
     var k = kindOf(m);
@@ -692,22 +715,17 @@
     var s = document.createElement('div');
     s.className = 'cv_sec';
     /* 2.206：详情头不再显示缓存落盘时间（时间只看每条 mid）。 */
-    s.innerHTML = '<h3>预备画面 · ' + esc(it.n + ' 条') + '</h3>';
+    /* 2.249：N 条＝人类＋AI 终极；思维流单列另注，口径透明。 */
+    s.innerHTML = '<h3>预备画面 · ' + esc(it.n + ' 条')
+      + (it.thN ? esc('（另有 ' + it.thN + ' 条思维流）') : '') + '</h3>';
     var box = document.createElement('div');
     box.style.padding = '4px 10px 12px';
     if (!it.msgs.length){
       box.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'（这份预备画面是空的）'}));
     } else {
-      /* 2.214（老板 2026-11-20 08:08）：思维流只留最新一条、固定排在最后一屏最底部；
-         旧版思维流不再逐条堆在正文中间（其余行原样保留、顺序不动）。 */
-      var _ms = [], _th = null;
+      /* 2.249（老板 2026-11-21 11:37）：账本有什么就显示什么——不再把旧思维流
+         折叠丢弃（曾导致「条数算进去、详情看不见」）；思维流也逐条显示并带类型。 */
       it.msgs.forEach(function(m){
-        var _k = kindOf(m);
-        if (_k === 'think'){ _th = m; return; }
-        _ms.push(m);
-      });
-      if (_th) _ms.push(_th);
-      _ms.forEach(function(m){
         var x = rowText(m);
         /* 2.208：类型以服务端下发为准（index8/kind）；缺则按角色＋终答推导；不得空白。 */
         var _k = kindOf(m);
