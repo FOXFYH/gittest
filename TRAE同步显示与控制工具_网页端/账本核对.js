@@ -1293,24 +1293,11 @@ function lbWriteBackSnap(sid, title, rounds){
    人类发言、屏上却缺 AI 行」的终极补回屏上：补进去的行就地插入该轮末尾（思维流之后），
    不改顺序、不动别的轮；找不到同 mid 的轮一律不碰，防串会话。此后 render/snapIdbTick/
    ledgerOnSnap 拿到的都是补全版，前台与小账本天然同一份。 */
-function lbFillFinals(sid, title, msgs){
+function _lbMergeFinals(local, msgs){
+  /* 2.246：合并核心——只按人类 mid 对齐补 AI 行，不改顺序、不碰对不上的轮。 */
   try{
     if (!Array.isArray(msgs) || !msgs.length) return msgs;
-    const s = String(sid || ''), t = String(title || '').trim();
-    let local = null;
-    try {
-      const _sid = (typeof 稳定键 === 'function')
-        ? (String(稳定键(s, t) || '') || s || t) : (s || t);
-      const sk = (typeof _frameMemKey === 'function') ? _frameMemKey(_sid) : '';
-      if (sk && typeof _frameMem === 'object' && _frameMem[sk]
-          && Array.isArray(_frameMem[sk].msgs)) local = _frameMem[sk].msgs;
-      if (!local && S.liveFrame && Array.isArray(S.liveFrame.msgs)){
-        const _lp = String(S.livePend || S.anchorSid || '');
-        if (!_lp || (typeof _frameMemKey === 'function' && _frameMemKey(_lp) === sk))
-          local = S.liveFrame.msgs;
-      }
-    } catch(e){}
-    if (!local || !local.length) return msgs;
+    if (!Array.isArray(local) || !local.length) return msgs;
     /* 本地账：人类 mid → 该轮的 AI 行（只认带正式 mid 的轮，没 mid 无法对齐） */
     const want = {};
     let curKey = '';
@@ -1329,6 +1316,7 @@ function lbFillFinals(sid, title, msgs){
       if (m[0] === 'a' && lastU) hasA[lastU] = true;
     });
     const out = msgs.slice();
+    let addN = 0;
     for (let i = out.length - 1; i >= 0; i--){
       const m = out[i];
       if (!Array.isArray(m) || m[0] !== 'u') continue;
@@ -1342,11 +1330,66 @@ function lbFillFinals(sid, title, msgs){
       const add = want[mid].map(x => x.slice());
       out.splice.apply(out, [j + 1, 0].concat(add));
       hasA[mid] = true;
-      try { if (typeof diagLog === 'function')
-        diagLog('喂终答|' + (t || s) + '|补 ' + add.length + ' 条', 'ok'); } catch(e){}
+      addN += add.length;
     }
+    return addN ? out : msgs;
+  }catch(e){ return msgs; }
+}
+function lbFillFinals(sid, title, msgs){
+  try{
+    if (!Array.isArray(msgs) || !msgs.length) return msgs;
+    const s = String(sid || ''), t = String(title || '').trim();
+    let local = null;
+    try {
+      const _sid = (typeof 稳定键 === 'function')
+        ? (String(稳定键(s, t) || '') || s || t) : (s || t);
+      const sk = (typeof _frameMemKey === 'function') ? _frameMemKey(_sid) : '';
+      if (sk && typeof _frameMem === 'object' && _frameMem[sk]
+          && Array.isArray(_frameMem[sk].msgs)) local = _frameMem[sk].msgs;
+      if (!local && S.liveFrame && Array.isArray(S.liveFrame.msgs)){
+        const _lp = String(S.livePend || S.anchorSid || '');
+        if (!_lp || (typeof _frameMemKey === 'function' && _frameMemKey(_lp) === sk))
+          local = S.liveFrame.msgs;
+      }
+    } catch(e){}
+    const out = _lbMergeFinals(local, msgs);
+    try { if (out !== msgs && typeof diagLog === 'function')
+      diagLog('喂终答|' + (t || s) + '|补 ' + (out.length - msgs.length) + ' 条', 'ok'); } catch(e){}
     return out;
   }catch(e){ return msgs; }
+}
+/* 2.246（老板 2026-11-21 10:42「小账本和内存保持一致，新内容来了同时落小账本和内存」）：
+   内存帧可能没预读上/被人类快照占着，而唯一账 snap_conv 里确有 AI 终答——同步合并查不到
+   时，异步按同一把钥匙读一次小账本，把缺的 AI 行补回屏幕，再整屏重画并回写（内存/小账本
+   同步更新）。同会话 8 秒最多读一次盘；读回时锚定已换则丢弃，绝不串会话。 */
+const _lbFillAsyncAt = {};
+function lbFillFinalsAsync(sid, title){
+  try{
+    if (typeof _idbReq !== 'function' || typeof _frameMemKey !== 'function') return;
+    const s = String(sid || ''), t = String(title || '').trim();
+    const key = (typeof 稳定键 === 'function') ? (String(稳定键(s, t) || '') || s || t) : (s || t);
+    if (!key) return;
+    const sk = _frameMemKey(key);
+    const now = Date.now();
+    if (_lbFillAsyncAt[sk] && now - _lbFillAsyncAt[sk] < 8000) return;
+    _lbFillAsyncAt[sk] = now;
+    _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
+      const loc = (rec && rec.frame && Array.isArray(rec.frame.msgs)) ? rec.frame.msgs : null;
+      if (!loc || !loc.length) return;
+      /* 读盘回来再验一次锚定：已切走就不动屏幕 */
+      if (String(S.anchorSid || '') !== key && String(S.anchorTitle || '') !== t) return;
+      const _lv = !!(S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length);
+      const target = _lv ? S.liveFrame.msgs
+                         : ((S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null);
+      if (!target || !target.length) return;
+      const out = _lbMergeFinals(loc, target);
+      if (!out || out === target || out.length === target.length) return;
+      if (_lv) S.liveFrame.msgs = out; else S.snap.msgs = out;
+      try { diagLog('小账本补屏|' + (t || key) + '|+' + (out.length - target.length), 'ok'); } catch(e){}
+      renderAll();
+      try { if (typeof snapIdbTick === 'function') snapIdbTick(true); } catch(e){}
+    }).catch(() => {});
+  }catch(e){}
 }
 /* 2.243（老板 2026-11-21 08:25「预备画面也就是小账本……两者合为一个」）：
    冷启动首屏在 snap_conv 快照上屏后，再读本地小账本 ledger_conv，把同会话
