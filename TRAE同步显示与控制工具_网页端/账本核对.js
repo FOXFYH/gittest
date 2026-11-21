@@ -1358,10 +1358,12 @@ function lbFillFinals(sid, title, msgs){
     return out;
   }catch(e){ return msgs; }
 }
-/* 2.246（老板 2026-11-21 10:42「小账本和内存保持一致，新内容来了同时落小账本和内存」）：
-   内存帧可能没预读上/被人类快照占着，而唯一账 snap_conv 里确有 AI 终答——同步合并查不到
-   时，异步按同一把钥匙读一次小账本，把缺的 AI 行补回屏幕，再整屏重画并回写（内存/小账本
-   同步更新）。同会话 8 秒最多读一次盘；读回时锚定已换则丢弃，绝不串会话。 */
+/* 2.248（老板 2026-11-21 11:31 令·一套规则）：主界面就是小账本的显示器——
+   小账本（唯一账 snap_conv）有什么，主界面就显示什么。每次快照到达后异步读回本会话
+   账本记录，以账本为底（一条不丢、不重排），只把屏上「账本没有且更新」的行补到尾部，
+   然后把这一份先写回唯一账（_frameCommit，只进不退）、再顶屏（renderAll）——
+   先落盘、后显示，二者永远同一份。同会话 0.6 秒最多读一次盘；读回时锚定已换
+   只回填内存槽、绝不动屏幕，绝不串会话。 */
 const _lbFillAsyncAt = {};
 function lbFillFinalsAsync(sid, title){
   try{
@@ -1371,68 +1373,122 @@ function lbFillFinalsAsync(sid, title){
     if (!key) return;
     const sk = _frameMemKey(key);
     const now = Date.now();
-    if (_lbFillAsyncAt[sk] && now - _lbFillAsyncAt[sk] < 8000) return;
+    if (_lbFillAsyncAt[sk] && now - _lbFillAsyncAt[sk] < 600) return;
     _lbFillAsyncAt[sk] = now;
     _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
       const loc = (rec && rec.frame && Array.isArray(rec.frame.msgs)) ? rec.frame.msgs : null;
       if (!loc || !loc.length) return;
-      /* 读盘回来再验一次锚定：已切走就不动屏幕 */
-      if (String(S.anchorSid || '') !== key && String(S.anchorTitle || '') !== t) return;
+      /* 读盘回来再验一次锚定：已切走就只回填内存槽、不动屏幕 */
+      const _onScreen = (String(S.anchorSid || '') === key
+                         || String(S.anchorTitle || '') === t);
       const _lv = !!(S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length);
       const target = _lv ? S.liveFrame.msgs
                          : ((S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : null);
-      if (!target || !target.length) return;
-      const out = _lbMergeFinals(loc, target);
-      if (!out || out === target || out.length === target.length) return;
+      const out = (target && target.length) ? _lbLedgerTop(loc, target) : loc;
+      if (!out || !out.length) return;
+      /* 内存槽同步成账本这一份（切回 0ms 命中且与账本一致） */
+      try {
+        const f = {online: !!(S.snap && S.snap.online), login: (S.snap && S.snap.login),
+                   msgs: out, finish: null, tail: '', sendIdle: true,
+                   inputText: '', opts: [], ask: null, pend: [], model: '',
+                   _srv: (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : ''};
+        _frameMem[sk] = f;
+        if (t) _frameMemByTitle[_frameTitleKey(t)] = f;
+      } catch(e){}
+      /* 先落盘：同一份写回唯一账（只进不退；内容未变时闸门自然拒收，无副作用） */
+      try {
+        if (typeof _frameCommit === 'function')
+          _frameCommit(sk, {online: !!(S.snap && S.snap.online),
+            login: (S.snap && S.snap.login), msgs: out, finish: null, tail: '',
+            sendIdle: true, inputText: '', opts: [], ask: null, pend: [], model: ''},
+            {key: (typeof frameKey === 'function') ? frameKey() : '',
+             port: S.port, sid: s, title: String(title || ''), ts: Date.now()});
+      } catch(e){}
+      if (!_onScreen || target === out) return;
+      /* 再显示：主界面＝小账本这一份 */
       if (_lv) S.liveFrame.msgs = out; else S.snap.msgs = out;
-      try { diagLog('小账本补屏|' + (t || key) + '|+' + (out.length - target.length), 'ok'); } catch(e){}
+      try { diagLog('账本顶屏|' + (t || key) + '|' + out.length + '行', 'ok'); } catch(e){}
       renderAll();
-      try { if (typeof snapIdbTick === 'function') snapIdbTick(true); } catch(e){}
     }).catch(() => {});
   }catch(e){}
 }
-/* 2.243（老板 2026-11-21 08:25「预备画面也就是小账本……两者合为一个」）：
-   冷启动首屏在 snap_conv 快照上屏后，再读本地小账本 ledger_conv，把同会话
-   更全的内容合并上屏——账本有终极回复、快照没有时不再只显半截。防回退：
-   账本轮数少于当前画面轮数则不动；轮数相同且现有条数不更少也不动。 */
+/* 2.248：以账本帧为底、只补屏上「账本没有且更新」的行（同 mid 取正文更长）。
+   账本行一条不丢、不重排、不裁——主界面直接反映小账本。 */
+function _lbLedgerTop(loc, target){
+  try{
+    const out = [], seen = {};
+    loc.forEach(m => {
+      if (!Array.isArray(m)) return;
+      const k = _msgKey(m);
+      if (seen[k]) return;
+      seen[k] = 1; out.push(m);
+    });
+    let maxMid = '';
+    loc.forEach(m => {
+      const d = String((m && m[6]) || '');
+      if (_midIsFormal(d) && d > maxMid) maxMid = d;
+    });
+    target.forEach(m => {
+      if (!Array.isArray(m)) return;
+      const k = _msgKey(m);
+      let at = -1;
+      for (let i = 0; i < out.length; i++){ if (_msgKey(out[i]) === k){ at = i; break; } }
+      if (at >= 0){
+        const ot = String(out[at][1] || ''), nt = String(m[1] || '');
+        if (nt.length > ot.length) out[at] = m;
+        return;
+      }
+      /* 只收账本里没有的新行：有正式 mid 且比账本末条更新；无 mid 行不补（防历史重复） */
+      const d = String((m && m[6]) || '');
+      if (_midIsFormal(d) && d > maxMid) out.push(m);
+    });
+    return out;
+  }catch(e){ return loc; }
+}
+/* 2.248（老板 2026-11-21 11:31 令）：冷启动首屏同样「主界面＝小账本」——
+   读唯一账 snap_conv 本会话记录（旧实现在读已清空的 ledger_conv，永远读不到），
+   以账本为底、补屏上更新行，先落账再顶屏。 */
 function lbBootMerge(sid, title){
   try{
     const s = String(sid || '');
     const t = String(title || '').trim();
     if (!s && !t) return;
     if (typeof _idbReq !== 'function' || typeof renderAll !== 'function') return;
-    _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
+    _idbReq('snap_conv', 'readonly', st => st.getAll()).then(all => {
       const rows = (all || []).filter(r => {
-        if (!r || lbIsLegacyRec(r)) return false;
+        if (!r || !r.frame || !Array.isArray(r.frame.msgs) || !r.frame.msgs.length) return false;
         if (s && String(r.sid || '') === s) return true;
         return !!t && String(r.title || '').trim() === t;
       });
       if (!rows.length) return;
       let rec = rows[0];
-      rows.forEach(r => {
-        if ((r.rounds || []).length > (rec.rounds || []).length) rec = r;
-      });
-      const rounds = Array.isArray(rec.rounds) ? rec.rounds : [];
-      const out = [];
-      rounds.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) out.push(m.slice()); }));
-      if (Array.isArray(rec.think)) out.push(rec.think.slice());
-      if (!out.length) return;
-      const _cur = (S.liveFrame && S.liveFrame.msgs) || [];
-      const _curN = (typeof lbRoundsFromMsgs === 'function')
-        ? lbRoundsFromMsgs(_cur).length : 0;
-      const _newN = rounds.length;
-      if (_curN && _newN < _curN) return;
-      if (_curN && _newN === _curN && _cur.length >= out.length) return;
+      rows.forEach(r => { if ((r.ts || 0) > (rec.ts || 0)) rec = r; });
+      const loc = rec.frame.msgs;
+      const _cur = (S.liveFrame && Array.isArray(S.liveFrame.msgs)) ? S.liveFrame.msgs
+                 : ((S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : []);
+      const out = _cur.length ? _lbLedgerTop(loc, _cur) : loc;
+      if (!out || !out.length) return;
       if (S.anchorSid){
         const _k = (typeof 稳定键 === 'function') ? String(稳定键(s, t) || '') : '';
         if (_k && S.anchorSid !== _k) return;              /* 已切走 */
       }
+      /* 先落账、再显示：把同一份写回唯一账（只进不退） */
+      try {
+        const _sidKey = (typeof 稳定键 === 'function')
+          ? (String(稳定键(s, t) || '') || s || t) : (s || t);
+        const sk = (typeof _frameMemKey === 'function') ? _frameMemKey(_sidKey) : '';
+        if (sk && typeof _frameCommit === 'function')
+          _frameCommit(sk, {online: !!(S.snap && S.snap.online),
+            login: (S.snap && S.snap.login), msgs: out, finish: null, tail: '',
+            sendIdle: true, inputText: '', opts: [], ask: null, pend: [], model: ''},
+            {key: (typeof frameKey === 'function') ? frameKey() : '',
+             port: S.port, sid: s, title: t, ts: Date.now()});
+      } catch(e){}
       S.liveFrame = {msgs: out, finish: null, tail: '', sendIdle: true,
                      inputText: '', opts: [], ask: null, pend: [], model: ''};
       S.livePend = S.anchorSid || s;
-      S.msgs_key = '';                                    /* 2.243：强制重画，合并结果必上屏 */
+      S.msgs_key = '';                                    /* 强制重画，合并结果必上屏 */
       renderAll();
-      lbWriteBackSnap(s, t, rounds);                       /* 同一份写进 snap_conv */
     }).catch(() => {});
   }catch(e){}
 }
