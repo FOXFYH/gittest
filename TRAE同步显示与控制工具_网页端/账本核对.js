@@ -1,5 +1,11 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.04  日期 2026-11-20
+/* 账本核对.js（网页端）  版本 1.05  日期 2026-11-21
+   【2.244 单账本（老板令·对齐 WB）】本地只留一套正文账＝snap_conv：
+     ledger_conv 停写、历史轮次一次性并入 snap_conv 后清空（lbLedgerMigrateOnce →
+     purgeLedgerStore，IDB_VER=3）。真存集/摘要表（vcheck 上报口径）改由 snap_conv
+     的 frame.msgs 还原；落账只走 lbWriteBackSnap 写同一张表；思维流只留内存展示。
+     登录/首屏 vcheck 照旧按 LB.lbSum 上报（空表也开口→服务端按 need 补缺），
+     90 秒主动核对、直播帧缺正文用小账本顶上的口径全部保留。
    【2.220 预备画面同尺子】上一轮只裁本地账本（ledger_conv），① 会话预备画面
      （snap_conv）仍只增不减，老板看到卡片「N 条」超过 10 条。本版把 snap_conv
      的 frame.msgs 也按同一 N（lbRounds 默认 5）裁：lbTrimFrameMsgs 复用
@@ -77,16 +83,59 @@ function lbVerLoad(){
    就会替已经不存在的本地账本申报版本（only1 判定被污染）。
    2.184 改4：同步重建 LB.lbSum（摘要表，键＝终身号）——vcheck 上报取它。 */
 function lbHaveLoad(){
+  /* 2.244（老板令·一套账）：真存集（LB.lbHave）与摘要表（LB.lbSum，vcheck 上报
+     口径）的唯一数据源改为 snap_conv——第二本账 ledger_conv 已停写清空。
+     每条存帧按「u 起一轮」还原 rounds，编码/完成态/正文指纹照旧由 lbSumOf 现算。 */
   try {
-    _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
+    return _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
       (rows || []).forEach(rec => {
-        /* 2.184 改8：旧格式键（未知服务器）只读，不进真存集、不进摘要表 */
-        if (!rec || lbIsLegacyRec(rec)) return;
-        if (rec.sid != null) LB.lbHave.add(String(rec.sid));
-        lbSumSet(rec.sid, rec.title, rec.rounds);
+        try {
+          const fr = rec && rec.frame;
+          if (!fr || !Array.isArray(fr.msgs) || !fr.msgs.length) return;
+          const t = String(rec.title || '').trim();
+          if (!t) return;
+          const rounds = lbRoundsFromMsgs(fr.msgs);
+          if (!rounds || !rounds.length) return;
+          const u = String(rec.uid || '').trim()
+            || (typeof lbUidPick === 'function' ? String(lbUidPick(null, rec.sid, t) || '') : '');
+          if (u) LB.lbHave.add(u);
+          lbSumSet(u || String(rec.sid || ''), t, rounds);
+        } catch(e){}
       });
-    }).catch(() => {});
-  } catch(e){}
+      return Object.keys(LB.lbSum || {}).length;
+    }).catch(() => 0);
+  } catch(e){ return Promise.resolve(0); }
+}
+/* 2.244（老板令·一套账，对齐 WB 2.49/2.50）：ledger_conv 历史轮次一次性并入
+   唯一正文账 snap_conv，随后清表并置 LS 标记（一生只跑一次，幂等可重跑）。
+   「只进不退」由 lbWriteBackSnap/_frameCommit 既有闸把关，绝不覆盖更新的真快照。 */
+const LS_LB_MIG_244 = 'trae_webm_lb_mig_244';
+let _lbMig244P = null;
+function lbLedgerMigrateOnce(){
+  if (_lbMig244P) return _lbMig244P;
+  try { if (localStorage.getItem(LS_LB_MIG_244) === '1') return Promise.resolve(0); } catch(e){}
+  _lbMig244P = _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
+    let n = 0;
+    (rows || []).forEach(rec => {
+      try {
+        if (!rec || !Array.isArray(rec.rounds) || !rec.rounds.length) return;
+        const t = String(rec.title || '').trim();
+        if (!t) return;
+        lbWriteBackSnap(rec.uid || rec.sid, t, rec.rounds);
+        n++;
+      } catch(e){}
+    });
+    return n;
+  }).catch(() => 0).then(n => {
+    const _p = (typeof purgeLedgerStore === 'function')
+      ? purgeLedgerStore() : Promise.resolve(false);
+    return Promise.resolve(_p).then(() => {
+      try { localStorage.setItem(LS_LB_MIG_244, '1'); } catch(e){}
+      try { diagLog('2.244 单账本迁移完成|并入 ' + n + ' 本账 → snap_conv|ledger_conv 已清空', 'ok'); } catch(e){}
+      return n;
+    });
+  });
+  return _lbMig244P;
 }
 /* 2.209（老板口径「时间只从消息ID里算，不准再传时间」）：账本/画面缓存清理——
    把每行 m[2] 一律清成空串（历史遗留的抓屏/接口时间也清掉），账本不存任何时间。
@@ -1407,64 +1456,9 @@ function lbNormTitle(t){
    同名，含旧「重复」后缀）的账本合并成唯一一本。只并内容不删内容：轮次按
    lbRoundKey 去重，思维流只留最新一条。 */
 function lbMergeForConv(sid, title){
-  const s = String(sid || '').trim();
-  const t = lbNormTitle(title);
-  if (!s && !t) return Promise.resolve(false);
-  return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
-    const rows = (all || []).filter(r => {
-      if (!r || lbIsLegacyRec(r)) return false;
-      const rs = String(r.sid || '').trim();
-      if (s && rs && rs === s) return true;
-      if (t && lbNormTitle(r.title) === t) return true;
-      return false;
-    });
-    if (rows.length < 2) return false;
-    let uid = '';
-    rows.forEach(r => { if (!uid) uid = lbUidAuth(r.uid) || lbUidName(r.uid); });
-    /* 落名优先用「不带重复尾巴」的真名（诊断名最后才用）；名称兜底终身号优先 */
-    let name = lbUidName(uid);
-    rows.forEach(r => {
-      const n = String(r.title || '').trim();
-      if (!name && n && !/^（无名）/.test(n) && (!name || lbNormTitle(n) === n)) name = lbNormTitle(n) || name;
-    });
-    name = name || t || String(rows[0].title || '').trim();
-    const sk = name ? lbStoreKey(uid, name) : String(rows[0].sk || '');
-    if (!sk) return false;
-    const order = rows.slice().sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
-    const seen = new Set(), out = [];
-    let think = null, thinkTs = 0;
-    order.forEach(r => {
-      (r.rounds || []).forEach(rr => {
-        const k = lbRoundKey(rr);
-        if (seen.has(k)) return;
-        seen.add(k); out.push(rr);
-      });
-      if (r.think && (Number(r.ts) || 0) >= thinkTs){ think = r.think; thinkTs = Number(r.ts) || 0; }
-    });
-    const base = rows.find(r => r.sk === sk) || order[order.length - 1] || {};
-    /* 2.219：合并结果同样只留最新 N 轮（只裁 rounds，不删整条记录） */
-    const kept = lbLedgerTrimRounds(out, sk);
-    const maxNum = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
-    const rec = {
-      sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
-      uid: uid, sid: s || String(base.sid || ''), title: name,
-      ts: rows.reduce((m, x) => maxNum(m, x.ts), 0) || Date.now(),
-      lastTs: rows.reduce((m, x) => maxNum(m, x.lastTs), 0),
-      lastView: rows.reduce((m, x) => maxNum(m, x.lastView), 0),
-      pend: uid ? 0 : 1, diag: base.diag ? 1 : 0, rounds: kept
-    };
-    if (think) rec.think = think;
-    const dels = rows.map(r => r.sk).filter(k => k !== sk);
-    return _idbReq('ledger_conv', 'readwrite', st => st.put(rec))
-      .then(() => Promise.all(dels.map(k =>
-        _idbReq('ledger_conv', 'readwrite', st => st.delete(k)).catch(() => {}))))
-      .then(() => {
-        try { diagLog('同名账本合并|' + name + '|桶 ' + rows.length + '→1，轮次 '
-          + rows.reduce((n, r) => n + ((r.rounds || []).length), 0) + '→' + kept.length, 'ok'); } catch(e){}
-        try { if (typeof window.cvLbDirty === 'function') window.cvLbDirty(); } catch(e){}
-        return true;
-      });
-  }).catch(() => false);
+  /* 2.244（老板令·一套账）：同名/同 sid 去重改由唯一正文账 snap_conv 承担
+     （lbMergeDuplicateBuckets 开机按 srv+uid/名称分组合并），这里不再读写第二本账。 */
+  return Promise.resolve(false);
 }
 /* 2.214（老板 2026-11-20 08:08 令·落账三类）：账本只记 u 人类发言 / a AI 终极回复
    （含 early_final 提前终极）/ th 思维流。思维流**只留最新一条、固定在最底部**，
@@ -1476,27 +1470,20 @@ function lbThinkRowOf(c){
   return ['th', txt, '', 0, 0, '', String(c.textMid || c.anchorMid || ''), '', 'th', ''];
 }
 function lbThinkPut(sid, title, c){
+  /* 2.244（老板令·一套账）：思维流只作展示——挂内存，不再写 ledger_conv。
+     重进会话时由服务端 think 帧重发最新一版（与 2.207 口径一致）。 */
   try {
     const row = lbThinkRowOf(c);
     const t = String(title || '').trim();
     if (!row || !t) return Promise.resolve(false);
-    const s = String(sid || '').trim();
-    const u = lbUidPick(null, s, t);
-    const sk = lbStoreKey(u, t), now = Date.now();
-    return _idbReq('ledger_conv', 'readonly', st => st.get(sk)).then(rec => {
-      if (!rec){
-        rec = {sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
-               uid: u, sid: s, title: t, ts: now, lastTs: now, lastView: 0,
-               pend: u ? 0 : 1, rounds: []};
-      }
-      rec.think = row;                       /* 新版覆盖旧版：只留最新一条 */
-      rec.thinkMid = String(row[6] || '');
-      rec.lastTs = now;
-      return _idbReq('ledger_conv', 'readwrite', st => st.put(rec)).then(() => {
-        try { if (typeof window.cvLbDirty === 'function') window.cvLbDirty(); } catch(e){}
-        return true;
-      });
-    }).catch(() => false);
+    const u = lbUidPick(null, String(sid || '').trim(), t);
+    const sk = lbStoreKey(u, t);
+    if (typeof LB === 'object' && LB){
+      if (!LB.thinkBySk || typeof LB.thinkBySk !== 'object') LB.thinkBySk = {};
+      LB.thinkBySk[sk] = row;
+    }
+    try { if (typeof window.cvLbDirty === 'function') window.cvLbDirty(); } catch(e){}
+    return Promise.resolve(true);
   } catch(e){ return Promise.resolve(false); }
 }
 /* 展示口径（账本最后一屏/最底部）：轮次在前，思维流固定最后一条。 */
@@ -1515,6 +1502,33 @@ function _lbUnextLog(a){
   if (now - _lbUnextT < 10000) return;
   _lbUnextT = now;
   try { diagLog('未认证终极 弃收 mid=' + String((a && a[6]) || ''), 'bad'); } catch(e){}
+}
+/* 2.244（老板令·一套账）：旧态一律从唯一正文账 snap_conv 还原（不再读 ledger_conv）。
+   认同一条：uid 相同或标题相同；取 ts 最新的一条，按其 frame.msgs 还原 rounds。
+   找不到返回 null（调用方按空账处理）。 */
+function lbOldFromSnaps(uid, title){
+  const u = String(uid || '').trim();
+  const t = String(title || '').trim();
+  if (!u && !t) return Promise.resolve(null);
+  const tag = (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : '';
+  return _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
+    let hit = null;
+    (rows || []).forEach(rec => {
+      try {
+        if (!rec || !rec.frame || !Array.isArray(rec.frame.msgs) || !rec.frame.msgs.length) return;
+        if (tag && rec.srv && String(rec.srv) !== tag) return;
+        const ru = String(rec.uid || '').trim();
+        const rt = String(rec.title || '').trim();
+        if (!((u && ru && ru === u) || (t && rt === t))) return;
+        if (!hit || (Number(rec.ts) || 0) > (Number(hit.ts) || 0)) hit = rec;
+      } catch(e){}
+    });
+    if (!hit) return null;
+    const ht = String(hit.title || t).trim();
+    return {sk: lbStoreKey(u, ht), uid: hit.uid || u, sid: String(hit.sid || ''),
+            title: ht, ts: Number(hit.ts) || 0, lastTs: Number(hit.ts) || 0,
+            lastView: 0, diag: 0, rounds: lbRoundsFromMsgs(hit.frame.msgs)};
+  }).catch(() => null);
 }
 function ledgerStorePut(sid, title, rounds, opt){
   try {
@@ -1639,51 +1653,13 @@ function ledgerStorePut(sid, title, rounds, opt){
       const _ts = _same ? (Number(old.ts) || now) : now;
       /* 2.196 登记规则②：uid 相同而 title 变了＝改名，键不变、就地更新 title，
          历史轮次与待补号标记全保留，绝不新建。 */
-      return _idbReq('ledger_conv', 'readwrite', st => st.put({
-        sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
-        uid: _uidEff, sid: _dialogSid || old.sid || '',
-        /* 2.202：诊断命名的账本不覆盖旧的真名（已有名字优先保留） */
-        title: _diag ? (old.title || title) : (title || old.title || ''),
-        ts: _ts, lastTs: now, lastView: opt.touch ? now : (old.lastView || 0),
-        pend: _uidEff ? 0 : 1, diag: (_diag || (old && old.diag)) ? 1 : 0,
-        /* 2.214：思维流只留最新一条、单独挂在账本底部（不进 rounds、不计轮次） */
-        think: old.think || null, rounds: out}))
-        .then(() => _after(out));
+      /* 2.244（老板令·一套账）：不再写 ledger_conv——唯一正文账由
+         _after → lbWriteBackSnap 落 snap_conv；ts/think 等元数据不再另存第二本。 */
+      return Promise.resolve().then(() => _after(out));
     };
-    _idbReq('ledger_conv', 'readonly', st => st.get(sk)).then(rec => {
-      if (rec) return _apply(rec);
-      /* 2.184 改2（旧键兼容迁移）：新终身号键未命中 → 按 sid/终身号 归一扫全表，
-         命中旧 raw 键记录（2.183 及以前按原始 sid 建档）就并入新键并删旧记录，
-         老账本不丢、不出现「写一条读另一条」。 */
-      return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
-        const s2 = String(_uidEff || '');
-        const t2 = String(title || '').trim();
-        let k2 = '';
-        try { k2 = (typeof 稳定键 === 'function') ? String(稳定键(s2, t2) || '') : ''; } catch(e){ k2 = ''; }
-        let old = null;
-        (all || []).forEach(r => {
-          if (!r || lbIsLegacyRec(r) || r.sk === sk) return;
-          const rsid = String(r.sid || '');
-          /* 2.184 改7：无 sid 的临时账本按「名称」认，绝不空串===空串乱认 */
-          const same = (s2 ? (rsid === s2) : (String(r.title || '') === t2))
-            || (!!k2 && (typeof 稳定键 === 'function')
-                && String(稳定键(rsid, String(r.title || '')) || '') === k2);
-          if (same && (!old || (r.ts || 0) > (old.ts || 0))) old = r;
-        });
-        if (!old) return _apply({});
-        return _idbReq('ledger_conv', 'readwrite', st => st.delete(old.sk))
-          .catch(() => {}).then(() => _apply(old));
-      });
-    }).catch(() => {
-      /* 2.219：兜底新建同样只留最新 N 轮 */
-      const _rsT = lbLedgerTrimRounds(rs, sk);
-      return _idbReq('ledger_conv', 'readwrite', st => st.put({
-        sk: sk, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
-        uid: _uidEff, sid: _dialogSid || '', title: title || '',
-        ts: now, lastTs: now, lastView: opt.touch ? now : 0,
-        pend: _uidEff ? 0 : 1, diag: _diag, think: null, rounds: _rsT}))
-        .then(() => _after(_rsT));
-    });
+    /* 2.244（老板令·一套账）：旧态只从唯一正文账 snap_conv 还原；找不到按空账合并。
+       第二本账 ledger_conv 已停写清空，绝不在此再读/再写。 */
+    lbOldFromSnaps(_uidEff, _t).then(rec => _apply(rec || {}));
     };
     /* 2.196 登记顺序（老板原话，顺序不可乱）：
        ① 有终身号 → 以 uid 为账本主键登记（同名临时代号账本先归并进 uid 键）；
@@ -1692,9 +1668,8 @@ function ledgerStorePut(sid, title, rounds, opt){
        ④ 同名也没有（sid 独有且无号）→ 才以名称键新建临时账本（pend:1）。 */
     const _dispatch = () => {
       if (_uid){ _run(_uid); return; }
-      _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
-        const hit = (all || []).find(r => !lbIsLegacyRec(r)
-          && String(r.title || '').trim() === _t);
+      /* 2.244（老板令·一套账）：同名归并只在唯一正文账 snap_conv 里找旧账 */
+      lbOldFromSnaps('', _t).then(hit => {
         _run(hit ? lbUidPick(hit.uid, hit.sid, hit.title || _t) : '');
       }).catch(() => _run(''));
     };
