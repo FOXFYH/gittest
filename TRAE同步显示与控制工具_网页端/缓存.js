@@ -596,7 +596,10 @@ function curMsgs(){
    长期固定项与账本历史 LS_HIST（快照绝不进 localStorage）。
    秒显：点会话直接从内存取本地最新完整存帧立刻整屏铺上（2.130 起不再出任何
    等待提示条）；IDB 打不开则静默降级，绝不阻断主流程。 */
-const IDB_NAME = 'trae_webm_idb', IDB_VER = 2;   /* 账本V1.0：升 2 增 ledger_conv 表（本地账本，账本核对.js） */
+/* 2.244（老板令·一套账，对齐 WB IDB_VER=3/purgeConvStore）：升 3——
+   ledger_conv 退役停写、一次性清空，本地只留 snap_conv 一套正文账。
+   表定义仍保留（旧库升级不报 NotFound，清空后永不写入）。 */
+const IDB_NAME = 'trae_webm_idb', IDB_VER = 3;
 const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
 /* 2.126：WEB_ROUNDS_KEEP 已删除（三轮口径作废，快照与账本一律整帧原样）。 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
@@ -899,28 +902,15 @@ function snapIdbTick(force){
      旧帧／空帧／碎片帧直接拒收（不写内存、不写 IDB）；节流记账与"首份"标记
      只在真正放行后更新，避免"被拒也算已落"导致后续不再落盘。
      2.112 口径不变：按会话各存一份（键 `key|sid`）、同一会话覆盖、不留历史版本。 */
-  /* 2.204（B2·画面只留一条路）：该会话已有本地账本（按轮）时，预备画面
-     一律由账本路 lbWriteBackSnap 落盘；快照路只把内容增量补进账本
-     （ledgerOnSnap 每 5s 调 ledgerStorePut），**不再按条裁剪后抢写画面**——
-     否则「快照按条裁 / 账本按轮裁，谁后到谁生效」必现「突然只剩最新两条」。 */
-  let _ledgerOwns = false;
-  try {
-    const _k = (typeof 稳定键 === 'function') ? String(稳定键(sid, curTitle()) || '') : '';
-    const _sum = (typeof LB === 'object' && LB && LB.lbSum) ? LB.lbSum : null;
-    const _r = _sum && (_sum[_k] || _sum[String(sid)]);
-    _ledgerOwns = !!(_r && (Number(_r.rounds) || 0) > 0);
-  } catch(e){}
-  if (!_ledgerOwns){
-    _frameCommit(_sk, frame,
-      {key: key, port: S.port, sid: sid, title: curTitle(), ts: now},
-      function(){
-        _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
-        if (_first) S.idbFirstFull = 0;
-      }, force === true || _first);
-  } else {
-    _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
-    if (_first) S.idbFirstFull = 0;
-  }
+  /* 2.244（老板令·一套账）：删除 2.204「本地账本已有就不落画面」的双账分流——
+     snap_conv 就是唯一正文账，快照路照常按「只进不退」落盘，不再被第二本账拦住。
+     账本路（ledgerOnSnap / 对账补发）仍走 lbWriteBackSnap 回写同一张表。 */
+  _frameCommit(_sk, frame,
+    {key: key, port: S.port, sid: sid, title: curTitle(), ts: now},
+    function(){
+      _idbLastAtBy[_sk] = now; _idbLastFpBy[_sk] = _fp;
+      if (_first) S.idbFirstFull = 0;
+    }, force === true || _first);
   _idbReq('snap_list', 'readwrite', st => st.put(
     {sk: cacheKeyNow(), key: cacheKeyNow(), ts: now, convs: s.convs,
      conv_unread: s.conv_unread || [], conv_unread_ids: s.conv_unread_ids || []}
@@ -965,6 +955,20 @@ function snapIdbListGet(){
 /* 2.17：版本换代只清「会话列表骨架」，预备画面（snap_conv）不再清 */
 function snapIdbClearList(){
   return _idbReq('snap_list', 'readwrite', st => st.clear()).catch(() => {});
+}
+/* 2.244（老板令·一套账，对齐 WB purgeConvStore/维护记录 2.49、2.50）：
+   ledger_conv 停写并清空——历史轮次由 账本核对.js lbLedgerMigrateOnce 先一次性
+   并入唯一正文账 snap_conv，再调本函数清表；LS 标记保证一生只清一次。 */
+const LS_LB_PURGED_244 = 'trae_webm_lb_purged_244';
+function purgeLedgerStore(){
+  try { if (localStorage.getItem(LS_LB_PURGED_244) === '1') return Promise.resolve(false); } catch(e){}
+  return _idbReq('ledger_conv', 'readwrite', st => st.clear())
+    .then(() => {
+      try { localStorage.setItem(LS_LB_PURGED_244, '1'); } catch(e){}
+      try { diagLog('2.244 单账本：ledger_conv 已清空（此后只写 snap_conv）', 'ok'); } catch(e){}
+      return true;
+    })
+    .catch(() => false);
 }
 /* 剪枝①：超 10 天的记录按主键逐个删（绝不整库清空），单轮上限 IDB_PRUNE_MAX */
 function snapIdbPrune(){
