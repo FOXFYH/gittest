@@ -429,6 +429,13 @@ function deliverFox(r){
    否则首个带身份的帧记为本服。不符 → 整帧丢弃并记「跨服帧 弃收」。
    无身份帧（t:'srv' 名册心跳等）无法判源，不判=放行，不误杀。 */
 function srvIsoPass(d, fromId){
+  /* 2.251（老板 2026-11-21 22:06 令·切 WS2 后胶囊「服务器处理中」永不消失、
+     切换每 15 秒重发）：直接回执（ev / rcpt）不再按 FOX 号隔离——帧前面
+     已按服务端名 S.cur 校验过（不会串服），而 `S.curSid` 在切线路重连后
+     可能残留旧值，会把 ack/回执整批当「跨服帧」丢掉，网页只能一直等。
+     实测：同一 WS2 频道用第三方客户端发 switch，几秒就收到 ack+ok。 */
+  const _t0 = String((d && d.t) || '');
+  if (_t0 === 'ev' || _t0 === 'rcpt') return true;
   const tag = String((d && (d.srv_sid || fromId)) || '').trim();
   if (!tag) return true;                      // 无身份：不判
   if (!S.curSid){                             // 首个自报身份记为本服
