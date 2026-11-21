@@ -1287,6 +1287,67 @@ function lbWriteBackSnap(sid, title, rounds){
       undefined, undefined, (_oldN > 0 && _newN >= _oldN));
   } catch(e){}
 }
+/* 2.245（老板 2026-11-21 10:25「切会话跳动、连续三个人类都没有 AI 回复，小账本里却有」）：
+   一句话根因——屏幕吃的是服务端快照，唯一账 snap_conv 里的 AI 终极只在几处窄条件下
+   顶屏；快照一拍回来就把带 AI 的那版盖掉。治法＝在快照入口先把本地唯一账里「同一轮
+   人类发言、屏上却缺 AI 行」的终极补回屏上：补进去的行就地插入该轮末尾（思维流之后），
+   不改顺序、不动别的轮；找不到同 mid 的轮一律不碰，防串会话。此后 render/snapIdbTick/
+   ledgerOnSnap 拿到的都是补全版，前台与小账本天然同一份。 */
+function lbFillFinals(sid, title, msgs){
+  try{
+    if (!Array.isArray(msgs) || !msgs.length) return msgs;
+    const s = String(sid || ''), t = String(title || '').trim();
+    let local = null;
+    try {
+      const _sid = (typeof 稳定键 === 'function')
+        ? (String(稳定键(s, t) || '') || s || t) : (s || t);
+      const sk = (typeof _frameMemKey === 'function') ? _frameMemKey(_sid) : '';
+      if (sk && typeof _frameMem === 'object' && _frameMem[sk]
+          && Array.isArray(_frameMem[sk].msgs)) local = _frameMem[sk].msgs;
+      if (!local && S.liveFrame && Array.isArray(S.liveFrame.msgs)){
+        const _lp = String(S.livePend || S.anchorSid || '');
+        if (!_lp || (typeof _frameMemKey === 'function' && _frameMemKey(_lp) === sk))
+          local = S.liveFrame.msgs;
+      }
+    } catch(e){}
+    if (!local || !local.length) return msgs;
+    /* 本地账：人类 mid → 该轮的 AI 行（只认带正式 mid 的轮，没 mid 无法对齐） */
+    const want = {};
+    let curKey = '';
+    local.forEach(m => {
+      if (!Array.isArray(m)) return;
+      if (m[0] === 'u'){ curKey = String(m[6] || '').trim(); return; }
+      if (m[0] === 'a' && curKey) (want[curKey] = want[curKey] || []).push(m);
+    });
+    if (!Object.keys(want).length) return msgs;
+    /* 屏上哪些轮已有 AI 行 */
+    const hasA = {};
+    let lastU = '';
+    msgs.forEach(m => {
+      if (!Array.isArray(m)) return;
+      if (m[0] === 'u'){ lastU = String(m[6] || '').trim(); return; }
+      if (m[0] === 'a' && lastU) hasA[lastU] = true;
+    });
+    const out = msgs.slice();
+    for (let i = out.length - 1; i >= 0; i--){
+      const m = out[i];
+      if (!Array.isArray(m) || m[0] !== 'u') continue;
+      const mid = String(m[6] || '').trim();
+      if (!mid || hasA[mid] || !want[mid]) continue;
+      let j = i;
+      for (let k = i + 1; k < out.length; k++){
+        if (Array.isArray(out[k]) && out[k][0] === 'u') break;
+        j = k;
+      }
+      const add = want[mid].map(x => x.slice());
+      out.splice.apply(out, [j + 1, 0].concat(add));
+      hasA[mid] = true;
+      try { if (typeof diagLog === 'function')
+        diagLog('喂终答|' + (t || s) + '|补 ' + add.length + ' 条', 'ok'); } catch(e){}
+    }
+    return out;
+  }catch(e){ return msgs; }
+}
 /* 2.243（老板 2026-11-21 08:25「预备画面也就是小账本……两者合为一个」）：
    冷启动首屏在 snap_conv 快照上屏后，再读本地小账本 ledger_conv，把同会话
    更全的内容合并上屏——账本有终极回复、快照没有时不再只显半截。防回退：
