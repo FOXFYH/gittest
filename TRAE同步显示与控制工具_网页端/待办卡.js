@@ -381,15 +381,6 @@ function switchReArm(){
 function switchResend(){
   const sp = S.switch_pend; if (!sp) return;
   if (sp.phase !== 'waiting') return;   /* 2.81：仅 waiting 补发；收 ack 后静默 */
-  /* 2.252（老板 2026-11-21 22:10）：桌面快照已选中目标＝实际切成功——即便回执
-     丢了也不再补发，直接按成功收口（治「切换已完成却每 15 秒重发」）。 */
-  const _ss = (S.snap && S.snap.selSid) || '';
-  let _sid = sp.sid || '';
-  if (!_sid && sp.title && S.snap && Array.isArray(S.snap.convs)){
-    const _r = S.snap.convs.find(x => x && x[0] === 'c' && x[1] === sp.title);
-    if (_r && _r[4]) _sid = _r[4];      /* 空目标自动切换：按名字认回 sid */
-  }
-  if (_ss && _sid && _ss === _sid){ switchOk(); return; }
   sendCmd('switch', switchRef());       /* 补发（服务端同目标幂等，不会重复点） */
   sp.ts = Date.now();
   switchReArm();
