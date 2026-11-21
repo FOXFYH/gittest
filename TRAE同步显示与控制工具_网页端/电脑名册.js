@@ -119,6 +119,14 @@ function switchSrv(nm){
   setCur(nm);
   /* 换操控对象：旧目标的界面状态全部作废 */
   S.snap = {}; S.convs_key = null; S.msgs_key = null;
+  /* 2.242（老板 2026-11-21 02:20「切换服务器时左侧会话列表没跟着切换」）：
+     换服＝换一整套会话世界。护栏计数/缓存提示归零，并立刻清空列表 + 标记
+     「服务器身份已变」——通用工具.js _convsSolidGuard 见到该标记即放行新服
+     首帧，不再拿旧服列表条数做「骤减」比对，也不再从全局骨架缓存回填旧服
+     列表（那正是列表卡在旧服务器不跟着切的根因）。 */
+  S.convs_srv_id = ''; S.convs_shrink_n = 0; S.convs_empty_n = 0;
+  S.convs_stale_hint = 0;
+  try { renderConvs([]); } catch(e){}
   S.pending = []; switchAbort();
   /* 2.65：换服务端＝换一整套「会话世界」——把【锚定 + 本地历史 + 切换在途帧】
      一并清空。原实现只清了 S.snap，anchorSid 仍指着旧服务器的会话：新服务端
