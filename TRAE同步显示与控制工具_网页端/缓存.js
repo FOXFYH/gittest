@@ -636,7 +636,15 @@ function idbOpen(){
       if (!db.objectStoreNames.contains('ledger_conv'))
         db.createObjectStore('ledger_conv', {keyPath: 'sk'}); /* 账本V1.0：本地账本（账本核对.js） */
     };
-    rq.onsuccess = () => res(rq.result);
+    rq.onsuccess = () => {
+      const db = rq.result;
+      /* 2.246：旧标签页（旧版本页）持着老连接的 IDB 不放手，会把 v3 升级永久卡在
+         blocked（本轮 CDP 实测：另一个 2.240 页面把主线 repro 卡死 60 秒）。收到
+         versionchange 立即关连接让位；本页随后的 DB 操作按需重开。 */
+      try { db.onversionchange = () => { try { db.close(); } catch(e){}
+        _idbP = null; }; } catch(e){}
+      res(db);
+    };
     rq.onerror = () => rej(rq.error || new Error('IndexedDB 打开失败'));
   });
   _idbP.catch(() => { _idbP = null; });     /* 失败可重试，不长期锁死 */
