@@ -1221,10 +1221,67 @@ function lbWriteBackSnap(sid, title, rounds){
     const frame = {msgs: _rows, finish: null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
                    model: ''};
+    /* 2.243（老板 2026-11-21 08:25「预备画面与小账本合为一个」）：旧闸只看末条
+       mid——画面里还有思维流（mid 更大）时，账本终极回复（mid 较小）永远进不去。
+       改按轮数放行：账本轮数不更少即可覆盖。 */
+    const _oldMsgs = (typeof _frameMem === 'object' && _frameMem[sk]
+      && Array.isArray(_frameMem[sk].msgs)) ? _frameMem[sk].msgs
+      : (S.liveFrame && Array.isArray(S.liveFrame.msgs)
+         && (!S.livePend || (typeof _frameMemKey === 'function' && _frameMemKey(S.livePend) === sk))
+         ? S.liveFrame.msgs : null);
+    const _oldN = (_oldMsgs && typeof lbRoundsFromMsgs === 'function')
+      ? lbRoundsFromMsgs(_oldMsgs).length : 0;
+    const _newN = Array.isArray(rounds) ? rounds.length : 0;
     _frameCommit(sk, frame,
       {key: (typeof frameKey === 'function') ? frameKey() : '',
-       port: S.port, sid: s, uid: _uidAuth, title: String(title || ''), ts: Date.now()});
+       port: S.port, sid: s, uid: _uidAuth, title: String(title || ''), ts: Date.now()},
+      undefined, undefined, (_oldN > 0 && _newN >= _oldN));
   } catch(e){}
+}
+/* 2.243（老板 2026-11-21 08:25「预备画面也就是小账本……两者合为一个」）：
+   冷启动首屏在 snap_conv 快照上屏后，再读本地小账本 ledger_conv，把同会话
+   更全的内容合并上屏——账本有终极回复、快照没有时不再只显半截。防回退：
+   账本轮数少于当前画面轮数则不动；轮数相同且现有条数不更少也不动。 */
+function lbBootMerge(sid, title){
+  try{
+    const s = String(sid || '');
+    const t = String(title || '').trim();
+    if (!s && !t) return;
+    if (typeof _idbReq !== 'function' || typeof renderAll !== 'function') return;
+    _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(all => {
+      const rows = (all || []).filter(r => {
+        if (!r || lbIsLegacyRec(r)) return false;
+        if (s && String(r.sid || '') === s) return true;
+        return !!t && String(r.title || '').trim() === t;
+      });
+      if (!rows.length) return;
+      let rec = rows[0];
+      rows.forEach(r => {
+        if ((r.rounds || []).length > (rec.rounds || []).length) rec = r;
+      });
+      const rounds = Array.isArray(rec.rounds) ? rec.rounds : [];
+      const out = [];
+      rounds.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) out.push(m.slice()); }));
+      if (Array.isArray(rec.think)) out.push(rec.think.slice());
+      if (!out.length) return;
+      const _cur = (S.liveFrame && S.liveFrame.msgs) || [];
+      const _curN = (typeof lbRoundsFromMsgs === 'function')
+        ? lbRoundsFromMsgs(_cur).length : 0;
+      const _newN = rounds.length;
+      if (_curN && _newN < _curN) return;
+      if (_curN && _newN === _curN && _cur.length >= out.length) return;
+      if (S.anchorSid){
+        const _k = (typeof 稳定键 === 'function') ? String(稳定键(s, t) || '') : '';
+        if (_k && S.anchorSid !== _k) return;              /* 已切走 */
+      }
+      S.liveFrame = {msgs: out, finish: null, tail: '', sendIdle: true,
+                     inputText: '', opts: [], ask: null, pend: [], model: ''};
+      S.livePend = S.anchorSid || s;
+      S.msgs_key = '';                                    /* 2.243：强制重画，合并结果必上屏 */
+      renderAll();
+      lbWriteBackSnap(s, t, rounds);                       /* 同一份写进 snap_conv */
+    }).catch(() => {});
+  }catch(e){}
 }
 /* 2.184 改2（残留清理）：新键已存在、但同会话还挂着旧 raw 键记录（2.183 及
    以前按原始 sid 建过档，或迁移中断）→ 删旧留新，保证「同一会话绝不出现两条
