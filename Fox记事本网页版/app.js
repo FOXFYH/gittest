@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.51';
+  const APP_VERSION = 'v1.63';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -101,6 +101,9 @@
     if (上滑参数 && typeof 上滑参数 === 'object') o['自动上滑参数'] = 上滑参数;
     // v1.63 卷内时间参数：跟着参考答案一起留在小尾巴里，保存时原样保留
     if (卷时间参数 && typeof 卷时间参数 === 'object') o['时间参数'] = 卷时间参数;
+    // v1.63 题库档案 + 阅读参数：同样原样保留（网页版的档案编辑在 py 版向导里做）
+    if (题库信息 && typeof 题库信息 === 'object') o['题库信息'] = 题库信息;
+    if (阅读参数 && typeof 阅读参数 === 'object') o['阅读参数'] = 阅读参数;
     return META_BEGIN + JSON.stringify(o) + META_END;
   }
 
@@ -207,6 +210,8 @@
   let settings = loadSettings();
   let 上滑参数来自文件 = false;   // 当前文件的小尾巴自带上滑参数
   let 时间参数 = null;            // v1.63 卷内出卷时间参数（选择题 3 字/秒 / 书写题 1 字/秒）
+  let 题库信息 = null;            // v1.63 题库档案（卷名/年级/科目/题数/上次打开/上次考试…）
+  let 阅读参数 = null;            // v1.63 本文件专属字体/字号（有就优先，无则用全局设置）
   let 上滑参数用户改过 = false;   // 用户在本文件内手动改过
   const editor = $('editor');
 
@@ -1044,7 +1049,21 @@
   }
 
   function restoreDocCache() {
-    setEditorContent(cacheGet('doc_text', ''));
+    const 缓存文 = cacheGet('doc_text', '');
+    const 拆 = 拆分元信息(缓存文);
+    setEditorContent(拆.payload || 缓存文);
+    // v1.63 缓存恢复也要读题库档案/阅读参数/时间参数（否则刷新后数据行与字号会丢）
+    题库信息 = (拆.meta && typeof 拆.meta['题库信息'] === 'object') ? 拆.meta['题库信息'] : null;
+    阅读参数 = (拆.meta && typeof 拆.meta['阅读参数'] === 'object') ? 拆.meta['阅读参数'] : null;
+    if (阅读参数) {
+      const 字号 = Number(阅读参数['字号']);
+      if (isFinite(字号) && 字号 >= 6 && 字号 <= 128) settings.fontSize = 字号;
+      const 字体 = String(阅读参数['字体'] || '').trim();
+      if (字体) settings.fontFamily = 字体;
+    }
+    applyFont();
+    套用文件上滑参数(拆.meta && 拆.meta['自动上滑参数']);
+    套用文件时间参数(拆.meta && 拆.meta['时间参数']);
     let meta = null;
     try { meta = JSON.parse(cacheGet('doc_meta', '{}')); } catch (e) { meta = {}; }
     meta = meta || {};
@@ -1098,6 +1117,15 @@
       rawContent: String(content || '')
     };
     setEditorContent(拆.payload);
+    // v1.63 题库档案 + 阅读参数：先读出来（档案给数据行/更多用；字体字号有就套用）
+    题库信息 = (拆.meta && typeof 拆.meta['题库信息'] === 'object') ? 拆.meta['题库信息'] : null;
+    阅读参数 = (拆.meta && typeof 拆.meta['阅读参数'] === 'object') ? 拆.meta['阅读参数'] : null;
+    if (阅读参数) {
+      const 字号 = Number(阅读参数['字号']);
+      if (isFinite(字号) && 字号 >= 6 && 字号 <= 128) settings.fontSize = 字号;
+      const 字体 = String(阅读参数['字体'] || '').trim();
+      if (字体) settings.fontFamily = 字体;
+    }
     applyFont();
     套用文件上滑参数(拆.meta && 拆.meta['自动上滑参数']);
     套用文件时间参数(拆.meta && 拆.meta['时间参数']);
@@ -1288,22 +1316,37 @@
   }
 
   // 顶部数据行：小字号、不随正文字号缩放、随正文一起翻走（用 ::before 渲染，不进正文、不会被保存）
+  // v1.63：有题库档案就显示档案摘要；手机窄屏只留「速度 + 题数」这几项最关键的（老板口径）
   function 刷新数据行() {
     if (!editor) return;
-    const 有卷 = !!(时间参数 && 时间参数['题型']);
-    if (!有卷) {
+    const qb = 题库信息 || {};
+    const tp = 时间参数 || {};
+    const 是题库 = !!(qb['卷名'] || qb['题型'] || qb['题数']);
+    const 有卷 = !!(tp['题型']);
+    if (!是题库 && !有卷) {
       editor.removeAttribute('data-bar');
       return;
     }
-    片 = [String(时间参数['题型'])];
-    const 每秒 = Number(时间参数['每秒字数']);
-    if (isFinite(每秒) && 每秒 > 0) {
-      片.push(每秒 + ' 字/秒 · 卷内规定');
-    } else {
-      片.push(settings.secPerChar + ' 字/秒 · 上次手动');
+    const 片 = [];
+    const 题型 = qb['题型'] || tp['题型'];
+    if (题型) 片.push(String(题型));
+    // 速度最优先：卷内规定 > 本卷已存 > 上次手动
+    const 每秒 = Number(tp['每秒字数'] || qb['每秒字数']);
+    if (isFinite(每秒) && 每秒 > 0) 片.push(每秒 + ' 字/秒');
+    else 片.push(settings.secPerChar + ' 字/秒');
+    const 窄 = (window.innerWidth || 0) < 620;
+    const 年科 = [qb['年级'], qb['科目']].filter(Boolean).join('·');
+    if (年科) 片.push(年科);
+    const 题数 = Number(qb['题数']);
+    if (isFinite(题数) && 题数 > 0) 片.push(题数 + ' 题');
+    if (!窄) {
+      const 范 = String(qb['范围'] || '').trim();
+      if (范) 片.push(范);
+      const 上次考试 = String(qb['上次考试'] || '').trim();
+      if (上次考试) 片.push('上次考试 ' + 上次考试);
+      片.push(((editor.textContent || '').replace(/\s/g, '').length) + ' 字');
     }
-    片.push(((editor.textContent || '').replace(/\s/g, '').length) + ' 字');
-    editor.setAttribute('data-bar', 片.join('    ·    '));
+    editor.setAttribute('data-bar', 片.join('  ·  '));
   }
 
   function 标记上滑用户修改() {
@@ -1376,6 +1419,11 @@
     settings.fontSize = n;
     applyFont();
     saveSettings();
+    // v1.63 字号一调就记进本文件的阅读参数（随文件保存，下次打开优先用）
+    if (!阅读参数 || typeof 阅读参数 !== 'object') 阅读参数 = {};
+    阅读参数['字体'] = settings.fontFamily;
+    阅读参数['字号'] = n;
+    if (doc && doc.id && !doc.isNew) { try { 同步查看时间(); } catch (e) {} }
   }
 
   // ===================== 顶栏与标题 =====================
@@ -3057,6 +3105,10 @@
 
     settings.fontFamily = family;
     settings.fontSize = size;
+    // v1.63 设置里改字体/字号，同样记进本文件阅读参数
+    if (!阅读参数 || typeof 阅读参数 !== 'object') 阅读参数 = {};
+    阅读参数['字体'] = family;
+    阅读参数['字号'] = size;
     settings.lineSpacing = spacing;
     settings.wordWrap = !!$('setWrap').checked;
     settings.autoScroll = !!$('setAutoScroll').checked;
@@ -3139,7 +3191,18 @@
     const 查看时间 = (meta && meta['最后一次查看时间']) || doc.viewTime || '-';
     const 编辑时间 = (meta && meta['最后一次编辑时间']) || doc.editTime || '-';
     const 文件夹 = doc.folder ? folderPathText(doc.folder) : '根目录';
-    const 行 = [
+    const qb = (meta && meta['题库信息'] && typeof meta['题库信息'] === 'object')
+      ? meta['题库信息'] : (题库信息 || {});
+    const rp = (meta && meta['阅读参数'] && typeof meta['阅读参数'] === 'object')
+      ? meta['阅读参数'] : (阅读参数 || {});
+    const 题库行 = [];
+    const 加档 = function (n2, v2) { const v = String(v2 == null ? '' : v2).trim(); if (v) 题库行.push([n2, v]); };
+    加档('卷名', qb['卷名']); 加档('年级', qb['年级']); 加档('科目', qb['科目']);
+    加档('范围', qb['范围']); 加档('题型', qb['题型']); 加档('题数', qb['题数']);
+    加档('作者', qb['作者']); 加档('创建时间', qb['创建时间']);
+    加档('上次打开', qb['上次打开']); 加档('上次考试', qb['上次考试']);
+    加档('本文件字体', rp['字体']); 加档('本文件字号', rp['字号']);
+    const 行 = 题库行.concat([
       ['文件名', doc.name || '未命名'],
       ['ID', doc.id || '（未保存到云端）'],
       ['所属文件夹路径', 文件夹],
@@ -3155,7 +3218,7 @@
       ['自动上滑参数 · 速度模式', 参数['速度模式'] === 'char' ? '每 N 秒 1 字（char）' : '像素（px）'],
       ['自动上滑参数 · 每字秒', String(参数['每字秒']) + ' 秒/字'],
       ['自动上滑参数 · 测算口径', 参数['测算口径'] === 'cjk' ? '中文（cjk）' : '中英平均（mixed）']
-    ];
+    ]);
     行.forEach(function (kv) {
       const d = document.createElement('div');
       d.textContent = kv[0] + '：' + kv[1];
