@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.67';
+  const APP_VERSION = 'v1.68';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -437,15 +437,24 @@
     btn.type = 'button';
     btn.className = 'btn tiny primary';
     btn.textContent = '立即公布';
-    btn.addEventListener('click', 公布答案);
+    btn.title = '正式公布，算一次考试（次数记进文件）';
+    btn.addEventListener('click', function () { 公布答案(); });
     const btn2 = document.createElement('button');
     btn2.type = 'button';
     btn2.className = 'btn tiny';
     btn2.textContent = '暂不显示';
     btn2.addEventListener('click', 暂不显示答案);
+    // v1.68 测试显示：只看答案，不算一次考试
+    const btn3 = document.createElement('button');
+    btn3.type = 'button';
+    btn3.className = 'btn tiny';
+    btn3.textContent = '测试显示';
+    btn3.title = '测试显示，只查看答案，不算一次考试';
+    btn3.addEventListener('click', function () { 公布答案(true); });
     bar.appendChild(txt);
     bar.appendChild(btn);
     bar.appendChild(btn2);
+    bar.appendChild(btn3);
     document.body.appendChild(bar);
     答案状态.bar = bar;
     答案状态.textEl = txt;
@@ -458,7 +467,47 @@
     }, 1000);
   }
 
-  function 公布答案() {
+  // v1.68 考试次数存在文件本身（题库信息里）；这里只做本机镜像，供文件列表那个方形格子显示
+  function 考试次数(id) {
+    try {
+      const m = JSON.parse(cacheGet('exam_count', '{}')) || {};
+      return Number(m[String(id || '')]) || 0;
+    } catch (e) { return 0; }
+  }
+  function 记考试次数镜像(id, n) {
+    if (!id) return;
+    try {
+      const m = JSON.parse(cacheGet('exam_count', '{}')) || {};
+      m[String(id)] = Number(n) || 0;
+      cacheSet('exam_count', JSON.stringify(m));
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // v1.68 正式公布答案＝一次考试：题库信息 记「考试次数+1 / 上次考试」并静默写回文件本身
+  function 记一次考试() {
+    try {
+      if (!doc) return;
+      let qb = 题库信息 || {};
+      // 本卷还没有档案时铺一个最小档案，保证次数能存进文件
+      if (!(qb['卷名'] || qb['题型'] || qb['题数'])) {
+        const 题区 = (editor.textContent || '').split('【参考答案')[0];
+        const 题数推 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
+        const 推 = { 卷名: String(doc.name || '').replace(/\.txt$/i, '') };
+        if (题区.indexOf('选择题') >= 0) 推['题型'] = '选择题';
+        else if (题区.indexOf('填空') >= 0) 推['题型'] = '填空';
+        if (题数推 > 0) 推['题数'] = 题数推;
+        qb = Object.assign(推, qb);
+      }
+      qb['考试次数'] = (Number(qb['考试次数']) || 0) + 1;
+      qb['上次考试'] = fmtDateTime();
+      题库信息 = qb;
+      if (doc.id) 记考试次数镜像(doc.id, qb['考试次数']);
+      刷新数据行();
+      if (doc.id && !doc.isNew) 同步查看时间();   // 静默写回：正文不动，只把 meta 存进文件
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function 公布答案(测试) {
     if (!答案状态 || 答案状态.revealed) return;
     答案状态.revealed = true;
     if (答案状态.timer) { clearInterval(答案状态.timer); 答案状态.timer = null; }
@@ -467,6 +516,8 @@
     if (答案状态.bar && 答案状态.bar.parentNode) 答案状态.bar.parentNode.removeChild(答案状态.bar);
     答案状态.bar = null;
     // 公布只改显示层：不动正文、不置 doc.dirty、不写盘
+    // v1.68 正式公布算一次考试（测试显示传 true 不计数）
+    if (测试 !== true) 记一次考试();
   }
 
   function 暂不显示答案() {
@@ -1351,6 +1402,10 @@
     if (年科) 片.push(年科);
     const 题数 = Number(qb['题数']);
     if (isFinite(题数) && 题数 > 0) 片.push(题数 + ' 题');
+    // v1.68 考试次数（存在文件里，这里同步一份本机镜像给文件列表格子用）
+    const 考次 = Number(qb['考试次数']);
+    if (isFinite(考次) && 考次 > 0) 片.push('考 ' + 考次 + ' 次');
+    if (doc && doc.id && isFinite(考次) && 考次 > 0) 记考试次数镜像(doc.id, 考次);
     if (!窄) {
       const 范 = String(qb['范围'] || '').trim();
       if (范) 片.push(范);
@@ -2406,11 +2461,12 @@
       if (!isFolder) {
         const oc = document.createElement('button');
         oc.className = 'open-count';
-        oc.textContent = String(打开次数(id));
-        oc.title = '本机打开次数（点开查看是否给学生展示过）';
+        // v1.68 方形格子改显示「考试次数」（存在文件本身，这里读本机镜像）
+        oc.textContent = String(考试次数(id));
+        oc.title = '考试次数（正式公布答案即算一次，记录存在文件里）';
         oc.addEventListener('click', function (e) {
           e.stopPropagation();
-          toast('本机打开次数：' + 打开次数(id));
+          toast('考试次数：' + 考试次数(id) + ' 次（存在文件里）');
         });
         wrap.appendChild(oc);
       }
@@ -2543,7 +2599,7 @@
       });
       showPage('edit');
       if (settings.autoScroll) startAutoScroll(); else stopAutoScroll();
-      累加打开次数(id);
+      // v1.68 原来按设备累加「本机打开次数」，现改为考试次数存文件本身（见 记一次考试），这里不再累加
       toast('已打开：' + info.name);
       同步查看时间();
     } catch (err) {
@@ -3227,7 +3283,7 @@
       ['内容字符数', String(cpLen(payload))],
       ['创建日期', doc.createTime || (row && row['创建日期']) || '-'],
       ['云端最后编辑时间', (row && row['最后编辑时间']) || doc.editTime || '-'],
-      ['本机打开次数', String(打开次数(doc.id))],
+      ['考试次数', String(Number((题库信息 || {})['考试次数']) || 0) + ' 次（存在文件里）'],
       ['最后一次查看时间', 查看时间],
       ['最后一次编辑时间', 编辑时间],
       ['自动上滑参数 · 开关', 参数['开关'] ? '开' : '关'],
