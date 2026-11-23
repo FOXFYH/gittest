@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.70';
+  const APP_VERSION = 'v1.71';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -1187,6 +1187,7 @@
     刷新数据行();
     // 刷新后也回到该文档上次位置（没有记录回顶部）
     try { requestAnimationFrame(回原位); } catch (e) {}
+    重置自动同步计数();      // v1.71 刷新恢复后重新计数
   }
 
   // ===== v1.32 阅读位置：记住上次看到哪里，打开文件/改设置都回到原位 =====
@@ -1240,6 +1241,7 @@
     editor.scrollTop = 0;
     try { requestAnimationFrame(回原位); } catch (e) {}
     try { setTimeout(回原位, 300); } catch (e) {}
+    重置自动同步计数();      // v1.71 换文档即重新计数
   }
 
   function markDirty() {
@@ -1269,6 +1271,7 @@
     updateHeader();
     scheduleDocCache();
     updateTitle();
+    记编辑变更();     // v1.71 自动同步计数（满 10 步或满 60 秒且有改动就静默上传）
   }
 
   // ===================== 显示与偏好 =====================
@@ -2207,8 +2210,10 @@
     }
   }
 
-  async function saveToCloud(asNew) {
-    if (syncBusy) { toast('正在同步，请稍候'); return; }
+  async function saveToCloud(asNew, 静默) {
+    if (syncBusy) { if (!静默) toast('正在同步，请稍候'); return; }
+    静默 = !!静默;
+    if (静默 && (asNew || !doc.id || doc.isNew)) return;   // 自动同步只管已有云端文件，不新建也不命名
     let name = doc.name;
     if (asNew) {
       name = await askText('另存为', '请输入新的云端文件名', doc.name || '无标题.txt');
@@ -2284,13 +2289,14 @@
 
       const judge = sub['判定结果'];
       if (sub.status === 'conflict' || judge === '同步冲突') {
+        if (静默) { toast('自动保存：云端有更新，已保留本地，请手动核对'); return; }
         await handleConflict(id, name, content, S, E, data, sub['云端版本号']);
         return;
       }
       if (judge === '无需上传') {
         applyCloudVersion(Number(sub['云端版本号']) || E);
         doc.name = name;
-        toast('云端已是最新，无需上传');
+        if (!静默) toast('云端已是最新，无需上传');
       } else if (judge === '全新接收' || judge === '收为临时') {
         const ver = Number(sub['云端版本号'] || sub['终点号'] || E) || E;
         if (parts) {
@@ -2304,21 +2310,57 @@
         doc.folder = folder;
         doc.createTime = createTime;
         applyCloudVersion(ver);
-        toast('已同步到 6.0 云端：' + name + '（v' + ver + '）');
+        if (!静默) toast('已同步到 6.0 云端：' + name + '（v' + ver + '）');
       } else {
         // 兜底：把两号追平，不误报失败
         applyCloudVersion(E);
         doc.name = name;
-        toast('同步完成：' + name);
+        if (!静默) toast('同步完成：' + name);
+      }
+      // 上传期间用户又改了正文：不能把新改动误标为已保存
+      if (doc.id === id && sigOf(serializeEditor()) !== 正文字号) {
+        doc.dirty = true;
+        updateHeader();
+        updateTitle();
       }
       if (page === 'files') await refreshIndex(true);
     } catch (err) {
-      toast('同步失败：' + (err.message || err));
+      if (!静默) toast('同步失败：' + (err.message || err));
+      else toast('自动保存失败：' + (err.message || err) + '（本地已保留）');
     } finally {
       await unlockCloud();
       syncBusy = false;
       $('btnSync').disabled = false;
     }
+  }
+
+  // ===== v1.71 自动同步（网页版）=====
+  // 规则：编辑累计满 10 次 → 静默上传；或这段编辑已持续 ≥60 秒且确实有改动 → 静默上传。
+  // 只对已有云端文件生效（未命名的本地新稿不自动传）；遇云端更新只提示、不覆盖。
+  const 自动同步_步数 = 10;
+  const 自动同步_秒 = 60;
+  let 编辑步数 = 0;
+  let 编辑起算时刻 = 0;
+  let 自动同步计时 = null;
+
+  function 记编辑变更() {
+    编辑步数 += 1;
+    if (!编辑起算时刻) 编辑起算时刻 = Date.now();
+    if (!自动同步计时) 自动同步计时 = setInterval(自动同步检查, 5000);
+  }
+
+  function 重置自动同步计数() {
+    编辑步数 = 0;
+    编辑起算时刻 = 0;
+  }
+
+  async function 自动同步检查() {
+    if (!doc || !doc.id || doc.isNew || !doc.dirty || syncBusy) return;
+    const 够步数 = 编辑步数 >= 自动同步_步数;
+    const 够时间 = 编辑起算时刻 > 0 && (Date.now() - 编辑起算时刻) >= 自动同步_秒 * 1000;
+    if (!够步数 && !够时间) return;
+    重置自动同步计数();
+    await saveToCloud(false, true);
   }
 
   async function handleConflict(id, name, content, S, E, data, cloudVer) {
