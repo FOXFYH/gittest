@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.66';
+  const APP_VERSION = 'v1.67';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -1319,10 +1319,22 @@
   // v1.63：有题库档案就显示档案摘要；手机窄屏只留「速度 + 题数」这几项最关键的（老板口径）
   function 刷新数据行() {
     if (!editor) return;
-    const qb = 题库信息 || {};
+    let qb = 题库信息 || {};
     const tp = 时间参数 || {};
-    const 是题库 = !!(qb['卷名'] || qb['题型'] || qb['题数']);
+    let 是题库 = !!(qb['卷名'] || qb['题型'] || qb['题数']);
     const 有卷 = !!(tp['题型']);
+    // v1.67 存量卷兜底：没有题库档案（手工粘贴/旧格式）时按正文与文件名推断，只显示、不写盘
+    if (!是题库) {
+      const 题区 = (editor.textContent || '').split('【参考答案')[0];
+      const 题数推 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
+      if (题数推 > 0) {
+        const 推 = { 卷名: ((doc && doc.name) || '').replace(/\.txt$/i, ''), 题数: 题数推 };
+        if (题区.indexOf('选择题') >= 0) 推['题型'] = '选择题';
+        else if (题区.indexOf('填空') >= 0) 推['题型'] = '填空';
+        qb = Object.assign(推, qb);
+        是题库 = true;
+      }
+    }
     if (!是题库 && !有卷) {
       editor.removeAttribute('data-bar');
       return;
