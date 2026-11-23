@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.68';
+  const APP_VERSION = 'v1.69';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -480,6 +480,42 @@
       const m = JSON.parse(cacheGet('exam_count', '{}')) || {};
       m[String(id)] = Number(n) || 0;
       cacheSet('exam_count', JSON.stringify(m));
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // v1.69 文件类型：题库 / 参考答案 / 复习材料 / 板书 / 出题规则 / 其他
+  // 优先读文件里的 题库信息.类型；没有就按文件名与正文判定（只判断、不改文件）
+  function 判定类型(qbIn) {
+    const qb = qbIn || 题库信息 || {};
+    const 显式 = String(qb['类型'] || '').trim();
+    if (显式) return 显式;
+    const 全 = (editor && editor.textContent) || '';
+    if (!全.trim()) return '其他';
+    const 名 = String((doc && doc.name) || '');
+    const 头 = 全.slice(0, 400);
+    if (名.indexOf('规则') >= 0 || 头.indexOf('出题规则') >= 0) return '出题规则';
+    if (名.indexOf('板书') >= 0 || 头.slice(0, 60).indexOf('板书') >= 0) return '板书';
+    if (/卷|测试|抽测|抽查|练习|写词语|写拼音/.test(名)) return '题库';
+    if (名.indexOf('参考答案') >= 0 || 头.indexOf('参考答案') >= 0) return '参考答案';
+    const 题区 = 全.split('【参考答案')[0];
+    const 题号 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
+    if (题号 >= 5) return /(^|\n)\s*[A-DＡ-Ｄ][.．、]/.test(题区) ? '题库' : '复习材料';
+    if (题号 >= 1 && 全.indexOf('【参考答案') >= 0) return '题库';
+    if (头.indexOf('说明：') >= 0) return '复习材料';
+    return '其他';
+  }
+  function 文件类型(id) {
+    try {
+      const m = JSON.parse(cacheGet('file_kind', '{}')) || {};
+      return String(m[String(id || '')] || '');
+    } catch (e) { return ''; }
+  }
+  function 记类型镜像(id, t) {
+    if (!id || !t) return;
+    try {
+      const m = JSON.parse(cacheGet('file_kind', '{}')) || {};
+      m[String(id)] = t;
+      cacheSet('file_kind', JSON.stringify(m));
     } catch (e) { /* 忽略 */ }
   }
 
@@ -1132,6 +1168,8 @@
       baseSig: String(meta.baseSig || sigOf(cacheGet('doc_text', ''))),
       rawContent: String(meta.rawContent || '')
     };
+    // v1.69 缓存恢复时 doc 晚于数据行赋值，这里补刷一次（类型镜像/考次镜像都要 doc.id）
+    刷新数据行();
     // 刷新后也回到该文档上次位置（没有记录回顶部）
     try { requestAnimationFrame(回原位); } catch (e) {}
   }
@@ -1370,12 +1408,15 @@
   // v1.63：有题库档案就显示档案摘要；手机窄屏只留「速度 + 题数」这几项最关键的（老板口径）
   function 刷新数据行() {
     if (!editor) return;
-    let qb = 题库信息 || {};
     const tp = 时间参数 || {};
-    let 是题库 = !!(qb['卷名'] || qb['题型'] || qb['题数']);
+    // v1.69 只有「题库」才显示题库档案（题型/题数/考N次/签名）；参考答案、复习材料、板书、规则一律不显示
+    const 类型 = 判定类型(题库信息);
+    if (doc && doc.id) 记类型镜像(doc.id, 类型);
+    let qb = (类型 === '题库') ? (题库信息 || {}) : {};
     const 有卷 = !!(tp['题型']);
-    // v1.67 存量卷兜底：没有题库档案（手工粘贴/旧格式）时按正文与文件名推断，只显示、不写盘
-    if (!是题库) {
+    let 是题库 = !!(qb['卷名'] || qb['题型'] || qb['题数']);
+    // v1.67 存量卷兜底：题库没有档案（手工粘贴/旧格式）时按正文与文件名推断，只显示、不写盘
+    if (类型 === '题库' && !是题库) {
       const 题区 = (editor.textContent || '').split('【参考答案')[0];
       const 题数推 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
       if (题数推 > 0) {
@@ -1407,14 +1448,16 @@
     if (isFinite(考次) && 考次 > 0) 片.push('考 ' + 考次 + ' 次');
     if (doc && doc.id && isFinite(考次) && 考次 > 0) 记考试次数镜像(doc.id, 考次);
     if (!窄) {
-      const 范 = String(qb['范围'] || '').trim();
-      if (范) 片.push(范);
-      const 上次考试 = String(qb['上次考试'] || '').trim();
-      if (上次考试) 片.push('上次考试 ' + 上次考试);
-      // v1.66 制作人签名（网页版只显示；签名在电脑版「更多属性」里做）
-      const 签 = String(qb['制作人签名'] || '').trim();
-      if (签) 片.push('签名·' + 签.split('·')[0].trim());
-      else 片.push('未签名');
+      if (是题库) {
+        const 范 = String(qb['范围'] || '').trim();
+        if (范) 片.push(范);
+        const 上次考试 = String(qb['上次考试'] || '').trim();
+        if (上次考试) 片.push('上次考试 ' + 上次考试);
+        // v1.66 制作人签名（网页版只显示；签名在电脑版「更多属性」里做）
+        const 签 = String(qb['制作人签名'] || '').trim();
+        if (签) 片.push('签名·' + 签.split('·')[0].trim());
+        else 片.push('未签名');
+      }
       片.push(((editor.textContent || '').replace(/\s/g, '').length) + ' 字');
     }
     editor.setAttribute('data-bar', 片.join('  ·  '));
@@ -2458,7 +2501,8 @@
       txt.textContent = String(f['文件名'] || '（无名称）');
       txt.title = txt.textContent;
       wrap.appendChild(ico);
-      if (!isFolder) {
+      // v1.69 方形格子只给「题库」：类型未知（没打开过）也不显示，避免复习材料/板书/参考答案误挂次数
+      if (!isFolder && 文件类型(id) === '题库') {
         const oc = document.createElement('button');
         oc.className = 'open-count';
         // v1.68 方形格子改显示「考试次数」（存在文件本身，这里读本机镜像）
@@ -3267,13 +3311,18 @@
       ? meta['题库信息'] : (题库信息 || {});
     const rp = (meta && meta['阅读参数'] && typeof meta['阅读参数'] === 'object')
       ? meta['阅读参数'] : (阅读参数 || {});
+    const 类型 = 判定类型(qb);
+    const 是题库 = (类型 === '题库');
     const 题库行 = [];
     const 加档 = function (n2, v2) { const v = String(v2 == null ? '' : v2).trim(); if (v) 题库行.push([n2, v]); };
-    加档('卷名', qb['卷名']); 加档('年级', qb['年级']); 加档('科目', qb['科目']);
-    加档('范围', qb['范围']); 加档('题型', qb['题型']); 加档('题数', qb['题数']);
-    加档('作者', qb['作者']); 加档('创建时间', qb['创建时间']);
-    加档('上次打开', qb['上次打开']); 加档('上次考试', qb['上次考试']);
-    加档('制作人签名', qb['制作人签名']);
+    if (是题库) {
+      加档('卷名', qb['卷名']); 加档('年级', qb['年级']); 加档('科目', qb['科目']);
+      加档('范围', qb['范围']); 加档('题型', qb['题型']); 加档('题数', qb['题数']);
+      加档('作者', qb['作者']); 加档('创建时间', qb['创建时间']);
+      加档('上次打开', qb['上次打开']); 加档('上次考试', qb['上次考试']);
+      加档('制作人签名', qb['制作人签名']);
+    }
+    加档('文件类型', 类型 + (是题库 ? '' : '（非题库，不计考试次数）'));
     加档('本文件字体', rp['字体']); 加档('本文件字号', rp['字号']);
     const 行 = 题库行.concat([
       ['文件名', doc.name || '未命名'],
@@ -3282,8 +3331,10 @@
       ['起点号 / 终点号', (doc.s === null || doc.s === undefined ? '-' : doc.s) + ' / ' + (doc.e === null || doc.e === undefined ? '-' : doc.e)],
       ['内容字符数', String(cpLen(payload))],
       ['创建日期', doc.createTime || (row && row['创建日期']) || '-'],
-      ['云端最后编辑时间', (row && row['最后编辑时间']) || doc.editTime || '-'],
-      ['考试次数', String(Number((题库信息 || {})['考试次数']) || 0) + ' 次（存在文件里）'],
+      ['云端最后编辑时间', (row && row['最后编辑时间']) || doc.editTime || '-']
+    ].concat(是题库 ? [
+      ['考试次数', String(Number((题库信息 || {})['考试次数']) || 0) + ' 次（存在文件里）']
+    ] : []).concat([
       ['最后一次查看时间', 查看时间],
       ['最后一次编辑时间', 编辑时间],
       ['自动上滑参数 · 开关', 参数['开关'] ? '开' : '关'],
@@ -3291,7 +3342,7 @@
       ['自动上滑参数 · 速度模式', 参数['速度模式'] === 'char' ? '每 N 秒 1 字（char）' : '像素（px）'],
       ['自动上滑参数 · 每字秒', String(参数['每字秒']) + ' 秒/字'],
       ['自动上滑参数 · 测算口径', 参数['测算口径'] === 'cjk' ? '中文（cjk）' : '中英平均（mixed）']
-    ]);
+    ]));
     行.forEach(function (kv) {
       const d = document.createElement('div');
       d.textContent = kv[0] + '：' + kv[1];
