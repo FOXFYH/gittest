@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.63';
+  const APP_VERSION = 'v1.64';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -1344,6 +1344,13 @@
       if (范) 片.push(范);
       const 上次考试 = String(qb['上次考试'] || '').trim();
       if (上次考试) 片.push('上次考试 ' + 上次考试);
+      // v1.64 试做签名状态（网页版只显示，签名在电脑版「更多属性」里签）
+      const 结 = String(qb['试做结论'] || '').trim();
+      if (结 && 结 !== '未试做') {
+        片.push('试做·' + 结 + (qb['试做人'] ? ' ' + qb['试做人'] : ''));
+      } else {
+        片.push('待试做');
+      }
       片.push(((editor.textContent || '').replace(/\s/g, '').length) + ' 字');
     }
     editor.setAttribute('data-bar', 片.join('  ·  '));
@@ -3201,6 +3208,7 @@
     加档('范围', qb['范围']); 加档('题型', qb['题型']); 加档('题数', qb['题数']);
     加档('作者', qb['作者']); 加档('创建时间', qb['创建时间']);
     加档('上次打开', qb['上次打开']); 加档('上次考试', qb['上次考试']);
+    加档('试做人', qb['试做人']); 加档('试做结论', qb['试做结论']); 加档('试做时间', qb['试做时间']);
     加档('本文件字体', rp['字体']); 加档('本文件字号', rp['字号']);
     const 行 = 题库行.concat([
       ['文件名', doc.name || '未命名'],
