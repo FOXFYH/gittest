@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.69';
+  const APP_VERSION = 'v1.70';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -483,26 +483,41 @@
     } catch (e) { /* 忽略 */ }
   }
 
+  // foxrich 文件正文是单行 JSON，判类型前先取出其中的 text（纯文本）；普通文本原样返回
+  function 正文纯文本(内容) {
+    const s = String(内容 || '');
+    if (s.trim().charAt(0) === '{') {
+      try {
+        const j = JSON.parse(s);
+        if (j && typeof j === 'object' && typeof j['text'] === 'string') return j['text'];
+      } catch (e) { /* 不是 JSON 就按纯文本 */ }
+    }
+    return s;
+  }
+
   // v1.69 文件类型：题库 / 参考答案 / 复习材料 / 板书 / 出题规则 / 其他
   // 优先读文件里的 题库信息.类型；没有就按文件名与正文判定（只判断、不改文件）
-  function 判定类型(qbIn) {
-    const qb = qbIn || 题库信息 || {};
+  function 判类型(名, 正文, qbIn) {
+    const qb = qbIn || {};
     const 显式 = String(qb['类型'] || '').trim();
     if (显式) return 显式;
-    const 全 = (editor && editor.textContent) || '';
+    const 全 = String(正文 || '');
     if (!全.trim()) return '其他';
-    const 名 = String((doc && doc.name) || '');
+    const 文件名 = String(名 || '');
     const 头 = 全.slice(0, 400);
-    if (名.indexOf('规则') >= 0 || 头.indexOf('出题规则') >= 0) return '出题规则';
-    if (名.indexOf('板书') >= 0 || 头.slice(0, 60).indexOf('板书') >= 0) return '板书';
-    if (/卷|测试|抽测|抽查|练习|写词语|写拼音/.test(名)) return '题库';
-    if (名.indexOf('参考答案') >= 0 || 头.indexOf('参考答案') >= 0) return '参考答案';
+    if (文件名.indexOf('规则') >= 0 || 头.indexOf('出题规则') >= 0) return '出题规则';
+    if (文件名.indexOf('板书') >= 0 || 头.slice(0, 60).indexOf('板书') >= 0) return '板书';
+    if (/卷|测试|抽测|抽查|练习|写词语|写拼音/.test(文件名)) return '题库';
+    if (文件名.indexOf('参考答案') >= 0 || 头.indexOf('参考答案') >= 0) return '参考答案';
     const 题区 = 全.split('【参考答案')[0];
     const 题号 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
     if (题号 >= 5) return /(^|\n)\s*[A-DＡ-Ｄ][.．、]/.test(题区) ? '题库' : '复习材料';
     if (题号 >= 1 && 全.indexOf('【参考答案') >= 0) return '题库';
     if (头.indexOf('说明：') >= 0) return '复习材料';
     return '其他';
+  }
+  function 判定类型(qbIn) {
+    return 判类型((doc && doc.name) || '', (editor && editor.textContent) || '', qbIn || 题库信息 || {});
   }
   function 文件类型(id) {
     try {
@@ -2444,6 +2459,46 @@
     if (renameBtn) renameBtn.disabled = n !== 1;
   }
 
+  // v1.70 列表补全：当前文件夹里还没判过类型的文件，后台逐份拉正文判类型并缓存。
+  // 题库一律渲染方形次数格（0 也显示 0），方便一眼认出是不是题库；判过的文件不再重复拉。
+  let 类型补全中 = false;
+  async function 补全文件夹类型(rows) {
+    if (类型补全中) return;
+    const 待办 = rows.filter(function (f) {
+      const id = String(f['ID'] || '');
+      return id && !isFolderId(id) && !文件类型(id);
+    });
+    if (!待办.length) return;
+    类型补全中 = true;
+    let 有新增 = false;
+    try {
+      for (let i = 0; i < 待办.length; i += 3) {
+        const 批 = 待办.slice(i, i + 3);
+        // 拉取可并发，但镜像写入必须串行——否则读-改-写互相覆盖，只剩最后一个
+        const 结果批 = await Promise.all(批.map(async function (f) {
+          const id = String(f['ID'] || '');
+          try {
+            const info = await fetchContentById(id);
+            const content = String((info && info.content) || '');
+            const 拆 = 拆分元信息(content);
+            const qb = (拆.meta && typeof 拆.meta['题库信息'] === 'object') ? 拆.meta['题库信息'] : {};
+            return { id: id, t: 判类型(String(f['文件名'] || ''), 正文纯文本(拆.payload || content), qb), qb: qb };
+          } catch (e) {
+            return null;   // 单份失败跳过，下次进列表再试
+          }
+        }));
+        结果批.forEach(function (r) {
+          if (!r) return;
+          记类型镜像(r.id, r.t);
+          const 次 = Number(r.qb['考试次数']);
+          if (isFinite(次) && 次 >= 0) 记考试次数镜像(r.id, 次);
+          有新增 = true;
+        });
+      }
+    } finally { 类型补全中 = false; }
+    if (有新增) renderFiles();
+  }
+
   async function refreshIndex(silent) {
     try {
       const r = await cloudCall('读取索引');
@@ -2582,6 +2637,8 @@
     if (upBtn) upBtn.disabled = !currentFolder;
     renderSortMarks();
     updateSelectionUI();
+    // v1.70 后台补齐本文件夹文件的类型（判过的不再拉），完成后自动重渲染，题库显示 0 也有的次数格
+    补全文件夹类型(rows);
   }
 
   function 记住当前文件夹() {
