@@ -342,6 +342,10 @@ function applyHist(conv, v){
   }
   S.histHave = S.histRaw.length
     ? S.histRaw[S.histRaw.length - 1].seq : 0;
+  /* 2.263：hist 只回最新 N 轮（v.msgs 原样合并去重）。
+     has_more===false 即到底；字段缺失保持旧逻辑，不报错。 */
+  if (v.has_more === false) S.histEnd = true;
+  else if (v.has_more === true) S.histEnd = false;
   /* 2.126：整段原样保留，不再裁 3 轮。
      3.00：不再写本地账本副本（LS_HIST 已废）。 */
   renderAll();
