@@ -112,14 +112,24 @@ function lbScreenMsgs(sid, title){
     const keys = [];
     if (u) keys.push(_lbRowsKey(u, ''));
     if (t) keys.push(_lbRowsKey('', t));
+    /* 2.273（老板 2026-11-25 00:07 实测：小账本 10 条、主界面只 2 条）：
+       uid 键与 title 键两处都可能存着账。旧写法「取第一个非空就返回」，
+       若 uid 键里是旧短账本，主界面就永远只显示那一两条、比小账本少。
+       改为在候选里取「末条更晚」的一份；末条同秒则取更长的一份。 */
+    let best = null;
     for (const k of keys){
       const rs = LB.rows[k];
       if (!Array.isArray(rs) || !rs.length) continue;
       const out = [];
       rs.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) out.push(m.slice()); }));
-      if (out.length) return out;
+      if (!out.length) continue;
+      if (best === null){ best = out; continue; }
+      if (_lbTailNewer(out, best)
+          || (!_lbTailNewer(best, out) && out.length > best.length)){
+        best = out;
+      }
     }
-    return [];
+    return best || [];
   }catch(e){ return []; }
 }
 function _lbSecOf(m){
