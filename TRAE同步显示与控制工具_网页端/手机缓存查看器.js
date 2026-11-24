@@ -546,6 +546,18 @@
       var gmap = {}, gorder = [];
       list.forEach(function(it){
         var k = String(it.srv || '').trim();
+        /* 2.264（老板 2026-11-24「刷新后又看不到」）：服务器归属改「双认」——
+           2.263 及更早写下的记录，srv 可能是「默认」/机器名/空（那时本服标识会漂），
+           只要 srvFox 命中本服 FOX 号、或 srvName 命中本服名，就当本服务器的账本，
+           绝不把自家账本算成「其它服务器」。别的服务器（号与名都不同）照旧单列。 */
+        try {
+          if (cur && k !== cur){
+            var _fx = String(it.srvFox || '').trim();
+            var _sn = String(it.srvName || '').trim();
+            var _my = String((typeof lbSrvName === 'function') ? (lbSrvName() || '') : '').trim();
+            if (_fx === cur || (_sn && _my && _sn === _my)) k = cur;
+          }
+        } catch(e){}
         if (!gmap[k]){ gmap[k] = []; gorder.push(k); }
         gmap[k].push(it);
       });
@@ -613,6 +625,12 @@
         var _sn = String(it.srvName || '').trim();
         var _fx = String(it.srvFox || '').trim();
         if (!_fx && /^\d+$/.test(String(it.srv || ''))) _fx = String(it.srv);
+        /* 2.264：FOX 号命中本服而记录没存下名字时，用本服当前名补上——
+           免得本服卡片显示成「未知服务器 · 1309107889」。 */
+        if (!_sn && _fx){
+          try { if (typeof lbSrvFox === 'function' && _fx === String(lbSrvFox() || ''))
+                  _sn = String((typeof lbSrvName === 'function' ? lbSrvName() : '') || '').trim(); } catch(e){}
+        }
         /* 2.228：跨服务器展示时不再拿本机服务器名兜底——没有归属就照实写「服务器未知」。 */
         var srvTxt = (_sn || _fx) ? ((_sn || '未知服务器') + (_fx ? (' · ' + _fx) : '')) : '服务器未知';
         /* 2.215（老板 2026-11-20 09:11）：第二行显示口径——
