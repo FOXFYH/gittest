@@ -1,5 +1,13 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.052  日期 2026-11-24
+/* 账本核对.js（网页端）  版本 1.053  日期 2026-11-24
+   【4.10 核对模块化重设计（老板 2026-11-24 20:24 令）】① vcheck 上报升级：
+     mods.conv＝当前选中会话「12 条 ID 清单」（最近 10 条对话 mid＋思维流 1 条
+     ＋官方排队条 1 条；会话模块无版本号；lbConv12Report 新函数），服务端逐条
+     比对、差异条单条粒度补发（一条一帧 ledger 帧，照旧并入小账本）；旧服务端
+     忽略该键不破坏兼容。② timer 静默指纹自动含 12 条 ID（mods 整体入指纹，
+     逻辑不动）。③ 服务端版本号体系升级为「前缀英文+14位时间戳」（SIG/SNOTE/
+     MACCT/CONVS/DIDP/THINK/PEND＋YYYYMMDDHHMMSS；思维流双版本＝绝对＋简短
+     think_v），网页端只存底/回传不解释，天然兼容。
    【1.052 timer 静默令（老板 2026-11-24 19:35）】思维流变化大、经常推属正常
      高频；其余模块不该有周期性反复核对/上报。故 timer 主动核对降为**变化触发**：
      每 90s 到点先在本地按同口径构建一帧并取内容指纹（mods 全模块＋ledger 摘要
@@ -544,6 +552,43 @@ function lbModsSet(m){
 }
 
 /* ================= ① vcheck 构造（单函数双入口，四场景共用） ================= */
+/* 4.10（老板 2026-11-24 20:24 令·第四节）：会话模块无版本号，上报的就是
+   「12 条 ID 清单」＝最近 10 条对话记录（5 轮＝人类+AI；最后一组还没有
+   AI 终极回复时自然是 9 条）＋思维流 1 条＋官方排队条 1 条；有多少给多少，
+   不凑数。数据源＝LB.rows 小账本（屏幕唯一正文源）＋思维流展示卡编号＋
+   S.snap.pend 排队条 14 位 DID。异常返回 null（该拍不上报该键）。 */
+function lbConv12Report(sid, title){
+  try{
+    const s = String(sid || ''), t = String(title || '').trim();
+    if (!s && !t) return null;
+    const out = [];
+    const rows = (typeof lbScreenMsgs === 'function') ? lbScreenMsgs(s, t) : [];
+    const chat = [];
+    (Array.isArray(rows) ? rows : []).forEach(m => {
+      if (!Array.isArray(m)) return;
+      const r = String(m[0] || '').toLowerCase();
+      if (r !== 'u' && r !== 'a') return;
+      const mid = String(m[6] || '');
+      if (mid) chat.push(mid);
+    });
+    chat.slice(-10).forEach(x => out.push(x));
+    const _th = (typeof thinkCardsReport === 'function') ? thinkCardsReport() : null;
+    const tid = _th ? String(_th[s] || '') : '';
+    if (tid) out.push(tid);
+    try{
+      const pd = (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend : [];
+      const pit = pd.find(it => it && it.id != null && String(it.id).trim()
+                                && String(it.sid || '') === s)
+        || pd.find(it => it && it.id != null && String(it.id).trim());
+      if (pit) out.push(String(pit.id));
+    }catch(e){}
+    if (!out.length) return null;
+    let key = '';
+    try { key = (typeof lbUidPick === 'function')
+      ? String(lbUidPick(null, s, t) || '') : ''; } catch(e){ key = ''; }
+    return {sid: s, key: (key || t || s), ids: out};
+  }catch(e){ return null; }
+}
 function ledgerVcheckBuild(act, sid){
   /* 上行单帧多模块编码（统筹批复·十-1）：编码合帧不判 FAIL，
      每模块编码独立可辨、服务端逐模块校验。 */
@@ -568,6 +613,14 @@ function ledgerVcheckBuild(act, sid){
   });
   mods.ledger = led;                       /* ledger 按「本地真存会话（终身号）」逐会话上报 */
   mods.lb_rounds = lbRounds();             /* 规范§七：目标缓存轮数参数（统一按轮） */
+  /* 4.10（老板 2026-11-24 20:24 令·第四节）：当前选中会话的 12 条 ID 清单
+     （mods.conv＝{sid,key,ids}）——会话模块无版本号，核对走逐条 ID 比对、
+     差异条单条粒度补发。旧服务端不认识该键自动忽略，向后兼容。 */
+  try{
+    const _c12 = lbConv12Report(sid,
+      (typeof curTitle === 'function' ? curTitle() : ''));
+    if (_c12) mods.conv = _c12;
+  }catch(e){}
   const d = {t: 'vcheck', act: act, mods: mods, req_seq: ++LB.reqSeq};
   if (sid) d.sid = String(sid);
   /* 2.207（V1.0 §五-6）：对账上报本端掌握的全部消息编号——**其中包含思维流编号
