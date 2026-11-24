@@ -839,26 +839,10 @@
                   var head;
                   /* 2.183 修4a：ledger_conv 记录行改展示名（三级解析＋缀 #sid 尾 4 位
                      防重名）——其它列（读取体/大小）原样不动，样式零改动（§十）。 */
-                  if (sn === 'ledger_conv' && x.value && typeof x.value === 'object'){
-                    var nm = lbTitleOf(x.value);
-                    var sid = String(x.value.sid || '');
-                    var tail = sid ? sid.slice(-4) : jsonText(x.key).slice(-4);
-                    if (!nm) nm = '未命名会话';
-                    /* 2.202（老板令·手机端不设限）：诊断账本（缺名/缺 sid 照建）
-                       在原记录行显式标「诊断」，一眼可见毛病来源。 */
-                    head = '#' + (i+1) + ' ' + esc(nm)
-                         + (x.value.diag ? ' <span class="cv_meta">·诊断</span>' : '')
-                         + ' <span class="cv_meta">·#' + esc(tail)
-                         + '（' + fmtSize(t.length) + '）</span>'
-                         /* 2.208：列表行给类型小前缀（人类 n · 终极 n · 思维流 n） */
-                         + ' <span class="cv_meta">·' + esc(kindStatText(x.value)) + '</span>';
-                  } else {
-                    head = '#' + (i+1) + ' 键=' + esc(jsonText(x.key).slice(0,60)) + '（' + fmtSize(t.length) + '）';
-                  }
+                  /* 2026-11-24：ledger_conv 已物理删除，格式化展示分支一并删除。 */
+                  head = '#' + (i+1) + ' 键=' + esc(jsonText(x.key).slice(0,60)) + '（' + fmtSize(t.length) + '）';
                   /* 2.208：展开即先列「每条记录的类型」（中文短标签），再给原始 JSON。 */
                   dd.innerHTML = '<summary>' + head + '</summary>'
-                    + ((sn === 'ledger_conv' && x.value && typeof x.value === 'object')
-                        ? kindsDigestHtml(x.value) : '')
                     + '<div class="cv_v">' + esc(t) + '</div>';
                   wrap.appendChild(dd);
                 });
@@ -911,7 +895,7 @@
      改值后立即 ① 按新 N 批量裁本地账本存量；② 发一次 timer 核对，把
      mods.lb_rounds 上报服务端（服务端 _采纳lb轮数 立即调整下发轮数）。 */
   function lbRoundsApplied(){
-    try { if (typeof lbTrimAllRounds === 'function') lbTrimAllRounds(true); } catch(e){}
+    try { if (typeof lbTrimAllSnaps === 'function') lbTrimAllSnaps(true); } catch(e){}
     /* 2.220：预备画面（snap_conv）与本地账本同一把尺子——改值当拍即按新 N 裁。 */
     try { if (typeof lbTrimAllSnaps === 'function') lbTrimAllSnaps(true); } catch(e){}
     try {
@@ -984,7 +968,7 @@
     q('lb_in_period').value = (typeof CFG !== 'undefined' && parseInt(CFG.lb_period)) || 90;
     q('lb_in_rounds').value = (typeof lbRounds === 'function') ? lbRounds() : 5;
     q('lb_in_think').value = (typeof CFG !== 'undefined' && CFG.lb_think !== undefined) ? CFG.lb_think : 5;
-    q('lb_ck_clean').onchange = function(){ CFG.lb_autoclean = this.checked ? 1 : 0; save(); try { if (typeof lbCleanStale === 'function') lbCleanStale(); } catch(e){} };
+    q('lb_ck_clean').onchange = function(){ CFG.lb_autoclean = this.checked ? 1 : 0; save(); };
     q('lb_ck_hud').onchange = function(){
       CFG.lb_hud = this.checked ? 1 : 0; save();
       try { if (typeof lbHud === 'function') lbHud(); } catch(e){}   /* 开→立刻建条走字；关→立刻撤 */
