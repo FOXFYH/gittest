@@ -26,17 +26,17 @@ const FVWR_URL = 'https://foxfyh.github.io/gittest/fileview/index.html';
    ③ iframe 建不起来才退回原 window.open。 */
 const FVWR_MASK_ID = 'fvwr_mask';
 function fvwrBaseChan(){
+  /* 2.260：公共段一律取「当前选中集群」的频道名，切集群即跟随，绝不沿用旧线。 */
   let b = '';
-  try { b = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
-  if (!b){ try { b = (chanGet() || '').trim(); } catch(e){} }   // 缺省=当前选中频道
+  try { b = (chanGet(curSel()) || '').trim(); } catch(e){ b = ''; }
+  if (!b){ try { b = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){ b = ''; } }
   return b;
 }
 function fvwrEnsureChannel(){
-  let have = '';
-  try { have = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){}
-  if (have) return have;
+  /* 2.260：把当前集群的频道名同步给查看器（同源 localStorage），避免切集群后串键。 */
   let b = '';
-  try { b = (chanGet() || '').trim(); } catch(e){}   // 缺省=当前选中频道
+  try { b = (chanGet(curSel()) || '').trim(); } catch(e){ b = ''; }
+  if (!b){ try { b = (localStorage.getItem('fvwr_channel') || '').trim(); } catch(e){ b = ''; } }
   if (b){ try { localStorage.setItem('fvwr_channel', b); } catch(e){} }
   return b;
 }
@@ -143,11 +143,15 @@ function fvwrPickFrameBody(raw){
   try { return JSON.parse(body); } catch(e){ return null; }
 }
 function fvwrPickChanListen(){
+  const sel = curSel();                  // 2.260：INS 线跟随当前集群
   const base = fvwrBaseChan();           // 2.115：记忆缺失时用宿主自家频道名兜底
+  if (_fvwrInsWs){                       // 切集群先彻底关旧线（摘回调，避免旧线触发重连）
+    try { _fvwrInsWs.onmessage = _fvwrInsWs.onclose = null; _fvwrInsWs.close(); } catch(e){}
+    _fvwrInsWs = null;
+  }
   if (!base) return;                     // 无公共段：频道路不可用（postMessage 仍可用）
   const ch = base + 'INS';               // 选路径专用后缀，与查看器约定一致
-  if (_fvwrInsWs){ try { _fvwrInsWs.close(); } catch(e){} }
-  try { _fvwrInsWs = new WebSocket(WS_URL_TMPL.replace('%s', ch)); }
+  try { _fvwrInsWs = new WebSocket(wsUrlOf(ch, sel)); }
   catch(e){ _fvwrInsWs = null; return; }
   _fvwrInsWs.onmessage = ev => { const d = fvwrPickFrameBody(ev.data); if (d) fvwrPickApply(d); };
   _fvwrInsWs.onclose = () => { _fvwrInsWs = null; setTimeout(fvwrPickChanListen, 4000); };
