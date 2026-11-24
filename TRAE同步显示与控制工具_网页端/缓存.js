@@ -292,7 +292,8 @@ function _histFromSeq(){
 /* 2.125（老板 2026-10-22 21:21）：给服务端同时送「终身号 + 会话名」——服务端
    优先按终身号匹配账本（账本自 v2.55 起只按终身号记），匹配不上再退会话名。 */
 function _ltOf(conv){
-  try { return 稳定键(curSid(), conv || ''); } catch(e){ return ''; }
+  /* 2.261：hist/hist_prev 的 lt 以唯一锚定键为准 */
+  try { return S.anchorSid || 稳定键(curSid(), conv || ''); } catch(e){ return ''; }
 }
 function reqHist(conv, have_seq, ver){
   const id = ++reqSeq;
@@ -378,9 +379,10 @@ function prependHist(conv, older, end){
 /* —— 会话历史打开：秒显本地 + 发请求式增量 —— */
 function ensureHist(){
   if (S.switch_pend) return;                   /* 切换在途：等快照定论 */
-  const title = curTitle();
-  if (!title || title === S.histConv) return;
-  S.histConv = title;
+  /* 2.261：histConv 存唯一锚定键（anchorSid），hist/hist_prev 均以锚定为准 */
+  const key = S.anchorSid || 稳定键(curSid(), curTitle());
+  if (!key || key === S.histConv) return;
+  S.histConv = key;
   S.histRaw = []; S.histPrevRaw = []; S.histVer = 0; S.histHave = 0;
   S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;   /* 2.49：换会话重置到底标记/游标 */
@@ -388,7 +390,7 @@ function ensureHist(){
      不再读本地账本副本（LS_HIST 已废），也不再拿账本秒显。
      这里只发一次 hist 请求取「账本游标(seq)」，供用户上顶时翻更早页。
      （不发渲染、不落盘；快照到位前由预备画面顶住。） */
-  reqHist(title, 0, 0);
+  reqHist(key, 0, 0);
 }
 /* 2.112（X2-2/X2-4）：正式 mid＝十六进制串（前 8 位＝Unix 秒）；`temp-agent-…`
    这类非 hex 一律视为「生成期临时号」，不得当正式身份参与去重/对齐/排序。 */
@@ -1014,7 +1016,7 @@ function liveOverlay(snap){
 /* 秒显：点会话后直接从内存取本地最新完整存帧同步铺上（不读盘、不请求） */
 function snapIdbShow(sid, title){
   if (!sid) return;
-  S.liveGot = false; S.livePend = sid;
+  S.liveGot = false; S.livePend = S.anchorSid || 稳定键(sid, title) || String(sid || '');   /* 2.261：一律存锚定键 */
   S.liveFrame = null;            /* 2.57B：旧会话 A 的正文退场（防张冠李戴） */
   /* 2026-11-24 单账本：切会话不再用存帧铺底，直接按账本 rounds 渲染并返回。 */
   S.swFrameReady = true;
