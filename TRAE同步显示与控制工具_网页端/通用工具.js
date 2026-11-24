@@ -1005,3 +1005,13 @@ function renderAll(){
   syncModel(snap.model || '');
 }
 
+/* 2026-11-24（恢复）：输入框取文统一剥壳——先剥首行 DID，再剥四段专属提示词尾巴。
+   原 v84 有本函数（本次误还原丢失），输入界面.js:186 会优先调用它。 */
+function foxCleanTake(s){
+  try{
+    let t = String(s == null ? '' : s);
+    if (typeof stripHeadDid === 'function') t = stripHeadDid(t);
+    if (typeof foxStripTail === 'function') t = foxStripTail(t);
+    return t;
+  }catch(e){ return String(s == null ? '' : s); }
+}
