@@ -71,6 +71,15 @@
     <div class="tip" id="urlShow" style="word-break:break-all"></div>
   </div>
 
+  <div class="box">
+    <div class="row">
+      <button id="btnMon" class="blue">全局监管：打开</button>
+      <button id="btnMonCh" class="gray">监管频道：31415926fF@</button>
+    </div>
+    <div class="tip">全局监管＝同时连 WS1~WS5 同一频道，只收不发，统计帧型/字节/模块化。</div>
+    <div id="monSum" class="tip" style="white-space:pre-wrap"></div>
+    <div class="log" id="monLog" style="height:26vh"></div>
+  </div>
   <div id="verdict">未连接</div>
 
   <div class="stat box" style="display:flex">
@@ -147,7 +156,76 @@ function stat(){
   $('nUp').textContent=nUp; $('nDown').textContent=nDown;
   $('nPeer').textContent=nPeer; $('nLoop').textContent=nLoop;
 }
+/* ===== 全局监管（2.255 配套）：5 集群同频道只收不发 ===== */
+var monSocks = {}, monOn = false, monCh = '31415926fF@', monT0 = 0, monN = 0;
+var monStat = {};   /* ch -> {n,bytes,types:{}} */
+var _frameTypes = ['hello','snap','mod','ev','rcpt','cmd','vcheck','vack','ledger',
+                   'think','convs','state','login','hb','pend','anchor','lbkeep'];
+function monLogLine(t, cls){
+  var box=$('monLog'); if(!box) return;
+  var d=document.createElement('div'); d.className=cls||'sys';
+  d.textContent='['+new Date().toTimeString().slice(0,8)+'] '+t;
+  box.appendChild(d);
+  while(box.children.length>260) box.removeChild(box.firstChild);
+  box.scrollTop=box.scrollHeight;
+}
+function _ftype(s){
+  if(s.charAt(0)!=='{') return 'text';
+  try{ var d=JSON.parse(s); }catch(e){ return 'json?'; }
+  if(d && d.t) return String(d.t);
+  if(d && d.cmd) return 'cmd:'+String(d.cmd);
+  return 'json';
+}
+function monRender(){
+  var el=$('monSum'); if(!el) return;
+  var sec=Math.max(1,(Date.now()-monT0)/1000), out=['监管频道 '+monCh+' ｜ 已收 '+monN+' 帧 ｜ '
+    +((monT0? (monN/sec).toFixed(2):'0.00'))+' 帧/秒'];
+  var totB=0, totMod=0, totSnap=0;
+  Object.keys(monStat).forEach(function(k){
+    var v=monStat[k]; totB+=v.bytes;
+    totMod+=v.types['mod']||0; totSnap+=v.types['snap']||0;
+    var ts=Object.keys(v.types).sort(function(a,b){return v.types[b]-v.types[a]})
+      .slice(0,5).map(function(t){return t+'='+v.types[t]}).join(' ');
+    out.push(k+'：'+v.n+' 帧 / '+(v.bytes/1024).toFixed(1)+'KB ｜ '+ts);
+  });
+  var verdict = (totMod>0) ? ('模块化：在用（mod '+totMod+' 帧，snap 全量 '+totSnap+' 帧）')
+      : (totSnap>0 ? '模块化：未见 mod，仍以 snap 全量为主' : '模块化：暂无可判帧');
+  out.push('合计 '+(totB/1024).toFixed(1)+'KB ｜ '+verdict);
+  el.textContent=out.join('\n');
+}
+function monStop(){
+  monOn=false;
+  Object.keys(monSocks).forEach(function(k){ try{monSocks[k].close()}catch(e){} });
+  monSocks={}; $('btnMon').textContent='全局监管：打开';
+  monLogLine('已停止全部监管连接','sys');
+}
+function monStart(){
+  if(monOn){ monStop(); return; }
+  monOn=true; monT0=Date.now(); monN=0; monStat={}; $('monLog').innerHTML='';
+  $('btnMon').textContent='全局监管：关闭';
+  Object.keys(CLUSTERS).forEach(function(k){
+    var url=CLUSTERS[k].url.replace('%s',encodeURIComponent(monCh))+'?api_key='+CLUSTERS[k].key;
+    monStat[k]={n:0,bytes:0,types:{}};
+    var w; try{ w=new WebSocket(url); }catch(e){ monLogLine(k+' 连接失败 '+e,'err'); return; }
+    monSocks[k]=w;
+    w.onopen=function(){ monLogLine(k+' 已连上（只收不发）','sys'); };
+    w.onmessage=function(ev){
+      var t=String(ev.data||''); monN++;
+      var v=monStat[k]; v.n++; v.bytes+=t.length;
+      var ft=_ftype(t); v.types[ft]=(v.types[ft]||0)+1;
+      if(!monN || monN%40===0) monRender();
+    };
+    w.onclose=function(){ monLogLine(k+' 断开','sys'); };
+    w.onerror=function(){ monLogLine(k+' 出错','err'); };
+  });
+  monRender();
+}
 function bind(){
+  $('btnMon').onclick=monStart;
+  $('btnMonCh').onclick=function(){
+    var ch=prompt('监管频道名（当前 '+monCh+'）', monCh);
+    if(ch && ch.trim()){ monCh=ch.trim(); $('btnMonCh').textContent='监管频道：'+monCh; if(monOn){ monStop(); monStart(); } }
+  };
   $('svc').onchange=function(){ refreshUrl(); };
   $('ch').onchange=function(){
     $('chCustomWrap').style.display = $('ch').value==='__custom' ? '' : 'none';
