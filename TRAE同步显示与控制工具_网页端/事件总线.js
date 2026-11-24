@@ -84,7 +84,9 @@ function onEv(kind, v){
                        : (S.anchorSid && 稳定键(psid, pv.title || '') === S.anchorSid)))
         _spv.arrived = true;
       /* 撤「正在获取直播帧」条（liveClear 内含立即落盘）；无条则补一次存帧 */
-      if (S.livePend && (S.livePend === psid || S.livePend === S.anchorSid)) liveClear();
+      /* 2.261：livePend 存锚定键；比较一律走 稳定键() */
+      if (S.livePend && (稳定键(S.livePend) === 稳定键(psid, pv.title || '')
+                         || S.livePend === S.anchorSid)) liveClear();
       else { try { snapIdbTick(true); } catch(e){} }
       try { if (typeof paneReqDone === 'function') paneReqDone(psid); } catch(e){}
       /* V2 验收 Y5（2026-11-18）：撤卡渠道①③收口——账本V1.0 后正文多走
@@ -548,7 +550,8 @@ function onEv(kind, v){
       const pk = (v && v[0]) || 'send';
       const pt = (v && v[1]) || '';
       if (pk === 'switch'){
-        pendSwitchSet(pt, (v && v[2]) || '');   /* v2.32：第 3 位=稳定 ID */
+        /* 2.261：只接受字符串完整 sid；索引下标（数字）一律不存、不补发 */
+        pendSwitchSet(pt, (v && typeof v[2] === 'string') ? v[2] : '');
         renderAll();
         break;
       }
@@ -653,6 +656,8 @@ function onEv(kind, v){
           S.switch_pend.phase = 'switching';
           S.switch_pend.ts = Date.now();
           clearTimeout(S.switch_pend._resendT);   /* 2.81：不再每 10s 补发 */
+          /* 2.261（老板令·状态时序③）：收到 switch_ack → 横幅「服务器执行中」 */
+          if (typeof setBanner === 'function') setBanner('服务器执行中');
           renderAll();
         }
       }
