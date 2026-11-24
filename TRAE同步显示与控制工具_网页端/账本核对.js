@@ -1,5 +1,11 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.054  日期 2026-11-24
+/* 账本核对.js（网页端）  版本 1.055  日期 2026-11-24
+   【1.055 通用模块清单补全（老板 2026-11-24 21:11 令）】`ledgerVcheckBuild` 上报
+     模块数组由 sig/snote/macct/convs/didp/think 扩为再加 srv（服务器身份）/input
+     （输入框镜像）——只在 LB.mods 有值时才报，旧帧/无值不报，绝不因「没报过」让
+     服务端判缺。LB.mods 来源不变：mod 帧（含 input）写 `LB.mods[m]=v`，hello/vack
+     的 mods 整体经 `lbModsSet` 覆盖（含 srv/input）。官方排队条自服务端 0.92 起
+     不再单列通用模块（只属会话模块 12 条子行）。1.054→1.055。
    【1.054 账本足额同步（老板 2026-11-24 20:53 令）】新增服务端对账帧 t:'lbsync'
      处理函数 lbSyncApply（仿 lbKeepApply）：按 d.order（服务器完整全序 mid）重建
      本会话账本 msgs——本地有该 mid 用本地行、否则用 d.add 给的行（缺条只补内容，
@@ -601,7 +607,7 @@ function ledgerVcheckBuild(act, sid){
      每模块编码独立可辨、服务端逐模块校验。 */
   const mods = {};
   const b = LB.mods || {};
-  ['sig', 'snote', 'macct', 'convs', 'didp', 'think'].forEach(k => {
+  ['sig', 'snote', 'macct', 'convs', 'didp', 'think', 'srv', 'input'].forEach(k => {
     if (b[k]) mods[k] = b[k];
   });
   /* 2.184 改4（规范§七 :194 同号不同态＋「客户端上报参数」三条）：ledger 改为
