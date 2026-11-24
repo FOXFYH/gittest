@@ -35,7 +35,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>WS 上下行测试器 <span class="ver">手机版 v1.0</span></h1>
+  <h1>WS 上下行测试器 <span class="ver">手机版 v1.1</span></h1>
 
   <div class="box">
     <div class="row">
@@ -64,8 +64,12 @@
         <label>本机 ID（10 位数字，最后一档固定）</label>
         <input id="myid" inputmode="numeric" maxlength="10" autocomplete="off">
       </div>
+      <div>
+        <label>账号（邮箱，注册该集群的账号·可留空）</label>
+        <input id="acct" placeholder="如 0047@1219299644" autocomplete="off">
+      </div>
     </div>
-    <div class="tip">连接地址会按「集群 + 频道」实时拼出；手机端 ID 默认 4 开头，电脑端测试器用 1/2/3 开头，便于区分方向。</div>
+    <div class="tip">术语：<b>账号</b>＝邮箱注册的真实账号；<b>集群</b>＝WS1~WS5 线路（可能分属不同账号）；<b>频道</b>＝约定的房间号。连接地址按「集群 + 频道」实时拼出；手机端 ID 默认 4 开头，电脑端测试器用 1/2/3 开头，便于区分方向。</div>
     <div class="row" style="margin-top:8px">
       <button id="btnConn">连接</button>
       <button id="btnDisc" class="gray" disabled>断开</button>
@@ -78,7 +82,7 @@
       <button id="btnMon" class="blue">全局监管：打开</button>
       <button id="btnMonCh" class="gray">监管频道：31415926fF@</button>
     </div>
-    <div class="tip">全局监管＝同时连 WS1~WS5 同一频道，只收不发，统计帧型/字节/模块化。</div>
+    <div class="tip">全局监管＝同时连 WS1~WS5 五个集群的同一频道，只收不发，统计帧型/字节/模块化。</div>
     <div id="monSum" class="tip" style="white-space:pre-wrap"></div>
     <div class="log" id="monLog" style="height:26vh"></div>
   </div>
@@ -129,6 +133,7 @@ function init(){
   svc.value = save.svc && CLUSTERS[save.svc] ? save.svc : 'WS2';
   var myid = save.myid || ('4'+String(Math.floor(100000000+Math.random()*900000000)));
   $('myid').value = myid;
+  $('acct').value = save.acct || '';
   if(save.ch && (save.ch==='jtb'||save.ch==='test-channel-1'||save.ch==='31415926fF@')){ $('ch').value=save.ch; }
   else if(save.ch){ $('ch').value='__custom'; $('chCustomWrap').style.display=''; $('chCustom').value=save.ch; }
   bind(); refreshUrl(); log('sys','就绪：选集群与频道后点「连接」');
@@ -136,13 +141,15 @@ function init(){
 function channel(){
   return $('ch').value==='__custom' ? ($('chCustom').value.trim()||'自定义') : $('ch').value;
 }
+/* 账号＝邮箱注册的真实账号（集群可能分属不同账号）；留空＝未标注 */
+function acctText(){ return ($('acct').value||'').trim(); }
 function buildUrl(){
   var c=CLUSTERS[$('svc').value], ch=encodeURIComponent(channel());
   return c.url.replace('%s',ch)+'?api_key='+c.key;
 }
 function refreshUrl(){ $('urlShow').textContent='地址：'+buildUrl(); save(); }
 function save(){
-  try{ localStorage.setItem(LS, JSON.stringify({svc:$('svc').value, ch:channel(), myid:$('myid').value})); }catch(e){}
+  try{ localStorage.setItem(LS, JSON.stringify({svc:$('svc').value, ch:channel(), myid:$('myid').value, acct:acctText()})); }catch(e){}
 }
 function log(k,t){
   var d=document.createElement('div');
@@ -235,6 +242,7 @@ function bind(){
   };
   $('chCustom').oninput=refreshUrl;
   $('myid').oninput=save;
+  $('acct').oninput=save;
   $('btnConn').onclick=conn;
   $('btnDisc').onclick=disc;
   $('btnSend').onclick=send;
@@ -253,7 +261,7 @@ function conn(){
   ws.onopen=function(){
     $('btnConn').disabled=true; $('btnDisc').disabled=false; $('btnSend').disabled=false; $('btnAuto').disabled=false;
     verdict('mid','已连接：上行可发，等待对端下行…');
-    log('sys','OPEN 已连上 '+$('svc').value+' ｜ 频道 '+channel());
+    log('sys','OPEN 已连上 集群 '+$('svc').value+(acctText()?' ｜ 账号 '+acctText():'')+' ｜ 频道 '+channel());
   };
   ws.onmessage=function(ev){
     var t=String(ev.data||''); nDown++; stat();
