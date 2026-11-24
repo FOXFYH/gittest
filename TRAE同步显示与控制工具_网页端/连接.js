@@ -475,12 +475,9 @@ function handleBody(body, fromId){
   }
   if (nm !== S.cur) return;                   // 非当前操控对象：忽略
   if (!srvIsoPass(d, fromId)) return;         // 2.184：非本服 FOX 号，整帧丢弃
-  /* 2.203（老板 2026-11-19 22:02 令）：服务端每帧盖 host＝当前操控持有者（1 号网页
-     用户）；此处只落状态，判定统一走 hostIsFirst()。空串＝当前无持有者。 */
-  if (d.host !== undefined){
-    S.hostId = String(d.host || '');
-    S.hostKnown = true;
-  }
+  /* 2.266（老板 2026-11-24 20:38 令）：「1 号网页用户」概念废除——服务端
+     host 字段已恒空串（旧服务端可能仍下发旧值），网页端不再落地/判定，
+     判定函数 hostIsFirst 已退役恒 true（见 状态与DOM.js）。 */
   /* 1.13：操控互斥——目标拒绝（正被其他客户端占用） */
   if (d.t === 'deny'){
     if (d.target === MY_ID)
