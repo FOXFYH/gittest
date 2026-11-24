@@ -1072,6 +1072,16 @@ function lbSyncApply(d){
           });
           const 留 = kept.length - 补;
           const 键 = sid || wantUid || wantTitle;
+          /* 2.276（老板 2026-11-25 07:45 令「明明有 10 条，突然只剩 1 条」）：
+             服务端这一拍给的全序比本地还少（读不全/读错会话/账本刚加载），
+             一律拒删——保留本地账本原样，等下一拍完整全序再重建。
+             宁可多留旧账，绝不被一张短帧砍成一条。 */
+          if (kept.length > 0 && localMap.size > kept.length){
+            try { diagLog('lbsync 拒删|sid=' + 键 + '|order=' + order.length
+              + '|kept=' + kept.length + '|local=' + localMap.size
+              + '|短全序保留不动', 'warn'); } catch(e){}
+            return;
+          }
           if (!kept.length){
             /* 2.271（老板 2026-11-24 21:29 令·网页固化）：绝不删光——
                order 为空（服务器这拍没给全序/读不到账本），或服务器没给任何可补
