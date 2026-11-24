@@ -953,23 +953,11 @@ function renderAll(){
   const _snapEmpty = !(Array.isArray((S.snap || {}).msgs) && S.snap.msgs.length);
   const _storeMsgs = (_lf && Array.isArray(_lf.msgs) && _lf.msgs.length
       && (_locked || _snapEmpty)) ? _lf.msgs : null;
-  /* 2.100（老板 2026-10-20 12:14 硬原则）：持屏闸只在「尚无新内容」时生效——一旦
-     锚定会话【自己的快照正文】已比存帧更新（非切换前旧正文、尾部更靠后），立即让位，
-     绝不拿旧存帧顶掉已到的新内容。 */
+  /* 2026-11-24（老板 11:29 令「切会话立刻显示小账本，不许白屏等核对」）：
+     curMsgs() 本身就是「目标会话账本」，只要非空就直接上屏——
+     不再用「快照是否已是目标」把账本挡在锁定期外面。 */
   const _spu = S.switch_pend;
-  const _snapIsTarget = (_spu && _spu.lockTarget)
-      ? !sameConvBody((S.snap || {}).msgs, _spu.prevMsgs) : true;
   const _curNow = _locked ? curMsgs() : null;
-  const _tailKeyOf = a => (a && a.length) ? _msgKey(a[a.length - 1]) : '';
-  /* 2.105（03-P3）：让位判定放宽为「尾部消息身份不同即让位」——去掉旧的
-     `_curNow.length >= _storeMsgs.length` 条数限制。原判据在锚定会话发生【合法删除/
-     回退（变短）】时不满足 `>=` ⇒ 不让位 ⇒ 页面继续显示「比真实更旧/更长」的旧存帧；
-     真帧若更短、尾部身份不同，同样必须立即让位（绝不用旧存帧顶掉已到的新内容）。
-     2.106：curMsgs 已在「切换在途且快照正文仍属旧会话」时切断回落（返回 []），
-     故 _curNow 非空即「已确认是目标」，让位永不误放旧会话 A。 */
-  const _targetNewer = !!(_curNow && _curNow.length
-      && _snapIsTarget
-      && _tailKeyOf(_curNow) !== _tailKeyOf(_storeMsgs || []));
   /* 2.106：目标落地快照上屏 → 置 swPPainted/swHold（此后再出现中间态方可原样重放防闪回）。 */
   const _markSwPainted = () => { S.swPPainted = true; S.swHold = true; };
   const _replayLast = () => renderMsgs(S.msgs_last[0], S.msgs_last[1],
@@ -977,12 +965,12 @@ function renderAll(){
   if (_locked){
     /* 2.106（A·老板 2026-10-20 17:29「切换即清屏，只显目标快照，无则空白」）：
        切换在途正文只允许「目标落地快照 / 已确认的目标真内容 / 留白」三种，绝不重放旧会话 A：
-       ① 目标真内容已到（_targetNewer，携已确认目标身份）→ 立即让位上屏（保 2.100）；
+       ① 目标账本已到（_curNow 非空）→ 立即上屏（小账本即时性，老板 11:29 令）；
        ② 否则有目标落地快照 → 顶它（这就是老板要的「看着快照减少烦躁」）；
        ③ 目标真帧已在快照里（arrived）→ 顶上（2.101 防刷新/重连补发 switch 后整屏长留白）；
        ④ 目标快照上过屏后才有中间态 → 原样重放它（防闪回，保 2.89）；
        ⑤ 其余 → 清屏留白（【绝不放】旧会话正文）。 */
-    if (_targetNewer){
+    if (_curNow && _curNow.length){
       renderMsgs(_curNow, snap.finish, opts0, snap.ask || null, snap.pend || []);
       _markSwPainted();
     } else if (_storeMsgs){
