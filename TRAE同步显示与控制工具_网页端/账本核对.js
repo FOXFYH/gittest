@@ -1,5 +1,12 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.053  日期 2026-11-24
+/* 账本核对.js（网页端）  版本 1.054  日期 2026-11-24
+   【1.054 账本足额同步（老板 2026-11-24 20:53 令）】新增服务端对账帧 t:'lbsync'
+     处理函数 lbSyncApply（仿 lbKeepApply）：按 d.order（服务器完整全序 mid）重建
+     本会话账本 msgs——本地有该 mid 用本地行、否则用 d.add 给的行（缺条只补内容，
+     不盲发全部）、都不存在跳过不造假；不在 order 里的多余行丢弃；重建后
+     lbSumSet/lbRowsPut/_frameMem/snap_conv 一并同步，最终两边条数/ID/顺序/内容
+     一致。对应服务端「足额补发」默认模式；「智能补发」仍走原 12 条逐条比对。d.think/
+     d.pend 服务端另推，不在本函数处理。1.053→1.054。
    【4.10 核对模块化重设计（老板 2026-11-24 20:24 令）】① vcheck 上报升级：
      mods.conv＝当前选中会话「12 条 ID 清单」（最近 10 条对话 mid＋思维流 1 条
      ＋官方排队条 1 条；会话模块无版本号；lbConv12Report 新函数），服务端逐条
@@ -966,6 +973,91 @@ function lbKeepApply(d){
     }).catch(() => {});
   }catch(e){}
 }
+/* ============ 1.054：服务端对账帧 lbsync（账本足额同步：重排+补齐+删多余） ============ */
+function lbSyncApply(d){
+  /* 0.90 服务端「足额补发」配套：按 d.order（服务器完整全序 mid）重建本会话
+     账本 msgs——本地有该 mid 用本地行、否则用 d.add 给的行（缺条只补内容）、
+     都不存在跳过不造假；不在 order 里的多余行丢弃；重建后 lbSum/rows/snap_conv
+     一并同步，最终两边条数/ID/顺序/内容一致。d.think/d.pend 服务端另推，不在
+     本函数处理。无 order/无命中记录一律静默；不新增页面、不改布局。 */
+  try{
+    if (!d || typeof d !== 'object') return;
+    const order = Array.isArray(d.order)
+      ? d.order.map(x => String(x || '')).filter(Boolean) : [];
+    const orderSet = new Set(order);
+    const sid = String(d.sid || '').trim();
+    const wantUid = String(d.uid || '').trim();
+    const wantTitle = String(d.title || '').trim();
+    if (!sid && !wantUid && !wantTitle) return;
+    const addMap = new Map();
+    (Array.isArray(d.add) ? d.add : []).forEach(it => {
+      try{
+        if (!it || typeof it !== 'object') return;
+        const mid = String(it.mid || '');
+        if (mid && Array.isArray(it.row)) addMap.set(mid, it.row);
+      }catch(e){}
+    });
+    _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
+      const puts = [];
+      (rows || []).forEach(rec => {
+        try{
+          if (!rec || !rec.frame || !Array.isArray(rec.frame.msgs)) return;
+          const rs = String(rec.sid || ''), ru = String(rec.uid || '');
+          const rt = String(rec.title || '');
+          /* 三法命中：sid / uid / title 任一相等（同 lbKeepApply :928-930） */
+          const hit = (sid && (sid === rs || sid === ru || sid === rt))
+            || (wantUid && wantUid === ru) || (wantTitle && wantTitle === rt);
+          if (!hit) return;
+          const localMap = new Map();
+          rec.frame.msgs.forEach(m => {
+            if (Array.isArray(m) && m[6]) localMap.set(String(m[6]), m);
+          });
+          let 删 = 0;
+          localMap.forEach((v, k) => { if (!orderSet.has(k)) 删++; });
+          let 补 = 0;
+          const kept = [];
+          order.forEach(mid => {
+            if (localMap.has(mid)){ kept.push(localMap.get(mid)); return; }
+            if (addMap.has(mid)){ kept.push(addMap.get(mid)); 补++; return; }
+          });
+          const 留 = kept.length - 补;
+          const 键 = sid || wantUid || wantTitle;
+          if (!kept.length){
+            puts.push(_idbReq('snap_conv', 'readwrite',
+              st => st.delete(rec.sk)).catch(() => {}));
+            try { LB.lbHave.delete(String(rec.uid || rec.sid || '')); } catch(e){}
+            try { lbSumDrop(rec.sid, rec.title); } catch(e){}
+            try { delete LB.rows[_lbRowsKey(String(rec.uid || ''), rt)]; } catch(e){}
+            try { delete _frameMem[rec.sk]; } catch(e){}
+            try { diagLog('lbsync 足额|sid=' + 键 + '|order=' + order.length
+              + '|留=0|补=' + 补 + '|删=' + 删
+              + '|rounds=' + (parseInt(d.rounds) || 0), 'ok'); } catch(e){}
+            return;
+          }
+          const nr = Object.assign({}, rec);
+          nr.frame = Object.assign({}, rec.frame, {msgs: kept});
+          try {
+            if (_frameMem && _frameMem[rec.sk] && Array.isArray(_frameMem[rec.sk].msgs))
+              _frameMem[rec.sk].msgs = kept.map(m => m.slice());
+          } catch(e){}
+          const rounds = lbRoundsFromMsgs(kept);
+          const u = String(rec.uid || '').trim()
+            || (typeof lbUidPick === 'function'
+                ? String(lbUidPick(null, rec.sid, rt) || '') : '');
+          try { lbSumSet(u || String(rec.sid || ''), rt, rounds); } catch(e){}
+          try { lbRowsPut(u, rt, rounds); } catch(e){}
+          puts.push(_idbReq('snap_conv', 'readwrite',
+            st => st.put(nr)).catch(() => {}));
+          try { diagLog('lbsync 足额|sid=' + 键 + '|order=' + order.length
+            + '|留=' + 留 + '|补=' + 补 + '|删=' + 删
+            + '|rounds=' + (parseInt(d.rounds) || 0), 'ok'); } catch(e){}
+        }catch(e){}
+      });
+      return Promise.all(puts);
+    }).catch(() => {});
+  }catch(e){}
+}
+if (typeof window !== 'undefined') window.lbSyncApply = lbSyncApply;
 function o_unreadIds(arr){
   const out = [];
   arr.forEach(o => { if (o && o.sid && o.status && o.status.unread) out.push(o.sid); });
