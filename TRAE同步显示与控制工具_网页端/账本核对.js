@@ -2069,6 +2069,18 @@ function ledgerStorePut(sid, title, rounds, opt){
           out.push(r);
         });
       }
+      /* 2.264（老板 2026-11-24 17:43 令「小账本层必须按轮 ID 排好序」）：合并
+         去重完成后按 mid 升序稳定排序再落库——mid 前 8 位 hex 即 Unix 秒，
+         同长 hex 直接字符串比较即时间序；轮 mid＝首行 m[6]（lbRoundKey 同口径）。
+         两轮都有 mid 比 mid；任一轮无 mid（0.51 起不该有，保底）按原始 index，
+         后到的旧轮绝不沉底。主界面直通小账本原样显示，渲染层零改动。 */
+      out = out.map((r, i) => [r, i,
+        /^[0-9a-fA-F]{8}/.test(String((Array.isArray(r) && r[0] && r[0][6]) || '').trim())
+          ? String(r[0][6]).toLowerCase() : ''])
+        .sort((a, b) => {
+          if (a[2] && b[2] && a[2] !== b[2]) return a[2] < b[2] ? -1 : 1;
+          return a[1] - b[1];
+        }).map(x => x[0]);
       /* 2.219（保留轮数真正生效）：落账统一按 N 裁——lbRoundKey 去重后只留
          最新 N 轮（只裁 rounds，记录其余字段不动）。 */
       out = lbLedgerTrimRounds(out, sk);
