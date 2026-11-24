@@ -944,38 +944,30 @@ function renderAll(){
      旧会话 A 的画面（旧 2.97「维持现画面重放」已废）；swHold 仅在目标快照上屏后
      用于防中间态闪回（保 2.89 防交叉闪现）。见下方分支。 */
   const _locked = _liveLockOn();
-  const _lf = S.liveFrame;
-  /* 2.15（老板 2026-11-05 20:41）：真快照正文为空（框架帧/切会话空档）时，
-     即便不在切换锁态也用本地存帧兜底——有缓存就绝不白屏。 */
-  const _snapEmpty = !(Array.isArray((S.snap || {}).msgs) && S.snap.msgs.length);
-  const _storeMsgs = (_lf && Array.isArray(_lf.msgs) && _lf.msgs.length
-      && (_locked || _snapEmpty)) ? _lf.msgs : null;
+  /* 2.265（老板 2026-11-24 铁令）：撤原 2.15「S.liveFrame 存帧兜底上屏」——
+     liveFrame 是直推帧/预取帧暂存（直推人类行、snap_pane、switch_pre 都会写），
+     直上屏＝「主界面只剩最新一条」旁路；正文只认小账本 curMsgs()，账本读空
+     一律空态等待，绝不用 liveFrame/S.snap 直推内容铺屏。 */
   /* 2026-11-24（老板 11:29 令「切会话立刻显示小账本，不许白屏等核对」）：
      curMsgs() 本身就是「目标会话账本」，只要非空就直接上屏——
      不再用「快照是否已是目标」把账本挡在锁定期外面。 */
-  const _spu = S.switch_pend;
   const _curNow = _locked ? curMsgs() : null;
-  /* 2.106：目标落地快照上屏 → 置 swPPainted/swHold（此后再出现中间态方可原样重放防闪回）。 */
+  /* 2.265：目标账本（小账本）上屏 → 置 swPPainted/swHold（此后再出现中间态方可
+     原样重放防闪回；2.265 起唯一置位点＝小账本上屏，重放内容必为账本内容）。 */
   const _markSwPainted = () => { S.swPPainted = true; S.swHold = true; };
   const _replayLast = () => renderMsgs(S.msgs_last[0], S.msgs_last[1],
       S.msgs_last[2], S.msgs_last[3], S.msgs_last[4]);
   if (_locked){
-    /* 2.106（A·老板 2026-10-20 17:29「切换即清屏，只显目标快照，无则空白」）：
-       切换在途正文只允许「目标落地快照 / 已确认的目标真内容 / 留白」三种，绝不重放旧会话 A：
+    /* 2.106（A·老板 2026-10-20 17:29「切换即清屏」）＋ 2.265（老板 2026-11-24 铁令）：
+       切换在途正文只允许「小账本目标会话 rounds / 防闪回重放 / 留白」三种，
+       绝不重放旧会话 A、绝不直显直推单条：
        ① 目标账本已到（_curNow 非空）→ 立即上屏（小账本即时性，老板 11:29 令）；
-       ② 否则有目标落地快照 → 顶它（这就是老板要的「看着快照减少烦躁」）；
-       ③ 目标真帧已在快照里（arrived）→ 顶上（2.101 防刷新/重连补发 switch 后整屏长留白）；
-       ④ 目标快照上过屏后才有中间态 → 原样重放它（防闪回，保 2.89）；
-       ⑤ 其余 → 清屏留白（【绝不放】旧会话正文）。 */
+       ② 目标快照上过屏后才有中间态 → 原样重放它（防闪回，保 2.89；重放内容必为
+          此前小账本上屏内容——原「liveFrame 存帧②/目标落地快照③直上屏」两分支
+          是「只剩最新一条」旁路，已随 2.265 撤除）；
+       ③ 其余 → 清屏留白（【绝不放】旧会话正文/直推单条），等账本帧补入后自动渲染。 */
     if (_curNow && _curNow.length){
       renderMsgs(_curNow, snap.finish, opts0, snap.ask || null, snap.pend || []);
-      _markSwPainted();
-    } else if (_storeMsgs){
-      renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
-      _markSwPainted();
-    } else if (_spu && _spu.arrived
-               && Array.isArray((S.snap || {}).msgs) && S.snap.msgs.length){
-      renderMsgs(S.snap.msgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
       _markSwPainted();
     } else if (S.swPPainted && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
       _replayLast();                           /* 目标快照已上过屏：中间态重放它，防闪回 */
@@ -987,13 +979,13 @@ function renderAll(){
     if (_cur.length){                      /* (b) 目标当前全量最新帧上屏 → 松开持屏 */
       renderMsgs(_cur, snap.finish, opts0, snap.ask || null, snap.pend || []);
       S.swHold = false;
-    } else if (_storeMsgs){                /* 2.15：真正文为空 → 用本地存帧兜底 */
-      renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
     } else if (S.swHold && S.swPPainted
                && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
       /* 2.106：仅「已上屏目标快照之后」才原样重放（防闪回）；此前一律不重放旧会话 */
       _replayLast();
     } else {
+      /* 2.265：账本读空 → 空态等待账本帧/hist 补入后自动渲染（原 2.15
+         「S.liveFrame 存帧兜底」是直推单条上屏旁路，已随 2.265 撤除）。 */
       renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
     }
   }
