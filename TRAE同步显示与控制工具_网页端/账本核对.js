@@ -112,24 +112,28 @@ function lbScreenMsgs(sid, title){
     const keys = [];
     if (u) keys.push(_lbRowsKey(u, ''));
     if (t) keys.push(_lbRowsKey('', t));
-    /* 2.273（老板 2026-11-25 00:07 实测：小账本 10 条、主界面只 2 条）：
-       uid 键与 title 键两处都可能存着账。旧写法「取第一个非空就返回」，
-       若 uid 键里是旧短账本，主界面就永远只显示那一两条、比小账本少。
-       改为在候选里取「末条更晚」的一份；末条同秒则取更长的一份。 */
-    let best = null;
+    /* 2.274（老板 2026-11-25 01:28 实测：主界面只剩人类发言、小账本却正常）：
+       只选一份必然丢——新来的人类消息常常只写进其中一处键的副本，那份
+       「更新但还没有 AI 终答」，选中它就只剩人类行（2.273 取最新也踩这个坑）。
+       改为并集合并：两处账本的每一条都收进来，按 _msgKey 去重，同一条
+       只升不降（'a' 终极行覆盖 'th' 思维流行、正文取更长），一条不丢。
+       这样主界面恒等于小账本，新消息先入账本再上屏，绝不会只剩人类。 */
+    const out = [], at = {};
     for (const k of keys){
       const rs = LB.rows[k];
       if (!Array.isArray(rs) || !rs.length) continue;
-      const out = [];
-      rs.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) out.push(m.slice()); }));
-      if (!out.length) continue;
-      if (best === null){ best = out; continue; }
-      if (_lbTailNewer(out, best)
-          || (!_lbTailNewer(best, out) && out.length > best.length)){
-        best = out;
-      }
+      rs.forEach(r => (r || []).forEach(m => {
+        if (!Array.isArray(m)) return;
+        const mk = _msgKey(m);
+        const i = at[mk];
+        if (i === undefined){ at[mk] = out.length; out.push(m.slice()); return; }
+        const ot = String(out[i][1] || ''), nt = String(m[1] || '');
+        const ok = String((out[i].length > 8 && out[i][8]) || '').toLowerCase();
+        const nk = String((m.length > 8 && m[8]) || '').toLowerCase();
+        if ((nk === 'a' && ok !== 'a') || nt.length > ot.length) out[i] = m.slice();
+      }));
     }
-    return best || [];
+    return out;
   }catch(e){ return []; }
 }
 function _lbSecOf(m){
