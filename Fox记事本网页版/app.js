@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.72';
+  const APP_VERSION = 'v1.73';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -501,13 +501,16 @@
     const qb = qbIn || {};
     const 显式 = String(qb['类型'] || '').trim();
     if (显式) return 显式;
+    // v1.73 模板层：选择题 / 填空 / 简答 / 混合 都算题库
+    const 题型0 = String(qb['题型'] || '').trim();
+    if (['选择题', '填空', '简答', '混合', '题库'].indexOf(题型0) >= 0) return '题库';
     const 全 = String(正文 || '');
     if (!全.trim()) return '其他';
     const 文件名 = String(名 || '');
     const 头 = 全.slice(0, 400);
     if (文件名.indexOf('规则') >= 0 || 头.indexOf('出题规则') >= 0) return '出题规则';
     if (文件名.indexOf('板书') >= 0 || 头.slice(0, 60).indexOf('板书') >= 0) return '板书';
-    if (/卷|测试|抽测|抽查|练习|写词语|写拼音/.test(文件名)) return '题库';
+    if (/卷|测试|抽测|抽查|练习|写词语|写拼音|十问|简答/.test(文件名)) return '题库';
     if (文件名.indexOf('参考答案') >= 0 || 头.indexOf('参考答案') >= 0) return '参考答案';
     const 题区 = 全.split('【参考答案')[0];
     const 题号 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
@@ -1451,34 +1454,21 @@
       editor.removeAttribute('data-bar');
       return;
     }
+    // v1.73 题库固定只给四个值（题数 · 速度 · 已核/未核 · 答题次数），其余进「更多属性」
     const 片 = [];
-    const 题型 = qb['题型'] || tp['题型'];
-    if (题型) 片.push(String(题型));
-    // 速度最优先：卷内规定 > 本卷已存 > 上次手动
     const 每秒 = Number(tp['每秒字数'] || qb['每秒字数']);
-    if (isFinite(每秒) && 每秒 > 0) 片.push(每秒 + ' 字/秒');
-    else 片.push(settings.secPerChar + ' 字/秒');
-    const 窄 = (window.innerWidth || 0) < 620;
-    const 年科 = [qb['年级'], qb['科目']].filter(Boolean).join('·');
-    if (年科) 片.push(年科);
-    const 题数 = Number(qb['题数']);
-    if (isFinite(题数) && 题数 > 0) 片.push(题数 + ' 题');
-    // v1.68 考试次数（存在文件里，这里同步一份本机镜像给文件列表格子用）
-    const 考次 = Number(qb['考试次数']);
-    if (isFinite(考次) && 考次 > 0) 片.push('考 ' + 考次 + ' 次');
-    if (doc && doc.id && isFinite(考次) && 考次 > 0) 记考试次数镜像(doc.id, 考次);
-    if (!窄) {
-      if (是题库) {
-        const 范 = String(qb['范围'] || '').trim();
-        if (范) 片.push(范);
-        const 上次考试 = String(qb['上次考试'] || '').trim();
-        if (上次考试) 片.push('上次考试 ' + 上次考试);
-        // v1.66 制作人签名（网页版只显示；签名在电脑版「更多属性」里做）
-        const 签 = String(qb['制作人签名'] || '').trim();
-        if (签) 片.push('签名·' + 签.split('·')[0].trim());
-        else 片.push('未签名');
-      }
-      片.push(((editor.textContent || '').replace(/\s/g, '').length) + ' 字');
+    const 速率 = (isFinite(每秒) && 每秒 > 0) ? 每秒 : settings.secPerChar;
+    if (是题库) {
+      const 题数 = Number(qb['题数']) || 0;
+      const 考次 = Number(qb['考试次数']) || 0;
+      片.push(题数 + '题');
+      片.push(速率 + '字/秒');
+      片.push(String(qb['制作人签名'] || '').trim() ? '已核' : '未核');
+      片.push(考次 + '次');
+      if (doc && doc.id) 记考试次数镜像(doc.id, 考次);
+    } else {
+      片.push(速率 + '字/秒');
+      片.push(((editor.textContent || '').replace(/\s/g, '').length) + '字');
     }
     editor.setAttribute('data-bar', 片.join('  ·  '));
   }
