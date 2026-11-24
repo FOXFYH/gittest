@@ -576,8 +576,15 @@ function onEv(kind, v){
       break;
     }
     case 'points':
-      if (v && v !== '读取失败') S.points = v;
-      el.points.textContent = '积分 ' + v;
+      /* 2.269（老板 2026-11-24 21:29 令·积分固态化）：读到坏值/空值绝不清屏——
+         有旧值就保持旧值，只有拿到有效积分才覆盖（除非新版本传来，否则一直
+         显示旧的）。仅当本机从没有效值时，才原样显示这次的值（含读取失败）。 */
+      if (v && v !== '读取失败' && v !== '—'){
+        S.points = v;
+        el.points.textContent = '积分 ' + v;
+      } else if (!S.points || S.points === '—' || S.points === '读取失败'){
+        el.points.textContent = '积分 ' + v;
+      }
       break;
     case 'points_warn':                    /* 1.27：积分不足预警 */
       warnFlash('⚠ 积分不足：' + (v.points || v)
