@@ -246,18 +246,14 @@ function warnFlash(msg){
   失败」+一个「确认」键立刻消除，3 秒自动消失，无其他按钮 */
 let swfTimer = null;
 function switchFail(title){
-  let t = $('swfbox');
-  if (!t){
-    t = document.createElement('div');
-    t.id = 'swfbox';
-    t.innerHTML = '<div class="t">⚠ 会话切换失败</div>'
-      + '<button>确认</button>';
-    t.querySelector('button').onclick = () => t.classList.remove('on');
-    document.body.appendChild(t);
-  }
-  t.classList.add('on');
-  clearTimeout(swfTimer);
-  swfTimer = setTimeout(() => t.classList.remove('on'), 3000);
+  /* 2.261（老板令·横幅唯一提醒）：切换失败只走顶部横幅「切换失败 · 会话名」，
+     删除旧悬浮小窗；横幅 5 秒后自动收起恢复常态，绝不丢会话名。 */
+  try {
+    if (typeof setBanner === 'function'){
+      setBanner('切换失败');
+      if (typeof clearBannerLater === 'function') clearBannerLater('切换失败', 5000);
+    }
+  } catch(e){}
 }
 
 /* 1.27：登录账号名显示（抽屉「登录账号」行） */
@@ -502,8 +498,7 @@ function curTitle(){
       if (r[0] === 'c' && _行稳定(r) === S.anchorSid) return r[1];
     if (S.anchorTitle) return S.anchorTitle;  /* 锚点不在列表：先用锚定标题兜底（A4 已弹提醒） */
   }
-  for (const r of convs) if (r[0] === 'c' && r[2]) return r[1];
-  return '当前会话';
+  return '当前会话';   /* 2.261：唯一锚定——删除「快照选中行 r[2]」兜底 */
 }
 /* v1.95：当前会话的稳定 ID（convs 'c' 行第 5 位，TRAE 后端主键）。
    本专项 A5：锚定优先；未锚定才回退快照选中行。拿不到返回 ''。
@@ -516,8 +511,7 @@ function curSid(){
       if (r[0] === 'c' && _行稳定(r) === S.anchorSid) return r[4] || '';
     return S.anchorFull || '';      /* 锚点暂不在列表：用最近一次命中的完整 sid 兜底 */
   }
-  for (const r of convs) if (r[0] === 'c' && r[2]) return r[4] || '';
-  return '';
+  return '';   /* 2.261：唯一锚定——删除「快照选中行 r[2]」兜底 */
 }
 
 /* ===== 2.25：act 上报统一闸门（用户 2026-10-05 三条约束）=====
@@ -542,8 +536,7 @@ function actCurConv(){                /* 当前正在看的会话（锚定优先
   if (S.anchorSid) for (const r of convs){
     if (r && r[0] === 'c' && _行稳定(r) === S.anchorSid){ row = r; break; }
   }
-  if (!row) for (const r of convs) if (r && r[0] === 'c' && r[2]){ row = r; break; }
-  if (!row) return null;
+  if (!row) return null;   /* 2.261：唯一锚定——未锚定不猜快照选中行 */
   return {title: (row[1] || '').trim(), sid: row[4] || '', uid: _行稳定(row)};
 }
 function actCurUnread(cv){            /* ③ 当前会话是否亮着橙灯（ID 优先，终身号再认，回退标题） */
@@ -913,6 +906,8 @@ function fillEntSafe(text){
 }
 
 function renderAll(){
+  /* 2.261：重画计数——横幅「核对成功」延后落位（等补发静默 600ms）用它判「无重画」。 */
+  S.renderTick = (S.renderTick | 0) + 1;
   /* 2.164（老板 11-15）：「手机重新展示到输入框的时候，小尾巴都要剥离掉」——
      每次刷新画面顺手把关一次输入框（换会话/换服务器/回退脏值残留都绕不过这里）；
      框里没有 '(@fox-' 就一个字不动（foxStripTail 首行 indexOf 早退）。 */
