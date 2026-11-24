@@ -268,8 +268,14 @@ function cliLogin(reason){
   S.anchor_reask = 1;
   sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
   /* 账本V1.0（I1/I2）：登录＝强核对场景之一，与 switch/svr/timer 共用
-     ledgerVcheckSend 同一构造函数（账本核对.js）。 */
-  try { if (window.ledgerVcheckSend) ledgerVcheckSend('login'); } catch(e){}
+     ledgerVcheckSend 同一构造函数（账本核对.js）。
+     2.273（老板 2026-11-25 00:07 实测：登录核对后不补齐、要手动刷新）：
+     login 也必须带上当前锚定 sid（与 timer/switch 同口径），否则服务端
+     不知道网页端在看哪个会话 ⇒ 无法按本户 12 条 ID 逐条补缺额。 */
+  try {
+    if (window.ledgerVcheckSend) ledgerVcheckSend('login', S.anchorFull
+      || (typeof curSid === 'function' ? curSid() : '') || '');
+  } catch(e){}
   lastBeatOk = Date.now();
   clearInterval(hbTimer);
   hbTimer = setInterval(cliBeat, HB_SEC * 1000);
