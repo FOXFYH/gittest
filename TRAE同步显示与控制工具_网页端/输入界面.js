@@ -217,7 +217,6 @@ let _nrTxt = '';            /* 2.66：最近一次写入的「未就绪」文案
 let _stTxt = '';            /* 2.106：最近一次 renderState 写入的状态栏文案——供定期复核（防抢一次性提示） */
 /* 2.106（B·老板 17:26）：未就绪「连续性门槛」——online=false 连续满此值才提示
    （参考同项目 LOGIN_WARN_MS），避免「重渲/切会话/遮罩」单拍瞬态闪烁误报。 */
-const NOT_READY_WARN_MS = 60000;
 /* 2.106：选中的服务端是否「久无来向消息」（> SRV_DEAD_MS，或从没听过它）——真离线，
    非瞬态；用于把「UI 未就绪」（走连续性门槛）与「服务端不在线」区分开。 */
 function _srvDead(){
@@ -314,14 +313,10 @@ function renderState(snap){
     el.state.style.color = 'var(--blue)';
     setSendBtn(false, true);
   }
-  /* 2.106（B）：online=false 满连续性门槛 → 只「提示」可能在重连/界面切换中（不再禁发言，
-     最终判定权交执行侧/服务端动作队列）。未满门槛 ⇒ 照常显示上面四态，单拍瞬态不闪报。 */
-  if (!_online && S.notReadySince
-      && (Date.now() - S.notReadySince) >= NOT_READY_WARN_MS
-      && !S.switch_pend && !S.inputBusy){
-    el.state.textContent = '⚠ 可能在重连/界面切换中…（已提交服务器判定）';
-    el.state.style.color = 'var(--orange)';
-  }
+  /* 2.254（老板 2026-11-24 08:24 令）：删除「可能在重连/界面切换中」提示——
+     老板原话「这句话不是我要加的，我也看不懂，根本就不需要」。该字段只是
+     界面有无发送按钮，不是网络状态，留着只会误导。 */
+
   /* 2.67 切换过程状态机：状态栏按在途阶段分档显示真实过程（用户 2026-10-07）。
      2.130（老板 2026-10-24）：撤掉 2.106 的「正在获取「目标」的快照…」等待文案——
      首屏已由本地最新完整存帧同步铺满，不再有获取等待态。 */
