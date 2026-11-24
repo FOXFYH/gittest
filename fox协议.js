@@ -304,6 +304,12 @@ function sendJson(d){
      login/hb 已显式带 nick，此处仅兜底其余帧（ctl/req/tts/chk/act/cmd/
      switch_box 等均经本函数）。 */
   if (d && typeof d === 'object' && d.nick === undefined) d.nick = nickGet();
+  /* 2.162（老板令）：**完全静默＝正常态，不算任何故障**。服务端本来就是
+     「变了才发」，页面安静不代表出问题。只有「我主动发了要回应的动作」
+     才开计时；20 秒没回音才判服务器有毛病（判据在 renderLink）。 */
+  if (d && (d.t === 'cmd' || d.t === 'req')){
+    S.waitT = Date.now(); S.waitN = 0; S.waitLast = 0;
+  }
   foxSend(JSON.stringify(d));
 }
 /* 1.88：10 位随机数字对话 ID——客户端发出的发送/插话自带一个
@@ -329,7 +335,7 @@ function didNow(){
    （switch/route_send 目标本就在 arg 里，且已由调用方传 convSid，不在此表内。） */
 const SESS_CMDS = { stop_gen:1, rewind:1, del_msg:1, 'del':1, pend_del:1, pend_edit:1, pend_sendnow:1,
   ask_pick:1, ask_other:1, ask_submit:1, ask_cancel:1, ask_prev:1, pick_opt:1,
-  input_take:1, attach_rm:1 };
+  input_take:1 };
 const SESS_CMDS_ARG = { conv_del:1, conv_pin:1, conv_rename:1, note_set:1 };
 function _sessSid(arg, convSid){
   if (convSid) return convSid;

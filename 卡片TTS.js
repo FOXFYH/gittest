@@ -193,6 +193,58 @@ function stripHintMarks(txt){
     .replace(/\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
 }
+/* 2.164（老板 2026-11-15）：「我从手机发出去的文本，不管那边你怎么给我加小尾巴，
+   我手机需要重新让它展示在输入框的时候，这些都要剥离掉」——
+   凡是「文本要回到手机输入框 / 剪贴板 / 待办卡」的出口，一律先过 foxStripTail：
+     ① play/ask 卡片标记：只摘标记、内容保留（那是 AI 说的话）；
+     ② 四段专属提示词（sys/usr/co/ai）：连被包住的正文一起删；
+     ③ 只在「四段删完后只剩空白」时才认定是服务端拼的尾巴——正文后面还有真内容
+        （用户自己写了 (@fox-sys1)…(@fox-sys2)）就只摘标记、留内容；
+     ④ 整条以段头开头（前面一个字都没有）＝用户自己写的，原样不动；
+     ⑤ 未闭合的段（只有 (@fox-sys1) 没有收尾）按「吞到文末」处理——TR-19 那种
+        残标必须连提示词正文一起吃干净（旧实现只删标记、把正文留下）；
+     ⑥ 没有 '(@fox-' 的文本原样返回，一个字都不动。 */
+const FSC_ANY = /\(@fox-sys1\s*\)([\s\S]*?)(?:\(@fox-sys2\s*\)|$)/g;
+const FUC_ANY = /\(@fox-usr1\s*\)([\s\S]*?)(?:\(@fox-usr2\s*\)|$)/g;
+const FCC_ANY = /\(@fox-co1\s*\)([\s\S]*?)(?:\(@fox-co2\s*\)|$)/g;
+const FAI_ANY = /\(@fox-ai1\s*\)([\s\S]*?)(?:\(@fox-ai2\s*\)|$)/g;
+const FPLAY_ANY = /\(@fox-play\d?\s*\)/g;
+const FASK_ANY  = /\(@fox-ask\d?\s*\)/g;
+const FH_ANY    = /\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g;
+/* 2.168（老板 2026-11-17）：「自报家门」头两行——凡总管命令投递都会强制带上，
+   回填输入框/复制时必须剥掉，绝不让它跑到老板眼前。
+   只认行首固定标记，避免误伤正文里自己写的【来自…】。 */
+function _stripFromHead(txt){
+  let t = String(txt == null ? '' : txt);
+  if (!/^\s*【来自(?:·仿微信)?】/.test(t)) return t;
+  t = t.replace(/^\s*【来自(?:·仿微信)?】[^\n]*\n/, '');
+  t = t.replace(/^\s*【回信用】[^\n]*\n?/, '');
+  t = t.replace(/^\s*\n/, '');
+  return t;
+}
+function foxStripTail(txt){
+  let s = String(_stripFromHead(txt) == null ? '' : _stripFromHead(txt));
+  if (s.indexOf('(@fox-') < 0) return s;
+  const raw = s;
+  s = s.replace(FPLAY_ANY, '').replace(FASK_ANY, '');
+  let idx = -1;
+  FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
+  if (idx > 0){
+    const head = s.slice(0, idx), tail = s.slice(idx);
+    const cut = tail.replace(FSC_ANY, '').replace(FUC_ANY, '')
+                    .replace(FCC_ANY, '').replace(FAI_ANY, '').replace(FH_ANY, '');
+    /* 四段删完还剩真内容 ⇒ 这对标记是用户自己写在正文里的，只摘标记、内容全留；
+       一点不剩（只剩空白）⇒ 确属服务端追加的尾巴，连内容整段砍。 */
+    s = cut.trim() ? (head + tail.replace(FH_ANY, '')) : head;
+  }
+  s = s.replace(/\r\n?/g, '\n')
+       .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+  if (!s && raw.trim()){
+    s = raw.replace(FPLAY_ANY, '').replace(FASK_ANY, '').replace(FH_ANY, '')
+           .replace(/\n{3,}/g, '\n\n').trim();
+  }
+  return s;
+}
 /* 2.118（老板 2026-10-22 09:37/09:38）：「这里有不少卡片有提供一个复制按钮…复制都要剥离
    那些小尾巴」「涉及了人类的发言…被进入输入框的时候可能会加前后缀，点击复制的时候不需要
    复制这些」——**复制取纯正文**：
@@ -231,6 +283,9 @@ function stripSysWrapper(txt){
 /* 复制/取回统一入口：isUser=true 时先剥系统外壳、首行 DID 与三段专属词，再剥 FOX 标记。 */
 function copyPlain(txt, isUser){
   let s = String(txt == null ? '' : txt);
+  /* 2.164：先吃尾部四段（必须在 stripHintMarks 之前——后者按「有没有收尾」判卡，
+     未闭合段它只删标记、提示词正文会留下；这里在原文上按「吞到文末」处理） */
+  s = foxStripTail(s);
   if (isUser){
     s = stripSysWrapper(s);
     s = stripHeadDid(s);
@@ -404,11 +459,12 @@ function foxPlay(seg){
     if (_sent || !_tts_pend[id]) return;
     _sent = true;
     if (ttsRoute(id, seg, payload)){
-      ttsStage(seg, '任务已提交', 'var(--blue)');
+      ttsStage(seg, '任务已提交，等 TTS 接收…', 'var(--blue)');
       flash('🔈 任务已提交，等 TTS 接收…', 'var(--blue)');
     } else {
-      ttsStage(seg, '直连未就绪，30 秒内未连通将自动回落服务端…', 'var(--orange)');
-      flash('🔈 直连未就绪，稍后自动回落服务端…', 'var(--orange)');
+      /* 2.159：WS 没在线时别只写"未就绪"，直接说正在连——老板要知道当前在哪个阶段 */
+      ttsStage(seg, 'WS 链接中…（最多 30 秒，不通用服务端中转）', 'var(--orange)');
+      flash('🔈 WS 链接中…（最多 30 秒，不通用服务端中转）', 'var(--orange)');
     }
   };
   requestAnimationFrame(() => requestAnimationFrame(doSend));

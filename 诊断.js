@@ -1,0 +1,911 @@
+'use strict';
+const MODEL_UNK = '（模型未知）';   // 1.18：模型读不到时的占位显示
+function syncModel(cur){
+  if (S.model_busy) return;
+  const ph = el.model.querySelector('option[data-unk]');
+  if (!cur){
+    /* 1.18: 冻结/未就绪时 snap.model 为空——原实现直接早退，浏览器
+       默认显示第一项，伪装成「已选中第一个模型」误导用户（用户以为
+       模型被切走了）。改为明确占位；恢复后自动换成真值 */
+    if (!ph){
+      const o = document.createElement('option');
+      o.value = MODEL_UNK; o.textContent = MODEL_UNK;
+      o.dataset.unk = '1';
+      el.model.insertBefore(o, el.model.firstChild);
+    }
+    if (el.model.value !== MODEL_UNK) el.model.value = MODEL_UNK;
+    return;
+  }
+  if (ph) ph.remove();               // 有真值了：撤占位
+  if (el.model.value === cur) return;
+  let found = false;
+  for (const [disp, name] of Object.entries(S.model_map))
+    if (name === cur){ el.model.value = disp; found = true; break; }
+  if (!found){                                // 列表未到：临时占位
+    const o = document.createElement('option');
+    o.value = cur; o.textContent = cur;
+    el.model.appendChild(o);
+    el.model.value = cur;
+    S.model_map[cur] = cur;
+  }
+}
+
+/* ================= 连接 / 事件流 ================= */
+
+let ws = null, reconnectTimer = null;
+let helloTimer = null, helloTries = 0, gotHello = false;
+
+/* ========== 1.xx：连接诊断（网络页） ==========
+   目的：不知道「一直连接中」是我这头死了还是服务端那头死了。
+   记录断线/出错/收到服务端回应，网络页据此判定本端↔服务端两侧状态。 */
+const DIAG = {reconn: 0, reconnActive: false, err: 0, testAt: 0, testOk: false, log: []};
+function diagLog(txt, cls){
+  DIAG.log.push({t: Date.now(), txt: txt, cls: cls || ''});
+  if (DIAG.log.length > 60) DIAG.log.shift();   // 1.60：8→60，够看清一整轮故障过程
+  if (el && el.diag_log) diagRender();
+}
+function diagTest(){                        // 测服务器：发 hello，5s 内等回应
+  DIAG.testAt = Date.now(); DIAG.testOk = false;
+  diagLog('测试：已发送 hello，等 5 秒回应…', 'dim');
+  try { sendJson({t: 'hello'}); } catch(e){}
+  setTimeout(() => {
+    if (DIAG.testOk) diagLog('测试：收到服务器回应 ✓', 'ok');
+    else diagLog('测试：5 秒内无回应 ✗（服务端未启动？频道不符？）', 'bad');
+    DIAG.testAt = 0;
+  }, 5000);
+}
+function diagRender(){
+  if (!el.diag_ws) return;
+  /* 频道（v1.50：标注主/副） */
+  const ch = (typeof chanGet === 'function') ? chanGet() : '';
+  const selM = (typeof curSel === 'function') ? curSel() : 'main';
+  el.diag_chan.textContent = ch ? (selM === 'backup' ? '副' : '主') + ':' + ch.slice(-2) : '未设置';
+  /* 本端连上中转（2.184 老板令：静默＝正常、不设任何探针——频道通了就只报「已连上中转」） */
+  if (S.onLine){ el.diag_ws.textContent = '✅ 已连上中转';
+    el.diag_ws.style.color = '#1a7f37'; }
+  else if (S.srvLost){
+    el.diag_ws.textContent = '⚠ 服务器失联中…（距上次回应 '
+      + (S.lastSrv ? Math.round((Date.now() - S.lastSrv) / 1000) : '?') + 's）';
+    el.diag_ws.style.color = '#b26a00'; }
+  else if (S.failStreak >= FAIL_ALERT){
+    el.diag_ws.textContent = '❌ 连不上中转（已连续 ' + S.failStreak + ' 次）';
+    el.diag_ws.style.color = '#c62828'; }
+  else if (S.wsOpenAt){ el.diag_ws.textContent = '❌ 已断开 · 重连中';
+    el.diag_ws.style.color = '#c62828'; }
+  else { el.diag_ws.textContent = '⏳ 连接中…';
+    el.diag_ws.style.color = '#b26a00'; }
+  /* 2.184 追加（服务器隔离过滤·老板令）：诊断页显示本服 FOX 号（S.curSid，
+     hello 自报或首个身份帧记入；未定＝尚未收到任何带身份帧） */
+  const _fox = String(S.curSid || '').trim();
+  el.diag_ws.textContent += _fox ? (' · 本服 FOX 号:' + _fox) : ' · 本服号未定';
+  /* 电脑端回应（1.59：两级判定，别把网络抖动当故障） */
+  const srvGap = S.lastSrv ? Date.now() - S.lastSrv : -1;
+  if (S.lastSrv && srvGap < SRV_IDLE_MS){
+    el.diag_srv.textContent = '✅ 正常（' + (SRV_IDLE_MS / 1000) + 's 内收到）';
+    el.diag_srv.style.color = '#1a7f37';
+    el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
+  } else if (S.lastSrv && srvGap < SRV_DEAD_MS){
+    el.diag_srv.textContent = '⚠ ' + Math.round(srvGap / 1000)
+      + 's 无新消息（抖动/后台，再等等）';
+    el.diag_srv.style.color = '#b26a00';
+    el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
+  } else if (S.lastSrv){
+    /* 2.184 老板令：静默＝正常——超 60s 没新消息也不再判「服务器没在跑」，
+       只如实报「多久没新消息」；是否异常看「发动作 20s 无回音」（顶栏 waitT 那条路） */
+    el.diag_srv.textContent = '· ' + Math.round(srvGap / 1000)
+      + 's 无新消息（静默属正常；发动作 20s 无回音才算异常）';
+    el.diag_srv.style.color = '#8a98a6';
+    el.diag_last.textContent = new Date(S.lastSrv).toLocaleTimeString();
+  } else {
+    el.diag_srv.textContent = '⏳ 尚未收到';
+    el.diag_srv.style.color = '#888';
+    el.diag_last.textContent = '—';
+  }
+  el.diag_cnt.textContent = DIAG.reconn + ' 次 / ' + DIAG.err + ' 次';
+  /* 日志 */
+  /* 日志：数据留 60 条（复制可取全量），面板只铺最近 25 条免得滚动太长 */
+  const _seen = DIAG.log.slice(-25);
+  el.diag_log.innerHTML =
+    (DIAG.log.length > _seen.length
+      ? '<div class="dim">… 面板仅显示最近 25 条（共 ' + DIAG.log.length
+        + ' 条；点「📋 复制诊断信息」可取全量）</div>'
+      : '')
+    + (_seen.map(l =>
+        '<div class="' + (l.cls || '') + '">'
+        + new Date(l.t).toLocaleTimeString() + '  ' + l.txt + '</div>').join('')
+       || '<div class="dim">（暂无事件）</div>');
+}
+setInterval(diagRender, 1000);
+
+/* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
+   说明行同步更新（APP_NAME / VER） ========== */
+const APP_NAME = 'TRAE远程';
+                       /* 2.121（老板 2026-10-22 17:55「两个刷新键只剩一个了，抽屉宽度得缩回去，
+                       跟会话名显示长度匹配即可」）：仅改样式.css——#drawer max-width
+                       300px→264px（会话行内衬 28＋状态灯 8＋间距 6＋实测最长会话名 221＝263）。
+                       服务端不改；入口 html 只升 title 与 ?v=。 */
+                       /* 2.122（老板 2026-10-22 17:56「手机网页版直接短路到 Py 版上面，
+                       主界面也有一个拉起，跟它一样的功能；该弹窗提醒什么，也由 Py 版的
+                       往这边传」）：① 抽屉按钮文案去掉解释，只写「🚀 拉起」；
+                       ② 点它不再本地确认、也不再自己判断开着/没开，直接发 boot；
+                       ③ 服务端探测到开着时下发 ev/boot_ask（text＝Py 版弹窗原文），
+                       本端用 uiConfirm 原样展示，确认回 boot_confirm、取消回 boot_cancel。
+                       改 上线与界面.js / 事件总线.js；服务端配套 3.46。 */
+                       /* 2.123（老板 2026-10-22 19:10「进文本框的文字都会被加后缀…网页版为它
+                       设计了后缀折叠显示系统，正文那边会发挥作用，官方排队小卡片这边还没
+                       发挥作用，这边也做成一样的；直接复用同一套逻辑就可以了」）：
+                       排队条每项复用正文的 foxHintCards → 左侧两行正文 ＋ 同一张
+                       「系统▸/用户▸/公司▸」专属提示词折叠卡（foxHintHtml/foxHintBind）；
+                       改 消息渲染.js（.qcol 包裹）＋ 样式.css；服务端零改动。 */
+                       /* 2.124（老板 2026-10-22 19:38「官方排队条默认只显示最近两行文字，
+                       可以展开/收缩；我们的小尾巴只有在展开模式才出现，这样比较美观」）：
+                       排队条折叠卡外包 .qfh，默认 display:none，仅 `.qtxt.open + .qfh` 显示；
+                       改 消息渲染.js ＋ 样式.css；服务端零改动。 */
+                       /* 2.125（老板 2026-10-22 21:21「网页版来拉的时候提供终身号
+                       和会话名，两个都提供，优先匹配终身号，匹配不上的就匹配会话名」）：
+                       缓存.js 的 hist / hist_prev 请求新增 `lt`（终身号＝sid 前 4 位，
+                       临时会话回落会话名）；服务端配套 3.51 优先按终身号查账本。
+                       仅加一个字段，原有 conv 照旧，老服务端不认 lt 也不受影响。 */
+                       /* 2.126（老板 2026-10-23 08:22「按照只进不退，只保留一份最新的、完整的。
+                       那什么三轮不三轮的，给我删掉」）：本地快照＝每会话一份、整帧原样、
+                       只进不退。缓存.js 删除 WEB_ROUNDS_KEEP/keepLastRounds 及全部裁剪调用
+                       （_idbFrame／paneFrameStore／hist 全量原样）；新增 _frameCommit 统一闸
+                       （旧帧／空帧／碎片帧拒收，定时落/强制落/预取帧/内存帧全走）；
+                       IDB 回读校正内存帧也守单调。纯网页端，服务端零改动。 */
+                       /* 2.127（老板 2026-10-23 15:38「官方排队条里的文本取回到手机网页版上
+                       重新编辑的时候，后缀信息不用推到手机网页版，把人类真实的发言推过来
+                       就行了…这边输入框是可以清空的…让他重新改完了重新发，重新排队」）：
+                       排队条 ✎取出编辑回填本端输入框时，只还原人类真实发言——事件总线.js
+                       的 pend_edit_out 由原样写入改为 copyPlain(t, true)（剥首行 14 位 DID、
+                       sys/usr/co 三段专属词前后缀、play/ask 等 FOX 标记，与复制同口径）；
+                       电脑端 TRAE 输入框由服务端 0.49 取出后同步清空，不留同一份残留；
+                       改完重新发送即重新排队。改 事件总线.js；服务端配套 抓取轮询 0.49／
+                       运行时 3.52。 */
+                       /* 2.128（0021 报障 2026-10-23 16:37，CDP 实测定位：「网页版右键
+                       📝 编辑备注点了没反应」）：会话备注.js 仍是浏览器原生 prompt()，
+                       手机端内置浏览器 / WebView 会**静默屏蔽**（调用 1 次、无弹窗、无提示、
+                       不发命令）。改为与 2.87 重命名 / 2.110 删除同款自绘弹层
+                       （备注DlgOpen：开层即 flash 提示、输入框预填旧备注、取消/确定两键，
+                       回车提交、点遮罩关闭）；提交仍走 srvOpSend('note_set',[sid,t]) 四态，
+                       空文本＝删除，文本未变则不发送。纯网页端，服务端零改动。 */
+                       /* 2.129（老板 2026-10-24「手机网页版往上顶加载历史聊天记录
+                       现在不通」）：hist_prev 请求本身一直正常（服务端实测每页
+                       4 条、连续不重），但 2.104 把 curMsgs 改成「正文只以快照为
+                       骨架、账本只补尾部之后」⇒ 翻页回来的更早 4 条虽并入
+                       histRaw，却永远不上屏，表现为「往上顶没反应」。现缓存.js
+                       另存 S.histPrevRaw（只装用户显式上顶取回的页），curMsgs 只
+                       把这 4 条前置到快照之前（按 mid/指纹去重）；普通 hist 增量
+                       仍不抢位置。改 缓存.js／状态与DOM.js／电脑名册.js；服务端零改动。 */
+                       /* 2.130（老板 2026-10-24「手机网页版切会话总是显示『正在获取某某的快照』，
+                       要等」）：删掉全部等待态文案——① 输入界面.js 切换在途不再写
+                       「正在获取「目标」的快照…」（有本地存帧就按存帧真实忙闲显示，无存帧
+                       才给中性「切换中·名称」）；② 缓存.js「⏳ 正在获取直播帧…（当前显示的是
+                       本地存帧）」小条（liveShow/liveHide）整条删除。切会话一律同步命中
+                       本地【最新完整存帧】立刻整屏铺上（目标 ≤10ms，不读盘不请求）：
+                       新增 snapIdbPrewarm——打开页面即把该缓存键下全部会话存帧预读进
+                       内存 _frameMem（另加标题索引 _frameMemByTitle），切会话只内存取；
+                       切走/真帧到手时 _frameCommit(memNow) 先把完整帧同步写进内存再落盘，
+                       后台真帧到达仍走 adoptSnap/帧闸「只进不退」单调替换（空帧/变短不覆盖）。
+                       改 缓存.js／输入界面.js／启动.js／会话列表.js（去掉「正在切换到…」
+                       提示＋免掉切前空屏重画）／待办卡.js／通用工具.js；服务端零改动。 */
+/* 2.207（2026-11-19·WB+TR整改ST·老板 23:45 令·V1.0 §五「思维流独立编号与分发」）：
+   客户端思维流展示卡——账本核对.js 每会话只留最新一版（新版覆盖旧版、按服隔离、
+   绝不入账）；消息渲染.js 小账本最底部固定挂一条（四维匹配＋思维灯亮才显示，
+   终极回复一到立即撤）；vcheck 上报 thinks（sid→thinkId，含版本）供服务端补发。 */
+/* 2.213（2026-11-20·老板「最终合并版」·人事部长ST 0023 转达·前端零拦截）：
+   网页端撤掉全部「收不收/删不删/算不算」闸门——① 账本核对.js：撤 lbSidValid/lbRowHasId/lbRoundIdFilter 三处拒收、lbMsgKind/lbTagKind 类型推断、lbPromoteEarlyFinals 前端升格、开机 lbCleanupTempLedgers 清理迁移、落账 slice(-lbRounds) 裁剪；lbUidOf 不再切片、lbUidPick 不再判真假；类型一律以后端 index8 为准。② 缓存.js：orderMsgs 完全按后端顺序（不排序不剔除不挪位，无 mid 行原位保留），_frameMsgs 不按「无 mid/思维流关键词」丢行、不按轮裁剪。③ 手机缓存查看器.js：kindOf 只认后端 index8/kind/type（缺→类型未知），提前终极只认 index11/early_final。④ 消息渲染.js：复核无内容丢弃分支，排版规则（思维流虚线框/终极不进框）保留，未改。时间仍只由 mid 前 8 位 hex 现算，无合法 ID 不显示时间但正文照常。入口 html title/?v= 同步 2.213。 */
+/* 2.226（2026-11-20·WB+TR整改ST·人事部长ST 0023 转达老板令「账本缓存合并」）：手机缓存查看器删「② 缓存」页签，只留「① 账本 / ② 调控」；原 renderAllCache 整段保留复用，新增 window.cvOpenCache() 供设置页「本机身份」旁「缓存管理」按钮打开同一缓存视图。消息渲染/账本核对零改动。入口 html title/?v= 同步 2.226。 */
+/* 2.227（2026-11-20·WB+TR整改ST·人事部长ST 0023 派单「强核对」）：手机缓存查看器 ③ 调控新增独立分组「强核对」——四契机清单、最近一次（act/时间/sid/结果/耗时）、本次打开以来各 act 计数、一个「立即强核对」按钮（只调 ledgerVcheckSend('switch', 当前锚定 sid)）；账本核对.js 四契机统一记 LB.vchkLog/vchkCnt（仅运行期内存），login/svr 收发均给短闪条不再静默，结果按 vack 的 req_seq 回填；90 秒无回执显示超时。不改协议、不加 WS 字段。入口 html title/?v= 同步 2.227。 */
+/* 2.244（2026-11-21 08:25/08:32 老板令「只留一套本地账本，和主界面聊天记录同一份、直接短路」·对齐 WB）：① 缓存.js IDB_VER 2→3，ledger_conv 停写并一次性清空（purgeLedgerStore，LS 标记一生一次），删 2.204 双账分流 _ledgerOwns，快照路恒写 snap_conv；② 账本核对.js 新增 lbLedgerMigrateOnce（开机把 ledger_conv 历史轮次一次性并入 snap_conv 再清表），lbHaveLoad 改读 snap_conv 重建 lbHave/lbSum（vcheck 上报口径不变）；③ lbMergeForConv/lbThinkPut/ledgerStorePut/lbOldFromSnaps 全部改走 snap_conv，第二本账零写入；④ 启动.js 开机链＝迁移→核缺→预读→boot；⑤ 登录/定时 vcheck 核号补缺、90 秒主动核对、直播缺正文用小账本顶，三条 WB 优点原样保留。入口 html title/?v= 同步 2.244。 */
+/* 2.245（2026-11-21 10:25 老板「切会话跳动、连续三个人类都没有 AI 回复，小账本里却有」）：账本核对.js 新增 lbFillFinals——快照/预取帧进屏前，把唯一账 snap_conv 里同一轮人类发言对应、而屏上缺失的 AI 终极就地补回该轮末尾（思维流之后）；事件总线.js snap 分支与 switch_pre 分支两处接入，renderAll/snapIdbTick/ledgerOnSnap 此后拿到的都是补全版，前台与小账本同一份。入口 html title/?v= 同步 2.245。 */
+/* 2.246（2026-11-21 10:42 老板「小账本和内存保持一致，新内容来了同时落小账本和内存」）：CDP 受控复现锁定——服务端快照只带人类行，2.245 同步补终答依赖内存帧，内存帧空/被人类快照占住时补不出，屏上 u3/a0 而小账本 snap_conv 是 u3/a3。治法：账本核对.js 拆出纯合并核心 _lbMergeFinals，新增 lbFillFinalsAsync（8 秒限频异步读 snap_conv，锚定复验后把缺的 AI 终答补屏并 renderAll＋snapIdbTick(true) 回写）；事件总线.js snap 与 snap_pane 两分支接入；缓存.js idbOpen 补 db.onversionchange 自动关连接（旧版页会把 IDB v3 升级卡死，实测已复现）。入口 html title/?v= 同步 2.246。 */
+/* 2.247（2026-11-21 10:47 老板令）：会话行长按菜单按常用度重排——①设置备注 ②重命名 ③定时自我激活，置顶/删除/取消依次跟后。改 会话列表.js convMenuOpen：两个钩子照旧「插到取消前」，再统一搬到标题下前三（不动钩子，保持可整块摘除）。入口 html title/?v= 同步 2.247。 */
+/* 2.248（2026-11-21 11:31 老板令·一套规则）：主界面＝小账本显示器——快照到达后读回唯一账 snap_conv，以账本为底、只补屏上更新行，先写回账本再顶屏；冷启动 lbBootMerge 改读 snap_conv（旧读已清空的 ledger_conv 永远读不到）。入口 html title/?v= 同步 2.248。 */
+/* 2.249（2026-11-21 11:37 老板令·小账本条数口径）：① 小账本「N 条」只算人类＋AI 终极，思维流单列（thN）不再混进总数；② 带终答的 AI 行即使被后端标成 th 也认回「AI 终极回复」，不再被当思维流折叠；③ 详情页不再丢弃旧思维流，账本有什么就显示什么；④ AI 正文只在 index7 时兜底取出。入口 html title/?v= 同步 2.249。 */
+/* 2.251  2026-11-21 22:07  切 WS2 后「服务器处理中」胶囊常驻、切换每 15 秒
+   重发：连接.js srvIsoPass 对 ev/rcpt 直接放行（帧已按服务端名 S.cur 校验），
+   S.curSid 切线路后的残留不再误杀回执。 */
+/* 2.252  2026-11-24  账本连续链裁剪：连接.js 新增 lbkeep 帧分发（只改本地
+   唯一账 snap_conv 的删/留，服务端 WS桥 0.76 定向下发）。 */
+const VER = '2.254';   /* 2.250（2026-11-21 12:40 老板令「版本号还是 2.249」）：VER 才是
+  页面标题/缓存键的真实版本，之前只改了入口 html 的 title/?v=，忘了改这里——刷新看到
+   2.250、退出再进又变 2.249 就是这个原因。本版连同 WS桥 0.66 行级类型修正一起上线。
+   2.242（2026-11-21 02:20 老板令「切换服务器时左侧会话列表没跟着切换」）：换服＝换一整套会话世界——① 电脑名册.js switchSrv 置 S.convs_srv_id='' 并清零护栏计数、立刻清空列表；② 通用工具.js _convsSolidGuard 见到服务器身份（S.cur|S.curSid）变化即放行新服首帧，不再拿旧服条数做「骤减」拦截、也不再从全局骨架缓存回填旧服列表（那正是列表卡在旧服务器的根因）；③ 缓存.js srvPackKey 加服务器名（旧键 box|port 在两台电脑同名窗口/同端口时撞车，切到 B 却还原 A 的列表），srvPackRestore 仅对旧键做切换瞬间的空白兜底。入口 html title/?v= 同步 2.242。 */   /* 2.241（2026-11-21 01:21 老板令「主动核对改 90 秒、契机写清楚」）：① 主动核对周期默认 60→90 秒（常量配置.js 默认 90＋老默认 60 一次性迁移打标 trae_webm_lb90；账本核对.js lbPeriodMs 与调控界面兜底同步改 90）；② 手机缓存查看器「② 调控 → 主动核对周期」下方新增四契机说明：login/switch/svr 由操作触发立即发，timer 按周期发，网页不在线一律不发（0 WS）。入口 html title/?v= 同步 2.241。 */   /* 2.240（2026-11-20 23:42 老板令「核对巨型弹框全清空」）：① 账本核对.js login/svr 两处「强核对」ftoast 闪条与 vchkLog/vchkCnt 回填整段删除，four 契机统一只置 LB.chkUntil＝10 秒圆球指示窗；② 手机缓存查看器.js ③ 调控页「强核对」独立分组（四契机清单/最近一次/计数/立即强核对按钮）整段删除；③ 核对状态只剩两处轻提示——顶部横幅「核对中 · 会话名」（仅 login/switch/svr 占用，timer 不打扰）＋顶栏「操控:」旁圆球变橙闪烁（电脑名册.js span.srvdot，lbChkBall 500ms 自愈，样式.css .srvdot.chk）。入口 html title/?v= 同步 2.240。 */   /* 2.234～2.235（2026-11-20 23:09 老板：官方排队条挂两条只显一条·AI 间总管命令无 DID 被吞）：回退到 11-18 旧版口径——项级归属「无从判定」不丢条，只有明确属于别会话才丢。*/   /* 2.231（2026-11-20 22:34 老板：电脑官方排队条 4 条、手机只显 2 条）：事件总线存储层项级 sid 过滤把「无项级 sid 的老格式条目」当别人的丢掉，改为 null 放行（归属已由顶层 pend_sid 确认），仅明确 false 才丢。 */   /* 2.230（2026-11-20 22:22 老板令：2.229 把原来的气泡思维流搞没了）：撤销 2.229 对思维流卡头部的 flex 改写，恢复 2.224 原气泡（🧠 思维流 · 名称 + 时间 + vN）；修 2.229 遗留 pend[li] 未定义导致点⚡发送/✎/🗑 抛 ReferenceError 无反应。 */   /* 2.228（2026-11-20 21:37·老板「小账本全量展示」）：手机缓存查看器 ① 会话预备画面改为全服务器分组展示——本服务器置顶、其它服务器按最新记录时间倒序、组内最后更新越新越靠前（无 mid 退回落盘 ts），未标 srv 老记录单独垫底组；readSnapConvs 去掉当前服务器过滤，服务端零改码。 */   /* 2.225（2026-11-20 18:09·老板「备注和定时信息显示不正常，尤其课后延时」）：会话列表.js 备注/定时多键匹配——uid→sid 前 4 位→稳定键→完整 sid→会话名，备注兼容旧完整 sid 键（按前 4 位归并、同文本去重），定时按任务 id 去重并回退服务端 schedule；列表仍不显示任何时间。 */   /* 2.224（2026-11-20 17:53·老板「思维小卡片重复」）：消息渲染.js renderMsgs 撤掉 2.223 遗留的**第二处**思维流卡插入（底部 2.207 旧插入点）——2.223 把卡移到排队条之前时没删旧插入点，同一 _think 被 append 两次 ⇒ 同屏两张一模一样的虚线卡（实测同一 thinkId 的 .thinklive 节点数=2）；现全文件唯一插入点＝排队条之前，末尾再加一道收口：.thinklive 只留最后一个（最新内容），其余移除；切换会话/重连补发/重画均不叠卡。服务端零改码。入口 html title/?v= 同步 2.224。 */   /* 2.223（2026-11-20 17:20·老板令「思维流虚线卡钻到官方排队条下方」＋「官方把活思维流夹在两条人类之间」）：① 消息渲染.js 卡插入点从「排队条之后」移到「排队条之前」——DOM 顺序＝人类·终极 → 思维流卡 → 占位 → 官方排队条；2.207「插在排队条之后」被本令取代。② 账本核对.js thinkCardNow 锚定校正——服务端 anchorMid 仍指旧人类、而旧人类本屏仍在时**不撤卡**（贴到最新人类下方）；旧人类已不在本屏才不显示，防旧卡死挂；撤卡仍只认终极/灯灭/同 mid 已 final。③ 方案 1720 的「后端纯化抽取（DID/双 mid 剔除）」未落——盘上样本 0 命中、抽取按 turn 元素各取各的（人类行不可能进 AI 行），且现网无证据，按「不猜、不丢」先不做。服务端零改码。入口 html title/?v= 同步 2.223。 */   /* 2.222（2026-11-20 17:10·老板令「思维流与终极回复位置混装」）：① 消息渲染.js renderMsgs 按行级 index8 分流——th 只走虚线框、不再进普通消息区（同一行不再两处同显）；u/a/? 照常上屏（? 不猜不丢）。② 渲染指纹纳入 index8，th→a 翻转必重画。③ 账本核对.js thinkCardSet 虚线框只收 index8='th' 的行（a/终极/人类一律不进框），缺类型老帧仍按非 final 口径不丢内容。服务端零改码。入口 html title/?v= 同步 2.222。 */   /* 2.221（2026-11-20 16:31·老板「备注怎么都不显示了，定时状态，甚至状态灯的响应都慢了些」）：① 备注/⏰ 恢复——备注字典与定时任务锚历史上按 **4 位权威终身号**存（盘上实测 {"0019":"夸机 资源","0047":…}），2.211「禁止切片」后 稳定键() 只返回会话名 ⇒ 按 sKey 查全落空；会话列表.js 新增 _cvUidOf/_cvAliasKeys/_cvNoteSched，只读服务端下发 uid（convs_full.uid／sig uid／S.convUids），按「权威终身号→稳定键→完整 sid→会话名」逐个试，第一个命中即用；右键「编辑备注/定时自我激活」也按同一权威键写入，读写同源。② 备注不再被让路帧清空——会话备注.js 备注入快照 改「只有快照确实带『备注』字段才覆盖」（与 2.79 定时同口径），旧版把缺字段当空字典清掉 ⇒ 备注指纹一帧一变 ⇒ 会话列表每帧整表重画（灯看着慢）。③ convs 指纹去时间字段——cfKey 不再收 schedule.next_at（定时到点必变的时间串），只收 sid/灯态/未读；定时显示由 #sched 指纹负责。④ 裁剪仍只在落账/开机/改值，逐帧路径零裁剪。入口 html title/?v= 同步 2.221。 */   /* 2.220（2026-11-20 16:21·老板「保留最近 5 轮这个参数没起作用」收尾）：① 会话预备画面（snap_conv）也按同一 N 裁——账本核对.js 新增 lbTrimFrameMsgs（复用 lbLedgerTrimRounds 的 lbRoundKey 去重 + slice(-N)），缓存.js _frameCommit 落盘前/旧帧比较前统一按 N 裁，账本核对.js 写回/假桶迁移/重复桶合并与开机 lbTrimAllSnaps 同源；卡片「N 条」读裁后 frame.msgs，与实际留存一致，思维流不计轮次。② N 改值当拍生效——手机缓存查看器.js lbRoundsApplied 追加 lbTrimAllSnaps(true)。③ 前端零拦截不变：当前屏 S.snap 不经过裁剪。④ 服务端无需改码：snap_conv 是客户端缓存，服务端账本下发仍读同一 ledger_push_rounds（WS桥 0.65 采纳 mods.lb_rounds）。入口 html title/?v= 同步 2.220。 */   /* 2.219（2026-11-20 16:21·老板「保留最近 5 轮这个参数没起作用」）：本地账本落账/归并/迁移/开机清理统一按 N（CFG.lb_rounds）裁 rounds——lbRoundKey 去重后截尾，只裁 rounds，整条记录其余字段不动；③ 两处「保留轮数」改值立即按新 N 批量裁存量（lbTrimAllRounds）并发一次 vcheck 上报 mods.lb_rounds；服务端 WS桥 0.65 新增 _采纳lb轮数 落盘 ledger_push_rounds（夹 1~50，优先于默认值），下发/补发同值。前端零拦截不变：屏幕消息照旧显示。入口 html title/?v= 同步 2.219。 */   /* 2.218（2026-11-20·老板「谁告诉你这里要显示时间」）：撤销会话列表最近时间——服务端 WS桥 0.61／抓取轮询 0.86 不再下发 lastMid；会话列表.js 撤时间 span 与按时间倒序，恢复服务端原序，名称/备注/定时完整可见。入口 html title/?v= 同步 2.218。 */   /* 2.217（2026-11-20·老板时间规则第 5 条·会话列表最近时间）：服务端 WS桥 0.59／抓取轮询 0.84 给会话列表每条下发 lastMid（该会话最后一条消息的合法 mid，24hex；无则空串，绝不下发时间）；会话列表.js 每行按 timeFromMid(lastMid) 显示最近时间（无/非法不显示，不写「时间未知」），并以此按 ID 时间倒序排（同秒按 mid 倒序、无 mid 置末尾；含文件夹组头时组内倒序、组间按最新时间倒序）——会话列表显示层唯一允许的排序，不涉及聊天消息顺序。入口 html title/?v= 同步 2.217。 */   /* 2.216（2026-11-20 09:54·游客体验三件）：① 首屏三步引导——消息渲染.js 新增 guideDone/guideHtml/guideDismiss/guideBoot，空态与启动首帧铺引导卡，「知道了」写 localStorage.trae_webm_guide_done 后不再弹；② 文案纠错——输入界面.js 未选服务端改「请点左上角 ☰ 打开会话列表选一台」，全仓「左侧抽屉」字样 0，「类型未知 / 终身号未登记 / 官方排队条」保留原词并补 title 人话解释；③ 连接失败自救——html 顶部 #reconnbar＋#btn_reconn「↻ 重连」，连接.js 新增 reconnUi/reconnSync/manualReconnect 三态（正在重连/已恢复/仍失败 N 秒后重试），自动重试退避 10→20→30s 封顶持续自愈。入口 html title/?v= 同步 2.216。 */   /* 2.212（2026-11-20·老板 07:28 思维流两 bug）：① 虚线框只准放思维流——账本核对.js 新增唯一判据 lbIsFinalRow（完成卡 index7／行级补记／服务端 index8=a），thinkCardSet 只取锚定人类之后的非 final 行、同 mid 已有 final 即作废，thinkCardNow 渲染层再拦一道；② 新增 lbPromoteEarlyFinals——人类连发两条打断、夹在人类A/B之间且含「已切换到新请求/手动终止输出」的残片（有合法 24 位 mid）升格为「AI 终极回复（提前）」入账并移出思维流；手机缓存查看器类型显「AI 终极回复（提前）」。服务端 WS桥 0.54 同口径升格。入口 html title/?v= 同步 2.212。 */   /* 2.211（2026-11-20·老板 07:08「1632 假终身号」收尾）：① 客户端终身号只认权威 uid——账本核对.js lbUidOf 删除「sid 前 4 位」切片、lbUidPick 删除按 sid 自算兜底、通用工具.js 稳定键删除前 4 位截取；取不到不编造，手机缓存查看器 ① 账本第二行显「终身号未登记」。② 假桶只迁不删——ledger_conv/snap_conv 中实例号/1632 派生的桶合并/迁移到本服名称键（同名消息按 mid 去重），迁移前后轮次/条数 diagLog 打印对比；localStorage 别名与摘要同步清假号，无内容可迁的原样保留。③ 服务端 WS桥 0.53 删除「sid 前 4 位」本地兜底、状态灯 0.02/会话档案 0.34/对话助手 0.50 拒绝 10 位实例号截断。入口 html title/?v= 同步 2.211。 */   /* 2.210（2026-11-20·老板 07:08「手机网页版依然会创建 1632 终身号」）：彻底禁止服务端实例号当账本键——① 账本核对.js 新增 _lbSrvAcctId/_lbIsSrvAcctLike/_lbFakeIdLog/_lbFakeLedgerRec：会话编号只认真会话 sid 前 4 位数字或 24 位 hex sid，服务端实例号（srv_sid，如 1632115233）及其任何截断（1632）一律拒建账并记「假终身号 拒建账|来源=…|原值=…」；lbUidOf/lbUidPick/lbAliasGet/lbAliasSet/lbSidValid 五处同口径，ledgerStorePut/ledgerStoreApply/ledgerHumanApply 三入口失败即不建账不上屏。② 开机幂等清理扩展——lbCleanupTempLedgers 先删「uid/sid 命中实例号或其截断」的 ledger_conv 假账本与 snap_conv 假画面、同步减 LB.lbHave/lbSum，再删原临时账本；删几条、名单、保留账本清单（sid|title|条数）全部 diagLog 留痕；8000ms 第二拍等 hello 落 S.curSid 后再清一次。③ 通用工具.js 稳定键——10 位实例号与 1632 不再截成终身号，退回会话名。服务端 WS桥 0.52：FOX 关闭直发分支 d['sid'] 由无条件覆盖改 setdefault，绝不把真会话 sid 冲成实例号。入口 html title/?v= 同步 2.210。 */   /* 2.209（2026-11-20·老板口径「时间只从消息ID里算，不准任何兜底、不准再传时间」）：服务端新增 时间.py id时间(mid)、帧/账本不再带时间；网页端账本核对.js 不再读写 tm（人类帧/终极轮 m[2] 恒空、思维流卡不读服务端 time、开机清理历史 tm）、手机缓存查看器.js 详情不读 tm 且会话列表「最近时间」按最后一条消息 mid 排序。全端显示/排序只调 timeFromMid。入口 html title/?v= 同步 2.209。 */   /* 2.208（2026-11-20·老板 2026-11-19 23:50 亲令「小账本里每一条具体记录必须带类型字段并且看得见」）：服务端 WS桥 0.49 给快照/单会话 msgs 每行补 index8＝u（人类发言）/a（终极回复）/th（思维流），ledger 帧原有逐轮 kinds、u 帧 kind、think 帧帧级 kind 不动；网页端 手机缓存查看器.js 新增 kindOf/kindText/kindTag——① 账本详情每条记录顶部显中文短标签「人类发言／AI 终极回复／思维流」，三类之外显「类型未知」绝不空白；② 缓存页 ledger_conv 列表行给类型小前缀、展开先列逐条类型再给原始 JSON；账本核对.js 思维流帧改「服务端 index8 优先、缺才推导」不覆盖权威值；顺带修 2.206 遗留悬空变量 tsTxt（卡片「更新于」原先 ReferenceError 致 ① 列表渲染中断），更新时间改由最后一条 mid 推导。入口 html title/?v= 同步 2.208。 */   /* 2.206（2026-11-19·老板最终合并口径·人事部长ST 0023 转达）：①时间唯一来源＝消息 ID（mid）前 8 位十六进制→北京时间 UTC+8→YYYY-MM-DD HH:MM:SS（精确到秒），新增通用工具.js timeFromMid/midSec/midValid，账本落盘/读回/正文渲染/排序/手机缓存查看器/预备账册全部改调；删除 tm(m[2])、接口 ts、抓屏时间、14 位 DID 当时间、「时间未知」、「沿用上一条」全部兜底（22:49 空时间按 mid 补成 2026-11-19 22:49:55，幂等回补账本+画面缓存）。②ID 只认 24 位十六进制 mid，空/10 位数字/中文名/带括号一律不入账不上屏（lbRowHasId/lbSidValid）。③排序只按 mid 秒数、同秒按 mid 稳定序。④保留轮数/对账窗口统一 5 轮、只比最近 3 轮的限制确认不存在。⑤排队条/输入框回填改为追加不覆盖。入口 html title/?v= 同步 2.206。 */   /* 2.205（2026-11-19 23:29·人事部长ST 0023 转达老板新令「没有 ID 号码就别发聊天记录过来」）：手机端落账收口——① 账本核对.js 新增 lbRowHasId/lbSidValid/lbRoundIdFilter，凡条目缺 mid 且缺 did、或缺 sid（含 10 位纯数字假号）一律不入账、不上屏、不建账，只 diagLog 记「因缺ID丢弃」（10 秒节流）；ledgerStorePut/ledgerStoreApply/ledgerHumanApply/lbRoundsFromMsgs 四入口同口径。② 新令只推翻 21:51「无 ID 也照建」这部分，其它不合格（有 sid 缺名）仍按诊断口口径照建诊断账本，边界不扩大。③ 新增 lbCleanupTempLedgers：开机一次性清理历史按名称建的临时账本（ledger_conv 中 uid/sid 全空）与「⏳ 待补号」预备画面（snap_conv 中 sid 空或 sid==title），保留一切有 sid/uid 的正常账本（含 0023 名字→编号别名账本）；幂等可重复跑，结果记日志。入口 html title/?v= 同步 2.205。 */
+/* 2.204（2026-11-19·WB+TR 整改 ST·老板 22:24/22:42 令·账本一套账）：① A 灭灯信号按会话——act 仅在当前锚定会话确有橙灯时发，同会话（终身号优先）60 秒最多 1 条，报文带 title+sid（服务端命令路由只认这两个字段，不发改不认的字段）；3 秒全局节流保留，滚动/发言/点选入口不变。② B1 保留值统一——预备账册/本地账本/服务端补发三处默认 5 轮（1 轮＝人类发言＋终极回复），调控页改一处两边同步，服务端补发轮数给出默认值说明。③ B2 画面单一路径——有本地账本时预备画面只由账本路按轮回写（lbWriteBackSnap），快照路只做增量补写，不再按条裁剪抢写，杜绝「突然只剩最新两条」。④ B3 名字→编号别名——新增 localStorage trae_webm_lb_alias（按服务端隔离）映射，只带名字的帧回锚终身号，0023 与 人事部长ST 落同一本账；只做映射不改历史。⑤ B4 时间统一与兜底——写账本/显示/排序统一 YYYY-MM-DD HH:MM:SS，缺失按 消息编号前 8 位十六进制→14 位 DID→会话编号里的时间→留空 兜底；不完整时间就地补全；开机/登录回补最近 2 天坏记录（幂等）；不再显示「时间未知」。⑥ B5 假账号——10 位纯数字一律不当会话编号/终身号（1623/1632），按「无编号」走名称临时键。⑦ C 本轮终极（补记）——识别服务端 patched/fin_patch/final_patch/interrupt_final/terminal_patch/recovered/补记 标记（含行级 index8/index10），把残缺思维流与人类发言凑成一轮入账，不掐掉不完整轮（2.202 不回退）。入口 html title/?v= 同步 2.204。 */   /* 2.203（2026-11-19·WB+TR 整改 ST·老板令「撤销『页面选中与服务器选中不一致』提醒，1 号静默自愈，思维流只为 1 号」）：① 待办卡.js 整块撤 2.178~2.180 的 #anchint 橙色胶囊（anchorMismatchTick/anchorCheck/2s 巡检/「点此对齐·点此重试」文案）与 会话列表.js 的 S.pendIntent 末次点击意图，界面不再有任何同义提醒；改为 anchorSelfHeal——1 号（服务端操控锁持有者＝本人）且无人借用输入框（S.inputBusy 空）、无切换在途时，快照发现「服务器选中≠页面选中」连拍 2s 确认后静默发 switch 把桌面切回【页面选中会话】（8s 限频），非 1 号不提示也不抢切。② 判定「1 号网页用户」＝服务端操控互斥锁持有者（_ctl_lock.id），服务端 WS桥.py send_json 唯一咽喉每帧补最小字段 host（空串＝无持有者），网页端 连接.js 落 S.hostId/S.hostKnown、状态与DOM.js 新增 hostIsFirst()。③ 思维流只为 1 号提供：账本核对.js ledgerThinkApply 非 1 号不消费 think 帧画面（终答仍走 ledger）；消息渲染.js 非 1 号且当前会话思维灯 busy 时在该区域显示「您不是 1 号网页用户，无法提供思维流」，灯灭/换灯即撤（#nt: 指纹参与重画）。服务端有改码（WS桥.py）需重启。入口 html title/?v= 同步 2.203。 */   /* 2.202（2026-11-19·WB+TR 整改 ST·老板令「手机网页版作为诊断口不设限，任何错误的东西发过来都不给它过滤」）：撤手机端小账本一切拒收闸门——账本核对.js case 'ledger' 缺 title 弃收、ledgerStorePut 缺名不建账、ledgerStoreApply 缺名整帧弃收、ledgerHumanApply 缺名仅展示不建账、半轮/缺 mid 整轮不落，全部改为「照建 + 诊断标记」；缺名有 sid 命名「（无名）尾6位」、无名无 sid 命名「（无名）无sid」，账本记录 diag:1 并在手机缓存查看器 ledger_conv 记录行标「·诊断」；think 不入账与空壳去重两条既定范围不动；电脑端/服务端「无名不入账/补名/兜底名」一律不动。 */   /* 2.201（2026-11-19·WB+TR 整改·子-网页端部署上线）：版本戳统一——账本核对.js 补 u 帧路由/四步登记/lbUidPick/ledgerHumanFrame、事件总线.js 回执即销卡、输入界面.js 横幅只认当前会话灯、会话列表.js 增量复用节点、通用工具.js convs 空帧护栏、手机缓存查看器.js 三页签名等改动此前未升版，本次只把 VER／html title／全部 ?v= 对齐 2.201 并部署上线，业务逻辑零改动。 */   /* 2.200（2026-11-19·WB+TR 整改·子-会话列表固态化）：会话列表空帧/骤减不落地＋本地缓存兜底＋按 sid 增量复用节点，切会话不再白屏；纯前端不重启，需强刷。 */   /* 2.199（2026-11-19·WB+TR 整改 ST·老板令「横幅状态行只认当前会话灯」）：输入界面.js 顶部状态行改「只跟当前会话思维灯」——_curConvLight() 按终身号(sid)或显示名精确锚定当前会话，取不到即「闲置」、不再拿会话列表首行顶替；sendIdle 彻底退出该行判定（绝不点亮「输出中」）；灯语汇映射极短词 busy→输出中 / unread→待看 / fail→出错 / stop→已停 / 无灯→闲置；输入框残留单独显示「输入框待发」、不与忙闲混算；切换会话即时跟随。入口 html title/?v= 同步 2.199。 */   /* 2.198（2026-11-19·WB+TR 整改 ST·老板令「u 帧即时应答」）：账本核对.js 新增人类记录帧（u）即时应答——服务端下发 u 帧（sid/title/mid/text/did）后立即把该条人类记录追加进当前会话正文并落本地账本（uid 优先、缺 uid 名称临时键 pend:1、缺名只记日志不建账），按发送编号 did 当场销占位卡；15 秒灰态只留异常兜底。同时修「一来新消息只剩最新两条」——账本顶屏与已在屏正文合并、旧消息不藏不跳账本；u 半轮与终极全轮按人类行 mid 更厚者胜合并，不重复两轮。入口 html title/?v= 同步 2.198。 */   /* 2.197（2026-11-19·W1·老板令「终身号以服务端下发为准」）：账本核对.js 落账改优先消费实体帧 body.uid（服务端按共享数据库 `_终身号_由sid`/`翻译_终生号_由SID` 口径下发：TRAE 标准 sid 取前 4 位数字，非标准为「<会话名>（临时）」），缺失才回退 lbUidOf(sid)；非标准 uid 与无 uid 同走 t:名称 临时键，同一会话绝不出现两种键；旧账本已存 uid 按原样读、不迁移。入口 html title/?v= 同步 2.197。 */   /* 2.196（2026-11-19·W1·老板令「小账本三类标记与登记规则」）：账本核对.js 每条落盘消息带 kind（human 人类发言/final 已认证终极/think 思维流一律不入账，index8 标记），每条账本记录带 srv/uid/title/sid 四字段；登记顺序①有终身号按 uid 建档 ②同 uid 改名就地改 ③无 uid 先归并同服同名账本 ④才新建名称临时账本（pend:1），无名不建账（不设消息闸门）；think 帧 msgs 仅做 kind 标记。入口 html title/?v= 同步 2.196。 */   /* 2.195（2026-11-19·老板实测「官方排队条点 ⚡发送，整条瞬间就消失」）：消息渲染.js 加「发送闩」——点 ⚡发送 后该条目本地保留展示、按钮转「⏳ 发送中…」禁点，直到服务端帧确认其 14 位 DID 真正进入对话流（msgs 命中）才撤，90 秒兜底；撤条唯一权威＝服务端数据（排队条撤除照旧跟帧），队列空了但仍有未确认闩条时排队条照样画；连发丢失问题另派实测。 */   /* 2.194（2026-11-19·W1·SSWB 派工·老板 16:56「这个信号 1 分钟之内只发一条…不要重复发灭灯信号」）：通用工具.js actSend 加「按会话计频」——同一会话（sid，缺则 t:标题）灭灯信号 60 秒内最多 1 条（ACT_CONV_MIN_MS），原有全局 3 秒底线 ACT_MIN_MS 保留不动；「只有橙灯亮着才发」条件不变；服务端同步 命令路由 0.35 + 抓取轮询 0.76（act 清灯后调 poller.灭灯即发 当场投帧，橙灯不再等采集拍/广播节拍）。 */   /* 2.193（2026-11-19·W1·SSWB 派工·老板 16:53「灯来了就不许再显示空闲」）：① 横幅忙闲改「会话灯优先、sendIdle 兜底」——当前会话在 convs 'c' 行 r[3]==='run' 或 convs_full 同会话 status.light==='busy' ⇒ 即使 sendIdle=true 也判生成态，不得显示「空闲」；② 生成中文案统一「✏️ 输出中」+ 会话名 + 橙色，去掉按 tail 分「规划中/输出中」的分支；③ 「输入框待发」分支 S.gen 改随 busy（灯 run 也算生成态）；④ S.switch_pend 段优先级一字未动。 */   /* 2.192（2026-11-19·W1·老板：「这个小卡片呢你的东西几乎都集中在左侧，导致卡片过高，我希望窄一点，左右分布均匀一点，显示的行数会更多」）：① ① 页卡片由「四行竖排」改「两行两栏」——第一行 左会话名(13px/600/省略) + 右「服务器 · FOX号」(11px 灰、flex:none)；第二行 左终身号(等宽 11px、flex:1 中途省略) + 右「N 条 · 更新于 MM-DD HH:MM」（当前会话追加 ● 徽标）+ 🗑（挂第二行最右，24×22）；四样信息（服务器/终身号/会话名/条数·时间）一样不少，只重排不删。② 压扁：padding 5px 10px、行距 2px、行高 16px，单卡实测 108px → 52px。③ 变窄可多列：.cv_grid minmax(240→215px,1fr)、gap 10→8px；390 宽 1 列不变形，820 宽实测 3 列（每列 261px）。④ 两个 CSS 坑：全局 `button{min-height:36px}`（样式.css:13）会把 🗑 撑到 36 高、`.cv_card{min-height:56px}` 会兜住卡片高度——都必须显式 min-height:0。⑤ 删除二次确认/只删本地/删后重画、排序倒序、按服务器过滤、● 当前会话徽标，逻辑一字未改（CDP 实测仍全通）。 */   /* 2.191（2026-11-19·W1·收尾：2.190 按 srv 过滤会让老板手机一刷新「小账本突然变空」）：① snap_conv 老记录（无 srv）做一次性保守迁移——只有 sid（缺则取 sk 的 '|' 后半段）能在当前会话列表（S.convs 行 r[4] / S.snap.convs_full 的 o.sid，含稳定键比对）里找到同一会话，才补 srv=lbSrvTag()/srvName=lbSrvName()/srvFox=lbSrvFox() 并 put 回；对不上一律不迁、继续按「未标服务器」隐藏（跨服串显是红线，绝不猜）。② 只补这三个字段，sk/frame/msgs 一字不动（改键会白屏）。③ 一次性标记 localStorage.trae_webm_srv_migrated='2.191'；会话列表还没到（冷开）时既不迁移也不写标记，等下次读再迁，避免把标记锁死在空列表上。④ 迁移写库同样带 6 秒兜底。 */   /* 2.190（2026-11-19·W1·老板纠正口径「那个显示预备画面的那个地方就是我认为的小账本」「难怪我说你怎么给我做了两个小账本」）：① ③ 账本调控页那份「📒 我的小账本」卡片列表整块删除（renderLbCards 及其 readLedgerRows/delLedgerRow/lbTimeText/midEllipsis、renderLedgerCtl 内调用与 cvLbDirty 挂点、.cv_lbcard/.cv_lbid/.cv_lbname/.cv_lbsrv/.cv_meta 样式一并删，不是隐藏）——「小账本」唯一落点＝① 会话预备画面；③ 页只留七项调控，top 改放原属 ① 的「预备账册参数」（配套参数，非账本本体）。② ① 卡片改四行固定行序：服务器归属「宿舍 · 1309107889」→ 终身号（等宽/中途省略，无号「⏳ 待补号」）→ 会话名 →「N 条 · 更新于 MM-DD HH:MM」（当前会话追加「● 当前会话」）；按 ts 倒序、按服务器分割；右上角 🗑 二次确认仅删本机 snap_conv（不动服务器与 TRAE）。③ 数据层 snap_conv 记录补 srv/srvName/srvFox/sid/title 五维（缓存.js _frameCommit，取值与账本落盘同源 lbSrvTag/lbSrvName/lbSrvFox）；readSnapConvs() 只取 srv===lbSrvTag()，老记录不显示但报条数；_frameMemKey 不动（老缓存不失效）。④ 读表加 6 秒兜底：IDB 请求悬挂（旧连接 block）时不再永远停在「读取中…」，改报「读取超时（缓存库被占用）」（实测三态：空表→暂无、reject→暂无、永不 settle→读取中，真因是悬挂非抛错）。⑤ 抽屉「📒 小账本」入口一律落 ①（tab='preview'）。⑥ CV_VER 恒等于页面 VER，build() 自检不一致打 bad 日志。 */   /* 2.189（2026-11-19·W1·老板令「小账本要显示属于哪个服务器、终身号是多少」＋「登录哪个服务器就只看哪个服务器的小账本」）：① 落盘补人类可读字段 srvName（S.cur）/srvFox（S.curSid），取值与 lbSrvTag 同源同函数（lbSrvName/lbSrvFox），三个 put 点全补齐；② 卡片新增「服务器：名 · FOX号」一行（老记录按 rec.srv 兜底，认不出写「服务器未知（旧记录）」，不崩不丢卡）；③ 列表只画 rec.srv === lbSrvTag() 的本服记录，其它/未知服务器只报条数不混显；④ 删卡后的摘要清理判据同样带服务器。⑤ 2.188（2026-11-19·W1 追加·CDP 实测两处漏网）：① 排队条内容指纹（id+正文）前后不同即 renderAll——含「撤到空」，livePend/切换在途锁态不再拦；实测 pend 空帧后 S.snap.pend=0、key 未变、DOM 上 .qpanel 一直挂着不撤。② 渲染层归属闸判「别会话」时，id（14 位 DID）命中本人待销卡仍要画——消息刚发出锚定/curSid 未对齐时旧写法整条不画，出现「条不挂、卡却被销」。③ 2.187（2026-11-19·老板实测「消息进了排队条，手机端既不挂条也不销卡」·W1）：排队条新格式收口＋销卡即重画。① 根因：服务端 `_pend条目`（WS桥 0.26 起）下发 {id,text,sid,canEdit}，正文在 **text**；2.177 的 Y4/Y18 存储层收口只认 `it.t` 并判空丢弃 ⇒ 新格式逐条被丢 ⇒ S.snap.pend 恒空：排队条永不上屏、pendLandingScan 拿不到条目（渠道③销卡整条死）。修：账本核对.js ledgerThinkApply 与 事件总线.js 快照路一律两形态兼容（text 优先，剥词/去重同口径，去重键缺 id 退回正文）。② 归属闸补 DID 认领：项级 sid 命中本会话，**或该项 id 命中本人待销卡 DID** 即保留（消息刚进队那一拍桌面选中/锚定可能还没对齐，整批剥掉＝卡销不掉；渲染层仍按 pendItemMine 逐条过滤，跨会话绝不串显）。③ 销卡必须立刻重画：账本核对.js 原「非切换锁态才 renderAll」→ 改为「本轮真销了卡 或 非锁态」都重画（锁态下旧写法卡从 S.pending 摘了但 DOM 还挂着）。④ 消息渲染.js 排队条指纹 #qp: 补 text/id（只取 p.t 时新格式变化算不出新 key ⇒ 条挂了不动）；正文为空但排队条非空时不再早退，照常挂「⏳ 官方排队条」（新会话首条就进队）。CDP 实测：注入 mod think（新格式 pend）→ ≤2s 内条上屏＋占位卡同刻消失；pend 空帧 → 条同步撤、卡不复活。服务端零改动，纯前端。 */   /* 2.186（2026-11-19·老板令·W1）：⑬设置页「小账本」入口已删——唯一入口＝左上角 ☰ 抽屉一级菜单（老板原话：比它高一级的地方已经有了，我不会跑那么深去找它）；设置与迁移.js 的 buildLedgerEntry 整块撤除（fieldset/legend/btn_lbopen/说明行＋调用），不留空分组；lbOpenViewer 保留为抽屉唯一出口；V1.0 §十-0 已改。 */   /* 2.185（2026-11-19·老板实测严重 bug·W1）：⑫终极认证闸门——小账本把思维流快照当终极落账（TRAE 思维流无独立号、与终极同号，落账并进上报 codes 后服务端误判不缺 → 终极永远补不下来）。四类标识 u/a/th/snap：ledgerStorePut 只落 m[0]==='a' 已认证终极轮，th/snap/未知整轮丢弃（不落盘不迁移不进上报，日志 10s 节流『未认证终极 弃收 mid=』）；lbSumOf 上报 codes 只出 a 轮、rounds 计数＝已认证轮数；_apply 同 key 旧脏数据就地自愈（新已认证轮覆盖旧思维流版）；展示层不动（th/snap 仍走 live 通道渲染）。 */   /* 2.184（2026-11-19 第十轮·老板 09:30 实测四条·W1）：①改1 账本必须写回秒显源——规范§三 :54「秒显源必须＝账本本体」：ledgerStorePut 落盘成功后把同一份 rounds 平铺写回 snap_conv（lbWriteBackSnap：键＝_frameMemKey(稳定键) 与秒显读同口径，走 _frameCommit「只进不退」闸＋内存槽同步），对账补发/主动核对拉到的最新账本 1s 内即成为下次切回的秒显内容，消灭「账本一份、秒显另一份、互不回写」双轨；②改2 账本键统一终身号——lbKey(sid,title) 按 稳定键 归一（规范§十 :268 键＝终身号，名只作显示），锚定路（终身号）与账本帧路（完整 id）落同一条账本，旧 raw 键记录命中即并入新键并删旧（老账本不丢、不出现写一条读另一条）；③改3 只记终极——lbRoundsFromMsgs 删除「m[7] 空用 m[1] 兜底」，完成卡 index7 为空＝该轮未完成，整轮不落账（规范§七 :194 同号不同态，绝不用思维流正文冒充终极）；lbRoundKey 加入正式 mid/完成态指纹，同一句话的两轮不再互吞（A1 实锤）；④改4 对账上报改 {sid:{v,rounds,codes:[{mid,fin,hash}]}}＋mods.lb_rounds（编码集合＋完成态指纹＋正文指纹，规范§七「客户端上报参数」三条），数据源＝LB.lbSum 摘要表；LB.lbHave/lbSum 改为 IDB put 成功后记（原提前 add＝落盘失败也假报有账），清理同步减；⑤改5 lbResolveTitle 保持（真名显示），落库键恒按终身号不因解析失败丢键；⑥改6（2.17 手机缓存查看器·老板 09:58 定·规范§十 :271／§七 :206／§八 :230）小账本卡片列表——③ 账本调控页顶部新增「📒 我的小账本」（数据源 IDB ledger_conv 全量，按 rec.ts 最后更新时间倒序、ts 缺失排最后）：主行＝终身号 sid（等宽、过长中间省略、title 全文，核对/归类/去重唯一依据）／次行＝lbTitleOf 真名（解析不到「未命名会话 ·#尾4位」）／第三行＝轮数＋本地时间 MM-DD HH:MM；每卡右上「🗑 删除」confirm 二次确认→删 ledger_conv(sk)→该 sid 已无账本且同服务端才同步 LB.lbHave.delete／lbSumDrop→局部重排，只删本机不发任何服务端请求；落盘后由 ledgerStorePut._after 调 window.cvLbDirty 实时重排；仅查看/同内容重存保 ts 不改（看一眼不跳位）；空态「暂无本地小账本」。⑦删探针判失联（老板 2026-11-19 原话：服务器要求完全静默、不需要 Ping，掉线不靠 Ping 而靠「网页版有动作以后超时」，什么探针不探针根本不需要）：srvWatch 的「20s 无帧→hb 探针→≈12s 判失联」两阶段整段拆，连 2.180「失联期每 10s 发 hb 判活」块、_srvMarkLost 收口函数一并删；巡检只剩两条真故障救援（socket 已死→拉退避重连链 / CONNECTING 假死超 20s 拆旧重拉），守卫由 S.srvLost 改为 !S.onLine；语义＝静默多久都正常，永不因没消息判失联，唯一报错路＝「我发了动作 20s 无回音」（waitT，已有不动）；登录心跳 HB_SEC=60 保留（服务端 150s 无 hb 判下线，属业务登录态不是探针）；顶栏/诊断页文案同步去探针（>60s 无消息不再红字判死，中性显示「静默属正常」）。⑧一次只在一个频道在线：connect() 入口必先 teardownWs（open/message/close/error 四回调置 null + close + S.ws 置空 + 清 lastSrv/srvLost/探针残位），切 main↔backup、改频道名、重连全走这一条路，杜绝新旧两条同时在线；cliLogout 停 hb 心跳与握手重发定时、判活痕迹全归零，退出后除用户主动操作外零定时外发（ctl_hb 与账本 vcheck 都以 loggedIn 为闸）。⑨删副频道自动切回探测（老板 2026-11-19 令·「一次只在一个频道在线」最后一块）：设置与迁移.js 那段「副频道每 15 分钟 new WebSocket 探主频道、onopen 立即 close 再自动切回」整段删（连同它自己的定时器变量与清理函数），启动.js 里开机那次调用删，switchChan 里两行调用删——副频道不再另开任何第二条 WS（那是不 login 不心跳的纯浪费帧）；设置页副频道提示改静态文案「已改为手动切换（不再自动探测）：想回主频道请点上面的「主频道」按钮」；全仓 grep 旧函数名 0 命中（注释里也不留）。⑩锚定双轨（老板 2026-11-19 终版口径·三易其稿：初版「三要素缺一不落账＋删兜底命名」→ boss 纠偏「终身号有时创建不及时抓不到，每个对话一定有名称」→ 终版「名称必有、sid 可缺、双轨＋归并」）：名称必有（只认服务端下发，缺 title 整帧/整条丢弃记『缺 title 弃收』，绝不造名、绝不拿号码当名）；sid 允许缺——无号按名称建临时账本（键＝L<本服>:t:<名称>，pend:1 待补号），拿到 sid 由 lbMigrateTitle 整体归并到 sid 键（轮次按 mid 去重、ts/lastTs/lastView 取大、title 取新名＝改名归并、删临时键与摘要、秒显槽同步迁），卡片主行无 sid 显灰色「⏳ 待补号」不丢卡；账本键统一改 L<本服>:<sid|t:名称>（lbSrvTag＝S.curSid 优先退服务器名），旧键（无 L 前缀）一律视为未知服务器记录——只读保留、不并入、不清理、不上报，同一终身号跨服务器绝不合并。⑪服务器隔离过滤（老板 2026-11-19 追加令）：连接.js handleBody 收帧先取身份（帧内 srv_sid 优先、无则 FOX 头发送者 id）与本服 FOX 号比对，不符整帧丢弃记『跨服帧 弃收 srv=…』；本服号来源＝hello 自报（onHello 落 S.curSid，最权威）否则首个带身份帧记本服并在诊断页显示；setCur 切服归零 S.curSid 等新服自报；无身份帧（t:'srv' 名册心跳等）不判放行不误杀。 */   /* 2.183（2026-11-19 第九轮整改·老板两条实测定性·W1）：①修1 右上角「失联」误报根治——2.178「20s 无帧即置失联」与 2.162 铁律「完全静默＝正常态，只有主动动作超时才报」冲突（TRAE 服务端本就「变了才发」，正常静默超 20s 必误报；点测试＝主动动作→帧回→srvSeen 回绿）。改【探针确认式·两阶段】：疑似态（20s 无帧→置 _srvProbe＋立即发一针 hb 探针＋diagLog『20 秒无帧 → 探针确认中…』，顶栏不红、不拦命令一切照旧）；确认态（疑似后每 3s 拍复查——任何新帧到达 srvSeen 清 _srvProbe 绝不置失联＝误报根治点；连续 4 拍 ≈12s 仍无帧且 socket 活→_srvMarkLost 真置失联；socket 已死免探针直接置）。置失联时点 20s→约 30s，真断网报失联晚 ~10s 属可接受代价（Y25 治的本是「永久假在线」）；SRV_IDLE_MS 数值不动动的是判定语义；失联后恢复链路（2.180 探针/2.181 online 拆旧/2.182 hung-0 救援）全部保留不动；诊断页疑似态显示『⏳ 20 秒无帧 → 探针确认中…』、真失联才显示『⚠ 服务器失联中…』。②修2 撤「历史思维流（按轮补发）」面板（老板定性·V1.0 §十二-2：TRAE 直播方式＝整个黑板发过来、有什么发什么，无按轮补发思维流概念——那是有逐条思维流绝对编号+历史记录的 WorkBuddy 章节才有，§七-3 仅适用 WorkBuddy；TRAE 思维流＝正在进入思维流阶段时定时把有变化的情况发过来，仅此而已）：消息渲染.js qpanel 面板整段撤（data-lbr 按钮绑定随撤）、账本核对.js ledgerReqThink 整函数撤（全项目 grep 确认唯一调用方即面板）、:418 S.lb_foldRounds 赋值行撤（所在函数其余用途保留）；S.lb_foldRounds 状态位与消息渲染.js:165 '#lbf:' key 保留防 key 漂移，:328/缓存.js:958 归零行保留无害；相关注释（账本核对.js 头部/:328/:352、缓存.js:958）同步口径；服务端 ledger_req handler 不动（零改码不重启，前端已无调用方＝死路无害）。 */   /* 2.182（2026-11-19 第八轮小修·ST§9.7 复测复盘·W1）：Y32a 二次修复——2.181 两处修法没错，但被「假活 socket」绕过：online 事件已触发（SEEN1=true）后零动静（无「已连上中转」/无重连尝试/无「重连成功，解除失联」，65s/101s 仍红屏）。根因＝主嫌疑「半开黑洞」（CDP offline/真半开不拆已建 WS：socket 恒 readyState===1 但帧全被丢，Y25 失联锁存照挂；恢复时 online handler→ensureConnect 在连接.js:119 被 readyState===1 早退「以为连接健在」；修2 兜底要求 readyState>=2 也跳过；探针帧发进黑洞永不回）＋次嫌疑「hung CONNECTING」（断网期重连尝试留下的 readyState===0 同被 :119 当「正在连」早退、修2 跳过、探针跳过——三路全死）。修1（主修）＝连接.js online handler：失联在挂（S.srvLost）或 hung-0（readyState===0）时先 teardownWs() 拆旧再 ensureConnect——connect() 自带 teardownWs 全套收口；readyState===1 且无失联＝真健康绝不误拆（2.178「不主动断 WS」口径对健康连接仍成立）。修2（兜底补强）＝(a) connect() 起记 S._wsOpenAt=Date.now()；(b) srvWatch 新增 hung-0 救援档：S.srvLost && readyState===0 && 超 20s && 无重连定时 → teardownWs+scheduleReconnect（20s 守卫＝hung 期间最多每 20s 拆一次重试；健康连接永不进此分支）。辅助＝teardownWs 清完 reconnectTimer 置 null（残留旧 id 为真值会卡死「!reconnectTimer」类救援判据——2.181 版两处兜底在「定时器烧尽后」场景实际救不动，本次一并根治）。 */   /* 2.181（2026-11-19 第七轮单点小修·ST§九收官回归余项·W1）：Y32a 断网恢复不自动回绿（2.180 两处修法没错，是恢复触发被重连退避支配——真断场景 socket 已死，探针 readyState===1 与 FoxOut.send 离线拒发都帮不上；恢复后只能等 scheduleReconnect 退避 3→6→12→24→48→60s，ST 观察窗 21s 内下一发还没到；streak 达 RECONNECT_MAX=8 约 273s 连败后自动重连停摆只能手动）。修1（主修）＝连接.js 新增系统 online 事件监听（Y25 时代判它当在线判据不可靠，但当【恢复触发】低风险高收益：真恢复立连、假信号最多白连一次败绩照旧退避重建）——先清 S.failStreak 再 ensureConnect（顺序别反，否则停摆态被上限卫兵早退），并 clearTimeout(reconnectTimer)+置 null；修2（兜底）＝上线与界面.js srvWatch 失联期间 socket 已死（!S.ws||readyState>=2）且 reconnectTimer 为空时把退避链重新拉起 scheduleReconnect（自带 streak>=MAX 拒发卫兵，停摆态残留旧 id 为真值判据不成立，不会连接风暴；只救「定时器空但 streak 未满」中间态）。 */   /* 2.180（2026-11-19 第六轮终轮整改 3 条·ST§八最终回归余项·W1）：①Y31 陈旧切换定时器泄漏（高危）——待办卡.js pendSwitchSet 换目标分支（:532 整体替换前）补清旧 sp 三只定时器 _resendT/_tmoT/_okT（与 switchAbort 同款收口；真凶＝旧 90s 死线 timer 存活到点后 switchTimeout 读当前 S.switch_pend 把新切换误杀，ST 实测第二/三次构造 49.21s/12.75s 误收口）；same 分支改「仅 opt.lockTarget（本端点击/开机锚定）才重置 sp.ts0」重排死线，服务端广播回显（事件总线.js:447 不带 lockTarget）绝不刷 ts0，防绝对死线防续命设计被架空；②Y32 断网恢复不自动回绿——连接.js ws.onopen 补「S.srvLost 残留即置 false＋diagLog('重连成功，解除失联')」（connect() 已清 lastSrv，srvWatch 不会见陈旧值立刻误置）；上线与界面.js srvWatch 失联期间 WS readyState===1 时每 ~10s（3s 巡检×3 拍计数）主动 sendJson({t:'hb',fg:true,nick:nickGet()}) 探针（与连接.js cliBeat 同款既有心跳帧，服务端必识有回音），任何回帧走 srvSeen 自动清失联回绿；③Y33 胶囊文案口径（低优·只改文案不动逻辑）——anchorCheck srv 路在末次点击意图仍新鲜（<60s）且≠服务端选中时，文案按 ST 报告§八口径改「⚠ 末次点击「X」未生效（服务器还停在 Y），点此重试」，无新鲜意图保持原「页面选中与服务器选中（Y）不一致，点此对齐」；点击行为维持不变（srv 路仍以服务端选中为准重锚）。Y6 冷开离线壳：ST§八实测 0.21s 即 Chrome 错误页（ERR_INTERNET_DISCONNECTED）＝导航层失败、内联脚本无执行机会，一期无解（定性认可不改码），根治归二期 Service Worker 预缓存（待老板拍板）。 */   /* 2.179（2026-11-19 第五轮收尾整改 3 条·ST 第三轮复测收官·W1）：①Y26 灰卡未触发排查+兜底——CDP 实证前端链路无 bug（喂协议原格式带 did 的 done → doneAt/stale/DOM 灰卡全通），根因＝服务端 route_send 终态回执实测漏带 did 字段（v6_wsmon 只见 id=did 回退值）→ did 分支永配不上 → doneAt 永不打上 → 15s/巡检两条灰卡路全断；已记 Y 编号转 S1 根修（回执带全 did）；前端兜底＝事件总线.js onRcpt did 配不上且 id 恰为 14 位纯数字（DID 格式；动作 id 恒为 'a'+base36-seq 绝不撞）时用 id 试配；②Y24 连点末次点击被吞+胶囊不出现——真凶＝会话列表.js:173 if(!flag) 拦截（快照 r[2]=TRAE 桌面 Focused 行，快照拍差使连点末次点击恰落旧 Focused 行被静默吞），修法＝撤拦截（用户点谁就切谁，switch 幂等）+点击记 S.pendIntent（末次点击意图）；待办卡.js anchorMismatchTick 重构为只记服务端选中键，新增 anchorCheck 2s 巡检双路判据（服务端选中≠锚 满 10s 出「点此对齐」以服务端为准；末次意图≠实际锚 满 10s 出「点此重试」以意图为准，switch_pend 在途豁免）；③Y6/B5 断网冷开白屏——根因＝外链 js 断供（no-store）S 根本没定义，非缓存 key 失配；html 内联零依赖离线壳（外链前执行，800ms 后 S 未定义即用 localStorage skel/solid 铺会话列表+账号+黄条「离线模式」，主脚本到位自动拆壳）；Service Worker 预缓存评估为可行但改造中等（缓存失效策略/写坏风险），列为二期先报统筹再定。 */   /* 2.178（2026-11-19 第四轮前端整改 3 条·ST 第二轮侧面实测收官·W1）：①Y25 断网假在线——browser online/offline 事件不可靠，改服务端心跳判据：上线与界面.js 新增 srvWatch（3s 巡检，最近收到服务端任何帧超 SRV_IDLE_MS 20s 即 S.srvLost=true＋setOnLine(false)，只动显示层+拦命令、不真断不重连），srvSeen 收帧即清失联回绿（WS 还开着直接拉回 onLine=true）；顶栏 renderLink 与诊断页 diag_ws 各加失联档「服务器失联中…（距上次回应 Xs）」，LINKDOC 同步；2.162「完全静默绝不降级」口径修订为「20s 没动静转失联显示、60s 内仍属观察、真重连仍只走主动动作 waitT 一条路」；②Y26 连发占位滞留——事件总线.js onRcpt done 加 doneAt 时间戳＋15s setTimeout 降级，待办卡.js pendReconcile 5s 巡检兜底（后台节流也能转），pendStat 新增 stale 灰态「已送达（未同步显示），可丢弃或重发」，样式.css 新增 .msg.pend.gray；真消息入流 DID 命中照常销卡，灰态只是显示降级不改销卡判据；连发时服务端是否只推最后一条丢落地证据属服务端侧问题，记 Y 编号回话转 S1（前端未改服务端）；③Y24 锚定不一致对账——待办卡.js 新增 anchorMismatchTick（快照每拍比服务端选中 liveKey 与本地锚 S.anchorSid，不一致持续 10s 且非切在途 → 底部橙色胶囊「点此对齐」，点击复用 pendSwitchSet 以服务端为准重锚），事件总线.js 快照分支 liveKey 算出后挂 tick；④补测 Y4/Y18 真实链路帧级证据：本地无服务端构造不出，逻辑层已 19/19 覆盖，帧级样本待线上如实注明。 */   /* 2.177（2026-11-19 第三轮前端整改 5 条·ST 复测终表·W1）：①Y4 排队条剥词——通用工具.js 新增 stripPendTail（§十二-5：按「你的会话名/你的终身号/本会话专属记忆位置/【全局记忆】」锚点最早出现处整段吞到文末，锚点占开头整条作废），存储层（账本核对.js think 块＋事件总线.js 快照路）与渲染层（消息渲染.js 两形态兜底）三处接入，S.snap.pend 与 DOM 均不再含注入尾巴；②Y5 占位卡撤卡——renderMsgs 开头接 pendLandingScan（全部正文上屏唯一收口：全量 snap/snap_pane/ledger 顶屏/中间态重放全覆盖），真消息渲染成功即撤同 DID 卡，末尾 renderPending 只画存活卡；③Y18 排队项同 id 去重——think 存储层与快照路均按 id（缺 id 退文本）Set 幂等去重，双路推送只落一条；④Y19 真消息滞后——ledgerStoreApply 顶屏条件改「无 liveFrame 或账本轮数>liveFrame 现有轮数」，锁定期间收到更厚账本即解锁顶屏（ST 实抓 3 分钟滞后的根因＝旧条件锁定期间永不顶屏而 think 快照滞后）；⑤Y22 冻结解耦——新增 lbFreezeOnSwitch（幂等），pendSwitchSet 落笔即冻结（WS 未连 vcheck 早退不再漏冻结），switchClear/switchAbort 终态即时解冻，ledgerVcheckSend switch 分支改调统一函数。 */   /* 2.176（2026-11-19 凌晨小单·老板 00:1x 令·W1）：切换失败判定口径 60 秒→90 秒。①待办卡.js SWITCH_TIMEOUT_MS 60000→90000（绝对死线结构零改动，ts0+90s 自动生效，15s 补发仍不延死线）；②账本核对.js 冻结兜底 || 60000→|| 90000 与四处口径注释同步（文件头职责/零依赖降级/避让冻结/冻结兜底）；③事件总线.js 两处现行行为注释同步；④五处文档口径（§三-4/§九/协议定稿/全量验收清单 I3/任务书V2 3-7）由统筹已同步。 */   /* 2.175（2026-11-18 V2 验收疑点整改 7 条·W1）：①Y1 电脑名册.js regSrv——sid 只在 hello/srv 名册帧收（旧写法每帧吃 d.sid，事件/mod 帧的会话级 sid 污染发送地址）；②Y2 待办卡.js switchReArm——60s 死线改绝对时刻 sp.ts0（新建 sp 算一次），补发/重 arm 绝不延长，规范§三「60 秒唯一口径」落地；③Y9 账本核对.js——timer vcheck 带锚定 sid（S.anchorFull||curSid()）、mod think 归属按 d.sel||d.sid；④Y11 账本核对.js——新增 LB.lbHave 本地真存集合（ledgerStorePut 落盘即记/lbCleanGone+lbCleanStale 清盘即减/lbVerLoad 重载+lbHaveLoad 异步预载 IDB），ledgerVcheckBuild ledger 上报只认真存（版本底账记了但盘里没有的绝不代报，真存有而底账缺补报 '0'），only1 判定不再被污染；⑤Y14 撤 #btn_cacheview 重复入口（html 菜单行删除+手机缓存查看器.js 摘 bind() 死代码），唯一入口=设置页「小账本」按钮；⑥Y15 切换提示.js 文案对齐规范§三原文（WS连接中／服务器处理中，版本 1.04）；⑦Y5 rcpt done 占位卡不撤收口——根因＝销卡渠道①只挂全量 snap 分支，账本V1.0 模块化正文走 snap_pane/mod think 不扫 DID；新增 待办卡.js pendLandingScan（①人类发言首行 DID＋③官方排队条），事件总线.js snap_pane 分支与账本核对.js think 排队条块接入，渠道②didp 与全量 snap 原逻辑不动。 */   /* 2.174（2026-11-18 深夜紧急整改·老板实测打脸「完全没固态化」·W1）：线上 CDP 复现锁定真凶＝cacheKeyNow()=VER|S.srvVer——在线时 hello 带真实 srvVer 落盘（如 '2.173|3.66'），断网冷开 hello 不来 ⇒ S.srvVer='0' ⇒ key 必不匹配 ⇒ skel/solid/hist 三键全部读不出（2.20 时代的 key 校验设计就是断网死门；此前自测环境从未连上服务端所以 key 恒等全过——假阳性）。修复三板斧：①srvVer 持久化（缓存.js 新增 LS_SRVVER/srvVerRestore/srvVerPersist，启动.js boot 恢复、上线与界面.js onHello 落盘）；②读取端宽松化（skelCacheLoad/solidLoad/histCacheRead 去掉 key 校验，防旧格式毒化职责保留在写侧 checkVerBump——在线时照常清旧重写，断网宽松读旧）；③空落盘最小骨架（会话列表.js renderConvs 空列表出「暂无本地缓存」空态行，不白屏不死等，抽屉/设置/输入照常可操作）。 */   /* 2.173（2026-11-18 固态化「打开即活」·老板亲批最核心灵魂·W1）：①全量盘点——会话列表（LS_SKEL）/对话内容（IDB snap_conv 预读内存 0ms 秒显）/多电脑名册（loadSrvs）已固态；【备注/定时消息/模型列表/沙盒分身下拉/登录账号/排队条】六类打开时为空等服务端帧＝软塌塌启动；②补齐＝缓存.js 新增固态兜底层（LS_SOLID='trae_webm_solid'：solidSave 2s 节流从 S 全量提取＋solidBoot 打开瞬间同步恢复零等待），落点＝启动.js boot 骨架渲染前 solidBoot()（备注后缀/定时角标随骨架一并上屏）、通用工具.js renderAll 每拍写回、上线与界面.js onHello（boxes/acct）、事件总线.js models 帧；排队条恢复进 S.snap.pend，N4 项级 sid 过滤天然防串显；③错后报＝恢复值只上屏不拦截操作，切已删会话/选不存在模型照走既有服务端权威对账报错，无启动期校验；④频繁切换合并动作确认：网页端点会话每点必发 sendCmd('switch') 无防抖（会话列表.js:200），合并由服务端 抓取轮询 2.98 负责。2.172 追加单三条（避让冻结/开关悬浮条/60s 口径）已含于本版。 */   /* 2.172（2026-11-18 整改单·老板亲批·W1）：小账本＝现成缓存查看器，禁止新造页面——①撤销独立「小账本页」（小账本页.js 删除、html 引用清理），设置页新增「小账本」按钮唯一入口（设置与迁移.js buildLedgerEntry，点击直开缓存查看器）；②七项账本调控全部并入 手机缓存查看器.js「③ 账本调控」tab（自动清理/离线倒计时/核对周期/保留轮数/思维流帧间隔/闲置下线/切后台下线），查看器现有展示样式不动；③撤销 #lbhud 左下角悬浮条——账本核对.js 改出纯文本 lbHudText()，由缓存查看器账本调控区每秒展示「核对 Ns · 离线 Ns」（规范§九-4：不做悬浮窗）；lbThinkIntAck 自小账本页收编进账本核对.js。同版追加单（2026-11-18 老板三令，不升版）：①智能避让改冻结机制——删 LB.push 20s 叠加，switch vcheck 发出即重置并冻结主动核对（LB.frozen），至 vack stage:2 终态或 60s 未收终态（待办卡 SWITCH_TIMEOUT_MS 同口径）解冻按完整周期起算，login/svr 完成直接重置；②#lbhud 恢复为开关式悬浮条（CFG.lb_hud 默认关，开关在缓存查看器③账本调控区，开才走字、关即撤）；③切换失败 60s 全链路单一口径排查确认（详见交卷报告）。 */   /* 2.171（2026-11-18 S1 裁定跟进·W1）：①思维流上屏判定口径修正——模块化模式服务端不再有 k='snap_pane' 帧（仅 mod_push_on=False 回退时存在），上屏唯一驱动＝mod(m='think') 帧且 frame.msgs 存在（账本核对.js 注释与判定确认）；②set_think_int 收口——v 用整数秒下发，新增 think_int_ack 回执处理（连接.js 路由→lbThinkIntAck：按 on/sec 更新调控项显示与 CFG，失败红条提示）。 */   /* 2.170（2026-11-18）：账本系统 V1.0 客户端落地（W1）——新增 账本核对.js（vcheck/vack 两阶段核对、mod 实体帧分流、主动核对+倒计时+智能避让、离线倒计时、本地账本 ledger_conv N 轮保留+14 天清理）与小账本页.js（唯一集中入口：账本查看+全部调控）；排队条项级 sid 逐条过滤根治串显（N4）、新格式原文显示（N2）、id 只入底层（N3）；点会话/登录/切服务端随发 vcheck 强核对（I1）；历史按轮折叠面板+ledger_req 补发（G1/G2）。 */   /* 2.169（2026-11-17）：线上只差 设置与迁移.js 没同步新版——旧 JS 顶层引用已被删掉的 btn_check_fulls，抛 TypeError 导致整份设置脚本中断（主/副频道不渲染、按钮不绑定）；本版仅重新部署该 JS 并升版本戳破缓存。 */   /* 2.168（2026-11-17）：净化器 foxStripTail 增剥「自报家门头」两行
+                          （【来自】/【回信用】），防止回填输入框或复制把它带给老板。 */   /* 2.167（2026-11-17 老板令·消卡四条硬伤）：
+                          ① 快照人类发言的 DID 判据改 pendDidOf（兼容 TRAE 折叠首行 DID）；
+                          ② 服务端 did_pool 同口径（痕迹与配置 扫首行DID 走 _DID_HEAD_RE）；
+                          ③ pendClearByDid 命中 DID 即撤，不再用会话名否决（首条消息改名也能撤）；
+                          ④ 排队条归属不明时按 DID 认领，忙时不再跳过整条渠道；
+                          ⑤ 抓取轮询两处「文字未落地」假报错：消息数 +1 即算落地。
+    2.166（2026-11-16 老板令）：删除网络设置「检测最大化」入口 */
+/* 2.164（2026-11-15 老板令）：「我从手机发出去的文本，不管那边你怎么
+                       给我加小尾巴，我手机需要重新让它展示在输入框的时候，这些都要剥离掉」。
+                       先按施工单跑了 TR-01~TR-22 穷举复现（断网＋假快照＋CDP，8 条违规），
+                       再逐条堵：
+                       ① 新增 foxStripTail()（卡片TTS.js）：play/ask 只摘标记留内容；四段专属
+                         提示词连内容一起删；只有「四段删完只剩空白」才认定是服务端尾巴——
+                         正文后还有真内容就只摘标记（用户自己写的标记不误删）；整条以段头开头
+                         的原样不动；未闭合的段按「吞到文末」（TR-19 残标要吃干净）。
+                       ② copyPlain() 第一步先过它（复制/取回/重编全部受益）。
+                       ③ 待办卡 pendBody() 一并净化 → 卡面/复制/改写/重发四个出口同时干净
+                         （TR-10/11/14 原只剥首行 DID）。
+                       ④ 事件总线 msg_act 即时回填（TR-04）与快照路取出编辑（TR-07）都改走
+                         copyPlain(true)，两路口径统一。
+                       ⑤ revertRefill 框里有字时不覆盖，但就地净化一次（TR-05 脏值残留）。
+                       ⑥ 通用工具 renderAll 每次刷新顺手把关输入框——换会话/换服务器都绕不过。
+                       改：卡片TTS.js／待办卡.js／事件总线.js／输入界面.js／通用工具.js／
+                       入口 html（title＋25 处 ?v=）／本文件 VER；服务端零改动。
+  2.163（2026-11-15 补丁）：切后台时撤销本次「等回应」计时——
+                       TTS 阶段回执拆五拍，与本机 TTS 服务端 1.08 同一协议——
+                       recv（已收到任务·带字数）→ conv（开始转码）/ cache（命中缓存）
+                       → ready（转码完成·带字节与耗时）→ send（开始传输·带片数）
+                       → tts_audio × N（逐片显示「正在接收 n/N（已收 xx KB）」）
+                       → done（全部发完）。WS 不在线一律写「WS 链接中…」；
+                       30 秒无回执切服务端时也出文案（原来静默）。
+                       ★ 文案与 WB 网页端 wbcli.html 2.46 的 ttsAckText 逐字一致。
+                       改：TTS直连.js／卡片TTS.js／入口 html（title＋2 处 ?v=）／本文件 VER；
+                       服务端零改动（TTS 服务另升 1.08）。
+  2.160 原记录：2.158（2026-11-05 老板令「附件上传改走 R2，与对话流彻底无关」）：
+                       附件上传网页侧改 R2 直传——file.onchange 多选后发
+                       attach_r2_open（names/sizes+锚定 sid）→ 服务端回
+                       {task:"附件YYYYMMDD-HHMMSS", uploads:[{n,key,url}]}（预签名
+                       PUT，1 小时有效）→ 逐个 fetch PUT 直传 R2（不设自定义
+                       Content-Type）→ attach_r2_commit 通知当前正聊的服务器取件；
+                       任何失败红字回退老 attach_files base64 通道（≤6MB 限制保留）；
+                       事件总线接入 attach_r2_open/attach_r2_done 两 ev；改：任务与
+                       输入.js／事件总线.js／本文件 VER／入口 html（title＋全部 ?v=）；
+                       服务端 py 零改动（另一人并行）。原 2.142（2026-10-29 老板令「附件要插入指定对话、网页版要显示、要能撤回」）：附件链路按会话走——① file_pick 由 display:none 改屏幕外 1px 可点（手机必弹选择框）；② attach_files 帧带锚定完整 sid＋anchor，服务端先切到目标会话注入、再按 anchor 归还；③ 附件 chips 与 ✕ 撤回沿用 attach_rm（服务端按 sid 核对再删）；改：任务与输入.js／入口 html（title＋25 处 ?v=）／本文件 VER；服务端 命令路由／抓取轮询。原 2.141（老板 2026-10-27 22:35「网页版上面第一行有个本会话刷新的按钮，这个我感觉有点多余啊，我用浏览器自带的刷新按钮就行了，这个给我去除了吧」）：撤掉顶栏第一行「↻ 本会话」按钮（pane_req 手动补帧），顶栏只留 ☰ / 标题 / 操控:xx / 🌐连接状态；改：入口 html（删按钮行、title＋25 处 ?v=2.141）、样式.css（清 #btn_panerefresh 规则，保留 #btn_srvrefresh）、事件总线.js（撤 onclick 绑定）；服务端零改动。原 2.136（老板 2026-10-25 23:46 令「WS 心跳只允许每分钟一条」）：手机网页端
+                       操控续占 ctl_hb 周期 20000→55000（55 秒；服务端锁 60 秒，取 55000 留边界余量，
+                       不用 60000 免得卡边界抖动）；本 WS 免 ping、不做任何保活。改：电脑名册.js、
+                       入口 html（title＋全部 ?v=2.136）、本文件 VER；服务端零改动。
+                       2.135（2026-10-25 老板同日追加）：名称行也不许有杂项——定时闹钟后缀（⏰）撤下，
+                       会话行只剩「名称（含备注）+ 忙闲灯」。定时任务本身就是独立的，不靠这个标记存在。
+                       改：会话列表.js。原 2.134（2026-10-25 老板 09:xx）：「每个列表只要有自己的名称、加上原来那个忙闲灯
+                       就够了；第二行那些个人信息要传到网页版没错，但不需要展示；我就喜欢一行一个会话」
+                       ——P15 在会话行加的第二行（SID · 忙/闲 · ⏰）整段撤下，会话行回到「名称 + 状态灯」
+                       单行；cfx 四字段照收照存，只是不上屏（备注/闹钟/诊断取数不受影响）。
+                       改：会话列表.js。原 2.133（2026-10-25 P12：顶栏去掉「在线 N/8」，宽度全给模型名）；原 2.132（2026-10-25 P15 快照四字段：会话行显示真实SID/状态灯/定时）；原 2.131（老板 2026-10-24「排队条一定要核实清楚属于哪个会话，不能乱显示，
+                       是谁的就显示在谁那边」）：官方排队条只画在它所属的会话里——
+                       快照顶层新增 pend_sid（服务端 抓取轮询 0.58 盖章、WS桥 0.23
+                       指纹纳入 pend 保证实时）；事件总线.js 收到快照先按 pend_sid
+                       比当前锚定 sid，不是本会话的先剥掉且不用于 DID 销卡；
+                       消息渲染.js 画队列面板前再兜底复验一次，不一致整批不画。
+                       改：事件总线.js／消息渲染.js／入口 html（title＋25 处 ?v=）、
+                       本文件 VER；服务端 抓取轮询 0.57→0.58／WS桥 0.22→0.23。 */
+                       /* 2.120（老板 2026-10-22 15:29「那个位置本来就是管服务端的，你要的话可以放到
+                       顶部，上面写着工作台的那个位置，这样又能节约宽度」）：
+                       抽屉的「服务端」行只留管服务端那件事（`↻ 服务端`＝点名 who）；把
+                       `↻ 本会话`（pane_req 索取当前会话全额正文）**整体挪到顶栏第一行**
+                       （☰ 标题 操控:xx 之后、连接状态之前），顶栏给紧凑字号；`.h1row .title`
+                       加 min-width:0 / flex:0 1 auto，窄屏时标题让位省略、绝不撑宽。
+                       改：入口 html、样式.css。服务端不改、id 与 JS 绑定不动。 */
+                       /* 2.119（老板 2026-10-22 15:20「左侧菜单现在有两个刷新键…有个小的有个大的
+                       都叫刷新…那个大的出现的很突然，把整个宽度都撑大了」）：
+                       · 两者功能**不同**：`↻ 服务端`（原「↻ 刷新」）＝点名在线服务端让它们应答、
+                         刷新服务端名单（who，轻）；`↻ 本会话`（原「刷新当前会话」）＝向服务端索取
+                         当前会话的全额正文帧（pane_req，重、费流量）。一并保留，但标签改短、改清楚。
+                       · 撑宽真因：`服务端（点击切换操控）` 是 flex 容器里的**裸文本**，min-width:auto
+                         不收缩 ⇒ 窄屏时标题＋两个按钮把抽屉撑破。改 .srvttl 可省略（ellipsis）＋
+                         两按钮 flex:none、标签缩成 4 字。改：入口 html、样式.css。服务端不改。 */
+                       /* 2.118（老板 2026-10-22 09:37/09:38 令，两件）：
+                       ① 【顶部横幅「切换成功」带对话名】原 ph='ok' 只写「切换成功」，要等
+                          状态灯回位才知道切到谁。现与「输出中/输入框待发」同口径接
+                          「 · 会话名」（超 14 字截断）；成功吐司同步带名。改 输入界面.js
+                          （renderState ok 分支）、待办卡.js（switchOk flash）。
+                       ② 【复制一律纯正文】网页端所有卡片复制去掉内部小尾巴：人类消息剥
+                          首行 14 位 DID ＋ 服务端追加的专属词前后缀（(@fox-sys1)…(@fox-sys2)/
+                          usr/co 整段丢弃）；AI 消息剥语音卡/提问卡标记（(@fox-play…)(@fox-ask…)
+                          标记删、卡里的字保留），并容错半截残标。新增 copyPlain/stripFoxMarks
+                          （卡片TTS.js），改 消息渲染.js（📋复制）、待办卡.js（📋复制 ×2）。
+                       改：html title＋25 处 ?v=、本文件 VER 2.117→2.118。服务端不改。 */
+                       /* 2.111（老板 2026-10-20 20:44 令「现在我要新建的话也没效果，你从
+                       网页版能新建一个试试？」）：新建链路真因＝TRAE 的侧栏会话行只在
+                       **首条消息发出后**才出现；旧「创建」无目录变化时零命令下发，只闪
+                       「✅ 就绪」→ 列表纹丝不动（CDP 实测：new_task_dlg/new_task_in 全成功、
+                       24→24 零新增）。改：新建面板新增「首条消息」框（#td_msg），点「创建」
+                       即按序下发 new_task_in/new_task_dlg → task_dir_set（可选）→
+                       new_task_send（服务端 0.45 校验「仍在草稿」才发，非草稿拒发，
+                       绝不误发进既有会话）；不填首条消息则如实提示「写内容并发送才会生成
+                       会话」，不再假装就绪。改：任务与输入.js、入口 html（title＋24 处 ?v=）、
+                       本文件 VER；服务端 抓取轮询 0.45／命令路由 0.25。 */
+                       /* 2.110（老板 2026-10-20 20:04 令「我从网页版删不了，连个弹窗都没有」）：
+                       删除会话点击链路断点＝会话列表.js convMenuOpen 的 del 分支原用浏览器
+                       原生 confirm() 二次确认——移动端内置浏览器/部分 WebView 会【静默屏蔽】
+                       confirm（不弹框、直接返回 false），于是 if(!confirm(...)) return 悄悄退出：
+                       既无确认框、也从不发 conv_del（CDP 实测坐实）。改为本端自绘确认层
+                       delConfirmOpen（同 2.87 重命名就地弹层做法）：开层即反馈，点「删除」才走
+                       srvOpSend 四态。改：会话列表.js（新增 delConfirmOpen、del 分支改调）；
+                       html title＋24 处 ?v=、本文件 VER 2.109→2.110。服务端不改。 */
+                       /* 2.109（老板 2026-10-20 18:38 令「手机网页版所有操作都要分四步提示、
+                          有缺全部补上；CDP 亲测右键菜单每项都要能实现＋都有四步提醒」）：
+                       全量审计后把网页端**所有触发服务器动作的入口**统一收敛到四态出口
+                       srvOpSend / 新增 srvOpSendJson（②「已发出」由 srvOpSend 播报；③受理/
+                       ④完成 由服务端 rcpt 按同 id 收口）——补齐按钮/自带 2.85 只报②却无 id
+                       （=> 无 ③④）的旧调用点。文案一律只从 SRV_PHASE 出，禁止各写各的。
+                       改：通用工具.js（srvOpSend＋ms、新增 srvOpSendJson 供非 cmd 帧 boot/
+                       switch_box/attach_files）、会话备注.js（note_set）、自我激活.js
+                       （sched_add/ls/clear/del）、任务与输入.js（input_take/new_task_in/
+                       task_dir_set/task_dlg_cancel/points/attach_files）、待办卡.js
+                       （check_fulls）、设置与迁移.js（check_fulls/profiles/profiles_refresh×2/
+                       profiles_login/profiles_stop/switch_migrate）、上线与界面.js
+                       （new_task_dlg/model_list/switch_model/boot×2/switch_box）、输入界面.js
+                       （attach_rm）、消息渲染.js（rewind/del_msg/ask_pick 等/pick_opt/pend_系列）、
+                       fox协议.js（SESS_CMDS 补 del_msg＝会话级动作强制带目标 sid，对齐 02-P0-2）。
+                       服务端 3.40 已对全部 cmdq 命令＋note_set/sched_*＋boot/switch_box/
+                       attach_files 回 rcpt（回执.py 0.01／命令路由 0.21+），本批无需改服务端。 */
+                       /* 2.108（老板 2026-10-20）本批一次发全，含两件：
+                       ① 【语音小卡片残标消费范围扩大】卡片TTS.js（另一件完成、本地就绪、
+                          实测 12/12 PASS；本人未改其语义）——后缀标记收尾时把残标一并吞到
+                          `)`／行尾／下一个完整头标，杜绝残片留在正文。
+                       ② 【📂 本地文件查看器选路径点 ➕ 没反应】任务与输入.js——选路径回传
+                          只依赖 window.opener.postMessage，手机端由宿主 window.open 常落新
+                          标签、opener 丢失 ⇒ 点 ➕ 无处可发、窗口照关，本端毫无反应（实测无
+                          opener 时点 ➕ 本端输入框纹丝不动）。保留 postMessage 兼容路，新增
+                          「公共段 + INS」频道 FOX 帧回传主路（不依赖 opener）；按 mode 插入
+                          输入框 / 回填工作目录；公共段取同源查看器页落的 localStorage 键
+                          fvwr_channel（绝不硬编码）；同路径 3 秒内只认一次防双路重复；按 h
+                          角色过滤防打扰另一端。配套查看器 1.15 / WB 网页端 2.04。
+   2.107（老板 2026-10-20 18:26/18:28 令「语音小卡片前后缀缺闭合」·卡片收尾判定）：
+                       三套 FOX 标记（play / ask / 新卡三段）同口径——头标之后按此优先级找收尾边界：
+                       ① 下一个完整头标 ⇒ 不是后缀：当前卡在此截断、并从该处另起一张新卡（同条消息
+                          可出多张卡）；② 后缀前三字符 `(@f`（不构成完整头标）⇒ 合法收尾；③ 整段再无
+                          `(@f` ⇒ 取头标之后第一个空行断句收尾；④ 连空行都没有（单行到底）⇒ 不识别为
+                          卡片、当普通正文并记一条告警。目的：消除「一张超大卡片」。改 卡片TTS.js
+                          （新增通用扫描器 _foxScanCards；foxPlay/Ask/Hint/stripHintMarks 全走它）；
+                          同步把 缓存.js 历史旧注释改为客观一句。
+   2.106（老板 2026-10-20 17:39 令「手机网页版专项整改」三份问题文档·网页端批次，
+                        ＋ 17:52「语音小卡片前后缀缺闭合」代码侧同步）：
+                       ① 【切换即清屏·核心】发起切换立刻清空离开会话的一切，屏幕只允许「目标落地快照 /
+                          已确认的目标真内容 / 留白」三种，绝不再用「持屏」按住旧会话 A 的画面；swHold 语义
+                          改为「仅目标快照上屏后防中间态闪回、不再阻止清屏」；落地快照由「按会话各存一份
+                          （key|sid）」收敛为【单份最新·切换专用】（键 key|@snap，每次 clear+put）；curMsgs 在
+                          切换在途且快照正文仍属旧会话时切断回落（不再拼旧正文/旧账本）；等待期状态栏显示
+                          「正在获取「目标」的快照…」。改 状态与DOM.js / 待办卡.js / 通用工具.js / 缓存.js / 输入界面.js。
+                       ② 【「TRAE 界面未就绪」只提示不拦】撤除网页端本地闸门（renderState 不再
+                          setSendBtn(false,false)；refreshSendBtn 不再看 S.ready）；online=false 只「提示」可能
+                          在重连/界面切换中，加 60s 连续性门槛 NOT_READY_WARN_MS（对齐 LOGIN_WARN_MS，单拍瞬态
+                          不闪报）；最终判定权交执行侧（服务端动作队列）。改 输入界面.js。
+                       ③ 【横幅四态·X3-2/X3-3】经查服务端快照结构（下级模块\TRAE界面JS.py _SNAP_JS 返回体）
+                          无「状态灯」字段（会话灯仅在 convs 行 index3 内）⇒ 按文档口径落 ②：横幅「忙/闲」
+                          仍以 snap.sendIdle 为单一取数，不读会话灯；X3-1 服务端已把 sendIdle 纳入指纹去重键
+                          并在「忙↔闲」翻转强制放行一帧 ⇒ 忙→闲可自行翻转（状态栏 5s 定期复核兜底）。改 输入界面.js。
+                       ④ 【语音小卡片缺闭合】卡片TTS.js 三套 FOX 标记（play/ask/新卡三段）解析口径一律改为
+                          「缺闭合标记 ⇒ 不识别为卡片（当普通正文）」＋记录告警（console + 诊断日志 + 横幅，
+                          10s 节流）——让「漏后缀」从静默通过变成立刻可见，给 AI 反馈、能自我纠正。
+                       保留 2.89~2.105 全部语义（锚定持久化／_msgsMonotonic 少≥1／让位放宽／mid 时间／补尾
+                       按 mid 去重／折叠头／时间常显）。
+   2.105（老板 2026-10-20 15:43 令·分批整改）：
+                       ① 【最高优先·框架帧】来帧若【无 msgs 数组】（框架帧/登录轻启动版，含
+                          snapN=-1）只更新会话列表/状态/锚定，正文保留上一拍已上屏 msgs——
+                          旧判据只挡「msgs 缺失」，漏 null/非数组形态 ⇒ 已上屏行被清空（实测 8→3）。
+                          事件总线.js 判据亦放宽为「msgs 不是数组」。
+                       ② 通用工具.js renderAll 持屏闸让位放宽：尾部消息身份不同即让位（去掉旧
+                          `length >= 存帧` 限制）——合法删除变短时不再显示更长旧存帧（03-P3）。
+                       ③ 通用工具.js resolveTimes：mid 时间与 DOM/账本真值 m[2] 交叉校验，
+                          相差 > 300s 以 m[2] 为准（B 组 15.4% 不一致）。
+                       ④ 缓存.js curMsgs 尾部追加改按 mid（index6）优先去重（ledToArr 补 mid）——
+                          杜绝重复 AI 终答行（A 组 0001 网页端比原版多 1 行）；snapIdbGet 增按
+                          title 反查兜底（改名/非数字 SID 不丢缓存，03-P1）。
+                       ⑤ 待办卡.js msgsFp 去 m[3]/m[4] 标志位（标志抖动不再多触发落盘，03-P4）。
+                       保留 2.89~2.104 全部语义。 */
+/* 2.100（老板 2026-10-20 12:14「新内容被老内容覆盖」＋12:16「刷新退回旧会话」）：
+                       ① 【永远不许"新的被老的覆盖"】——真根因：通用工具.js _msgsMonotonic 的
+                          「变短」判据原为「少 ≥2」，恰好漏掉「少 1 条」（＝刚上屏的那 1 条新回复）；
+                          服务端虚拟列表只采可见窗口 + 抓取轮询._单调保护 的陈旧帧，经 adoptSnap
+                          原样收进 S.snap ⇒ 新回复当场被上一拍旧正文顶掉。改判据为「少 ≥1」；
+                          并在 renderAll「持屏闸」加让位：一旦锚定会话自己的快照正文已比存帧更新，
+                          立即让位，绝不拿旧存帧(a)顶掉已到的新内容（2.97「切换 2 面 2 变」保留）。
+                       ② 【刷新/重连后继续锚定当前会话，绝不回退上一个】——真根因：网页端锚定
+                          （anchorSid/Title/Full）从不持久化，刷新后 S.anchorSid='' ⇒ adoptSnap
+                          首拍自动吸附到「服务端当前选中行」/骨架选中行 ⇒ 退回旧会话。改：新增
+                          trae_webm_anchor 持久化（anchorReport 一变即落盘；启动.js 先 restore
+                          再 boot，snapIdbBoot 见已有锚定不再吸附）；登录/重连首拍若服务端选中行
+                          ≠本地锚定则补发一次 switch（继续向服务器提要求）。2.98 已删「失败回退
+                          上一会话」，本条再堵「刷新回退」。
+                       ③ 【落盘时机】——切换/掉线重新登录后的首份完整快照到达即【立即落盘一次】
+                          （不受 10 秒节流），其后才「≥10 秒、有更新才落盘」（缓存.js snapIdbTick
+                          ＋连接.js 置 S.idbFirstFull）。
+                       保留 2.89~2.99 全部语义（过渡锁／sameConvBody／_msgsMonotonic／切换 2 面
+                       2 变／折叠头／时间互不相同／蓝卡／卡片倒角）。改 通用工具.js / 缓存.js /
+                       启动.js / 事件总线.js / 连接.js / 诊断.js；入口 html 版本同步拉平 2.100。
+   2.99（老板 2026-10-20 11:43「最近几条对话的时间，居然都是一样的……
+                       明明我记得这些都是更早之前的老对话，全部一起被打上了最新时间」）——
+                       消息时间【取源】整改（手机网页版）。
+                       真根因：2.22/2.82 的 通用工具.js resolveTimes，人类行时间优先级＝
+                       ① 首行纯 14 位 DID（didTimeOf，只认「首行 ^\d{14}$」）→② 服务端第 6 位
+                       时间戳（快照 index 5）→③ 兜底：本地首见缓存/渲染时刻 NOW（cache[k]=
+                       new Date()）。而老板「更早的老对话」经 TRAE 官方排队条落账，账本 tm 列为空、
+                       且首行 DID 被 TRAE 折进单行（'20261020114333 正文…'）⇒ didTimeOf 取不到 DID
+                       ⇒ 落进③ ⇒ 同拍多条一起被打上「最新时间」（实测 6 条全 = 渲染时刻）。
+                       修法（仅 通用工具.js，最小）：
+                       · 新增 msgDidOf/didToStr：DID 兼容「首行纯 DID」＋「折叠单行」两形态
+                         （body 开头 14 位数字，同 pendDidOf 判据）；didTimeOf 改用 didToStr。
+                       · resolveTimes 重排人类行取源：① DID（msgDidOf）→② 账本源 tm（历史行
+                         index 2，缓存.js ledToArr；亦＝快照 index 2 的 TRAE DOM 真值，与第 6 位
+                         同源）→③ 服务端 2.52 盖章（快照 index 5）；三者皆无 ⇒ 【空】不显示时间，
+                         删除原「首见缓存/NOW」兜底（绝不统一打 NOW；各条独立不串用）。
+                       · AI 行沿用其【紧邻上一句人类提问】的时间（该句无真值则 AI 行亦不显）。
+                       保留 2.93「双方常显」口径（显示与否，非时间源）／2.94 单调护栏／2.97 持屏闸
+                       「切换 2 面 2 变」／2.95 人类蓝卡／2.96 卡片倒角间距／折叠头。
+                       改 通用工具.js / 诊断.js；入口 html 版本同步拉平 2.99。
+   2.98（老板 2026-10-20 10:25「按架构书标准整改」）：按《快照缓存策略》
+                       《操作动作策略》整改审查查出的不符合项 5 条——
+                       ① 切换【失败不再回退旧会话】（失败也继续锚定目标；待办卡.js switchClear）；
+                       ② 落盘节流 5s→10s、纯时间判据（去指纹去重；新快照到达即触发；缓存.js＋事件总线.js）；
+                       ③ 过期清理 7→10 天＋新增「按会话列表」清理（空列表防呆跳过；缓存.js）；
+                       ④ 首屏/刷新读 IDB 存帧顶出（启动.js＋缓存.js snapIdbBoot）；
+                       ⑤ 切走时强制落盘一次（会话列表.js）。
+                       保留 2.57B／2.89~2.97 全部语义（持屏闸／_msgsMonotonic／sameConvBody／折叠头／
+                       时间常显／人类蓝卡／缓存.js _liveLockOn 闸）。
+                       —— 2.97 履历（老板 2026-10-20 09:34「切换一个会话，目标会话会出现好几个
+                       面孔，最多连续变五六次」·最高优先）：收敛「切换过渡期」正文上屏为至多
+                       两次——(a) 目标「最新一次存帧（历史）」→(b) 目标「当前全量最新帧」；
+                       其余来源（空帧/预取帧/账本中间态）一律不得各自独立上屏。
+                       改法（最小）：
+                       ① 通用工具.js renderAll 加「持屏」闸（状态与DOM.js 增 swHold/msgs_last）：
+                          切换在途（_liveLockOn）且目标存帧非空 → 上屏存帧(a)；无存帧/来空帧 →
+                          原样重放上一次 renderMsgs 实参（=保持现画面，不产生中间面孔(b) 之前
+                          的额外面孔）；回落 curMsgs 且非空 → 上屏(b) 并松闸。
+                       ② 待办卡.js pendSwitchSet(lockTarget) 起 swHold 并清上一轮 liveFrame；
+                          switchClear/switchAbort 松闸。
+                       ③ 事件总线.js switch_pre：锁死目标且全量帧未到 → 预取帧整帧弃用（不上屏）。
+                       ④ 通用工具.js adoptSnap：切换在途、来拍正是目标会话时，对目标正文也套
+                          msgs 单调护栏（基线＝已上屏的目标正文），防虚拟列表空窗把已上屏目标帧
+                          抹成空/短帧。
+                       保留 2.89~2.96 全部语义（过渡期锁死目标/失败回退/sameConvBody 到达判定/
+                       _msgsMonotonic/折叠头/时间常显/卡片样式）。改 状态与DOM.js / 通用工具.js /
+                       消息渲染.js / 待办卡.js / 事件总线.js / 诊断.js；入口 html 版本同步拉平 2.97。
+   2.96（老板 2026-10-20 08:37「去看一下 WorkBuddy 的网页版，
+                       它人类卡片和 AI 卡片中间是有间隔的，并且各自的卡片都有倒角」）：
+                       照 WB 网页版（wbcli.html）CDP 实测对齐——① .msg 行间距 24px→8px
+                       （照 WB 间距 8px，人类卡与 AI 卡之间留出间隔）；② .msg.agent 补底色
+                       var(--abg)=#ecf5ec ＋ 圆角 8px（WB 实测 AI 卡：#ecf5ec / radius 8px /
+                       pad 5px 10px / margin-bottom 8px）——AI 行不再是「无倒角的裸文本块」。
+                       人类卡 .msg.user 蓝底（2.95）保留不动；未动 2.89~2.95 的逻辑。
+                       改 样式.css / 诊断.js；入口 html 版本同步拉平 2.96。
+   2.95（老板 2026-10-20 08:10「我的蓝色卡片呢？修复了吗部署了吗」）：
+                       真因：2.91「视觉对齐·扁平化」把 .msg 容器一律改扁平
+                       （background:none / border-radius:0 / padding:0），把「我」自己
+                       发出的那张【蓝色底纹卡片】也一并去掉（只剩无底纹的裸文本行）。
+                       修法（仅 样式.css 一处，AI 行保持扁平）：恢复 .msg.user 底纹卡——
+                       浅蓝底 var(--ubg)=#e8f1fb / 圆角 8px / 内边距 5px 10px（数值取
+                       网页版历史版 v1.61~2.90 旧样式；CDP 实测 TRAE 原版用户气泡实为
+                       灰 rgba(115,115,115,.12)/圆角16px，与老板「蓝色」口径不同，按老板口径）。
+                       占位卡 .msg.pend 蓝底（同规格 + 虚线框）本就在、未动。
+                       改 样式.css / 诊断.js；入口 html 版本同步拉平 2.95。
+   2.94（老板 2026-10-20 07:38「已上屏的记录过一会又消失」·最高优先）：
+                       真因：服务端每拍快照 msgs 非单调——虚拟列表只采「可见窗口」，切换/
+                       借框/流式重渲染的瞬时空窗被原样广播（实测同秒四拍 8→0→0→4→8、10↔8
+                       反复），网页端把每拍 msgs 当权威尾部、指纹一变即整帧重画 ⇒ 已上屏的
+                       行当场消失。修法（两条）：
+                       ① 通用工具.js adoptSnap 加「同锚定 msgs 单调护栏」（_msgsMonotonic）：
+                          同一锚定会话、非切换在途时，来拍 msgs 为空或比现有明显变短（少 ≥2
+                          条）⇒ 不覆盖、保留现有正文 old.msgs；为不误伤合法删除/回退——收到
+                          msg_act 后 2s 内放行变短，同一短帧形态持续 >2.5s 也放行（合法删除
+                          照常生效）；单条删除（少 1 条）本就放行。状态 状态与DOM.js 增
+                          msgs_guard_since / msgs_act_at；事件总线.js msg_act 分支记 msgs_act_at。
+                       ② 服务端 抓取轮询.py 0.41 兜底 `_单调保护(snap)`：uiq.put 前对同一选中
+                          会话做非空/非明显变短保护（换会话/超时放行），配套服务端 VERSION
+                          3.32→3.33。
+                       改 通用工具.js / 状态与DOM.js / 事件总线.js / 诊断.js；
+                       入口 html 版本同步拉平 2.94。
+   2.93（老板 2026-10-20 07:09/07:10/07:14 三报）：
+                       ①「从 A 切 B 时，切换成功那一刻又闪出 A 的缓存」——根因两处：
+                       (a) 事件总线.js switch_pre 分支把「服务端偶发推来的切换前旧会话 A
+                       的预取帧」无条件写进 S.liveFrame ⇒ 过渡期（本应锁死目标 B）反被
+                       覆盖成 A ⇒ 上屏 A；现该帧若属旧会话 A（消息身份判）整帧弃用。
+                       (b) 到达判定用 msgsFp（含 can_rev/can_del 易变标志），标志一抖即
+                       被误判「目标正文已到」⇒ 置 arrived 并 liveClear 撤锁 ⇒ 回落 A 的
+                       快照。现改用 sameConvBody（消息身份＝首条角色＋正文，忽略标志）。
+                       缓存.js _liveLockOn 加护栏（arrived 已置但 S.snap 仍属旧会话则不
+                       撤锁）；待办卡.js switchClear 成功支再核一遍（S.snap 仍属 A 不撤）。
+                       ⚠ switch_pre 携旧会话内容【不得】作为「到达」依据、也不得上屏。
+                       ②占位卡（老板自己发的小卡片）补上时间：待办卡.js renderPending 增
+                       .ptm（取首行 DID 时间、常显、专属元素）；卡片蓝底/圆角/内边距经
+                       核验 2.91 已保留、未退化。
+                       ③消息时间常显（老板 07:14「我和 AI 各自回复卡片都没显示时间」）：
+                       消息渲染.js .tm 改为用户行与 AI 行都挂；样式.css .tm 取消
+                       opacity:0/hover 显现、改常显（12px/#737373/lh18）。
+                       ⚠ 与「原版 hover 才显」口径不同——手机端无 hover，等于都看不到，
+                       老板实际需求＝看得到时间，故改常显。改 事件总线.js/待办卡.js/缓存.js/
+                       消息渲染.js/样式.css/诊断.js；入口 html 版本同步拉平 2.93。
+   2.92（老板夜间令 A2 续 ＋ B5 · 思维流折叠头 / 子代理外层「轻量呈现」）：
+                       服务端「采集剥壳规则整改」(C4) 起不再把 TRAE 原生折叠头当外壳剥掉，
+                       「思考过程／已执行N条命令／已搜索N次文件」与子代理外层「Sub Coding
+                       Agent＋副标题（已编辑N个文件…）」随 AI 行正文以【文本行】带出。
+                       消息渲染.js 新增 thinkBlocks/thinkBarHtml/_mdBody——AI 行按「折叠头／
+                       子代理／正文」分块：折叠头→灰色 13px 折叠条（高 28／#737373，默认折叠、
+                       点击展开）、子代理→标题＋副标题（灰 13px、可折叠）；人类消息不折叠
+                       （全量显示）；字段缺省 ⇒ 退化为整段正文、不渲染不报错。样式.css 新增
+                       .foldbar/.subhd/.fbhd/.fbic/.fbc 样式。⚠ 协议待服务端定稿：当前按源码
+                       落盘形态＝文本行识别。改 消息渲染.js / 样式.css / 诊断.js；
+                       入口 html 版本同步拉平 2.92。
+   2.91（老板夜间令 A2 视觉对齐 ＋ A3「切回后 +2s 仍显旧会话」诊断修复）：
+                       ① A2「TRAE 原版看起来什么样，网页版就该什么样」：消息渲染.js 说话人
+                       文案「TRAE」→「TraeWork」，时间戳 .tm 仅「我」的发言挂（AI 行不挂）；
+                       样式.css —— .who 统一 400/13px/#171717/lh20（不再按 user/agent 蓝绿分色）、
+                       .tm 12px/#737373/lh18 且默认隐藏、悬停才显；.msg 容器改扁平（无底色/
+                       无圆角/零内边距、margin-bottom:24px；AI 行按原版 .turn__agent-row 内缩
+                       pad 12px 12px 12px 16px）、画布 #f5f5f5；字号行高对齐（正文 13px/lh19.5、
+                       AI 回复 markdown 14px/lh21、用户提问 14px/lh20/letter-spacing -0.28px）。
+                       ② A3「切回看不到最新一轮」：待办卡.js switchClear 撤「直播帧锁」加条件
+                       —— 成功（phase==='ok'）但目标正文未到达（!arrived）时不撤，改由
+                       事件总线.js 真帧到达（liveKey===锚定）时撤；缓存.js snapIdbTick 加护栏
+                       （switch_pend.lockTarget && !arrived 在途即 return），防旧正文写入 IDB
+                       污染「切回秒显」。
+                       改 消息渲染.js / 样式.css / 待办卡.js / 缓存.js / 诊断.js；
+                       入口 html 版本同步拉平 2.91。
+   2.90（老板夜间令 B10／C7 · 「四步提醒」接线闭环）：
+                       ① 接服务端回执 t:'rcpt'（单通道 + stage）——连接.js 路由转发、
+                       事件总线.js 新增 onRcpt：按 stage 显示 ③（accepted/running→
+                       「服务器已受理/开始执行」）与 ④（done/fail→成功/失败，失败如实带 msg）；
+                       保留既有 ①②④ 逻辑与 switch_ack/cmderr 行为一字不动。
+                       ② 配对改按真数据：通用操作按【动作 id】配 srvOpAcct 在途登记表
+                       （通用工具.js 新增 srvOpNewId/srvOpAcct/srvOpAck；srvOpSend 生成 id 随
+                       cmd 帧 `id` 字段发出，sendCmd 增可选 id 参）；发送/插话占位卡按【真 DID】
+                       配对（不再按「含 DID 的文本」——服务端回纯正文时文本匹配必失配，正是
+                       ③永不显示之根因）。
+                       ③ 补①缺拦口——会话列表.js 折叠/展开、置顶/取消置顶、删除会话三处
+                       旧走 srvOpFlash+sendCmd、绕过 srvNeedOnline；统一改走 srvOpSend
+                       （未连 WS ⇒ ①「正在连接 WS…」且命令不发出）。
+                       ④ 占位卡新增 accepted/done/fail 三态（待办卡.js pendStat，失败显示 msg）。
+                       ★ 占位卡即撤（did_pool/快照首行 DID）与 2.89 两处收紧保留不回退；
+                         did_pool 即撤已由服务端时间闸（痕迹与配置 0.14 消卡仅凭池子阈值秒=600）
+                         保证「先上屏、后撤卡」，前端无对应阈值逻辑、无需对齐。
+                       改 连接.js / 事件总线.js / 通用工具.js / fox协议.js / 会话列表.js /
+                       待办卡.js / 诊断.js；入口 html 版本同步拉平 2.90。
+   2.89（老板 2026-10-20 01:0x 紧急 · AI 行消失＋切换过渡期锁死）：
+                       ① AI 行「出现后突然消失」堵根——旧 2.88 有两处会拿「本地账本」
+                       整段覆盖快照正文，而账本只记终答、常缺 AI 行 ⇒ AI 行被抹掉：
+                       (a) 缓存.js curMsgs「账本补尾」收紧为**只补不删**（只补更早的行
+                       ＋ 补快照尾部之后缺失的新行，绝不删除快照已有的行）；
+                       (b) 通用工具.js adoptSnap 冻结到期改为**保留现有正文、只标记
+                       「待刷新」并节流补拉**（不再 `v.msgs = _led.slice()`）。
+                       ② 切换过渡期「锁死目标会话」——网页端一旦发起切到 B，B 的真内容
+                       未上屏前正文一律以 B 的帧为准，快照里仍是 A 的正文不得上屏；直到
+                       成功（继续 B：事件总线.js 目标正文到达即撤覆盖）或失败（待办卡.js
+                       switchClear 回退到切换前的 A：恢复锚定＋正文）。成功收口不再在
+                       switchOk 里提前撤覆盖（防 switch_ok 先到、A 闪现）。
+                       ★ 保留 2.88 两处串台收紧（switch_pend 仅「选中行＝切换目标」才
+                       放行、selUnknown 归入 stolen）。
+                       改 会话列表.js / 待办卡.js / 事件总线.js / 缓存.js / 通用工具.js /
+                       状态与DOM.js；入口 html 版本同步拉平 2.89。
+   2.88（老板 2026-10-19 23:55 口径 · 锚定串台堵口 ＋ 冻结时效 ＋ 账本补尾）：
+                       ① 串台根因堵口——通用工具.js adoptSnap 的锚定冻结此前被两处旁路绕过：
+                         (a) 切换在途（S.switch_pend）时【整段放行原快照】（旧 L430
+                         `if (S.switch_pend) return v;`）；(b) 快照选中行认不出时 inKey=''
+                         令 stolen 恒假（旧 L431）。桌面被“借框/后台挪去别人会话”时，这两处
+                         会把那一拍正文整段推上屏 ⇒ 标题对、内容错（老板最烦的串台）。现把 (a)
+                         收紧为「仅当快照选中行正是本次切换目标才放行（目标未知=旧前端仍放行）」，
+                         (b) 归入 stolen 判定（selUnknown）。
+                       ② 冻结时效——锚定被抢 < ANCHOR_FREEZE_MS（15s，须大于一次借框时长）时
+                         仍固定旧内容（老板「借走那几秒固定住旧内容是可以的」）；连续被抢超阈值
+                         仍无真帧时不再无条件沿用旧 msgs，改用锚定会话自己的本地账本（10s 节流
+                         补拉一次），桌面一回到锚定即清零时效并立刻取真帧。
+                       ③ 账本补尾——缓存.js curMsgs：快照尾部时间早于账本尾部时以账本为准，
+                         堵「桌面已 10/19 21:32、网页却只显 10/05」（旧实现恒丢账本增量）。
+                       改 通用工具.js / 缓存.js / 状态与DOM.js；入口 html 版本同步拉平 2.88。
+   2.87（老板 2026-10-19 22:34 紧急 · 网页版反馈整改 ＋ 直播帧钉死修复）：
+                       ① 重命名四态反馈＋就地弹层——原用浏览器原生 prompt，移动端 WebView 会
+                        【静默屏蔽】（不弹框、直接返回 null ⇒ 悄悄 return），正是老板报的
+                        「点了重命名啥反馈也没有、也没弹窗」断点；改 会话列表.js 自绘弹层（开层
+                        即反馈）＋ 通用工具.js 新增 srvOpSend（②「等待服务器受理…」仅在 S.onLine
+                        真实信号下播报；④「成功」靠快照会话名真变、失败/超时/ cmderr 如实收口）。
+                       ② 「直播帧覆盖」永久钉死修复——旧实现只有 事件总线.js:42（桌面选中行＝锚定）
+                        才 liveClear()；切换失败/超时、或桌面被后台投递/借框抢走时永不触发 ⇒ 页面
+                        被永久钉在旧本地存帧、上翻拉历史也被禁。待办卡.js 切换收口（switchOk /
+                        switchTimeout / switchClear）末尾补「若 S.livePend 仍置位则 liveClear()」，
+                       失败/超时后回落真快照。版本自 0021 的 2.85 / 2.86 续 +0.01。
+   2.86（T73 上翻跳顶/鬼打墙最小改，2026-10-19）：纯 缓存.js 改动——
+                       ① prependHist 保位改「增量」：位置＝旧位＋max(0,新height-旧height)，
+                        根治「回包落地把视野拽回最顶」与「指纹相同空转时赋 0 触发 scroll →
+                        近顶再发请求」的鬼打墙链；并按 seq 去重并入，防并发回包重复上屏。
+                       ② reqHistPrev 的 8s 兜底同时清 S.histPullFrom=0，防近顶分支
+                        `histPullFrom===first.seq` 把「没回包/回包超时」误判「已到底」。
+                       版本自 0021 的 2.85（排队条剥DID＋四态）续 +0.01。
+   2.85（老板 2026-10-19 21:26 口径）：① 官方排队条条目剥首行 DID（消息渲染.js：
+                       条目正文 esc(stripHeadDid(p.t))、删除确认同剥）——内部 14 位时间标记不外露；
+                        ② 全站「对服务器的操作」统一四态提示（公共组件 SRV_PHASE / srvOpText /
+                        srvOpFlash / srvNeedOnline，见 通用工具.js），每态绑真实信号、禁无信号播报；
+                        ③ 随本次补记 2.84「已上线但漏记本表」的部署记录。
+   2.84（老板实测 2026-10-19 紧急 · 三 bug）：① Bug A 官方排队条
+                        渠道此前失效——实测 pend 每项 t 是「DID 空格 正文」单行（TRAE 把首行
+                        DID 后的换行折叠成空格），旧 firstLineDid 按「首行 ^\d{14}$」永远取不到
+                        ⇒ 卡销不掉；改 pendDidOf 取开头 14 位 DID（事件总线.js）。② Bug B 重发/
+                        重编/残留回填会把旧 DID 带回正文 → 首行出现两个时间；cmd 插入新 DID 前
+                        先 stripHeadDid 剥净旧 DID（含多层，上线与界面.js）。③ Bug C 占位卡/气泡
+                        正文只显示真实内容——剥掉首行 DID，剥净后为空则不建卡（待办卡.js/
+                        消息渲染.js）。新增助手 stripHeadDid / pendDidOf（通用工具.js）。
+   2.83：销卡「三渠道任一即销卡」收尾（老板 2026-10-19 紧急）——
+                        销卡**跳步**（任一命中即销，不死等「已发出」确认）：① 本拍快照【对话
+                        记录】**只扫人类发言**（role=u，即「我」发的）首行 14 位 DID（此前无 role
+                        过滤，会把 AI 发言也扫进来）；② 新增**官方排队条**渠道——快照 v.pend 每项 t
+                        首行 DID，消息一进 TRAE 官方队列即销卡，不必等它落进对话记录；③ 服务端
+                        did_pool 广播池。占位卡误导文案「已发出，等待服务器执行…」改为「已发出，
+                        等 TRAE 收进排队条…」。改 事件总线.js / 待办卡.js 两文件。
+   2.82：占位卡/销卡制度大整改（老板 2026-10-19 定 · 与「顶部时间」追加）——
+                        ① **销卡弃「文本相似度」改硬数据**：DID ＝ 消息正文**第一行** 14 位本地时间
+                        `YYYYMMDDHHMMSS`（如 20261019181500），**网页版发送时自动插入正文首行**（fox协议
+                        didNow）；服务端扫快照每条消息首行 ^\d{14}$ 命中即认「已进流」。销卡两路：①本会话
+                        快照抓到该 DID（事件总线 自扫 msgs 首行）②服务端 did_pool 广播（最近 10 条由网页版
+                        发出且已进流）。**不再用 did_ack／did_hits／相似度**（旧逻辑整条作废）。
+                        ② **只有网页版发出的消息才出占位卡**：pendAdd 以「首行是否 14 位 DID」为闸——AI 借
+                        输入框发的消息不带 DID，绝不出卡。占位卡键＝(会话名, DID)，**至少保留 24h**（PEND_DID_TMO
+                        12h→24h）。③（老板追加）**网页端顶部时间区**：自己发的消息，其首行 DID 的 14 位时间
+                        就是它的时间 ⇒ 顶部消息时间取该 DID 时间（通用工具 didTimeOf/resolveTimes），
+                        **不使用系统给的时间**。改 上线与界面.js / fox协议.js / 待办卡.js / 事件总线.js /
+                        通用工具.js 五个文件；服务端配套 痕迹与配置 0.11 / WS桥 0.12 / 命令路由 0.19 / 运行时 3.29。
+   2.81：切换命令「重复重发」整改（用户 2026-10-19 口径：网页端如果知道服务器已经接收到，就应该安静等待）——服务端切换实测要 15~30s，
+                        ack→ok 间隙 > 10s，旧逻辑收到 switch_ack 后仍每 10s 补发同一条 switch
+                        （点 1 次服务端却收 5 条且重复执行）。现收到 ack 后即停补发、转安静等待，
+                        仅在 waiting（未收到 ack）阶段保留放宽至 15s 的兜底补发；只保留 60s 超时
+                        兜底（超时给提示，不自动无限重发）。改 待办卡.js / 事件总线.js 两个文件。
+   2.80：定时自我激活·面板体验整改（用户 2026-10-19 口径：两个输入框
+                        含义不明、点了没反馈、取消不了）——① 自我激活.js：两框加可见小标签
+                        「① 间隔 / ② 次数 / ③ 发送内容」+ 一行实时换算说明（「＝ 每 N 分钟发一次，
+                        共 M 次」），解决「占位符因有默认值不显示、只看到裸的 5/3」；② 面板内新增
+                        **服务器确认状态行**（比 flash 持久）：点开始/取消先落「⏳ 等待服务器确认…」，
+                        随后盯服务端权威快照 S.定时 对账（新任务出现＝定时生效 / 目标任务消失＝取消成功），
+                        5 秒内无变化即提示「⚠ 未确认，请点刷新」；③ 逐条「取消定时」去二次确认
+                        （旧版「取消定时→弹确定/取消」的「取消」易被误点成放弃 → 用户直呼「取消不了」），
+                        直接下发 sched_del 并以状态行反馈。入口 html 版本同步拉平 2.80。
+   2.79：定时自我激活·会话行「⏰」铃铛整改（用户 2026-10-19 口径：
+                        网页操作没效果、不显示铃铛）——① 服务端 命令路由 0.14：快照广播前统一
+                        补注入「备注/定时」字段（命令路径/初连快照此前不带 → 网页端 定时入快照
+                        会把它误当空清掉 → ⏰ 角标时有时无/消失）；sched_ 系列与 note_set 改库
+                        后**立即**回推一次快照，网页端免等周期快照即回显（旧行为：设了定时要等下一拍周期
+                        快照才回显，用户误以为「没效果」而重复点击、同一会话堆多条）。② 网页端
+                        自我激活.js：定时入快照 收紧为「仅当快照确实带「定时」字段才覆盖 S.定时」，
+                        字段缺失保留旧值，双保险。
+   2.78：TTS 通道串行化（用户 2026-10-19 口径）——网页端语音播报改
+                        「优先 WS 直连 + 满 30 秒无回执才串行切服务端中转」。此前直连未连通只给
+                        2.5 秒窗口（TTS_GRACE=2500）过短易误判，现扩为 30 秒（TTS_GRACE=30000）；
+                        且**每条线路都挂 30 秒看门狗**：任一路一收到任何回执（tts_ack）即撤看门狗、
+                        不再切另一条（不重复干活/不重复接收）；WS 满 30 秒无回执才串行改走服务端中转；
+                        同一 id 最多「WS 发一次 + 服务端发一次」，先后串行、绝不并发。见 TTS直连.js
+                        _ttsArmWatch/ttsWatchdog/ttsRoute/ttsFlushWait/onTtsAck；卡片TTS.js、
+                        设置与迁移.js 提示文案 2.5→30 秒。
+   2.77：专属提示词改「三段折叠小卡片」（用户 2026-10-18 口径）——
+                        服务端 decorate（TRAE会话提示词管理器 1.32）把会话专属提示词拆成
+                        系统/用户/公司三段、各用一对 FOX 标记包夹（(@fox-sys1)…(@fox-sys2) /
+                        (@fox-usr1)…(@fox-usr2) / (@fox-co1)…(@fox-co2)）；网页端用 卡片TTS.js
+                        新增的 foxHintCards/foxHintHtml 把三段合成**一张折叠小卡**：平时只显示
+                        一排 3 个小标签（系统 ▸ / 用户 ▸ / 公司 ▸），点一个就展开该段内容、再点
+                        收起（青绿配色，与语音卡/提问卡区分）。用户消息与 AI 消息一视同仁；
+                        「重编/回退/取回残留」用 stripHintMarks 剥掉三段标记还原纯正文。
+   2.76：T63 输入框放大态顶行新增第 5 个「急」加急插入
+                        勾选——勾上则本次发送/插话走 route_send 的 interject_now
+                        （进 TRAE 官方排队条后立即点「立即发送」插队）；未选白底 /
+                        选中红底；默认不记忆（不落任何持久配置，刷新回未选）。
+   2.75：删网页端抽屉「操作」里残留的「🛠️ 维护档案」按钮——
+                         T19 桌面端已删、网页端未同步（本轮对齐，无其它行为改动）。
+   2.74：T16 借-播-还（网页端锚点上报 + 支持 custom 借框播报）——
+                         ① 「锚定上报」：网页端自己选中的会话发生变化那一刻（点会话/首次
+                         自动吸附/切服务端清锚），上报 {t:'anchor', sid:完整sid(空串=取消),
+                         key:终身号稳定键, title:会话名}——去重（同一锚定不重复发）+ ≥300ms
+                         节流（连点合并）；异常一律吞。统一函数 anchorReport()（通用工具.js），
+                         调用点：会话列表.js（点会话换锚）/通用工具.js adoptSnap（首次自动锚定·
+                         锚定变更）/电脑名册.js（切服务端清锚→sid:''）。
+                         ② 借框播报支持 msg：事件总线.js 处理 input_busy 时，d.msg 非空则
+                         【原样】flash 服务端给的自定义整句（不再套「⏳ …正在借用输入框」模板），
+                         S.inputBusy 仍取 msg/who 供「借用中」/禁用发送生效；msg 空维持旧文案。
+                         2.73：会话绑定改终身号——网页端锚定/未读灯/备注/定时/直播帧
+                         的键一律用终身号（SID 前 4 位数字），仅切换会话仍送完整 sid
+                         （用户口径 2026-10-16）。
+                         2.72：📂「工作台浏览页」改为引用公共独立服务「网页版本地文件
+                         查看器」（GitHub Pages fileview/index.html?h=trae&pick=1&mode=
+                         ins|newdir，window.opener.postMessage 回传选中路径）——删本端自绘
+                         page_bench（DOM/样式/JS/服务端接口全清，只维护公共这一份代码），
+                         新建任务选目录亦改走公共查看器回填（用户 2026-10-12）。
+                         2.71：会话右键删除项「🗑 删除」→「🗑 删除此会话」；定时面板
+                         「清空本会话」→「取消本会话全部定时」、逐条「🗑」→「取消定时」
+                         并补二次确认——标识明确，杜绝「以为在取消定时、其实删了会话」
+                         （用户 2026-10-11）。
+                         2.70：输入框公私隔离——`case 'sent'` 不再无条件清空网页端
+                            输入框；别端 / AI 跨会话投递 / 电脑面板 / 后台提醒的 sent
+                            一律不再把我正在打的草稿清掉（本机自发早在 cmd() 里清过，
+                            此处对本地冗余）→ 根治「别人来输入把网页草稿清空」。
+                            对齐 WorkBuddy v1.74 同款修法。
+                         2.69：TTS 通道分层——网页端 WS 直连 TTS 专属频道为**默认通道**；
+                            服务端「本机 TTS 中转」保留为**备用兜底**，仅在直连走不通时回落（服务端
+                            仅被动响应 t=='tts'）。同一 id 只真正发出一次（直连或服务端二选一），绝不
+                            两边同发 → 不会出现两份相同语音。默认直连；TTS_GRACE(2.5s) 内直连未连通才
+                            回落服务端；直连一回 tts_error 允许一次服务端兜底；直连一连通即把在等待的
+                            请求改走直连、不再回落。回包侧恢复主频道对 tts_ack/tts_resp 的分派并复用
+                            直连的 onTtsAck/onTtsErr/ttsDeliver（先到先交付，后到被忽略=天然去重）。
+                            频道名 = 固定前缀 'TTS' + 同一把密钥；FOX 2.0 定长头、全程静默、断线
+                            2/4/8s 退避 ≤3 次且 60s 硬时限；音频分片按**字节**拼回 mp3。
+                            新增 TTS直连.js；卡片TTS.js/连接.js/设置与迁移.js 配合；服务端保留中转作备用。
+                         2.67：切换过程状态机——把「一点到切完」拆成可分辨的分档，
+                            反映真实过程（用户 2026-10-07 定）。switch_pend 改带 phase：
+                            connecting(WS 没连上→「正在连接 WS…」)/waiting(已发出未收服务端回应
+                            →「等待服务器回应…」)/switching(收到 switch_ack→「正在切换中…」)/
+                            ok(收到 switch_ok→「切换成功」2 秒后交回状态灯)/fail(「切换失败」)。
+                            每 10s 补发同一条 switch；满 60s 判失败。服务端新增 switch_ack/
+                            switch_ok 回执；目标在服务端最近抓取的 pane 里则点击前预取推帧
+                            (switch_pre) 先显示。服务端 _cmd_switch 加「已同会话直接跳过」。
+                            （待办卡.js/事件总线.js/输入界面.js/会话列表.js/缓存.js/上线与界面.js；
+                             服务端 命令路由.py/抓取轮询.py，v3.01）
+                         2.66：状态栏未就绪态分级——不再一律写「TRAE 界面未就绪」
+                            （用户 2026-10-07 反馈：对面服务器不在线时也写这句，不准确）。
+                            renderState 的未就绪分支改调 notReadyState() 按真实原因分档：
+                            连不上中转→说频道；没选服务端→说未选择；选中服务端近期无来向
+                            消息（> SRV_DEAD_MS）→「服务端「X」不在线（无响应）」；服务端在跑
+                            但 TRAE 未连上→才是「TRAE 界面未就绪」。另加 5 秒定期复核（仅在仍
+                            写未就绪文案、且没有别的一次性提示在显示时）。输入界面.js。
+                         2.65：修「切换服务端后白屏、还得手点会话」（用户 2026-10-07）——
+                            switchSrv 只清了 S.snap，S.anchorSid 仍指向旧服务器的会话；
+                            新服务端快照到达时 adoptSnap 判「锚定会话已消失」→ 冻结正文（白屏），
+                            且会话列表无选中。改为切服务端时清空「锚定 + 本地历史 + 切换在途帧」，
+                            让新服务端广播来的「当前选中会话」（convs 第 3 位选中标志）被自动吸附打开：
+                            一过去就有对话被打开，不用再手选（电脑名册.js switchSrv）。
+                         2.64：根治「切会话自动跳顶 + 进全屏 + 拉历史」（用户 2026-10-07）——
+                            滚动回调改为「只认人手滚动」：touchmove/wheel/keydown 打手势窗口；
+                            程序化重排（空渲染把 scrollTop 夹回 0、scrollTop=savedTop、fprog）一律
+                            不触发「拉历史/进全屏」；并给切换在途设闸、所有程序化滚动统一走 fprog、
+                            切会话改「先读存帧再渲染一次」不再先画空帧。前几次只补落点，本条治根。
+                         2.63：修「2.61/2.62 上线后手机仍一模一样」——成品入口 HTML 的
+                            全部 <script src>/<link href> 补 ?v=2.63 版本查询串（用户 2026-10-07）。
+                            真根因：外链 js 无版本查询串，手机长时间开着页面 + 浏览器/CDN 缓存旧 JS，
+                            2.61/2.62 的修复根本没被加载，现象与修复前「一模一样」。加 ?v= 后每次发版
+                            URL 必变，必然取到新 JS；以后每次发版同步 +0.01 并改这里即可。
+                         2.62：修「上翻历史后切会话仍停在最顶」——切换会话补调
+                            exitFmsg()，并让 S.pinBottom 压过全屏 inF、切换在途
+                            期间不消费标志（用户 2026-10-07）。
+                            2.61：切会话后消息区钉底（用户 2026-10-07）——点会话先秒显
+                         目标会话本地存帧/留白，切换中间态的两次空渲染把 scrollTop
+                         归了 0；正文（本地存帧或直播帧）真正上屏那次原按 savedTop=0
+                         原样还原到顶部，且 scrollTop<60 误触发上翻补拉。改为一次性
+                         标志 S.pinBottom：切会话入口（会话列表.js）置位，正文渲染
+                         那次（消息渲染.js）用 fprog 钉底并清标志——程序化滚动 450ms
+                         静默，不再误触发「正在取回历史记录」。全屏态只保位置不动。
+                         2.60：删「消息区切换在途提示条」（用户 2026-10-07）——
+                         切换会话时目标会话有本地存帧即刻显示、无则纯白（无文字/无
+                         虚线框）；「正在切换到「X」…」只留顶栏状态栏一处（消息渲染
+                         .js 的 .switching 条已删、样式.css 的 .switching +
+                         @keyframes pulse 一并清理）。
+                         2.59：网页本地缓存限「最近 3 轮」（用户 2026-10-07）——
+                         落盘（IDB 存帧 / 本地历史）+ 服务端全量重建首屏均只留
+                         最近 3 轮（一问一答为一轮）；更早的靠「历史取回」按需
+                         向本地账本索要，不落盘。
+                         2.58：切会话「秒显目标会话本地存帧、无则诚实留白」
+                         （用户 2026-10-07）——点会话 B 即刻清掉旧会话 A 的
+                         正文：有 B 的 IDB 存帧就上屏供复习，没有就留白 +
+                         「正在获取直播帧」条，绝不回落显示 A。
+                         2.57：修「直播帧提示条(#livebar)层级过高、压住左侧菜单」
+                         （用户 2026-10-07）——样式.css 的 z-index 36→28，
+                         低于抽屉 #drawer(30)/遮罩 #mask(29)。
+                         2.56：本专项《切换会话锚定与广播对齐》A/B/C/F 组（用户 2026-10-07）——
+                         锚定优先（curTitle/curSid 以锚定 sid 为准；锚点已消失只提醒、不静默改锚；
+                         会话列表选中态与锚定态同源）；快照落地 IndexedDB（trae_webm_idb：5s 节流 /
+                         超一周剪枝 / 换代清空）+ 切换秒显与「正在获取直播帧」小条；占位卡绑锚定
+                         sid + IDB 持久化 + 兜底延长到 12 小时。
+                         2.54：广播「无头回复」与占位卡滞留专项（用户 2026-10-07）——curMsgs 改
+                         「快照权威尾部 + 账本只补更早」（新增 _msgKey 指纹），账本里的重复/
+                         乱序行不再让「连续 AI 回答而无对应问句」上屏（无头回复）；配套服务端
+                         占位卡补会话归属 + timeout 终局撤卡（服务端 2.93）。
+                         2.53：13.1 昵称条——sendJson 给所有 JSON 外发帧统一附 nick（能报就报；
+                         不改 FOX 协议头，login/hb 已显式带）。
+                         2.52：13.1 软件号规范整改——设置页新增「本机身份」（软件号只读
+                         显示 + 昵称输入口，昵称随登录/心跳帧上报，不改 FOX 协议头）；
+                         断线重连限次退避（3→6→…→60s，达上限停并宣告失败）。
+                         2.51：MD 渲染器（.md 阅读排版）；2.49：上滑到顶取更早历史（本专项·本地会话账本移植·阶段五）——
+                         hist_prev 每次 4 条；撞顶亮「正在取回历史记录…」；服务端回 end
+                         或游标不再前进即判到底（防死循环）；缓存.js curMsgs 让账本里
+                         翻出来的更早段能上屏。配合服务端 2.84（hist_prev 回 end）。
+                         2.48：多服务端静默化 + 名册去伪——① 删「默认服务端」假条目兜底
+                         （无 srv 一律丢弃；服务端 2.83 起凡发出报文都盖源头名）；
+                         ② 抽屉「服务端」标题行加「↻ 刷新」按钮（点名 who，在线者
+                         才应答；平时各服务端全程静默、互不报状态）。
+                         2.47：会话行显示「定时闹钟」——凡设了「定时自我激活」的
+                         会话，在会话名后追加 ⏰（多条带条数），一眼看出哪些
+                         会话有定时提醒（自我激活.js 闹钟后缀/定时指纹；
+                         会话列表.js 渲染 + 指纹去重）。数据源快照 snap['定时']，
+                         无需服务端改动。
+                         2.46：后台借框占用保护——服务端借输入框投递（定时自我激活/
+                         收件箱提醒）期间广播 input_busy，网页端禁用发送并提示
+                         「程序正在借用输入框，请稍后」（挡住人类操作）；服务端另
+                         在进官方排队条时点「立即发送」插队、两提醒错拍。
+                         2.45：新增「会话备注」「定时自我激活」（右键会话菜单）——
+                         会话名后缀（备注）+ 到点借输入框定时投递（借框期间广播
+                         占用提示 input_busy，见 2.46）。
+                         2.44：副频道自动切回主频道的探测间隔——由「等 60s 后每分钟探测」改为
+                         「15 分钟首探 + 每 15 分钟重试」（设置与迁移.js 副频道自动切回探测）。
+                         ★2.184 已整段删除（含其定时器与清理函数、启动时那次调用），
+                         改纯手动切换：想回主频道点「主频道」按钮。
+                         2.43：TXT 阅读器正文加「下拉刷新」——正文顶部下拽、松手从头重读
+                         本文件，抓取电脑上最新内容（与 📂 浏览页列表的下拉刷新同款）。
+                         2.42：删除链路保活 PING——网页端 kaTimer/ws.send('ping')、常量
+                         KA_SEC，与服务端 run_forever 底层 PING、KA_SEC 保活分支
+                         一并去除（本软件免 PING，由中继自动保持在线）。
+                         2.41：一键换号迁移弹窗加同款设置——「保留最近 N 轮」（默认 100）+
+                         ☑清理其它账号 + ☐智能迁移最重度账号 + ☑自动压缩；下发改为
+                         dict `{目标,轮次,清理,压缩,迁移}`（服务端换号内核 1.10 起支持，
+                         与电脑上的「TRAE换号工具」同一款内核）。旧式纯号码仍兼容。
+                         2.40：会话备注 + 定时自我激活（均为网页端专享，独立 js）——
+                         ① 会话名后追加（备注），数据源快照 snap['备注']，不改 TRAE 真名
+                         （会话备注.js：备注后缀/备注指纹/备注入快照/备注菜单项）；
+                         ② 右键会话菜单新增「📝 编辑备注」（note_set [sid,文本]，空=删除）
+                         与「⏰ 定时自我激活」（sched_add/ls/del/clear，间隔分钟×次数，
+                         服务端到点借输入框投递、纯本地不广播；自我激活.js）。
+                         2.39：📂 浏览页——① 文件行右尾显示文件大小（服务端 bench_ls
+                         回包 fsizes，B/KB/MB/GB 自动换算）；② ⋯ 面板新增「详细信息」
+                         （bench_stat：名称/类型/位置/大小/修改·创建·访问时间/只读，
+                         可一键复制）。2.38：📂 浏览页行尾 ➕ 左边加 ⋯ 操作面板——对单个文件/
+                         目录重命名、移动（剪切）、删除（二次确认弹框）、复制路径；
+                         移动为「选目标目录」模式（行尾 ✅=移到此 / 头部 📦 移到此）。
+                         2.37：📂 浏览页加「下拉刷新」——列表顶部下拽、松手重取当前
+                         目录（服务端 bench_ls 是静态拉取，不自动广播，目录里新增
+                         文件需主动重拉）；展露区显示「下滑刷新/松手刷新/下滑刷新中…」。
+                         2.36：TXT 阅读器去掉自带右键/长按小菜单——复制/粘贴等
+                         改用浏览器原生菜单（自绘菜单与原生菜单会重叠）。
+                         2.35：WS 链路保活改「免心跳」——KA_SEC 25→1800（30 分钟），
+                         与服务端同步。
+                         2.34：TXT 阅读器字号落盘 localStorage——A-/A+ 调好后
+                         长期记住，不必每回重调（键 trae_freader_font）。
+                         2.33：TXT 阅读器加「✎ 编辑 → 💾 保存」——顶部出编辑钮，
+                         点后正文就地 contenteditable（不弹窗，直接出光标，落末尾），
+                         改完保存写回电脑原文件（bench_write，沿用读到时的编码 + CRLF
+                         行尾还原）；附右键/长按小菜单（剪切/复制/粘贴/全选，读模式
+                         仅复制/全选）。未读完点 ✎ 会先自动续读到底再进编辑。
+                         2.32：📂 浏览页「向上级跃迁」——方向键/⬆/面包屑不再限于
+                         工作台根内，可一路到磁盘根、浏览整台电脑（工作台仅作默认
+                         出发点）；只在工作台内才记忆目录，跃迁到上级是临时的，
+                         下次自动回工作台。面包屑改按绝对路径逐级可点。
+                         2.31：TXT 阅读器字号改 A- / A+ 双按钮手动调节（中间
+                         显示当前号数），下限 6 号、上限 24 号（用户 2026-10-05）。
+                         2.30：📂 浏览页——① 记忆上次查看目录（localStorage
+                         trae_webm_bench_last），点 📂 直落上次目录，目录失效
+                         自动回落根；② 顶部路径改「可点击面包屑」（📂 根 › 一级
+                         › …，点任一级回退该上级）。
+                         2.29：benchOpen 先关闭可能盖在上面的文件阅读器，
+                         修「先开文件再弹文件夹→文件夹被阅读器遮住」。
+                         2.28：本地主动弹窗展示——事件总线消费 bench_open
+                         （mode=file 走阅读器、mode=dir 走浏览页 benchOpen）。
+                         2.27：📂 浏览页文件阅读（点文件名→远程读文本，
+                         按需 FOX 分段回传；文件行加 ➕ 插路径）。
+                         2.26：FOX 单段正文上限 10KB→15KB（两端同步，对齐中继
+                         16KB 硬限，留 64B 安全边）。
+                         2.25：act 上行统一闸门——三条约束收口（3 秒全局节流 /
+                         仅当前选中会话 / 橙灯才发、发后清本地未读即停），三处
+                         发送点改为调用 actSend()，删旧 800ms 局部节流。
+                         2.24：附属文件（样式 + 19 个 js）收进子目录
+                         TRAE同步显示与控制工具_网页端/，入口 HTML 路径不变
+                         （防与同仓其他项目混名/被覆盖）。
+                         2.22：消息时间以服务端为准——resolveTimes 优先读 msgs
+                         第 6 位（服务端盖好的北京秒级串）直接显示，不再本地
+                         打戳（本地戳受手机时区/首见时刻影响）。无第 6 位回退
+                         旧本地逻辑。
+                         2.21：新增【AI 提问卡】——(@fox-ask1)...(@fox-ask2) 包夹段
+                         渲染成醒目琥珀色提问卡（左粗条+暖底+加粗），复用语音卡
+                         同一套 ▶ 播放/TTS 通道，可直接听题。用途：AI 向用户/
+                         其他 AI 提问时醒目可见、便于及时作答（用户 2026-10-01）。
+                         2.20：网页端【锚定】——取消"跟随"，网页版守住自己锚定的
+                         会话，别人在电脑版（含会话路由器临时占用）切到别的会话
+                         也不跟着跳（adoptSnap：来拍快照选中 != 锚定即冻结正文类
+                         字段、只并入会话列表，选中标志改写到锚定行）；点会话行
+                         即换锚；发送/插话附 anchor 供服务端"以网页版为尊"归还。
+                         2.19：分身状态页新增「一键换号迁移」按钮——填目标号码后由
+                         服务端一站式完成「原版换号（沙盒启动器 origin-login）+
+                         对话记录智能迁移（把最重度账号全部会话换新ID 并入）」；
+                         进度经 switch_migrate 事件流回投（阶段+逐行日志），
+                         分身掉线自动拉起助手补登录、收尾自动关掉拉起的窗口。
+                         2.18：分身状态页每行新增「补登录」按钮——借服务端
+                         「谷歌分身助手 / T登录助手」HTTP 接口对指定分身发起
+                         自动登录（服务端可选自动拉起分身助手）；结果经
+                         profiles_login 事件回投提示。
+                         2.17：发送/插话改走「会话路由器」route_send——
+                         带目标会话稳定 sid 自动找上门、到点才临时占用 TRAE
+                         输入框发一条、发完即走（不再长期霸占）；残留取回
+                         退回本端输入框，服务端整段路由事务串行原子执行 */
+/* 1.85 版本自愈（镜像 CLI 版 1.45）：GitHub Pages 缓存旧 html 约10分钟，
+   升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
+   不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
+   首次访问只记录不刷。 */
+try {
+  const _VK = 'trae_webm_ver_seen', _pv = localStorage.getItem(_VK);
+  localStorage.setItem(_VK, VER);
+  if (_pv !== null && _pv !== VER)
+    location.replace(location.href.split('?')[0] + '?v=' + VER);
+} catch(e){}

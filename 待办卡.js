@@ -41,7 +41,10 @@ function pendAdd(kind, text){
    老卡（IDB 恢复等无 body）现场剥首行 DID 兜底。 */
 function pendBody(p){
   if (!p) return '';
-  return (p.body != null) ? p.body : stripHeadDid(p.text);
+  /* 2.164：卡文本可能来自服务端 pend 回显 / IDB 旧格式 / 别端投递（带四段尾巴）——
+     卡面、复制、改写、重发四个出口都吃这里，收口于此一次剥净。 */
+  const raw = (p.body != null) ? p.body : stripHeadDid(p.text);
+  return foxStripTail(String(raw == null ? '' : raw));
 }
 
 function pendStat(p){
@@ -60,6 +63,9 @@ function pendStat(p){
   /* 2.90（老板夜间令 B10/C7）：接服务端 rcpt 的 ④ 终态——done 完成 / fail 失败
      （失败如实显示服务端 msg；配对按真 DID，见 事件总线.js onRcpt）。 */
   if (p.state === 'done')    return ['✅ 服务器已完成，等待聊天记录浮现…', 'ok'];
+  /* 2.178 Y26：done 超 15s 正文还没浮现 → 灰态降级（不再让人对着「已完成」
+     干等；卡还在＝销卡三渠道都没命中，允许手动丢弃/重发）。 */
+  if (p.state === 'stale')   return ['已送达（未同步显示），可丢弃或重发', 'gray'];
   if (p.state === 'fail')    return ['⚠ 服务器执行失败：'
                                     + (p.failMsg || '未知原因'), 'bad'];
   /* 1.25：占位不再自动超时（插话等多久都正常）；timeout 仅剩
@@ -92,12 +98,9 @@ function renderPending(){
     const st = pendStat(p);
     const d = document.createElement('div');
     d.className = 'msg user pend ' + st[1];
-    /* 2.93（老板 2026-10-20 07:10）：占位卡补上老板自己的时间（取首行 DID 的
-       14 位时间，见 通用工具.js didTimeOf），用专属元素 .ptm 且常显——不复用
-       .tm（.tm 属普通消息行）。 */
-    const _pTm = didTimeOf(p.did || p.text);
+    /* 2.206（老板最终合并口径）：占位卡还没有消息 ID（mid），故不显示任何时间——
+       14 位 DID 编号不再当作显示时间。 */
     let h = '<div class="who">我'
-          + (_pTm ? '<span class="ptm">' + esc(_pTm) + '</span>' : '')
           + '<span class="pstat">' + esc(st[0]) + '</span>';
     /* 1.83：出口恒亮——服务端"耳聋"（命令已发出却一个回执都收不到）时
        卡片会永久停在中间态（1.25 起刻意无自动超时），原来按钮只在
@@ -178,6 +181,11 @@ function renderPending(){
    到期仍未销卡才转「⚠ 可能未送达」（卡片绝不早撤）。 */
 const PEND_DID_TMO = 24 * 3600 * 1000;
 
+/* 2.178 Y26（连发占位滞留）：rcpt done 超 15s 正文仍未浮现 → 降级灰态
+   stale「已送达（未同步显示）」，允许手动清除；真消息入流（DID 命中）时
+   pendLandingScan 照常销卡，灰态只是降级显示、不改销卡判据。 */
+const PEND_DONE_STALE_MS = 15000;
+
 /* v2.82：按 DID 撤卡——命中本卡 did 即撤（可选按会话名 conv 收紧，防跨会话
    误销）。返回 true 表示有变化需重画。 */
 function pendClearByDid(did, conv){
@@ -185,14 +193,63 @@ function pendClearByDid(did, conv){
   let changed = false;
   const keep = [];
   S.pending.forEach(p => {
-    if (p.did && p.did === did){
-      if (conv && p.conv && p.conv !== conv){ keep.push(p); return; }
-      changed = true; return;                                 /* 命中即撤 */
-    }
+    /* 2.167（硬伤3）：DID 命中＝就是本人这一条，**会话名不再当否决条件**。
+       旧写法 `p.conv !== conv` 直接留着卡：首条消息发进一个全新会话时 TRAE
+       随后会自动改会话名，名字一变，即便 DID 已命中也不撤（老板最在意的现象）。
+       conv 参数保留只为兼容旧调用点；「DID 没命中、靠会话名兜底」的路径在
+       pendReconcile（本函数只负责 DID 命中即撤）。 */
+    if (p.did && p.did === did){ changed = true; return; }    /* 命中即撤 */
     keep.push(p);
   });
   if (changed) S.pending = keep;
   return changed;
+}
+
+/* V2 验收 Y5（2026-11-18）：撤卡渠道①③收口成函数——旧实现只在事件总线
+   全量 snap 分支内联扫描；账本V1.0 模块化模式正文改走 snap_pane／mod think
+   帧，那条路不扫 DID ⇒ 「✅ 服务器已完成，等待聊天记录浮现…」的卡永远
+   撤不掉（只剩 24h 兜底）。本函数＝①本帧对话记录人类发言首行 DID ＋
+   ③官方排队条（调用方保证已过滤为本会话）两渠道，命中即销卡。
+   返回 true 表示有销卡，调用方负责 renderAll。 */
+function pendLandingScan(msgs, pendArr){
+  let ch = false;
+  (msgs || []).forEach(m => {                /* ① 只扫人类发言（role=u） */
+    if (!m || m[0] !== 'u') return;
+    const d = pendDidOf(m[1]);
+    if (d && pendClearByDid(d, '')) ch = true;
+  });
+  (pendArr || []).forEach(it => {            /* ③ 官方排队条 */
+    const d = pendDidOf(it && it.t) || (it && it.id) || '';
+    if (d && pendClearByDid(d, '')) ch = true;
+  });
+  return ch;
+}
+
+/* ============ 2.203（老板 2026-11-19 22:02 令）：撤「页面选中与服务器选中不一致」提醒 ============
+   旧 2.178~2.180 的底部橙色胶囊 #anchint（「点此对齐 / 点此重试」）连同 2s 巡检
+   anchorCheck、末次点击意图 S.pendIntent 判定整块撤除，界面不再弹任何同义提醒。
+   新口径（机会充足：每条上行都带当前会话、切换/刷新自愈、快照每拍都会再核）：
+   ① 我是 1 号网页用户（服务端操控锁持有者＝本人）：发现服务器选中 ≠ 页面选中，
+      且没有别人正在借用输入框、也没有切换在途 → 静默发 switch 把桌面切回
+      【页面选中的会话】（不提示、不弹条）；
+   ② 我不是 1 号（2 号/3 号）：不提醒、也不抢切（避免抢别人操控）。 */
+const _anchHeal = {key: '', t0: 0, sent: 0};
+/* 快照到达（事件总线.js 快照分支调）：只做上面的静默自愈，不产出任何界面元素 */
+function anchorSelfHeal(liveKey){
+  if (!(typeof hostIsFirst === 'function' ? hostIsFirst() : true)) return;  /* ② 非 1 号 */
+  if (S.inputBusy || S.switch_pend) return;                    /* 有人借框/切换在途：不抢 */
+  if (!liveKey || !S.anchorSid || !S.anchorFull) return;
+  if (liveKey === S.anchorSid){                                 /* 已一致：清状态 */
+    _anchHeal.key = ''; _anchHeal.t0 = 0;
+    return;
+  }
+  const now = Date.now();
+  if (_anchHeal.key !== liveKey){ _anchHeal.key = liveKey; _anchHeal.t0 = now; }
+  if (now - _anchHeal.t0 < 2000) return;      /* 连拍确认，防快照抖动误发 */
+  if (now - _anchHeal.sent < 8000) return;    /* 8s 限频，防连发 */
+  _anchHeal.sent = now;
+  try { sendCmd('switch', S.anchorFull); } catch(e){}
+  try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull); } catch(e){}
 }
 
 /* 占位卡生命周期检查（快照到达/定时巡检调用）。
@@ -215,6 +272,12 @@ function pendReconcile(_msgs){
     const _age = now - (p.ts || now);
     if (p.state !== 'timeout' && _age > PEND_DID_TMO){
       p.state = 'timeout';
+      changed = true;
+    }
+    /* 2.178 Y26：done 超 15s 未落地 → 转灰态 stale（主路在 事件总线.js
+       onRcpt 的 setTimeout；这里兜底——后台定时器被节流/丢卡重挂时也能转）。 */
+    if (p.state === 'done' && p.doneAt && now - p.doneAt > PEND_DONE_STALE_MS){
+      p.state = 'stale';
       changed = true;
     }
     /* 本专项 C3/R7：卡所属对话已不存在 → 卡片不消失，只弹一次提醒
@@ -270,13 +333,13 @@ function sameConvBody(msgs, prevMsgs){
    · waiting   ：命令已发出，未收到服务器 switch_ack → 「等待服务器回应…」
    · switching ：已收 switch_ack → 「正在切换中…」
    · ok        ：已收 switch_ok（或兜底判到达）→ 「切换成功」，2s 后交回状态灯
-   · fail      ：switch_fail 或满 60s 无 ok → 「切换失败」
-   期间 waiting 阶段保留一次兜底补发（服务端同目标幂等），满 60s 判失败。
+   · fail      ：switch_fail 或满 90s 无 ok → 「切换失败」
+   期间 waiting 阶段保留一次兜底补发（服务端同目标幂等），满 90s 判失败。
    2.81：收到服务端 switch_ack（服务器已收到）后即【静默等待】，不再每 10s 补发——
    服务端切换实测要 15~30s，ack→ok 间隙 > 10s，旧逻辑会重复补发 4~5 条
    （点 1 次变 5 条且重复执行）。现仅在 waiting（尚未收到 ack）时兜底补发。 */
 const SWITCH_RESEND_MS  = 15000;   /* 仅 waiting 阶段兜底补发间隔（2.81 放宽，原 10s） */
-const SWITCH_TIMEOUT_MS = 60000;   /* 满 60s 未成功 → 判失败 */
+const SWITCH_TIMEOUT_MS = 90000;   /* 满 90s 未成功 → 判失败（2.176 老板令：60s→90s 口径） */
 const SWITCH_OK_SHOW_MS = 2000;    /* 「切换成功」闪现时长，随后交回状态灯 */
 const SWITCH_HANG_MS = SWITCH_TIMEOUT_MS;   /* 兼容旧引用（原 24s 墙钟兜底） */
 
@@ -294,13 +357,20 @@ function _swMatch(sp, v){
   if (sp.title && v.title) return sp.title === v.title;
   return true;
 }
-/* 重置「补发 + 60s 超时」两只定时器（进入 waiting 或收到回执时调）。
+/* 重置「补发 + 90s 超时」两只定时器（进入 waiting 或收到回执时调）。
    2.81：补发只在 waiting 阶段武装；进入 switching（已收 ack）不再补发，
-   仅保留 60s 超时兜底——实现「知道服务器已接收就安静等待」。 */
+   仅保留 90s 超时兜底——实现「知道服务器已接收就安静等待」。
+   V2 验收 Y2（2026-11-18）：死线改为【绝对时刻】sp.ts0（本轮切换
+   起点算一次）——旧写法每次重 arm 都重设满 60s，只要 15s 补发一直续命
+   就永不触发超时（规范§三「60 秒全链路唯一口径」被架空；2.176 起该
+   口径更新为 90 秒）。现改为 ts0+90s 到点必出终态，补发只重置补发
+   间隔、绝不延长死线。 */
 function switchReArm(){
   const sp = S.switch_pend; if (!sp) return;
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
-  sp._tmoT = setTimeout(switchTimeout, SWITCH_TIMEOUT_MS);
+  if (!sp.ts0) sp.ts0 = Date.now();            /* 死线锚点：新建 sp 时算一次 */
+  const left = sp.ts0 + SWITCH_TIMEOUT_MS - Date.now();
+  sp._tmoT = setTimeout(switchTimeout, Math.max(1, left));
   if (sp.phase === 'waiting')
     sp._resendT = setTimeout(switchResend, SWITCH_RESEND_MS);
 }
@@ -313,7 +383,7 @@ function switchResend(){
 }
 function switchTimeout(){
   const sp = S.switch_pend; if (!sp || sp.phase === 'ok') return;
-  switchFail(sp.title);                 /* 满 60s 未成功 → 宣布失败 */
+  switchFail(sp.title);                 /* 满 90s 未成功 → 宣布失败 */
   switchClear();
   /* 2.98（老板 2026-10-20 10:01「失败也继续锚定目标」）：超时＝失败，也【不】撤
      「直播帧覆盖」——保留目标会话本地存帧显示（收口在 switchClear，见下）。 */
@@ -346,6 +416,8 @@ function switchClear(){
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
   S.swHold = false;         /* 2.97：切换收口 → 松开持屏，回落真快照 */
+  /* V2 第三轮 Y22：切换出终态 ⇒ 即时解冻主动核对（不等 90s 兜底） */
+  if (typeof lbUnfreeze === 'function') { try { lbUnfreeze(); } catch(e){} }
   /* 2.98（老板 2026-10-20 10:01「失败也继续锚定目标」·与本文相反）：切换【失败】
      不再回退到切换前的旧会话 A——锚定保持在本目标会话，页面继续显示目标会话的
      本地存帧（保留目标锁，见下方 livePend 分支），直至目标真直播帧到达才收口。
@@ -377,10 +449,17 @@ function switchAbort(){
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT); clearTimeout(sp._okT);
   S.switch_pend = null;
   S.swHold = false;         /* 2.97：一并松开持屏 */
+  /* V2 第三轮 Y22：异常收口同样解冻（换服务端/命令报错路径） */
+  if (typeof lbUnfreeze === 'function') { try { lbUnfreeze(); } catch(e){} }
   return true;
 }
 function pendSwitchSet(title, sid, ref, opt){
   title = title || ''; sid = sid || '';
+  /* V2 第三轮 Y22（2026-11-19）：点会话落笔即冻结主动核对——不等 vcheck 真发。
+     WS 未连时 ledgerVcheckSend('switch') 早退，旧实现 frozen 从未置位 ⇒ 断链
+     切换期间 timer 照发（ST 实抓 60.76s 窗漏 1 条）。终态（vack stage:2 /
+     90s 兜底 / switchClear）由 lbUnfreeze 解冻。 */
+  if (typeof lbFreezeOnSwitch === 'function') lbFreezeOnSwitch();
   /* 1.10：同目标幂等（本地点击与服务端广播都会调，刷新计时即可，
      不重复渲染）；v1.95：有稳定 ID 时按 ID 判同目标（改名也算同一目标） */
   const same = S.switch_pend && (sid && S.switch_pend.sid
@@ -390,14 +469,30 @@ function pendSwitchSet(title, sid, ref, opt){
     S.switch_pend.ts = Date.now();
     S.switch_pend.sid = sid || S.switch_pend.sid;
     if (ref !== undefined) S.switch_pend.ref = ref;
+    /* 2.180 Y31（次因）：同目标复用旧 sp——只有本端主动动作（opt.lockTarget：
+       点击会话行/开机锚定）才算「新一轮意图」，重置 ts0 重排 90s 死线；
+       服务端广播回显（事件总线.js 调用不带 lockTarget）绝不刷 ts0，否则
+       绝对死线防续命设计被架空（15s 补发只要持续回显就能永活）。 */
+    if (opt && opt.lockTarget){
+      S.switch_pend.ts0 = Date.now();
+    }
     fullsCheckRearm(title);             /* 1.xx：重启 15s 判空 */
-    switchReArm();                      /* v2.67：重置补发/超时 */
+    switchReArm();                      /* v2.67：重置补发/超时（ts0 只重排，绝不延长） */
     return;
   }
   /* 2.89（老板 2026-10-20）：网页端自己点会话切换时带 opt——
        lockTarget=true：切换过渡期锁死目标（正文一律以目标帧为准，见 缓存.js
                         _liveLockOn / 事件总线.js）；
        prevAnchor/prevMsgs：切换前的锚定与正文，失败时回退用（见 switchClear）。 */
+  /* 2.180 Y31（高危·ST 实测第二/三次切换 49.21s/12.75s 误收口）：换目标把
+     S.switch_pend 整体替换前，必须先清旧 sp 的三只定时器——旧 90s 死线
+     timer 存活到点后，switchTimeout 读的是【当前】S.switch_pend（新 pend）
+     ⇒ 把新一轮切换误杀。与 switchAbort（:499-507）同款收口。 */
+  if (S.switch_pend){
+    clearTimeout(S.switch_pend._resendT);
+    clearTimeout(S.switch_pend._tmoT);
+    clearTimeout(S.switch_pend._okT);
+  }
   S.switch_pend = {title: title, sid: sid,
                    ref: (ref !== undefined ? ref : (sid || 0)),
                    ts: Date.now(), fp0: msgsFp(S.snap.msgs),
@@ -425,7 +520,7 @@ function pendSwitchSet(title, sid, ref, opt){
 /* 1.xx：被动「切换后 15s 内容仍空」检测——到点若还在切换中且消息区空、
    WS 连通，弹确认框问是否查询最大化压制；用户确认才发 check_fulls
    （每切换只问一次，不自动查）。 */
-const FULLS_CHECK_DELAY = 15000;
+const FULLS_CHECK_DELAY = 30000;
 function fullsCheckRearm(title){
   clearTimeout(S._fullsCheckTimer);
   S._fullsCheckTimer = setTimeout(() => fullsCheckFire(title),
@@ -438,7 +533,7 @@ function fullsCheckFire(title){
   if (!empty) return;                    // 内容已到，不打扰
   if (!S.onLine) return;                 // 仅 WS 连通时才问（网络正常前提）
   confirmFulls(
-    '切换对话超过 15 秒仍未载入内容，是否查询是否有窗口最大化/全屏压制原版渲染？',
+    '切换较慢（已先显示本地缓存的最新一轮）…若长时间无内容，可检查窗口最大化/全屏压制',
     () => srvOpSend('check_fulls', null, '查询全屏'));   // 2.109：②＋rcpt ③④
 }
 /* 2.67：旧名保留为别名（切在途清理由 switchClear 统一收口，含定时器） */
