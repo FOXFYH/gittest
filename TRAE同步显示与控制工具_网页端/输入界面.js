@@ -1,4 +1,61 @@
 'use strict';
+/* ===== 2.261（老板令）：横幅＝切换过程唯一提醒 =====
+   S.banner={text,ts} 由 setBanner() 写入，renderState() 以最高优先级显示；
+   文案已含会话名则原样，否则统一追加「 · 会话名」——任何状态都不许丢会话名。
+   ⑤「核对成功」要等补发消息全部渲染完（600ms 无重画）再落，60 秒兜底强制落。 */
+function setBanner(text){
+  const t = String(text == null ? '' : text).trim();
+  clearTimeout(S.bannerClearT);
+  S.banner = t ? {text: t, ts: Date.now()} : null;
+  try { renderState(S.snap || {}); } catch(e){}
+}
+/* 横幅到点自动收起（仅当仍是同一文案，不误清后续新状态） */
+function clearBannerLater(text, ms){
+  clearTimeout(S.bannerClearT);
+  S.bannerClearT = setTimeout(function(){
+    if (S.banner && S.banner.text === text) setBanner('');
+  }, ms || 0);
+}
+function _bannerLine(){
+  const t = String((S.banner && S.banner.text) || '');
+  if (!t) return '';
+  const ct = (typeof curTitle === 'function' ? String(curTitle() || '') : '').trim();
+  if (!ct || t.indexOf(ct) >= 0) return t;
+  return t + ' · ' + ct;
+}
+/* vack stage2 到达：不立刻显示「核对成功」，等补发渲染静默 600ms / 60 秒兜底 */
+let _bannerPendTimer = 0;
+function bannerPendSuccess(){
+  S.bannerPending = '核对成功';
+  S.bannerPendAt = Date.now();
+  S.bannerPendSeen = Date.now();
+  S.bannerPendTick = S.renderTick | 0;
+  if (!(S.banner && /^切换成功/.test(S.banner.text || ''))) setBanner('切换成功，正核对…');
+  if (!_bannerPendTimer) _bannerPendTimer = setInterval(_bannerPendStep, 200);
+}
+function _bannerPendStep(){
+  if (!S.bannerPending){
+    if (_bannerPendTimer){ clearInterval(_bannerPendTimer); _bannerPendTimer = 0; }
+    return;
+  }
+  const now = Date.now();
+  const tick = S.renderTick | 0;
+  /* 差额补发在途（sp.need）：继续等实体帧；否则按「无新帧、无重画」静默 600ms 判完成 */
+  if (S.switch_pend && S.switch_pend.need){
+    S.bannerPendTick = tick; S.bannerPendSeen = now;
+  } else if (tick !== S.bannerPendTick){
+    S.bannerPendTick = tick; S.bannerPendSeen = now;
+  } else if (now - S.bannerPendSeen >= 600){
+    _bannerPendLand(); return;
+  }
+  if (now - S.bannerPendAt >= 60000) _bannerPendLand();   /* 60 秒兜底强制落 */
+}
+function _bannerPendLand(){
+  if (_bannerPendTimer){ clearInterval(_bannerPendTimer); _bannerPendTimer = 0; }
+  S.bannerPending = '';
+  setBanner('核对成功');
+  clearBannerLater('核对成功', 2500);
+}
 /* 2.64：手势窗口——只有真实人类输入（触屏滑动 / 滚轮 / 按键）之后的短时间内，
    滚动才被当作「人滚的」。程序化滚动（innerHTML='' 把 scrollTop 夹回 0、
    scrollTop=savedTop、fprog）**不产生手势事件**，因而不可能被误判成
@@ -183,7 +240,7 @@ function revertRefill(snap){
        就地净化一次（DID 头 ＋ 四段/FOX 标记）；没标记时一个字不动。
        TR-05(b)：上一次回退带进来的脏值正占着框，旧实现直接跳过 → 脏值一直留着。 */
     const cur = el.ent.value;
-    const fixed = foxStripTail(stripHeadDid(cur));
+    const fixed = (typeof foxCleanTake === "function") ? foxCleanTake(cur) : foxStripTail(stripHeadDid(cur));
     if (fixed !== cur){
       el.ent.value = fixed;
       refreshSendBtn();
@@ -265,6 +322,20 @@ function renderState(snap){
   /* 2.106（B）：online=false 连续性计时——只驱动「提示门槛」，不再作发言闸门。 */
   if (_online) S.notReadySince = 0;
   else if (!S.notReadySince) S.notReadySince = Date.now();
+
+  /* 2.261（老板令）：横幅＝切换过程唯一提醒，最高优先级；任何状态都不许丢会话名。
+     S.banner={text,ts} 由 setBanner() 写入，_bannerLine() 统一补「 · 会话名」。 */
+  const _bl = (typeof _bannerLine === 'function') ? _bannerLine() : '';
+  if (_bl){
+    el.state.textContent = _bl;
+    el.state.style.color = /失败/.test(_bl) ? 'var(--red)'
+      : (/核对成功|切换成功/.test(_bl) ? 'var(--green)' : 'var(--blue)');
+    refreshSendBtn();
+    renderLoginBar(snap);
+    _stTxt = el.state.textContent;
+    fbarSync();
+    return;
+  }
 
   /* 真离线（本端没连中转 / 没选服务端 / 服务端久无响应）——如实即时提示（非瞬态误报）；
      但【不再本地禁发言】（2.106 B）：真离线时发送由 srvNeedOnline 如实拦下（命令不发出）。 */
