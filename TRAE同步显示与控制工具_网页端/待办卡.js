@@ -347,12 +347,9 @@ const SWITCH_TIMEOUT_MS = 90000;   /* 满 90s 未成功 → 判失败（2.176 �
 const SWITCH_OK_SHOW_MS = 2000;    /* 「切换成功」闪现时长，随后交回状态灯 */
 const SWITCH_HANG_MS = SWITCH_TIMEOUT_MS;   /* 兼容旧引用（原 24s 墙钟兜底） */
 
-/* 在途切换的目标 ref（稳定 ID 优先，其次序号）——补发用 */
+/* 在途切换的目标 ref＝唯一锚定的完整 sid（2.261：禁止下标，索引一律拒发） */
 function switchRef(){
-  const sp = S.switch_pend;
-  if (!sp) return 0;
-  return (sp.ref !== undefined && sp.ref !== null && sp.ref !== '')
-    ? sp.ref : (sp.sid || 0);
+  return S.anchorFull || '';
 }
 /* 目标匹配：双方都有 sid 按 sid，否则按 title（服务端回执可能只带其一） */
 function _swMatch(sp, v){
@@ -381,7 +378,9 @@ function switchReArm(){
 function switchResend(){
   const sp = S.switch_pend; if (!sp) return;
   if (sp.phase !== 'waiting') return;   /* 2.81：仅 waiting 补发；收 ack 后静默 */
-  sendCmd('switch', switchRef());       /* 补发（服务端同目标幂等，不会重复点） */
+  const _ref = switchRef();
+  if (!_ref) return;                     /* 2.261：无锚定完整 sid ⇒ 拒发（绝不下标） */
+  sendCmd('switch', _ref);               /* 补发（服务端同目标幂等，不会重复点） */
   sp.ts = Date.now();
   switchReArm();
 }
@@ -395,6 +394,9 @@ function switchTimeout(){
 /* 成功收口：显示「切换成功」2 秒，然后交回当前状态灯（用户：成功不常驻） */
 function switchOk(){
   const sp = S.switch_pend; if (!sp) return;
+  /* 2.261（老板令·状态时序④）：收到 switch_ok → 横幅「切换成功，正核对…」；
+     已有核对成功 pending 时不再倒回去写旧文案。 */
+  if (!S.bannerPending && typeof setBanner === 'function') setBanner('切换成功，正核对…');
   clearTimeout(sp._okT);
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
   if (sp.phase !== 'ok'){
@@ -472,7 +474,7 @@ function pendSwitchSet(title, sid, ref, opt){
   if (same){
     S.switch_pend.ts = Date.now();
     S.switch_pend.sid = sid || S.switch_pend.sid;
-    if (ref !== undefined) S.switch_pend.ref = ref;
+    S.switch_pend.ref = sid || S.switch_pend.ref || '';   /* 2.261：只存完整 sid，拒绝下标 */
     /* 2.180 Y31（次因）：同目标复用旧 sp——只有本端主动动作（opt.lockTarget：
        点击会话行/开机锚定）才算「新一轮意图」，重置 ts0 重排 90s 死线；
        服务端广播回显（事件总线.js 调用不带 lockTarget）绝不刷 ts0，否则
@@ -498,7 +500,7 @@ function pendSwitchSet(title, sid, ref, opt){
     clearTimeout(S.switch_pend._okT);
   }
   S.switch_pend = {title: title, sid: sid,
-                   ref: (ref !== undefined ? ref : (sid || 0)),
+                   ref: sid || '',   /* 2.261：只存完整 sid，索引下标一律拒发 */
                    ts: Date.now(), fp0: msgsFp(S.snap.msgs),
                    phase: S.onLine ? 'waiting' : 'connecting',
                    lockTarget: !!(opt && opt.lockTarget),
