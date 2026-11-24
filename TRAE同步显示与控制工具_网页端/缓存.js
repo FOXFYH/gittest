@@ -683,9 +683,12 @@ function _frameMsgs(msgs, idle){
     if (!Array.isArray(m)) return;
     const r = m.slice();
     if (m[0] === 'a'){
-      /* '提前终极'/'补记' 是来源标记不是正文，正文保持后端原文。 */
+      /* '提前终极'/'补记'/'账本定稿' 是来源标记不是正文，正文保持后端原文。
+         2.272：服务端 ledger 补发用 '账本定稿' 标 fin=1，原样当正文会让主界面
+         AI 终极回复只剩四个字（小账本却正常）。 */
       const fin = (m.length > 7) ? String(m[7] || '').trim() : '';
-      if (fin && fin !== '补记' && fin !== '提前终极') r[1] = fin;
+      if (fin && fin !== '补记' && fin !== '提前终极' && fin !== '账本定稿')
+        r[1] = fin;
     }
     out.push(r);
   });
