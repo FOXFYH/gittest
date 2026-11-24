@@ -50,7 +50,6 @@ const S = {
   /* ===== 2.20 新架构：请求-响应 + 本地缓存 ===== */
   srvVer: '0',          /* 服务端版本号（hello 的 d.ver），拼缓存键用 */
   histConv: '',         /* 当前已拉取历史的会话标题（防重复发 req） */
-  histMsgs: null,       /* 本地缓存渲染数组 ['u'|'a',文本,tm,rev,del] */
   histRaw: [],          /* 账本原始记录 [{seq,role,text,tm,can_rev,can_del}] */
   histVer: 0, histHave: 0,   /* 游标：会话版本号 + 已存到的 seq */
   histLoadingPrev: false,    /* 向上补拉老历史防重入 */
