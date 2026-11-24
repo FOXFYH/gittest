@@ -1,5 +1,10 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.051  日期 2026-11-24
+/* 账本核对.js（网页端）  版本 1.052  日期 2026-11-24
+   【1.052 timer 静默令（老板 2026-11-24 19:35）】思维流变化大、经常推属正常
+     高频；其余模块不该有周期性反复核对/上报。故 timer 主动核对降为**变化触发**：
+     每 90s 到点先在本地按同口径构建一帧并取内容指纹（mods 全模块＋ledger 摘要
+     ＋thinks＋锚定 sid），与上一条已发 timer 一致 ⇒ 不发不查（LB.lastTimerSig），
+     内容变了才发。90s 周期只剩本地指纹计算的零流量开销；协议帧结构不动。
    【1.051 lbkeep 连续链裁剪】服务端 vcheck 模块化对账后下发 t:'lbkeep'
      {sid,keep:[…],del:[…]}：只删本地唯一账（snap_conv）该会话 del 里的 mid
      （keep 保留），删完重建 lbSum 与 snap_conv 记录；无该会话/空指令静默。
@@ -52,6 +57,7 @@
      全量保留，新旧并行，联调期互为兜底）。 */
 const LS_LBVER = 'trae_webm_lbver';          /* 版本底账落盘（按服务端隔离） */
 let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
+          lastTimerSig: '',                  /* 1.052（老板 2026-11-24 19:35 令·静默令）：上一条 timer 帧内容指纹——没变就不发 */
           frozen: false, frozenT: null,      /* frozen＝切换期间核对冻结（追加单 2026-11-18，取代 20s 叠加） */
           lbHave: new Set(),                 /* V2 验收 Y11：本地【真存】会话集合——ledger 上报只认它，收帧记下的版本不算存 */
           lbSum: {},                         /* 2.184 改4（规范§七 :194）：本地账本摘要表——键＝终身号，
@@ -579,6 +585,18 @@ function ledgerVcheckSend(act, sid){
     if (!S.onLine || !ws || ws.readyState !== 1) return false;
     if (act === 'login' || act === 'svr') lbVerLoad();   /* 换服务端/重登：按当前服务端重载底账，绝不串用旧服务端版本 */
     const _fr = ledgerVcheckBuild(act, sid);
+    /* 1.052（老板 2026-11-24 19:35 令·静默令）：timer 主动核对降为变化触发——
+       本轮帧内容（mods 全模块＋ledger 摘要＋thinks＋锚定 sid）与上一条已发
+       timer 完全一致 ⇒ 本地指纹没变就不发不查（纯本地构建开销，零网络流量），
+       倒计时照常起算、下轮再比；内容变了（收到新帧落账/服务端底账刷新/
+       思维流推进）才捎带上报。login/switch/svr 本就是变化契机不比对；
+       协议帧结构一字不动，只调节奏；思维流实时推不受影响。 */
+    if (act === 'timer'){
+      const _sig = JSON.stringify({m: _fr.mods, th: _fr.thinks || null,
+                                   sid: String(sid || '')});
+      if (_sig === LB.lastTimerSig) return false;
+      LB.lastTimerSig = _sig;
+    }
     sendJson(_fr);
     /* 2.234（老板 2026-11-20 23:42）：核对一律不再弹框/闪条——
        用户可见的只有两处轻提示：① 顶部横幅「核对中 · 会话名」（仅用户主动
