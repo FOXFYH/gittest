@@ -2,7 +2,7 @@
 /* 2.69：TTS 通道分层（用户 2026-10-07）——网页端 WS 直连 TTS 专属频道为
    **默认通道**；服务端「本机 TTS 中转」保留为**备用兜底**，仅在直连走不通时
    才回落（服务端仅被动响应 t=='tts'）。频道名 = 固定前缀 'TTS' + 同一把密钥
-   （与主频道共用、自动拼接、用户只输一次），故项目复制到任何电脑都能连上
+   （与主集群共用、自动拼接、用户只输一次），故项目复制到任何电脑都能连上
    「任何一台开着 TTS 的电脑」。遵守《13_软件外连联网如WebSocket等规范》：
    · 免心跳：连上后不发 ping / 不 hello / 不 login，全程静默（省流省电）；
    · 有工作在喊：只在点 ▶ / 试听时才发 FOX 帧，音频回完即归静默；
@@ -27,10 +27,15 @@ const TTS_GRACE = 30000;                     // 30 秒：一条线路无任何�
 function ttsChannelUrl(){
   const u = new URLSearchParams(location.search).get('tts');
   if (u) return u;                          // ?tts= 高级覆盖（不改持久化）
-  const key = chanGet('main');              // 与主频道同一把密钥（用户只输一次）
-  return WS_URL_TMPL.replace('%s', TTS_PFX + key);   // TTS 恒挂账号A(free.blr2)
+  /* 2.260：TTS 线必须跟随「当前选中集群」——主集群用 WS_URL_TMPL，
+     副集群用 WS_URL_TMPL2；频道名同取 chanGet(curSel())，绝不挂旧线。 */
+  const sel = curSel();
+  const key = chanGet(sel);
+  const tmpl = (sel === 'backup') ? WS_URL_TMPL2 : WS_URL_TMPL;
+  return tmpl.replace('%s', TTS_PFX + key);
 }
 let ttsWs = null, ttsOnLine = false, ttsReconnectTimer = null;
+let _ttsSel = '';                            /* 2.260：这条 TTS 线所属集群（main/backup） */
 let ttsFailStreak = 0, ttsDeadline = 0;
 const TTS_BACKOFF = [2000, 4000, 8000];      // 逐次退避（13.3）
 const TTS_DEADLINE = 60000;                  // 单链路总时限（13.3）
@@ -64,6 +69,14 @@ function ttsWatchdog(id){
   if (!_tts_pend[id]){ if (f) delete _tts_fb[id]; return; }
   if (!f) return;
   f.wd = null;
+  /* 2.260：这条 TTS 线属于旧集群 → 丢弃旧线（绝不补发到旧线），重建到当前集群后
+     由 ttsFlushWait 走新线；本请求重新挂 30 秒看门狗。 */
+  if (_ttsSel !== curSel()){
+    f.line = ''; f.used = false;
+    ttsConnect();
+    _ttsArmWatch(id);
+    return;
+  }
   const wsReady = ttsOnLine && ttsWs && ttsWs.readyState === 1;
   if (f.line === 'ws'){
     /* WS 已发但 30 秒无回执 → 串行改走服务端（仅此一次） */
@@ -90,6 +103,8 @@ function ttsRoute(id, seg, payload){
      回执才串行回落服务端本机中转。返回 true = 已由直连真正发出。 */
   const j0 = _tts_pend[id];
   if (j0) j0.text = payload.text;  // 试听 seg 是占位串，兜底重建 payload 要用真文本
+  /* 2.260：TTS 线不属于当前集群 → 先关旧线、重建到当前集群，本拍绝不发旧线。 */
+  if (_ttsSel !== curSel()) ttsConnect();
   if (ttsOnLine && ttsWs && ttsWs.readyState === 1 && ttsFoxSend(payload)){
     _tts_fb[id] = {wd: null, used: false, line: 'ws'};
     _ttsArmWatch(id);                       // 只走直连；30 秒无回执才切服务端
@@ -113,6 +128,7 @@ function ttsErrorFallback(id){
 function ttsFoxSend(obj){
   /* 把一条 JSON 按 FOX 帧发到 TTS 频道（本链路恒单段，超 64KB 才分段） */
   if (!ttsOnLine || !ttsWs || ttsWs.readyState !== 1) return false;
+  if (_ttsSel !== curSel()) return false;   /* 2.260：旧集群的线，一律不发 */
   const parts = foxSplit(JSON.stringify(obj));
   const mid = foxNewMid();
   const ts = mid.slice(0, 14), rnd = mid.slice(14);
@@ -127,8 +143,10 @@ function ttsFoxSend(obj){
 function ttsConnect(){
   /* 建 TTS 直连（静默：无 ping/无 hello/无 login）。 */
   if (ttsWs){ try { ttsWs.onopen = ttsWs.onmessage = ttsWs.onclose = ttsWs.onerror = null; ttsWs.close(); } catch(e){} }
+  ttsWs = null; ttsOnLine = false;             /* 2.260：先彻底关掉旧线，再按当前集群重建 */
   clearTimeout(ttsReconnectTimer); ttsReconnectTimer = null;
-  if (!chanGet('main')){ ttsWs = null; return; }   // 无密钥：等填完再连
+  _ttsSel = curSel();                          /* 这条线归属当前集群 */
+  if (!chanGet(_ttsSel)){ return; }            // 无密钥：等填完再连
   try { ttsWs = new WebSocket(ttsChannelUrl()); } catch(e){ ttsWs = null; return; }
   const w = ttsWs;
   w.onopen = () => {
@@ -151,6 +169,8 @@ function ttsConnect(){
 }
 function ttsEnsure(){
   /* 需要播报时确保链路就绪：已就绪→true；否则立刻起一次连接并返回 false */
+  /* 2.260：现有线属于别的集群 → 直接重建到当前集群（旧线不可用）。 */
+  if (_ttsSel !== curSel()){ ttsFailStreak = 0; ttsDeadline = 0; ttsConnect(); return false; }
   if (ttsOnLine && ttsWs && ttsWs.readyState === 1) return true;
   ttsFailStreak = 0; ttsDeadline = 0;   // 用户主动要播报 → 重开一次重连窗口
   ttsConnect();
@@ -159,6 +179,8 @@ function ttsEnsure(){
 function ttsFlushWait(){
   /* 直连一通：把仍在等待窗口、还没真正发出的请求立即改走直连（优先 WS），
      并重挂 30 秒看门狗（发过 WS 仍无回执才切服务端）。 */
+  /* 2.260：线不属于当前集群 → 丢弃旧线重建，等新线 open 再补发。 */
+  if (_ttsSel !== curSel()){ ttsConnect(); return; }
   Object.keys(_tts_fb).forEach(id => {
     const f = _tts_fb[id];
     if (!f || f.used || f.line) return;      // 已切线路 / 已发过 WS → 不动
