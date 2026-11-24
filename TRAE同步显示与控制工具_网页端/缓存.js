@@ -510,14 +510,15 @@ function curMsgs(){
                      (typeof curTitle === 'function' ? curTitle() : '')) : [];
     return orderMsgs(_l);
   }
-  const _liveMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs.slice() : [];
-  /* 2026-11-24（老板 10:23「只认小账本」）：正文唯一来源＝当前会话账本 rounds；
-     账本还没到（新会话）才临时用服务端活帧；存帧/标题兜底/预取一律不再上屏。 */
-  const _ledgerMsgs = (typeof lbScreenMsgs === 'function')
+  /* 2026-11-24（老板 10:23「只认小账本」）：正文唯一来源＝当前会话账本 rounds。
+     2.265（老板 2026-11-24 铁令）：撤「账本读空回落服务端活帧」——S.snap.msgs
+     是 WS 直推内容（snap_pane 增量帧/直推人类行会把它污染成单条），回落＝
+     「主界面只剩最新一条、上下文全没了」的旁路；账本读空一律空态，
+     等账本帧/hist 补入后自动渲染，绝不直显直推单条。 */
+  const snapMsgs = (typeof lbScreenMsgs === 'function')
     ? lbScreenMsgs((typeof curSid === 'function' ? curSid() : ''),
                    (typeof curTitle === 'function' ? curTitle() : ''))
     : [];
-  const snapMsgs = _ledgerMsgs.length ? _ledgerMsgs : _liveMsgs;
   const prevRaw = (S.histPrevRaw && S.histPrevRaw.length) ? S.histPrevRaw : [];
   if (!prevRaw.length) return orderMsgs(snapMsgs);
   const prevArr = prevRaw.map(ledToArr);
