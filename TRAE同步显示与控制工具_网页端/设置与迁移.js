@@ -270,11 +270,13 @@ function ttsPreview(){
 }
 if (el.btn_tts_preview) el.btn_tts_preview.onclick = ttsPreview;
 
-/* ============ v1.50：主/副频道切换 + 自动切回探测 ============ */
+/* ============ v1.50：主/副集群切换 + 自动切回探测 ============ */
 function chanRender(){
   if (!el.lbl_chan_q) return;
   const s = curSel();
   const ch = chanGet(s) || '未设置';
+  /* 2.260：切换集群即回填频道名输入框，保存时不会把旧集群的名字写进新集群的键。 */
+  if (el.wsurl) el.wsurl.value = chanGet(s) || '';
   el.lbl_chan_q.textContent = (s === 'backup' ? '副' : '主') + ' • ' + ch;
   el.lbl_chan_q.style.color = (s === 'backup') ? '#b26a00' : 'var(--green)';
   if (el.btn_chan_main) el.btn_chan_main.style.fontWeight = (s === 'main') ? 'bold' : 'normal';
@@ -291,16 +293,27 @@ function setSel(sel){
   try { localStorage.setItem(LS_SEL, sel); } catch(e){}
   chanRender();
 }
-/* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：原「副频道每 15 分钟
-   new WebSocket 探测主频道、恢复即自动切回」整段删除——它本质是第二个频道
-   短暂在线，且不 login 不心跳，纯浪费帧。现改为纯手动：点「主频道」按钮才切回；
+/* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：原「副集群每 15 分钟
+   new WebSocket 探测主集群、恢复即自动切回」整段删除——它本质是第二个频道
+   短暂在线，且不 login 不心跳，纯浪费帧。现改为纯手动：点「主集群」按钮才切回；
    相关定时器与清理函数一并删，不留任何探测定时器或临时连接。 */
 function switchChan(sel){
-  if (sel === curSel()){ flash((sel === 'backup' ? '已处于副频道' : '已处于主频道')); return; }
+  if (sel === curSel()){
+    /* 2.260：已选中本集群但链路未连通（断线/半开/CONNECTING）＝当重连处理，不再只闪文案。 */
+    if (!(ws && ws.readyState === 1)){
+      flash('本集群连接未就绪，正在重连…', 'var(--blue)');
+      connect();
+      return;
+    }
+    flash((sel === 'backup' ? '已处于副集群' : '已处于主集群'));
+    return;
+  }
   const ch = chanGet(sel);
   if (!ch){ flash('⚠ 未设置频道名'); return; }
   setSel(sel);
-  flash((sel === 'backup' ? '已切副频道，重连中…' : '已切回主频道，重连中…'), 'var(--blue)');
+  /* 2.260：若切换会话在途，记下本轮要补发——新连接 open 后由 setOnLine 强制发一次 switch。 */
+  if (S.switch_pend && S.switch_pend.phase !== 'ok') S.switch_pend.phase = 'connecting';
+  flash((sel === 'backup' ? '已切副集群，重连中…' : '已切回主集群，重连中…'), 'var(--blue)');
   connect();                            // 重连到所选频道（connect 内部先 teardownWs 拆旧，绝不两条并存）
 }
 if (el.btn_chan_main) el.btn_chan_main.onclick = () => switchChan('main');
@@ -316,6 +329,7 @@ function buildIdCard(){
   fs.id = 'idcard_fs';
   fs.innerHTML =
     '<legend>本机身份</legend>'
+    + '<div class="row"><button id="btn_cache_mgr" style="flex:1;">缓存管理</button></div>'
     + '<div class="row"><span>软件号（只读）</span><b id="lbl_myid" class="diagv"></b></div>'
     + '<div class="row"><span class="hint">随机生成、随本机持久保存，不可修改（改号会破坏识别与去重）</span></div>'
     + '<div class="row"><label>昵称</label><input id="in_nick" maxlength="40" placeholder="选填，只给人看，如：手机"></div>'
@@ -334,6 +348,15 @@ function buildIdCard(){
     if (f){ f.textContent = '已保存'; f.style.color = 'var(--green)';
       setTimeout(() => { if (f.textContent === '已保存') f.textContent = ''; }, 2500); }
     try { if (S.onLine && typeof cliLogin === 'function') cliLogin('改昵称'); } catch(e){}
+  };
+  /* 2.226（老板令·账本/缓存合并）：原「缓存」页签撤销，改由本机身份旁此按钮打开同一缓存视图。 */
+  const cmgr = document.getElementById('btn_cache_mgr');
+  if (cmgr) cmgr.onclick = () => {
+    try {
+      if (typeof window.cvEnsure === 'function') window.cvEnsure();
+      if (typeof window.cvOpenCache === 'function') window.cvOpenCache();
+      el.netpage.classList.remove('on');
+    } catch(e){}
   };
 }
 buildIdCard();
