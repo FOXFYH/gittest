@@ -265,7 +265,29 @@ function lbSrvKey(){ return String(S.cur || '默认'); }
    「L<本服标识>:<终身号或t:名称>」；同一终身号在别的服务器上是另一本账，
    绝不合并。旧格式键（'lb|名|…'，无 L 前缀）＝未知服务器：保留只读、
    不再并入、不再清理、不再上报。 */
-function lbSrvTag(){ return String(S.curSid || '').trim() || String(S.cur || '默认'); }
+function lbSrvTag(){
+  /* 2.264（老板 2026-11-24「刷新后又看不到、读旧存新」真因）：本服标识必须**稳定**。
+     旧写法 S.curSid||S.cur||'默认'——一刷新/等 hello 时 S.curSid、S.cur 都会短暂为空，
+     同一本账当场被算成「默认」或别的服务器，列表里就看不见了。
+     新口径：① 有 FOX 号→用号，并按服务器名记下「名→号」（同一台机反复进出不再漂移）；
+             ② 只有服务器名→用该名记过的号，退而用名；
+             ③ 身份都还没到→用上次记下的号；实在没有才「默认」。 */
+  var nm = '', fox = '';
+  try { nm = String((typeof S !== 'undefined' && S && S.cur) || '').trim(); } catch(e){}
+  try { fox = String((typeof S !== 'undefined' && S && S.curSid) || '').trim(); } catch(e){}
+  try {
+    if (fox && nm) localStorage.setItem('trae_webm_srvfox|' + nm, fox);
+    if (fox){ localStorage.setItem('trae_webm_srvfox_last', fox); return fox; }
+    if (nm){
+      var v = localStorage.getItem('trae_webm_srvfox|' + nm);
+      if (v) return String(v);
+      return nm;
+    }
+    var last = localStorage.getItem('trae_webm_srvfox_last');
+    if (last) return String(last);
+  } catch(e){}
+  return '默认';
+}
 /* 2.189（老板令·小账本卡片显示服务器归属）：落盘与展示共用同一对取值函数——
    srvFox＝本服 FOX 号（hello 自报，S.curSid），srvName＝服务器名（S.cur，
    与 lbSrvKey 同源）。读写必须走同一函数同一值，绝不「读 A 存 B」。 */
@@ -1405,9 +1427,21 @@ function lbDiagTitle(sid, title){
   const s = String(sid || '').trim();
   return {title: s ? ('（无名）' + s.slice(-6)) : '（无名）无sid', diag: 1};
 }
+/* 2.264（老板 2026-11-24「读 A 写 B」）：账本落盘键唯一入口——**终身号优先**：
+   有权威 4 位终身号就用号，改名不换本（旧写法取 稳定键＝名称，会话一改名就另起
+   一本，读旧的、存新的）。名称只在拿不到号时兜底；键形仍沿用 _frameMemKey 口径，
+   保证秒显/回写/列表读的是同一条记录。 */
+function lbLedgerSnapKey(sid, title){
+  const s = String(sid || ''), t = String(title || '').trim();
+  let u = '';
+  try { u = String((typeof lbUidPick === 'function') ? (lbUidPick(null, s, t) || '') : '').trim(); } catch(e){ u = ''; }
+  const k = /^\d{4}$/.test(u) ? u
+    : ((typeof 稳定键 === 'function') ? (String(稳定键(s, t) || '') || s || t) : (s || t));
+  return (typeof _frameMemKey === 'function') ? String(_frameMemKey(k) || '') : ('frame|' + k);
+}
 /* 2.184 改1（规范§三 :54 秒显源＝账本本体）：最新账本（对账补发/主动核对/
    强制核对拉到）落盘成功后，立刻把同一份 rounds 平铺成画面写回 snap_conv——
-   键与秒显读完全同口径（_frameMemKey(稳定键)）＋走 _frameCommit「只进不退」
+   键走 lbLedgerSnapKey（终身号优先，2.264）＋走 _frameCommit「只进不退」
    闸（旧账本不覆盖更新的真快照，内存槽同步更新 ⇒ 切回 0ms 命中）。 */
 function lbWriteBackSnap(sid, title, rounds){
   try {
@@ -1416,9 +1450,7 @@ function lbWriteBackSnap(sid, title, rounds){
     const s = String(sid || '');
     const t = String(title || '').trim();
     if (!t) return;                       /* 2.184 改7：名称必有——无标题不写秒显 */
-    const _sid = (typeof 稳定键 === 'function')
-      ? (String(稳定键(s, t) || '') || s || t) : (s || t);
-    const sk = _frameMemKey(_sid);
+    const sk = lbLedgerSnapKey(s, t);
     if (!sk) return;
     /* 2.211：画面记录另存**真实 sid** 与**权威 uid**；键仍走稳定键（无名回退完整 sid），
        绝不在记录里塞切片假号。 */
@@ -1447,6 +1479,115 @@ function lbWriteBackSnap(sid, title, rounds){
       {key: (typeof frameKey === 'function') ? frameKey() : '',
        port: S.port, sid: s, uid: _uidAuth, title: String(title || ''), ts: Date.now()},
       undefined, undefined, (_oldN > 0 && _newN >= _oldN));
+  } catch(e){}
+}
+/* 2.264（老板 2026-11-24 新口径原文：「反正拉来的历史记录，只要进得了前 N 条，那就写到
+   小账本，小账本有前 N 条保留机制……够进这个范围，当然就给它记录了。它的地位等同于核对
+   账本。」）——hist / hist_prev 回包并入唯一账 snap_conv：
+     · 行结构照抄服务端（ledToArr，index5/6/7/8/9 一律不动，尤其 fin 终答不许冲空）；
+     · 按 mid 只并「本地账本里还没有的」，已有轮原位不动；
+     · 先经 lbTrimFrameMsgs（＝lbRoundsFromMsgs + lbLedgerTrimRounds，N 取 lbRounds()
+       默认 5）裁到前 N 轮再写——够进前 N 轮才落盘，更老的翻页不写（写也白写）；
+     · 写入只走 _frameCommit：与核对账本同一条通道、同一个键、同一套 srv 标签，
+       不另开表、不另起键。
+   older=true 表示「更早一页」（hist_prev），合并时排在本账前面。 */
+/* 2.264：hist 回包只带 S.histConv（锚定键），本节话的 sid/名称要从锚定或会话列表
+   反查——绝不能拿 curTitle() 的「当前会话」兜底名去建账（那会另起一本）。 */
+function _lbHistCtx(){
+  try {
+    const key = String(S.histConv || '').trim();
+    if (!key) return null;
+    const cv = (S.snap && Array.isArray(S.snap.convs)) ? S.snap.convs : [];
+    for (const r of cv){
+      if (!Array.isArray(r) || r[0] !== 'c') continue;
+      const t = String(r[1] || '').trim(), s = String(r[4] || '');
+      if (!t) continue;
+      let kk = '';
+      try { kk = (typeof 稳定键 === 'function') ? String(稳定键(s, t) || '') : t; } catch(e){ kk = t; }
+      if (kk === key || t === key || (s && s === key))
+        return {sid: s, title: t};
+    }
+    /* 锚定兜底：稳定键（无号会话）本来就等于名称，直接用历史键当名称，
+       绝不用 curTitle() 的「当前会话」——那会另起一本「当前会话」账。 */
+    const at = String(S.anchorTitle || '').trim();
+    if (at && at === key) return {sid: String(S.anchorFull || ''), title: at};
+    if (!/^\d+$/.test(key) && key.length <= 60)
+      return {sid: String(S.anchorFull || ''), title: key};
+  } catch(e){}
+  return null;
+}
+function lbHistToLedger(older){
+  try{
+    const raw = Array.isArray(S.histRaw) ? S.histRaw : [];
+    if (!raw.length) return;
+    if (typeof ledToArr !== 'function' || typeof _frameCommit !== 'function') return;
+    if (typeof _frameMemKey !== 'function' || typeof lbLedgerSnapKey !== 'function') return;
+    const ctx = _lbHistCtx();
+    if (!ctx) return;                 /* 认不出这会话：宁可不写，绝不拿「当前会话」另起一本 */
+    const sid = String(ctx.sid || '');
+    const title = String(ctx.title || '').trim();
+    if (!title) return;                       /* 2.184 改7：名称必有 */
+    const sk = lbLedgerSnapKey(sid, title);   /* 2.264：与核对账本同一个键（终身号优先） */
+    if (!sk) return;
+    const rows = [];
+    raw.forEach(function(x){
+      const m = ledToArr(x);
+      if (Array.isArray(m) && m.length) rows.push(m);
+    });
+    if (!rows.length) return;
+    const _write = function(oldMsgs){
+    let old = Array.isArray(oldMsgs) ? oldMsgs : [];
+    const seen = new Set(), idx = {}, out = [];
+    const push = function(list){
+      (list || []).forEach(function(m){
+        if (!Array.isArray(m) || !m.length) return;
+        let k = '';
+        try { k = (typeof lbRoundKey === 'function') ? lbRoundKey([m]) : ''; } catch(e){ k = ''; }
+        if (!k) k = String(m[0] || '') + '|' + String(m[1] || '').slice(0, 24);
+        if (seen.has(k)){
+          /* 2.264：同一 mid 已存在时，绝不让「没终答的那版」把「有终答的」盖掉
+             ——hist 回包经 ledToArr 不带 index7，用它顶掉账本会丢终极回复。 */
+          const i = idx[k];
+          if (i != null && out[i] && !String(out[i][7] || '').trim()
+              && String(m[7] || '').trim()) out[i] = m.slice();
+          return;
+        }
+        seen.add(k); idx[k] = out.length; out.push(m.slice());
+      });
+    };
+    if (older){ push(rows); push(old); } else { push(old); push(rows); }
+    const trimmed = lbTrimFrameMsgs(out, sk, true);      /* ← 前 N 轮裁剪，够进才留 */
+    if (!trimmed.length) return;
+    const frame = {msgs: trimmed, finish: null, tail: '', sendIdle: true,
+                   inputText: '', opts: [], ask: null, pend: [], model: ''};
+    const _uid = (typeof lbUidPick === 'function') ? lbUidPick(null, sid, title) : '';
+    _frameCommit(sk, frame,
+      {key: (typeof frameKey === 'function') ? frameKey() : '',
+       port: S.port, sid: sid, uid: _uid, title: title, ts: Date.now()},
+      undefined, undefined, false);
+    /* 屏幕同源：内存 rows 同步，补进来的历史立刻能被 lbScreenMsgs / curMsgs 读到 */
+    try {
+      const rounds = lbRoundsFromMsgs(trimmed);
+      if (rounds.length && typeof lbRowsPut === 'function') lbRowsPut(_uid, title, rounds);
+    } catch(e){}
+    };
+    /* 2.264：合并基准必需——内存里没有该会话（刚刷新/没点过）时必须先读盘上那份，
+       否则 hist 那版（ledToArr 不带 index7）会把已存的终答整轮冲空（实测 [1,2,0,""]）。 */
+    let memOld = null;
+    try {
+      if (typeof _frameMem === 'object' && _frameMem[sk] && Array.isArray(_frameMem[sk].msgs))
+        memOld = _frameMem[sk].msgs;
+      else if (S.liveFrame && Array.isArray(S.liveFrame.msgs)
+               && (!S.livePend || _frameMemKey(S.livePend) === sk)) memOld = S.liveFrame.msgs;
+    } catch(e){ memOld = null; }
+    if (memOld && memOld.length){ _write(memOld); return; }
+    if (typeof _idbReq === 'function'){
+      _idbReq('snap_conv', 'readonly', function(st){ return st.get(sk); }).then(function(rec){
+        _write((rec && rec.frame && rec.frame.msgs) || null);
+      }).catch(function(){ _write(null); });
+      return;
+    }
+    _write(null);
   } catch(e){}
 }
 /* 2.245（老板 2026-11-21 10:25「切会话跳动、连续三个人类都没有 AI 回复，小账本里却有」）：
