@@ -142,7 +142,16 @@ function switchSrv(nm){
   S.livePend = ''; S.liveGot = false; S.liveFrame = null; S.livePrefetch = false;
   S.pinBottom = true;              /* 新会话自动上屏那次钉底（看最新） */
   S.busy = false; S.model_busy = false;
+  /* 2.269（老板 2026-11-24 21:29 令·积分固态化）：切服不把积分清成「积分 —」——
+     先按目标服务器的固态包还原它上次的积分，hello/points 到达再覆盖。 */
   S.points = '—'; el.points.textContent = '积分 —';
+  try {
+    const _pk = _srvPacksRead()[srvPackKey(nm, (S.servers[nm] || {}).port)];
+    const _pt = _pk && _pk.solid && _pk.solid.points;
+    if (_pt && _pt !== '—' && _pt !== '读取失败'){
+      S.points = String(_pt); el.points.textContent = '积分 ' + S.points;
+    }
+  } catch(e){}
   S.alive = new Set(); S.boxes = [];
   el.model.innerHTML = ''; S.model_map = {};
   el.box.innerHTML = '';
