@@ -965,19 +965,30 @@ function ledgerThinkApply(sid, body){
      呈现，不做卡片化改造（E2）。 */
   /* 2.207（V1.0 §五-2/12）：先落「本会话最新一版」思维流卡——新版覆盖旧版、
      按服务端隔离，只作展示绝不入账；非 1 号也照存（显示侧再拦）。 */
+  const f = b.frame;
+  const _hasMsgs = !!(f && typeof f === 'object' && Array.isArray(f.msgs)
+                      && f.msgs.length);   /* 2.263：空 msgs 视同瘦帧，绝不清屏 */
   if (b.thinkId || b.anchorMid){
-    if (thinkCardSet(b, sid)) renderAll();
+    if (_hasMsgs){
+      if (thinkCardSet(b, sid)) renderAll();
+    } else {
+      /* 2.263（瘦帧兼容）：本帧不带整屏 msgs——只更新 THINK_CARDS 一版，
+         绝不碰正文、不清屏、不触发 onEv('snap_pane')。 */
+      if (thinkCardThinSet(b, sid)){
+        /* 只就地刷新思维流卡，不调 renderAll、不重建正文。 */
+        thinkCardPaint(thinkCardGet(sid, b.title || ''));
+      }
+    }
     /* 2.214：把最新一版思维流挂到该会话账本最底部（只留一条，不进轮次）。 */
     try { lbThinkPut(sid, b.title || '', thinkCardGet(sid, b.title || '')); } catch(e){}
   }
-  const f = b.frame;
   /* 2.203（老板 2026-11-19 22:02 令）：思维流只为 1 号网页用户提供。非 1 号（2/3 号）
      不消费本帧画面（不推思维流），该区域改由 消息渲染.js 按思维灯显示「您不是 1 号
      网页用户，无法提供思维流」占位；终答仍由 ledger 模块照常补到位。 */
   if (typeof hostIsFirst === 'function' && !hostIsFirst()){
     return;
   }
-  if (f && typeof f === 'object' && Array.isArray(f.msgs)){
+  if (_hasMsgs){
     /* 2.213：类型只认服务端 index8（u/a/th），前端不再就地推导/补写；
        缺 index8 的行走「类型未知」，原样上屏不丢。 */
     onEv('snap_pane', {sid: String(sid || ''), title: b.title || '',
@@ -1082,6 +1093,52 @@ function thinkCardSet(body, sidHint){
   };
   return true;
 }
+/* 2.263（瘦帧）：服务端 think 帧不再带整屏 msgs，只带 thinkId/thinkVer/
+   anchorMid/text。这里只落「本会话最新一版」卡，绝不读/改正文 msgs。 */
+function thinkCardThinSet(body, sidHint){
+  const b = body || {};
+  const sid = String(b.sel || sidHint || '');
+  const tid = String(b.thinkId || '');
+  if (!sid || !tid) return false;
+  const ver = parseInt(b.thinkVer, 10) || 0;
+  const key = _thinkCardKey(sid, b.title);
+  const old = THINK_CARDS[key];
+  const anchor = String(b.anchorMid || '');
+  if (old && ver && old.thinkVer && ver < old.thinkVer
+      && old.anchorMid === anchor) return false;      /* 迟到旧版：不回退 */
+  const txt = (b.text != null) ? String(b.text)
+            : (old && old.text != null ? String(old.text) : '');
+  if (old && old.thinkId === tid && old.thinkVer === ver
+      && old.anchorMid === anchor && old.text === txt) return false;  /* 同版重发 */
+  const tm = (typeof timeFromMid === 'function') ? timeFromMid(anchor) : '';
+  THINK_CARDS[key] = {
+    srv: (typeof lbSrvKey === 'function' ? lbSrvKey() : ''),
+    sid: sid, title: String(b.title || ''), uid: String(b.uid || ''),
+    thinkId: tid, thinkVer: ver, anchorMid: anchor, time: tm,
+    text: txt, textMid: (old && old.textMid) || '',
+    ts: Date.now()
+  };
+  return true;
+}
+/* 2.263（瘦帧）：只就地重画已在屏的思维流卡（同 thinkId），
+   不重建正文区、不触发 renderMsgs。 */
+function thinkCardPaint(c){
+  try {
+    if (!c || !c.thinkId) return;
+    const box = document.getElementById('msgs');
+    if (!box) return;
+    const nodes = box.querySelectorAll('.thinklive');
+    for (let i = nodes.length - 1; i >= 0; i--){
+      const nd = nodes[i];
+      if (String(nd.getAttribute('data-think') || '') !== String(c.thinkId)) continue;
+      if (typeof _thinkCardHtml === 'function') nd.outerHTML = _thinkCardHtml(c);
+      else {
+        const bd = nd.querySelector('.body');
+        if (bd && typeof _mdBody === 'function') bd.innerHTML = _mdBody(String(c.text || ''));
+      }
+    }
+  } catch(e){}
+}
 function thinkCardGet(sid, title){
   return THINK_CARDS[_thinkCardKey(sid, title)] || null;
 }
@@ -1135,6 +1192,26 @@ function thinkCardNow(msgs){
       const m = arr[i];
       if (!Array.isArray(m) || m[0] !== 'a') continue;
       if (lbIsFinalRow(m)) return null;   /* ⑩终极回复优先（含提前终极）：立刻撤卡 */
+    }
+    /* 2.263：卡片正文优先 card.text；为空才回退本屏 frame.msgs 里锚定后的 th 行。 */
+    if (!String(c.text || '').trim()){
+      let _ai = -1;
+      for (let i = arr.length - 1; i >= 0; i--){
+        const m = arr[i];
+        if (Array.isArray(m) && m[0] === 'u'
+            && String((m.length > 6 && m[6]) || '').trim() === c.anchorMid){
+          _ai = i; break;
+        }
+      }
+      if (_ai < 0) _ai = hi;
+      for (let i = arr.length - 1; i > _ai; i--){
+        const m = arr[i];
+        if (!Array.isArray(m) || m[0] !== 'a' || !m[1]) continue;
+        if (lbIsFinalRow(m)) continue;
+        const _k8 = (m.length > 8 ? String(m[8] || '').trim().toLowerCase() : '');
+        if (_k8 && _k8 !== 'th') continue;
+        c.text = String(m[1]); break;
+      }
     }
     return c;
   } catch(e){ return null; }
