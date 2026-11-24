@@ -125,6 +125,9 @@ function lbRowsPut(uid, title, rounds){
     const u = String(uid || '').trim(), t = String(title || '').trim();
     if (u) LB.rows[_lbRowsKey(u, '')] = rounds;
     if (t) LB.rows[_lbRowsKey('', t)] = rounds;
+    /* 2.276：屏幕唯一源一改就重画（lbRepaint 自带 250ms 节流）。
+       放在这里＝所有写口（落地/开机/裁剪/补发/快照还原）一个都不漏。 */
+    if (typeof lbRepaint === 'function') lbRepaint();
   }catch(e){}
 }
 function lbScreenMsgs(sid, title){
@@ -2230,17 +2233,12 @@ function ledgerStorePut(sid, title, rounds, opt){
       if (_uidEff) LB.lbHave.add(_uidEff);
       lbSumSet(_uidEff, _t, out);
       lbRowsPut(_uidEff, _t, out);            /* 2026-11-24：账本更新即刷屏幕唯一源 */
-      /* 2.275：只要落的是「当前正在看的那本账」就立刻重画；锚点没设时
-         退回 curSid()/curTitle() 判断——开机阶段 S.anchorSid 常为空，
-         旧逻辑因此一次都不重绘，主界面永远是空白/旧画面。 */
-      try {
-        const _a = String(S.anchorSid || (typeof curSid === 'function' ? curSid() : '') || '');
-        const _at = String(S.anchorTitle || (typeof curTitle === 'function' ? curTitle() : '') || '');
-        const _au = _a && (typeof lbUidPick === 'function')
-          ? String(lbUidPick(null, _a, _at) || '') : '';
-        if ((_uidEff && _au && _uidEff === _au)
-            || (_t && _at && _t === _at)) lbRepaint();
-      } catch(e){}
+      /* 2.276（探针实测：S.anchorSid 里存的竟是会话名「WB+TR整改专员 ST」
+         而不是 sid，lbUidPick 认不出 → 2.275 的两道条件全不成立，一次都不重绘；
+         renderTick 停在 11、LB 已 10 条而 DOM 仍是 0（手动 lbRepaint 立刻 10 条）。
+         ⇒ 不再猜「这本账是不是当前显示的」，账本一变就统一重画：
+         renderAll 幂等 + renderMsgs 有指纹早退 + 本函数 250ms 节流，代价可忽略。 */
+      try { lbRepaint(); } catch(e){}
       lbWriteBackSnap(_uidEff, _t, out);                   /* 改1：最新账本立刻回写秒显源 */
       /* 2.214：同一会话（同 sid 或同名，含旧「重复」后缀）只留一本账 */
       try { lbMergeForConv(_dialogSid, _t); } catch(e){}
