@@ -1,5 +1,8 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.05  日期 2026-11-21
+/* 账本核对.js（网页端）  版本 1.051  日期 2026-11-24
+   【1.051 lbkeep 连续链裁剪】服务端 vcheck 模块化对账后下发 t:'lbkeep'
+     {sid,keep:[…],del:[…]}：只删本地唯一账（snap_conv）该会话 del 里的 mid
+     （keep 保留），删完重建 lbSum 与 snap_conv 记录；无该会话/空指令静默。
    【2.244 单账本（老板令·对齐 WB）】本地只留一套正文账＝snap_conv：
      ledger_conv 停写、历史轮次一次性并入 snap_conv 后清空（lbLedgerMigrateOnce →
      purgeLedgerStore，IDB_VER=3）。真存集/摘要表（vcheck 上报口径）改由 snap_conv
@@ -790,6 +793,63 @@ function ledgerMod(d){
       ledgerThinkApply(d.sel || d.sid, body);
       break;
   }
+}
+/* ============ 1.051：服务端对账帧 lbkeep（账本连续链裁剪） ============ */
+function lbKeepApply(d){
+  /* 最小处理：按 sid 找本地唯一正文账 snap_conv 里该会话的记录，删除 del 中
+     列出的 mid（keep 保留），删完重建 lbSum 与 snap_conv 记录。无该会话或
+     空指令一律静默；不新增页面、不改布局。 */
+  try{
+    if (!d || typeof d !== 'object') return;
+    const del = Array.isArray(d.del)
+      ? d.del.map(x => String(x || '')).filter(Boolean) : [];
+    if (!del.length) return;
+    const sid = String(d.sid || '').trim();
+    if (!sid) return;
+    const _del = new Set(del);
+    _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
+      const puts = [];
+      (rows || []).forEach(rec => {
+        try{
+          if (!rec || !rec.frame || !Array.isArray(rec.frame.msgs)) return;
+          const rs = String(rec.sid || ''), ru = String(rec.uid || '');
+          const rt = String(rec.title || '');
+          if (sid !== rs && sid !== ru && sid !== rt) return;
+          const kept = [];
+          let hit = 0;
+          rec.frame.msgs.forEach(m => {
+            if (Array.isArray(m) && _del.has(String(m[6] || ''))){ hit++; return; }
+            kept.push(m);
+          });
+          if (!hit) return;
+          if (!kept.length){
+            puts.push(_idbReq('snap_conv', 'readwrite',
+              st => st.delete(rec.sk)).catch(() => {}));
+            try { LB.lbHave.delete(String(rec.uid || rec.sid || '')); } catch(e){}
+            try { lbSumDrop(rec.sid, rec.title); } catch(e){}
+            try { delete _frameMem[rec.sk]; } catch(e){}
+            return;
+          }
+          const nr = Object.assign({}, rec);
+          nr.frame = Object.assign({}, rec.frame, {msgs: kept});
+          try {
+            if (_frameMem && _frameMem[rec.sk] && Array.isArray(_frameMem[rec.sk].msgs))
+              _frameMem[rec.sk].msgs = kept.map(m => m.slice());
+          } catch(e){}
+          const rounds = lbRoundsFromMsgs(kept);
+          const u = String(rec.uid || '').trim()
+            || (typeof lbUidPick === 'function'
+                ? String(lbUidPick(null, rec.sid, rt) || '') : '');
+          try { lbSumSet(u || String(rec.sid || ''), rt, rounds); } catch(e){}
+          puts.push(_idbReq('snap_conv', 'readwrite',
+            st => st.put(nr)).catch(() => {}));
+          try { diagLog('lbkeep 裁剪|sid=' + sid + '|删=' + hit
+            + '|留=' + kept.length, 'ok'); } catch(e){}
+        }catch(e){}
+      });
+      return Promise.all(puts);
+    }).catch(() => {});
+  }catch(e){}
 }
 function o_unreadIds(arr){
   const out = [];
