@@ -181,13 +181,33 @@ const FoxIn = {
 /* ───── FOX v2.1 发送侧：分批结算 + 留底(LRU) + 催问 + 降级补发 + FAIL ───── */
 const FoxOut = {
   sent: {},                        // mid -> {segments:[Uint8Array], ts}
-  batches: {},                     // mid -> {batch,lo,hi,qry,repair,timer,done}
+  batches: {},                     // mid -> {batch,lo,hi,qry,repair,timer,done,sel0}
+  deferred: [],                    // 2.260：切集群打断的长消息原文——新线打开后整条重发
+  /* 2.260：批次必须绑集群——开始发送时记住 curSel()，切集群后任何一段都不许再发。 */
+  _defer(mid){
+    const buf = this.sent[mid];
+    let text = '';
+    if (buf) text = buf.segments.map(s => DEC.decode(s)).join('');
+    const st = this.batches[mid];
+    if (st && st.timer) clearTimeout(st.timer);
+    delete this.batches[mid];
+    delete this.sent[mid];
+    if (!text) return;
+    this.deferred.push(text);
+    /* 新线可能正在 CONNECTING：稍后自检一次，连上即重发（onopen 也会再调）。 */
+    setTimeout(() => { try { this.resumeDeferred(); } catch(e){} }, 1500);
+  },
+  resumeDeferred(){
+    if (!this.deferred.length) return;
+    if (!S.ws || S.ws.readyState !== 1) return;
+    const list = this.deferred; this.deferred = [];
+    list.forEach(t => { try { this.send(t); } catch(e){} });
+  },
   send(text){
-    if (!ws || ws.readyState !== 1) return;   /* 未连接不发 */
+    if (!ws || ws.readyState !== 1) return false;   /* 未连接不发 */
     const segs = foxSliceBytes(ENC.encode(text), FOX_MAX);
     if (segs.length <= 1){
-      foxSendRaw('【FOXID:' + foxNewMid() + MY_ID + '=cut(001/001)】' + text);
-      return;
+      return foxSendRaw('【FOXID:' + foxNewMid() + MY_ID + '=cut(001/001)】' + text);
     }
     const mid = foxNewMid();
     this.sent[mid] = {segments: segs, ts: Date.now()};
@@ -197,20 +217,25 @@ const FoxOut = {
       while (ks.length > FOX_SENT_KEEP) delete this.sent[ks.shift()];
     }
     this.sendBatch(mid, 1);
+    return true;
   },
   async sendBatch(mid, batch){
     const buf = this.sent[mid];
     if (!buf) return;
+    const sel0 = curSel();                        /* 2.260：本批次所属集群 */
     const total = buf.segments.length;
     const lo = (batch - 1) * FOX_BATCH_SIZE + 1;
     const hi = Math.min(batch * FOX_BATCH_SIZE, total);
     /* 铁律：先登记批次状态、再逐段发送——接收方在本批末段到达时同步回送
        报告；登记晚于发送会把该报告当未知批次丢弃、多批传输卡死在第 1 批。 */
     const st = {batch: batch, lo: lo, hi: hi, qry: 0, repair: 0,
-                timer: null, done: false};
+                timer: null, done: false, sel0: sel0};
     this.batches[mid] = st;
     this._armBatch(mid);
     for (let idx = lo; idx <= hi; idx++){
+      /* 2.260：每段发送前校验仍是同一集群；已切集群 → 整条放回待重发队列，
+         绝不让半段发旧线、半段发新线。 */
+      if (curSel() !== sel0){ this._defer(mid); return; }
       foxSendRaw('【FOXID:' + mid + MY_ID + '=cut(' + pad3(idx) + '/'
         + pad3(total) + ')】' + DEC.decode(buf.segments[idx - 1]));
       if (idx < hi) await new Promise(r => setTimeout(r, 200));   /* ≥0.2s */
@@ -225,6 +250,8 @@ const FoxOut = {
   _onTick(mid){                    // 等报告超时：先催问 1 次，仍无 → FAIL
     const st = this.batches[mid];
     if (!st) return;
+    /* 2.260：等报告期间已切集群 → 旧批次作废，整条放回待重发，绝不向新线发旧 QRY。 */
+    if (curSel() !== st.sel0){ this._defer(mid); return; }
     if (st.qry < FOX_BATCH_QRY_MAX){
       st.qry++;
       foxSendRaw('【FOXQRY:' + mid + '=batch(' + pad3(st.batch) + '):range('
@@ -260,6 +287,7 @@ const FoxOut = {
   async _resend(mid, miss, size, rnd){   // 缺段按尺寸重切重发（RSN）
     const buf = this.sent[mid];
     if (!buf) return;
+    const sel0 = curSel();                 /* 2.260：补发所属集群 */
     const cap = size - FOX_RSN_HDR;
     for (const segIdx of miss){
       const seg = buf.segments[segIdx - 1];
@@ -267,6 +295,8 @@ const FoxOut = {
       const pieces = foxSliceBytes(seg, cap);
       let off = 0;
       for (let pi = 1; pi <= pieces.length; pi++){
+        /* 2.260：补发途中切集群 → 中止本批，整条放回待重发。 */
+        if (curSel() !== sel0){ this._defer(mid); return; }
         foxSendRaw('【FOXRSN:' + mid + '=r' + String(rnd).padStart(2, '0')
           + ':seg(' + pad3(segIdx) + '):len(' + pad6(seg.length)
           + '):cut(' + pad3(pi) + '/' + pad3(pieces.length) + ')@'
@@ -289,7 +319,7 @@ const FoxOut = {
 };
 
 function foxSend(text){            // 对外统一入口（单段直发 / 多段分批结算）
-  FoxOut.send(text);
+  return FoxOut.send(text);        /* 2.260：返回是否真正交给已打开 socket */
 }
 function sendJson(d){
   /* 1.12：报文自动定向到当前操控的服务端（多服务端同频道）
@@ -310,7 +340,8 @@ function sendJson(d){
   if (d && (d.t === 'cmd' || d.t === 'req')){
     S.waitT = Date.now(); S.waitN = 0; S.waitLast = 0;
   }
-  foxSend(JSON.stringify(d));
+  /* 2.260：返回是否真正交给已打开 socket——动作类节流/去重以此为准。 */
+  return foxSend(JSON.stringify(d));
 }
 /* 1.88：10 位随机数字对话 ID——客户端发出的发送/插话自带一个
    仅用于小卡片核对（消卡回执）的随机 ID，随协议字段 did 发送，
