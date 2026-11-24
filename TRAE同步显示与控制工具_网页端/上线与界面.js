@@ -88,11 +88,14 @@ function setOnLine(b){
     /* 2.260：切集群/断线重连后，只要有在途切换（非已成功）就强制补发一次 switch
        ＋账本强核对，绝不因换线丢掉这轮切换。 */
     if (S.switch_pend && S.switch_pend.phase !== 'ok'){
-      sendCmd('switch', switchRef());
+      const _rf = switchRef();
+      if (_rf) sendCmd('switch', _rf);   /* 2.261：只发锚定完整 sid，绝不下标 */
       try {
         if (window.ledgerVcheckSend)
-          ledgerVcheckSend('switch', S.anchorFull || switchRef());
+          ledgerVcheckSend('switch', S.anchorFull || _rf);
       } catch(e){}
+      /* 2.261（老板令·状态时序②）：重连后补发＝横幅「等待服务器回应」 */
+      if (typeof setBanner === 'function') setBanner('等待服务器回应');
       S.switch_pend.phase = 'waiting';
       S.switch_pend.ts = Date.now();
       switchReArm();
