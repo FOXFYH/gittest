@@ -38,6 +38,9 @@ function teardownWs(){
   S.ws = null;
   S.lastSrv = 0;
   S.srvLost = false;
+  /* 2.260：拆旧连接＝退出旧集群——本服 FOX 号归零，等新集群 hello/首帧自报重落，
+     避免它服 mod/vack/lbkeep 被旧 curSid 的跨服闸门整批误杀。 */
+  S.curSid = '';
 }
 
 function connect(){
@@ -91,6 +94,8 @@ function connect(){
     cliRebind();
     cliLogin('上线');
     loginWatch();
+    /* 2.260：切集群时被打断的 FoxOut 长消息，等新线打开后整条重发（绝不半段旧线半段新线）。 */
+    try { FoxOut.resumeDeferred(); } catch(e){}
   };
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
@@ -129,8 +134,10 @@ function connect(){
     DIAG.err++;
     diagLog('连接出错 #' + DIAG.err + '（网络或中转问题）', 'bad');
   };
-  /* 2.68：主频道每次（重）连接时同步（重）连 TTS 直连频道（密钥随主频道走） */
+  /* 2.68：主集群每次（重）连接时同步（重）连 TTS 直连频道（密钥随主集群走） */
   ttsConnect();
+  /* 2.260：文件查看器 INS 收帧频道同样跟随当前集群（切集群即关旧、建新）。 */
+  try { if (typeof fvwrPickChanListen === 'function') fvwrPickChanListen(); } catch(e){}
 }
 
 /* 2.216（0047 游客体验·第3件）：连接失败可自救——顶栏「↻ 重连」按钮三态
