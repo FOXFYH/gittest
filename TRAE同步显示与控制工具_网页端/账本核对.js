@@ -1029,6 +1029,16 @@ function lbSyncApply(d){
           const 留 = kept.length - 补;
           const 键 = sid || wantUid || wantTitle;
           if (!kept.length){
+            /* 2.271（老板 2026-11-24 21:29 令·网页固化）：绝不删光——
+               order 为空（服务器这拍没给全序/读不到账本），或服务器没给任何可补
+               内容（add 空）而本地明明有货，一律拒删、原样保留并留痕。宁可让手机
+               显示旧账，也不能被一张坏帧把本地账本清成 0。 */
+            const _localN = localMap.size;
+            if (!order.length || (_localN > 0 && addMap.size === 0)){
+              try { diagLog('lbsync 拒删|sid=' + 键 + '|order=' + order.length
+                + '|add=' + addMap.size + '|local=' + _localN + '|保留不动', 'warn'); } catch(e){}
+              return;
+            }
             puts.push(_idbReq('snap_conv', 'readwrite',
               st => st.delete(rec.sk)).catch(() => {}));
             try { LB.lbHave.delete(String(rec.uid || rec.sid || '')); } catch(e){}
