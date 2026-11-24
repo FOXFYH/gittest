@@ -587,11 +587,12 @@ function actSend(k){
   if (now - lastActAt < ACT_MIN_MS) return;   /* ① 全局 3 秒底线（不动） */
   const ck = cv.uid || cv.sid || ('t:' + cv.title);  /* 2.194/2.204：按会话（终身号优先）计频 */
   if (now - (lastActByConv[ck] || 0) < ACT_CONV_MIN_MS) return;  /* 同一会话 60 秒 1 条 */
-  lastActAt = now;
-  lastActByConv[ck] = now;
   /* 2.204：报文带会话名 title ＋ 会话编号 sid；终身号由服务端按 sid/title 归一
      （命令路由 act 分支只认 title/sid，绝不发它不认的字段）。 */
-  sendJson({t: 'act', k: k, title: cv.title, sid: cv.sid});
+  /* 2.260：只有真正交给已打开 socket 才算已发——未连接不发、也不占节流额度。 */
+  if (!sendJson({t: 'act', k: k, title: cv.title, sid: cv.sid})) return;
+  lastActAt = now;
+  lastActByConv[ck] = now;
   actClearLocal(cv);                  /* ③ 清完即停 */
 }
 
@@ -646,8 +647,9 @@ function anchorReport(){
       const sid = S.anchorFull || '', key = S.anchorSid || '', title = S.anchorTitle || '';
       const sig = sid + '\n' + key + '\n' + title;
       if (sig === anchorRepSig) return;      /* 去重：同一锚定不重复上报 */
+      /* 2.260：真正发出去了才记去重签名；未连接不发、下轮仍会重试。 */
+      if (!sendJson({t: 'anchor', sid: sid, key: key, title: title})) return;
       anchorRepSig = sig;
-      sendJson({t: 'anchor', sid: sid, key: key, title: title});
     } catch(e){}
   }, 300);
 }
