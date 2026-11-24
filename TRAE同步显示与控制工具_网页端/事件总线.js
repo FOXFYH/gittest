@@ -183,11 +183,11 @@ function onEv(kind, v){
         if (typeof lbFillFinals === 'function' && Array.isArray(v.msgs) && v.msgs.length)
           v.msgs = lbFillFinals(liveSid, selTitleOf(v), v.msgs);
       } catch(e){}
-      /* 2.203（老板 2026-11-19 22:02 令）：撤 2.178 的「页面选中与服务器选中不一致」
-         橙色胶囊提醒；改为静默自愈——1 号 + 无人借框 + 无在途切换时自动发 switch
-         把桌面切回页面选中会话；非 1 号不提示也不抢切（见 待办卡.js anchorSelfHeal）。 */
+      /* 2.266（老板 2026-11-24 20:38 令）：原 2.203「1 号静默自愈抢切」随
+         「1 号」概念废除整块退役——不再自动发 switch 抢桌面；「服务器选中
+         ≠ 本端选中」为合法状态，思维流暂停由状态栏提示（输入界面.js）。 */
       if (typeof anchorSelfHeal === 'function')
-        anchorSelfHeal(liveKey);
+        anchorSelfHeal(liveKey);   /* 2.266：已退役空壳，调用点保留防报错 */
       /* 2.206（投递不准覆盖）：先记下上一拍排队条与归属，供下方合并。 */
       const _prevPend = (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend.slice() : [];
       const _prevPendSid = String((S.snap && S.snap.pend_sid) || '');
