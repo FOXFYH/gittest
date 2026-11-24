@@ -85,8 +85,14 @@ function setOnLine(b){
   if (b){
     S.wsOpenAt = Date.now(); S.dropByHide = false;  // 1.57：连上即清断线标记
     /* 2.67 切换过程状态机：切在途却卡在「正在连接 WS」→ 连上即自动补发 */
-    if (S.switch_pend && S.switch_pend.phase === 'connecting'){
+    /* 2.260：切集群/断线重连后，只要有在途切换（非已成功）就强制补发一次 switch
+       ＋账本强核对，绝不因换线丢掉这轮切换。 */
+    if (S.switch_pend && S.switch_pend.phase !== 'ok'){
       sendCmd('switch', switchRef());
+      try {
+        if (window.ledgerVcheckSend)
+          ledgerVcheckSend('switch', S.anchorFull || switchRef());
+      } catch(e){}
       S.switch_pend.phase = 'waiting';
       S.switch_pend.ts = Date.now();
       switchReArm();
