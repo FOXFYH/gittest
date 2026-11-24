@@ -29,7 +29,7 @@
      ① vcheck 构造（四场景同一函数双入口：login/switch/svr/timer，
         单帧多模块版本编码上报，I2 单入口代码审查依据）；
      ② vack 两阶段回执：stage:1 → 悬浮提示「已变更选中会话，等待账本
-        核对中」（复用 切换提示.js 胶囊，经 S.switch_pend.phase）；stage:2 →
+        核对中」（复用顶部横幅，经 S.switch_pend.phase）；stage:2 →
         正式成功关提示 + 版本底账刷新 + 智能避让 20s 叠加（I3）；
      ③ mod 单模块实体帧分流（snote/sig/macct/convs/didp/ledger/think）
         ＋ set_think_int 回执 lbThinkIntAck（WS桥 0.27）；
@@ -624,6 +624,10 @@ function ledgerVack(d){
   }
   /* stage:2 —— 正式成功终态：版本一致（same）或差额补发清单（need） */
   LB.checking = false;
+  /* 2.261（老板令·状态时序⑤）：核对结束 → 置「核对成功」pending，
+     等补发消息全部渲染完（静默 600ms / 60 秒兜底）再由 renderState 落横幅。 */
+  if ((d.act === 'switch' || S.switch_pend) && typeof bannerPendSuccess === 'function')
+    bannerPendSuccess();
   /* 2.234：核对出终态 → 关横幅窗、灭圆球，让位给切换成功/四态 */
   LB.vchkOpen = 0; LB.vchkEndAt = 0; LB.chkUntil = 0;
   if (d.mods && typeof d.mods === 'object') lbModsSet(d.mods);   /* 存底，供下轮比对 */
