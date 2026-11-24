@@ -1075,12 +1075,9 @@ function ledgerThinkApply(sid, body){
     /* 2.214：把最新一版思维流挂到该会话账本最底部（只留一条，不进轮次）。 */
     try { lbThinkPut(sid, b.title || '', thinkCardGet(sid, b.title || '')); } catch(e){}
   }
-  /* 2.203（老板 2026-11-19 22:02 令）：思维流只为 1 号网页用户提供。非 1 号（2/3 号）
-     不消费本帧画面（不推思维流），该区域改由 消息渲染.js 按思维灯显示「您不是 1 号
-     网页用户，无法提供思维流」占位；终答仍由 ledger 模块照常补到位。 */
-  if (typeof hostIsFirst === 'function' && !hostIsFirst()){
-    return;
-  }
+  /* 2.266（老板 2026-11-24 20:38 令）：「思维流只为 1 号网页用户提供、非 1 号
+     不消费本帧画面」的限制随「1 号」概念废除整块拆除——思维流推送本就广播
+     全员且按会话携带，各端按「卡片所属会话 == 本端选中会话」自行匹配显示。 */
   if (_hasMsgs){
     /* 2.213：类型只认服务端 index8（u/a/th），前端不再就地推导/补写；
        缺 index8 的行走「类型未知」，原样上屏不丢。 */
@@ -1239,7 +1236,9 @@ function thinkCardGet(sid, title){
    本轮终极（fin=1 的 a 行）一到立即让位。任一条件不满足返回 null。 */
 function thinkCardNow(msgs){
   try {
-    if (typeof hostIsFirst === 'function' && !hostIsFirst()) return null;  /* 思维流只为 1 号 */
+    /* 2.266（老板 2026-11-24 20:38 令）：原「非 1 号 return null」随「1 号」
+       废除拆除——新口径＝谁把本端选中会话与卡片所属会话对上谁就能看；
+       下面 ②③ 会话名/会话 ID 匹配正是新规则的「按会话自匹配」。 */
     if ((typeof _curConvLight === 'function' ? _curConvLight() : '') !== 'busy') return null;
     const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
     const ct = String((typeof curTitle === 'function' ? curTitle() : '') || '');
