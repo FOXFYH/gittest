@@ -1509,8 +1509,11 @@ function lbRoundsFromMsgs(msgs){
       if (String((m.length > 8 && m[8]) || '').toLowerCase() === 'th') return;
       const fin = String((m.length > 7 && m[7]) || '').trim();
       const patch = lbPatchMarked(m);
-      /* '提前终极'/'补记' 是来源标记不是正文，正文保留残片原文（2.212 口径）。 */
-      const _disp = (fin && fin !== '补记' && fin !== '提前终极')
+      /* '提前终极'/'补记'/'账本定稿' 是来源标记不是正文，正文保留原文
+         （2.212 口径；2.272 增 '账本定稿'——服务端 ledger 补发用它标 fin=1，
+         原样当正文会把 AI 终极回复顶成四个字）。 */
+      const _disp = (fin && fin !== '补记' && fin !== '提前终极'
+                     && fin !== '账本定稿')
         ? fin : (m[1] || '');
       const row = [m[0], _disp, '', 0, 0, '', m[6] || '',
                    fin || (patch ? '补记' : ''),
