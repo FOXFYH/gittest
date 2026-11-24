@@ -347,7 +347,10 @@ function applyHist(conv, v){
   if (v.has_more === false) S.histEnd = true;
   else if (v.has_more === true) S.histEnd = false;
   /* 2.126：整段原样保留，不再裁 3 轮。
-     3.00：不再写本地账本副本（LS_HIST 已废）。 */
+     3.00：不再写本地账本副本（LS_HIST 已废）。
+     2.264（老板 2026-11-24）：拉回来的历史能进前 N 轮就并入小账本——地位等同核对账本，
+     走 lbHistToLedger 同一条 _frameCommit 通道（older=false＝增量新段）。 */
+  try { if (typeof lbHistToLedger === 'function') lbHistToLedger(false); } catch(e){}
   renderAll();
 }
 function prependHist(conv, older, end){
@@ -370,7 +373,10 @@ function prependHist(conv, older, end){
   const _haveP = new Set(S.histPrevRaw.map(x => x.seq));
   const _addP = older.filter(r => !_haveP.has(r.seq));
   S.histPrevRaw = _addP.concat(S.histPrevRaw);
-  /* 3.00：不再写本地账本副本（LS_HIST 已废） */
+  /* 3.00：不再写本地账本副本（LS_HIST 已废）
+     2.264（老板 2026-11-24）：上顶翻出来的更早一页也一样——能进前 N 轮就并进小账本
+     （older=true＝更早段，排在账本前面）。 */
+  try { if (typeof lbHistToLedger === 'function') lbHistToLedger(true); } catch(e){}
   renderAll();
   /* 2.85：按「增量」还原阅读位置。旧写法 `scrollTop = 新height - 旧height`：
      ①用户在中间读（t0>0）时被硬拽回相对顶部（新-旧往往很小甚至为 0）；
