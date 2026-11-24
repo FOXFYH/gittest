@@ -229,31 +229,16 @@ function pendLandingScan(msgs, pendArr){
   return ch;
 }
 
-/* ============ 2.203（老板 2026-11-19 22:02 令）：撤「页面选中与服务器选中不一致」提醒 ============
-   旧 2.178~2.180 的底部橙色胶囊 #anchint（「点此对齐 / 点此重试」）连同 2s 巡检
-   anchorCheck、末次点击意图 S.pendIntent 判定整块撤除，界面不再弹任何同义提醒。
-   新口径（机会充足：每条上行都带当前会话、切换/刷新自愈、快照每拍都会再核）：
-   ① 我是 1 号网页用户（服务端操控锁持有者＝本人）：发现服务器选中 ≠ 页面选中，
-      且没有别人正在借用输入框、也没有切换在途 → 静默发 switch 把桌面切回
-      【页面选中的会话】（不提示、不弹条）；
-   ② 我不是 1 号（2 号/3 号）：不提醒、也不抢切（避免抢别人操控）。 */
-const _anchHeal = {key: '', t0: 0, sent: 0};
-/* 快照到达（事件总线.js 快照分支调）：只做上面的静默自愈，不产出任何界面元素 */
+/* ============ 2.266（老板 2026-11-24 20:38 令）：静默自愈抢切换整块退役 ============
+   原 2.203 口径（1 号发现「服务器选中 ≠ 页面选中」就静默发 switch 把桌面切回
+   页面选中会话；非 1 号不提醒也不抢切）随「1 号网页用户」概念废除一并退役。
+   新口径：允许多端各看各的会话——服务端只推「服务器选中会话」的思维流，
+   不一致时状态栏如实提示「思维流暂停」（输入界面.js renderState）；谁最后
+   执行切换会话，服务器就选中谁的（用户手动切换＝最后的优待），绝不再自动
+   抢切（防多端互切打架）。函数保留空壳防调用点报错（事件总线.js 快照分支）。 */
+/* 2.266 快照到达（事件总线.js 快照分支调）：退役空壳，不再产出任何动作 */
 function anchorSelfHeal(liveKey){
-  if (!(typeof hostIsFirst === 'function' ? hostIsFirst() : true)) return;  /* ② 非 1 号 */
-  if (S.inputBusy || S.switch_pend) return;                    /* 有人借框/切换在途：不抢 */
-  if (!liveKey || !S.anchorSid || !S.anchorFull) return;
-  if (liveKey === S.anchorSid){                                 /* 已一致：清状态 */
-    _anchHeal.key = ''; _anchHeal.t0 = 0;
-    return;
-  }
-  const now = Date.now();
-  if (_anchHeal.key !== liveKey){ _anchHeal.key = liveKey; _anchHeal.t0 = now; }
-  if (now - _anchHeal.t0 < 2000) return;      /* 连拍确认，防快照抖动误发 */
-  if (now - _anchHeal.sent < 8000) return;    /* 8s 限频，防连发 */
-  _anchHeal.sent = now;
-  try { sendCmd('switch', S.anchorFull); } catch(e){}
-  try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull); } catch(e){}
+  return;   /* 2.266 退役：不再静默抢切、不再发 switch（老板 20:38 令） */
 }
 
 /* 占位卡生命周期检查（快照到达/定时巡检调用）。
