@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.250</title>
+<title>TRAE远程 v2.256</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
-  <link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.255">
+  <link rel="stylesheet" href="TRAE同步显示与控制工具_网页端/样式.css?v=2.256">
 </head>
 <body data-page-node-id="qRiwCSFLazZMRFNCTEeA7S">
 
@@ -178,16 +178,16 @@
       <div class="row" data-page-node-id="CGhjxPSEEc6lJ4hqa3vBzl"><span class="hint" data-page-node-id="dGv9CAGnYAKtjfi3LltDNH">
         频道名相当于密码，与服务端「设置→远程服务」处显示的一致才能
         连上。修改后保存并重连生效。</span></div>
-      <!-- v1.50：主/副频道切换（本地临时生效，副频道恢复主频道自动切回） -->
+      <!-- v1.50：主/副集群切换（本地临时生效，副集群恢复主集群自动切回） -->
       <div class="row" data-page-node-id="DC01dualChan0">
         <label data-page-node-id="DC01dualChan1">当前频道</label>
         <b id="lbl_chan_q" class="diagv" data-page-node-id="DC01dualChan2">—</b></div>
       <div class="row btw" data-page-node-id="DC01dualChan3">
-        <button id="btn_chan_main" style="flex:1;" data-page-node-id="DC01dualChan4">主频道</button>
-        <button id="btn_chan_back" style="flex:1;" data-page-node-id="DC01dualChan5">副频道</button>
+        <button id="btn_chan_main" style="flex:1;" data-page-node-id="DC01dualChan4">主集群</button>
+        <button id="btn_chan_back" style="flex:1;" data-page-node-id="DC01dualChan5">副集群</button>
       </div>
       <div class="row" data-page-node-id="DC01dualChan6"><span class="hint" data-page-node-id="DC01dualChan7">
-        主频道异常/限流时可临时切副频道兜底。已改为手动切换（不再自动探测）：想回主频道请点上面的「主频道」按钮。
+        主集群异常/限流时可临时切副集群兜底。已改为手动切换（不再自动探测）：想回主集群请点上面的「主集群」按钮。
         切换仅本次生效，不改变长期设置。</span></div>
       <!-- v1.50：双通道地址显示（WS1 主 / WS2 副，随频道名实时刷新） -->
       <div class="row" data-page-node-id="DC01dualChan8"><label data-page-node-id="DC01dualChan9">WS1 主</label>
@@ -337,31 +337,31 @@
   }
 })();
 </script>
-<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/账本核对.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/手机缓存查看器.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/切换提示.js?v=2.255"></script>
-<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.255"></script>
+<script src="TRAE同步显示与控制工具_网页端/序言.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/常量配置.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/fox协议.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/状态与DOM.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/MD渲染器.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/通用工具.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话列表.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/会话备注.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/自我激活.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/待办卡.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/缓存.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/卡片TTS.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/TTS直连.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/消息渲染.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/输入界面.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/诊断.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/连接.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/账本核对.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/电脑名册.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/事件总线.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/上线与界面.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/任务与输入.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/设置与迁移.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/手机缓存查看器.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/切换提示.js?v=2.256"></script>
+<script src="TRAE同步显示与控制工具_网页端/启动.js?v=2.256"></script>
 </body>
 </html>
