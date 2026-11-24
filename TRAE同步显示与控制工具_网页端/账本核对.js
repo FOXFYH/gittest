@@ -2199,27 +2199,18 @@ function ledgerHumanApply(sid, title, rec, opt){
     if (_r.did && typeof pendClearByDid === 'function')
       cleared = !!pendClearByDid(_r.did, _t);
   } catch(e){}
-  /* ① 立即渲染：当前会话追加（不替换、不裁剪旧消息）；非当前会话只落账 */
+  /* ① 2.265（老板 2026-11-24 铁令·只认小账本）：直推人类行不再直写
+     S.liveFrame/S.snap 上屏——新会话二者本为空，直写后只剩这一条，
+     renderAll 的回落/兜底分支一读就是「主界面只剩最新一条」（实测旁路根因）。
+     现改为：行先经 ledgerStorePut 并入小账本（去重+按 mid 排序+裁剪），
+     再由 renderAll→curMsgs 从小账本取出渲染（ledgerStorePut 落账收口
+     _after 内含「账本一变立刻重画」），「立即显示」语义不破坏。
+     shown＝渲染权（是当前会话且未被切换拦截），供返回值口径不变。 */
   let shown = false;
-  try {
-    if (lbHumanIsCurrent(_sid, _t) && !lbHumanSwitchBlocked(_sid)){
-      if (typeof _liveLockOn === 'function' && _liveLockOn()){
-        if (!S.liveFrame || !Array.isArray(S.liveFrame.msgs))
-          S.liveFrame = {msgs: [], finish: null, tail: '', sendIdle: true,
-                         inputText: '', opts: [], ask: null, pend: [], model: ''};
-        shown = lbMsgsAppend(S.liveFrame.msgs, row) || shown;
-      }
-      if (!S.snap || typeof S.snap !== 'object') S.snap = {};
-      if (!Array.isArray(S.snap.msgs)) S.snap.msgs = [];
-      shown = lbMsgsAppend(S.snap.msgs, row) || shown;
-      try { S.msgs_key = null; } catch(e){}
-    }
-  } catch(e){}
-  /* ③ 落本地账本（uid 优先；缺 uid 名称临时键 pend:1；
-     2.202 缺名也照建诊断账本——手机网页端为诊断口，不设拒收闸门） */
   try {
     ledgerStorePut(_sid, _t, [[row]], {touch: true, uid: opt.uid, humanOnly: true});
   } catch(e){}
+  try { shown = lbHumanIsCurrent(_sid, _t) && !lbHumanSwitchBlocked(_sid); } catch(e){}
   if (shown || cleared) { try { renderAll(); } catch(e){} }
   return shown || cleared;
 }
