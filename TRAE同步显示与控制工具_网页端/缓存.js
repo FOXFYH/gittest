@@ -104,7 +104,9 @@ function srvPackSave(){
                                      full: S.anchorFull || ''} : null,
               solid: {备注: S.备注 || {}, 定时: S.定时 || [],
                       models_full: S.models_full || [], boxes: S.boxes || [],
-                      acct: S.acct || '', model: (s.model || '')}};
+                      acct: S.acct || '', model: (s.model || ''),
+                      points: (S.points && S.points !== '—' && S.points !== '读取失败')
+                              ? S.points : ''}};
     const ks = Object.keys(all).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
     ks.slice(6).forEach(x => { delete all[x]; });
     localStorage.setItem(LS_SRV_PACK, JSON.stringify(all));
@@ -142,6 +144,11 @@ function srvPackRestore(box, port){
     try { if (d.acct){ S.acct = String(d.acct); renderAcct(); } } catch(e){}
     try { if (d.model && typeof syncModel === 'function'){ syncModel(d.model);
             if (S.snap) S.snap.model = d.model; } } catch(e){}
+    /* 2.269（老板 2026-11-24 21:29 令·积分固态化）：切回这台服务器＝立刻还原它
+       上次的积分，绝不显示「积分 —」；新积分到了由 points 事件/hello 帧覆盖。 */
+    try { if (d.points && d.points !== '—' && d.points !== '读取失败'){
+            S.points = String(d.points);
+            if (el.points) el.points.textContent = '积分 ' + S.points; } } catch(e){}
     /* 锚定：切回这台服务器＝回到它上次看的会话，立刻用该会话存帧铺满 */
     if (p.anchor && p.anchor.sid){
       S.anchorSid = p.anchor.sid; S.anchorTitle = p.anchor.title || '';
@@ -189,6 +196,8 @@ function solidSave(){
                boxes: S.boxes || [],
                acct: S.acct || '',
                model: (S.snap && S.snap.model) || '',
+               points: (S.points && S.points !== '—' && S.points !== '读取失败')
+                       ? S.points : '',
                pend: (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend : [],
                pend_sid: (S.snap && S.snap.pend_sid) || ''};
     localStorage.setItem(LS_SOLID, JSON.stringify(o));
@@ -230,6 +239,11 @@ function solidBoot(){
   } catch(e){}
   try { if (d.acct){ S.acct = String(d.acct); renderAcct(); } } catch(e){}
   try { if (d.model && typeof syncModel === 'function') syncModel(d.model); } catch(e){}
+  /* 2.269（老板 2026-11-24 21:29 令·积分固态化）：冷开/断网立刻显示上次积分，
+     绝不停在「积分 —」；新积分到（points 事件/hello）再覆盖。 */
+  try { if (d.points && d.points !== '—' && d.points !== '读取失败'){
+          S.points = String(d.points);
+          if (el.points) el.points.textContent = '积分 ' + S.points; } } catch(e){}
   try {
     if (Array.isArray(d.pend) && d.pend.length){
       if (!S.snap || typeof S.snap !== 'object') S.snap = {};
