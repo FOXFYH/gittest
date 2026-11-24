@@ -1,6 +1,5 @@
 'use strict';
 const LS_SKEL = 'trae_webm_skel';        /* 骨架缓存（会话列表） */
-const LS_HIST = 'trae_webm_hist';        /* 历史消息缓存（按会话） */
 let cacheKey = null, reqSeq = 0, skelLastSave = 0;
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
@@ -39,7 +38,7 @@ function checkVerBump(){
   const bumped = cacheKey !== null && cacheKey !== k;
   if (bumped){
     try { localStorage.removeItem(LS_SKEL);
-          localStorage.removeItem(LS_HIST); } catch(e){}
+          localStorage.removeItem('trae_webm_hist');   /* 2026-11-24：LS_HIST 常量已删，仍清旧键 */ } catch(e){}
     try { snapIdbClearList(); } catch(e){}   /* 2.17：只清列表骨架，预备画面保留 */
     _lsPurgeSnapKeys();
     S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histPrevRaw = [];
@@ -260,28 +259,6 @@ function solidBoot(){
    删除「只留最近 3 轮」的全部逻辑（原 2.59／用户 2026-10-07 口径作废）——
    快照与本地账本一律**整帧原样**，不再由网页端裁剪。 */
 /* —— 历史缓存：按 (端口|会话标题) 存账本记录 + 游标 —— */
-function histCacheRead(conv){
-  try {
-    const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
-    /* 2.174：key 校验放宽（断网冷开也要能读上次在线的历史缓存） */
-    if (!o) return null;
-    const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
-    if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
-    return e;
-  } catch(e){ return null; }
-}
-function histCacheWrite(conv, ver, have_seq, msgs){
-  try {
-    let o = null;
-    try { o = JSON.parse(localStorage.getItem(LS_HIST) || 'null'); } catch(e){}
-    if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow(), convs: {}};
-    if (!o.convs) o.convs = {};
-    o.convs['p' + S.port + '|' + (conv || '')] =
-      {ver: ver | 0, have_seq: have_seq | 0,
-       msgs: Array.isArray(msgs) ? msgs : []};
-    localStorage.setItem(LS_HIST, JSON.stringify(o));
-  } catch(e){}
-}
 function ledToArr(r){
   /* 2.105（②）：账本行补 index6＝mid（原始记录自带 mid；index5 留空＝无服务端盖章），
      供 curMsgs 尾部追加「按 mid 优先去重」。
@@ -506,46 +483,8 @@ function _swSnapIsTargetNow(sp){
       && Array.isArray(sp && sp.prevMsgs)
       && !sameConvBody(sm, sp.prevMsgs));
 }
-/* 3.01（老板 2026-11-20 令·小账本短路）：取「当前会话」的本地全量快照正文。
-   来源优先级：_frameMem（按 srv+sid 预读/落地）→ 标题索引 → S.liveFrame。
-   服务器归属不符（f._srv 有值且≠当前服务器）⇒ 视为无缓存，绝不跨服串显。 */
-function _curLocalFrameMsgs(){
-  try{
-    const sid = (S.anchorSid || (typeof curSid === 'function' ? curSid() : '') || '');
-    const title = (typeof curTitle === 'function') ? curTitle() : '';
-    let f = sid ? _frameMem[_frameMemKey(sid)] : null;
-    if (!f && title) f = _frameMemByTitle[_frameTitleKey(title)];
-    if (!f && S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length)
-      f = S.liveFrame;
-    if (!f || !Array.isArray(f.msgs) || !f.msgs.length) return [];
-    const tag = (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : '';
-    if (f._srv && tag && String(f._srv) !== tag) return [];
-    return f.msgs;
-  }catch(e){ return []; }
-}
-/* 3.01：同一 mid（无正式 mid 退「角色+正文」指纹）只留一条——本地铺底、活帧增量补尾；
-   同一条取正文更长的那份（终极回复长于生成中的壳行），绝不重复成两条。 */
-function _mergeLocalSnap(localMsgs, snapMsgs){
-  const local = Array.isArray(localMsgs) ? localMsgs : [];
-  const snap = Array.isArray(snapMsgs) ? snapMsgs : [];
-  if (!local.length) return snap;
-  const out = [], idx = new Map();
-  const idOf = m => {
-    const id = String((m && m[6]) || '');
-    return _midIsFormal(id) ? ('M\u0001' + id) : _msgKey(m);
-  };
-  const put = (m, live) => {
-    if (!Array.isArray(m)) return;
-    const k = idOf(m), at = idx.get(k);
-    if (at == null){ idx.set(k, out.length); out.push(m); return; }
-    const old = out[at];
-    const ot = String((old && old[1]) || ''), nt = String((m && m[1]) || '');
-    if (nt.length > ot.length || (nt.length === ot.length && live)) out[at] = m;
-  };
-  local.forEach(m => put(m, false));
-  snap.forEach(m => put(m, true));
-  return out;
-}
+/* 2026-11-24（老板令·只认小账本）：原 _curLocalFrameMsgs / _mergeLocalSnap
+   （本地存帧铺底、标题兜底、与活帧合并）整段删除——屏幕正文只从账本 rounds 出。 */
 function curMsgs(){
   /* 3.00（老板 2026-11-05 23:10）：正文唯一来源＝
      ① 服务端真快照（S.snap.msgs，内存，不落盘）；
@@ -556,10 +495,21 @@ function curMsgs(){
      正文更长的那份、绝不重复成两条；无本地缓存则原样用活帧（降级不报错）。 */
   const _sp = S.switch_pend;
   if ((S.livePend || (_sp && _sp.lockTarget && !_sp.arrived))
-      && !_swSnapIsTargetNow(_sp)) return [];
+      && !_swSnapIsTargetNow(_sp)){
+    /* 2026-11-24 单账本：切会话在途也直接显示目标会话账本，不再清屏等快照。 */
+    const _l = (typeof lbScreenMsgs === 'function')
+      ? lbScreenMsgs((typeof curSid === 'function' ? curSid() : ''),
+                     (typeof curTitle === 'function' ? curTitle() : '')) : [];
+    return orderMsgs(_l);
+  }
   const _liveMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs.slice() : [];
-  const _localMsgs = _curLocalFrameMsgs();
-  const snapMsgs = _localMsgs.length ? _mergeLocalSnap(_localMsgs, _liveMsgs) : _liveMsgs;
+  /* 2026-11-24（老板 10:23「只认小账本」）：正文唯一来源＝当前会话账本 rounds；
+     账本还没到（新会话）才临时用服务端活帧；存帧/标题兜底/预取一律不再上屏。 */
+  const _ledgerMsgs = (typeof lbScreenMsgs === 'function')
+    ? lbScreenMsgs((typeof curSid === 'function' ? curSid() : ''),
+                   (typeof curTitle === 'function' ? curTitle() : ''))
+    : [];
+  const snapMsgs = _ledgerMsgs.length ? _ledgerMsgs : _liveMsgs;
   const prevRaw = (S.histPrevRaw && S.histPrevRaw.length) ? S.histPrevRaw : [];
   if (!prevRaw.length) return orderMsgs(snapMsgs);
   const prevArr = prevRaw.map(ledToArr);
@@ -1058,7 +1008,11 @@ function liveOverlay(snap){
   if (!_liveLockOn()) return snap;
   const f = S.liveFrame || {};
   return Object.assign({}, snap, {
-    msgs: (f.msgs || []), finish: f.finish || null, tail: f.tail || '',
+    msgs: (typeof lbScreenMsgs === 'function'
+           ? lbScreenMsgs((typeof curSid === 'function' ? curSid() : ''),
+                          (typeof curTitle === 'function' ? curTitle() : ''))
+           : (f.msgs || [])),
+    finish: f.finish || null, tail: f.tail || '',
     sendIdle: !!f.sendIdle, inputText: f.inputText || '',
     opts: f.opts || [], ask: f.ask || null,
     /* 2.173（固态化「打开即活」）：pend 不再硬清空——原 [] 是 2.57B 时代唯一
@@ -1078,6 +1032,10 @@ function snapIdbShow(sid, title){
   if (!sid) return;
   S.liveGot = false; S.livePend = sid;
   S.liveFrame = null;            /* 2.57B：旧会话 A 的正文退场（防张冠李戴） */
+  /* 2026-11-24 单账本：切会话不再用存帧铺底，直接按账本 rounds 渲染并返回。 */
+  S.swFrameReady = true;
+  renderAll();
+  return;
   /* 2.64：先读到目标会话的存帧、再渲染「一次」——不再先画一版空帧。
      原实现先 renderAll() 空帧、再异步补缓存，中间那版空版面会把消息区
      scrollTop 夹回 0 并抛 scroll 事件，成为「自动跳顶 + 拉历史」的源头。
