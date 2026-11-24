@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.71';
+  const APP_VERSION = 'v1.72';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -546,6 +546,7 @@
         const 推 = { 卷名: String(doc.name || '').replace(/\.txt$/i, '') };
         if (题区.indexOf('选择题') >= 0) 推['题型'] = '选择题';
         else if (题区.indexOf('填空') >= 0) 推['题型'] = '填空';
+        else if (题区.indexOf('简答') >= 0 || /十问/.test(String(doc.name || ''))) 推['题型'] = '简答';
         if (题数推 > 0) 推['题数'] = 题数推;
         qb = Object.assign(推, qb);
       }
@@ -1441,6 +1442,7 @@
         const 推 = { 卷名: ((doc && doc.name) || '').replace(/\.txt$/i, ''), 题数: 题数推 };
         if (题区.indexOf('选择题') >= 0) 推['题型'] = '选择题';
         else if (题区.indexOf('填空') >= 0) 推['题型'] = '填空';
+        else if (题区.indexOf('简答') >= 0 || /十问/.test(String((doc && doc.name) || ''))) 推['题型'] = '简答';
         qb = Object.assign(推, qb);
         是题库 = true;
       }
