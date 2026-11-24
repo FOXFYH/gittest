@@ -329,12 +329,11 @@ function buildIdCard(){
   fs.id = 'idcard_fs';
   fs.innerHTML =
     '<legend>本机身份</legend>'
-    + '<div class="row"><button id="btn_cache_mgr" style="flex:1;">缓存管理</button></div>'
-    + '<div class="row"><span>软件号（只读）</span><b id="lbl_myid" class="diagv"></b></div>'
-    + '<div class="row"><span class="hint">随机生成、随本机持久保存，不可修改（改号会破坏识别与去重）</span></div>'
-    + '<div class="row"><label>昵称</label><input id="in_nick" maxlength="40" placeholder="选填，只给人看，如：手机"></div>'
-    + '<div class="row" style="gap:8px; margin-top:6px;">'
-    + '<button id="btn_nicksave" style="flex:1;">保存昵称</button>'
+    + '<div class="row" style="gap:6px; align-items:center;">'
+    + '<span>软件号</span><b id="lbl_myid" class="diagv"></b>'
+    + '<label style="margin-left:8px;">昵称</label>'
+    + '<input id="in_nick" maxlength="40" placeholder="选填，如：手机" style="flex:1; min-width:0;">'
+    + '<button id="btn_nicksave" style="flex:0 0 auto;">保存</button>'
     + '<span id="nick_flash" class="hint"></span></div>';
   body.insertBefore(fs, body.firstChild);
   const lbl = document.getElementById('lbl_myid');
@@ -349,7 +348,12 @@ function buildIdCard(){
       setTimeout(() => { if (f.textContent === '已保存') f.textContent = ''; }, 2500); }
     try { if (S.onLine && typeof cliLogin === 'function') cliLogin('改昵称'); } catch(e){}
   };
-  /* 2.226（老板令·账本/缓存合并）：原「缓存」页签撤销，改由本机身份旁此按钮打开同一缓存视图。 */
+  /* 2026-11-24（老板令）：缓存管理移出身份卡，固定放设置页最底部；顶部只留一行紧凑身份。 */
+  const fs2 = document.createElement('fieldset');
+  fs2.id = 'cache_fs';
+  fs2.innerHTML = '<legend>缓存</legend>'
+    + '<div class="row"><button id="btn_cache_mgr" style="flex:1;">缓存管理</button></div>';
+  body.appendChild(fs2);
   const cmgr = document.getElementById('btn_cache_mgr');
   if (cmgr) cmgr.onclick = () => {
     try {
