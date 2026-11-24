@@ -607,7 +607,7 @@ function ledgerVcheckBuild(act, sid){
      每模块编码独立可辨、服务端逐模块校验。 */
   const mods = {};
   const b = LB.mods || {};
-  ['sig', 'snote', 'macct', 'convs', 'didp', 'think', 'srv', 'input'].forEach(k => {
+  ['sig', 'snote', 'macct', 'convs', 'didp', 'think', 'srv', 'input', 'points'].forEach(k => {
     if (b[k]) mods[k] = b[k];
   });
   /* 2.184 改4（规范§七 :194 同号不同态＋「客户端上报参数」三条）：ledger 改为
