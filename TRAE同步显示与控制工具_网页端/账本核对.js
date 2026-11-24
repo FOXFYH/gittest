@@ -57,9 +57,63 @@ let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
           lbSum: {},                         /* 2.184 改4（规范§七 :194）：本地账本摘要表——键＝终身号，
                                                 值＝{rounds, codes:[{mid, fin, hash}]}，put 成功后才记；
                                                 vcheck 按它上报编码集合＋完成态＋正文指纹 */
+          rows: {},                          /* 2026-11-24（老板令·只认小账本）：屏幕唯一正文源——
+                                                键＝服务器|终身号（名称作兜底别名），值＝账本 rounds */
           /* 2.234（老板 2026-11-20 23:42）：原 2.227「强核对」可见反馈字段
              （vchkLog/vchkCnt）随大面板一并清除，核对状态只走横幅＋圆球。 */
           chkUntil: 0};                      /* 圆球指示窗截止时刻（四契机通用，10s） */
+/* 2026-11-24（老板 10:23「网页版只需要一份小账本」）：屏幕正文只认账本 rounds。
+   rows 内存表按「服务器|终身号」存、名称作兜底别名；存帧/标题兜底/预取一律不再上屏。 */
+function _lbRowsKey(uid, title){
+  /* 只用「终身号｜会话名」做键（不带服务器标签）：开机时服务器名可能还没到，
+     带标签会导致账本装进去却查不到。单服务器日常使用下不存在串服问题。 */
+  return '|' + (String(uid || '').trim() || String(title || '').trim());
+}
+function lbRowsPut(uid, title, rounds){
+  try{
+    if (!Array.isArray(rounds) || !rounds.length) return;
+    const u = String(uid || '').trim(), t = String(title || '').trim();
+    if (u) LB.rows[_lbRowsKey(u, '')] = rounds;
+    if (t) LB.rows[_lbRowsKey('', t)] = rounds;
+  }catch(e){}
+}
+function lbScreenMsgs(sid, title){
+  try{
+    const t = String(title || '').trim();
+    const u = (typeof lbUidPick === 'function')
+      ? String(lbUidPick(null, sid, t) || '') : '';
+    const keys = [];
+    if (u) keys.push(_lbRowsKey(u, ''));
+    if (t) keys.push(_lbRowsKey('', t));
+    for (const k of keys){
+      const rs = LB.rows[k];
+      if (!Array.isArray(rs) || !rs.length) continue;
+      const out = [];
+      rs.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) out.push(m.slice()); }));
+      if (out.length) return out;
+    }
+    return [];
+  }catch(e){ return []; }
+}
+function _lbSecOf(m){
+  try{
+    const id = String((Array.isArray(m) && m[6]) || '');
+    return parseInt(id.slice(0, 8), 16) || 0;
+  }catch(e){ return 0; }
+}
+function _lbMaxSec(rec){
+  try{
+    const ms = (rec && rec.frame && Array.isArray(rec.frame.msgs)) ? rec.frame.msgs : [];
+    let m = 0;
+    ms.forEach(x => { const v = _lbSecOf(x); if (v > m) m = v; });
+    return m;
+  }catch(e){ return 0; }
+}
+function _lbTailNewer(a, b){
+  const x = (Array.isArray(a) && a.length) ? _lbSecOf(a[a.length - 1]) : 0;
+  const y = (Array.isArray(b) && b.length) ? _lbSecOf(b[b.length - 1]) : 0;
+  return x > y;
+}
 let lbLastAct = Date.now();                  /* 离线倒计时锚点（任意操作重置） */
 let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默认关，追加单 2026-11-18） */
 
@@ -91,7 +145,9 @@ function lbHaveLoad(){
      每条存帧按「u 起一轮」还原 rounds，编码/完成态/正文指纹照旧由 lbSumOf 现算。 */
   try {
     return _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
-      (rows || []).forEach(rec => {
+      /* 2026-11-24：同一会话可能残留多条存帧（旧 sid/同名）——按「最新一条消息的
+         mid 时间」升序装，后写覆盖前写 ⇒ 内存账本永远是最新的那一份。 */
+      (rows || []).slice().sort((a, b) => _lbMaxSec(a) - _lbMaxSec(b)).forEach(rec => {
         try {
           const fr = rec && rec.frame;
           if (!fr || !Array.isArray(fr.msgs) || !fr.msgs.length) return;
@@ -103,6 +159,7 @@ function lbHaveLoad(){
             || (typeof lbUidPick === 'function' ? String(lbUidPick(null, rec.sid, t) || '') : '');
           if (u) LB.lbHave.add(u);
           lbSumSet(u || String(rec.sid || ''), t, rounds);
+          lbRowsPut(u, t, rounds);            /* 2026-11-24：开机把账本 rounds 装进屏幕唯一源 */
         } catch(e){}
       });
       return Object.keys(LB.lbSum || {}).length;
@@ -149,7 +206,8 @@ function lbTimeBackfill(days){
     if (Date.now() - _lbTimeFixAt < 5 * 60 * 1000) return Promise.resolve(0);
     _lbTimeFixAt = Date.now();
     const cut = Date.now() - Math.max(1, Number(days) || 2) * 24 * 3600 * 1000;
-    return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
+    /* 2026-11-24（老板令·只留一本账）：ledger_conv 已退役，这里只清 snap_conv。 */
+    return Promise.resolve([]).then(rows => {
       let n = 0;
       const tasks = [];
       (rows || []).forEach(rec => {
@@ -162,10 +220,7 @@ function lbTimeBackfill(days){
           /* 2.209：账本行不存时间——历史非空值一律清空。 */
           if (m[2] !== ''){ m[2] = ''; changed = true; }
         }));
-        if (changed){
-          n++;
-          tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(rec)).catch(() => {}));
-        }
+        if (changed){ n++; }   /* 2026-11-24：ledger_conv 已退役，不再写回 */
       });
       /* 2.209：画面缓存 snap_conv 同步清理——把每行 m[2] 清空，
          不碰 sk/frame 其它字段，幂等可重复。 */
@@ -827,6 +882,7 @@ function lbKeepApply(d){
               st => st.delete(rec.sk)).catch(() => {}));
             try { LB.lbHave.delete(String(rec.uid || rec.sid || '')); } catch(e){}
             try { lbSumDrop(rec.sid, rec.title); } catch(e){}
+            try { delete LB.rows[_lbRowsKey(String(rec.uid || ''), rt)]; } catch(e){}
             try { delete _frameMem[rec.sk]; } catch(e){}
             return;
           }
@@ -841,6 +897,7 @@ function lbKeepApply(d){
             || (typeof lbUidPick === 'function'
                 ? String(lbUidPick(null, rec.sid, rt) || '') : '');
           try { lbSumSet(u || String(rec.sid || ''), rt, rounds); } catch(e){}
+          try { lbRowsPut(u, rt, rounds); } catch(e){}   /* 2026-11-24：屏幕唯一源同步裁剪 */
           puts.push(_idbReq('snap_conv', 'readwrite',
             st => st.put(nr)).catch(() => {}));
           try { diagLog('lbkeep 裁剪|sid=' + sid + '|删=' + hit
@@ -1520,7 +1577,18 @@ function lbBootMerge(sid, title){
     const s = String(sid || '');
     const t = String(title || '').trim();
     if (!s && !t) return;
-    if (typeof _idbReq !== 'function' || typeof renderAll !== 'function') return;
+    if (typeof renderAll !== 'function') return;
+    /* 2026-11-24 单账本：只用账本 rounds 顶屏，不再读存帧。 */
+    const _rows = (typeof lbScreenMsgs === 'function') ? lbScreenMsgs(s, t) : [];
+    if (!_rows.length) return;
+    if (S.anchorSid){
+      const _k2 = (typeof 稳定键 === 'function') ? String(稳定键(s, t) || '') : '';
+      if (_k2 && S.anchorSid !== _k2) return;
+    }
+    S.liveFrame = null; S.msgs_key = '';
+    renderAll();
+    return;
+    /* ---- 以下旧「存帧顶屏」路径停用（2026-11-24） ---- */
     _idbReq('snap_conv', 'readonly', st => st.getAll()).then(all => {
       const rows = (all || []).filter(r => {
         if (!r || !r.frame || !Array.isArray(r.frame.msgs) || !r.frame.msgs.length) return false;
@@ -1636,9 +1704,10 @@ function lbMigrateTitle(sid, title){
         if (_think) rec.think = _think;
         const sks = tmps.map(x => x.sk);
         const tmpTitles = tmps.map(x => String(x.title || '').trim()).filter(Boolean);
-        return _idbReq('ledger_conv', 'readwrite', st => st.put(rec))
-          .then(() => Promise.all(sks.map(sk =>
-            _idbReq('ledger_conv', 'readwrite', st => st.delete(sk)).catch(() => {}))))
+        /* 2026-11-24（老板令·只留一本账）：不再写 ledger_conv（第二本账已退役）。
+           合并结果只由下面 lbWriteBackSnap 写进 snap_conv；旧临时行直接删除。 */
+        return Promise.all(sks.map(sk =>
+            _idbReq('ledger_conv', 'readwrite', st => st.delete(sk)).catch(() => {})))
           .then(() => {
             /* 临时键摘要全部撤掉（含历史遗留的旧名），换终身号键 */
             tmpTitles.forEach(tt => { try { delete LB.lbSum[tt]; } catch(e){} });
@@ -1811,6 +1880,14 @@ function ledgerStorePut(sid, title, rounds, opt){
       /* 2.184 改7：无 sid 的临时账本不进「真存集」——集合按 sid 认，空串会污染 */
       if (_uidEff) LB.lbHave.add(_uidEff);
       lbSumSet(_uidEff, _t, out);
+      lbRowsPut(_uidEff, _t, out);            /* 2026-11-24：账本更新即刷屏幕唯一源 */
+      try {   /* 2026-11-24：账本一变，屏幕立刻按账本重画（只认小账本） */
+        const _a = String(S.anchorSid || '');
+        const _au = _a && (typeof lbUidPick === 'function')
+          ? String(lbUidPick(null, _a, S.anchorTitle || '') || '') : '';
+        if ((_uidEff && _au && _uidEff === _au)
+            || (!_uidEff && _t && String(S.anchorTitle || '') === _t)) renderAll();
+      } catch(e){}
       lbWriteBackSnap(_uidEff, _t, out);                   /* 改1：最新账本立刻回写秒显源 */
       lbPurgeStray(sk, _uidEff, _t);                       /* 改2：旧 raw 键残留一次性清理 */
       /* 2.214：同一会话（同 sid 或同名，含旧「重复」后缀）只留一本账 */
@@ -2096,7 +2173,8 @@ function ledgerStoreApply(sid, body, ver){
     }));
     const _merged = _base.slice();
     rows.forEach(m => { lbMsgsAppend(_merged, m); });
-    if (rows.length && (!_屏Rows || _newN > _liveN || _merged.length > _屏Rows)){
+    if (rows.length && (!_屏Rows || _newN > _liveN || _merged.length > _屏Rows
+                        || (typeof _lbTailNewer === 'function' && _lbTailNewer(rows, _base)))){
       if (S.livePend){ S.livePend = ''; S.liveFrame = null; }   /* 解锁旧帧，交账本轮顶屏 */
       S.livePend = S.anchorSid;
       S.liveFrame = {msgs: _merged, finish: null, tail: '', sendIdle: true,
@@ -2187,6 +2265,9 @@ function lbTrimAllRounds(force){
     const now = Date.now();
     if (!force && now - _lbTrimAllAt < 5000) return Promise.resolve(0);
     _lbTrimAllAt = now;
+    /* 2026-11-24（老板令·只留一本账）：ledger_conv 已退役，本函数不再读写第二本账；
+       正文裁剪只走 snap_conv（lbTrimAllSnaps）。 */
+    return Promise.resolve(0);
     let nBooks = 0, nCut = 0;
     const tasks = [];
     return _idbReq('ledger_conv', 'readonly', st => st.getAll()).then(rows => {
@@ -2198,7 +2279,7 @@ function lbTrimAllRounds(force){
         nBooks++;
         nCut += Math.max(0, rec.rounds.length - kept.length);
         const nrec = Object.assign({}, rec, {rounds: kept});
-        tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(nrec)).catch(() => {}));
+        /* 2026-11-24：ledger_conv 已退役，本分支不再写回 */
         try { lbSumSet(rec.uid || rec.sid, rec.title, kept); } catch(e){}
       });
       return Promise.all(tasks).then(() => {
@@ -2321,7 +2402,8 @@ function lbCleanupTempLedgers(force){
             bySk.set(nk, nrec);
             ledRoundsMigrated += out.length;
             notes.push('账本 ' + String(rec.sk) + ' → ' + nk + '（轮次 ' + rounds.length + '→' + out.length + '）');
-            tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(nrec))
+            /* 2026-11-24：不再写 ledger_conv（第二本账退役），旧键直接删。 */
+            tasks.push(Promise.resolve()
               .then(() => (rec.sk !== nk)
                 ? _idbReq('ledger_conv', 'readwrite', st => st.delete(rec.sk))
                 : null).catch(() => {}));
@@ -2553,9 +2635,9 @@ function lbMergeDuplicateBuckets(force){
       const dels = arr.map(r => r.sk).filter(k => k !== key);
       logs.push('账本 ' + arr.map(r => r.sk).join(' + ') + ' → ' + key
         + '（轮次 ' + nBefore + '→' + out.length + '）');
-      tasks.push(_idbReq('ledger_conv', 'readwrite', st => st.put(rec))
-        .then(() => Promise.all(dels.map(k =>
-          _idbReq('ledger_conv', 'readwrite', st => st.delete(k)).catch(() => {}))))
+      /* 2026-11-24：不再写 ledger_conv（第二本账退役），重复键直接删。 */
+      tasks.push(Promise.all(dels.map(k =>
+          _idbReq('ledger_conv', 'readwrite', st => st.delete(k)).catch(() => {})))
         .catch(() => {}));
     });
     return Promise.all(tasks).then(() => _idbReq('snap_conv', 'readonly', st => st.getAll()));
