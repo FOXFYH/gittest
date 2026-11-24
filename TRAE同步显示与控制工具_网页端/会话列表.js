@@ -211,8 +211,10 @@ function _convItemSwitch(d){
   S.convs_key = null;
   renderConvs(S.snap.convs || [], S.snap.conv_unread,
               S.snap.conv_unread_ids);
-  /* 2.67：切换在途提示；2.89：带「锁死目标 + 切换前锚定」*/
-  pendSwitchSet(title, sid, sid || i,
+  /* 2.261（老板令·横幅状态时序①）：点会话瞬间先亮横幅「切换会话到 XXX」 */
+  if (typeof setBanner === 'function') setBanner('切换会话到 ' + (title || ''));
+  /* 2.67：切换在途提示；2.89：带「锁死目标 + 切换前锚定」；2.261：一律完整锚定 sid */
+  pendSwitchSet(title, S.anchorFull, S.anchorFull,
                 {prevAnchor: _prevAnchor, lockTarget: true, deferRender: true});
   S.livePrefetch = false;
   /* 2.130：本地最新完整存帧同步铺满（一次渲染，0ms） */
@@ -220,9 +222,18 @@ function _convItemSwitch(d){
   /* 2.61：切会话后消息区钉底 */
   S.pinBottom = true;
   foxStop();                   /* 2.06：切到别的对话即停声（免打扰） */
-  sendCmd('switch', sid || i);
-  /* 账本V1.0（C3/I1）：切换请求携全模块版本编码 */
-  try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', sid || ''); } catch(e){}
+  /* 2.261（老板令·状态时序②）：立刻发 switch；WS 已打开→等服务器回应，
+     未登录/未打开→WS 重试中并触发 connect() 重连。携带唯一锚定完整 sid。 */
+  if (S.anchorFull) sendCmd('switch', S.anchorFull);
+  try {
+    if (S.onLine){ if (typeof setBanner === 'function') setBanner('等待服务器回应'); }
+    else {
+      if (typeof setBanner === 'function') setBanner('WS 重试中');
+      if (typeof connect === 'function') connect();
+    }
+  } catch(e){}
+  /* 账本V1.0（C3/I1）：切换请求携全模块版本编码（带锚定完整 sid） */
+  try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull); } catch(e){}
   drawerClose();
 }
 function renderConvs(rows, conv_unread, conv_unread_ids){
