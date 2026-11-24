@@ -96,6 +96,29 @@ function _lbRowsKey(uid, title){
      带标签会导致账本装进去却查不到。单服务器日常使用下不存在串服问题。 */
   return '|' + (String(uid || '').trim() || String(title || '').trim());
 }
+/* 2.275（老板 2026-11-25 通宵实测复现：LB.rows 里 5 轮 u+a 齐全、
+   lbScreenMsgs 返回 10 条，主界面 #msgs 却一条不渲染；手动 renderAll()
+   立刻 10 条全出）：账本变了不等于屏幕重画——账本落地/补发/裁剪都在
+   异步回调里改 LB.rows，没有任何一处触发重绘。凡是账本变动一律走本函数，
+   节流 250ms 统一重画。 */
+let _lbRepaintT = null, _lbRepaintAt = 0;
+function lbRepaint(delay){
+  try{
+    if (typeof renderAll !== 'function') return;
+    const d = (delay == null) ? 250 : delay;
+    if (d <= 0){
+      _lbRepaintAt = Date.now();
+      renderAll();
+      return;
+    }
+    if (_lbRepaintT) return;
+    _lbRepaintT = setTimeout(() => {
+      _lbRepaintT = null;
+      _lbRepaintAt = Date.now();
+      try { renderAll(); } catch(e){}
+    }, d);
+  }catch(e){}
+}
 function lbRowsPut(uid, title, rounds){
   try{
     if (!Array.isArray(rounds) || !rounds.length) return;
@@ -203,6 +226,9 @@ function lbHaveLoad(){
           lbRowsPut(u, t, rounds);            /* 2026-11-24：开机把账本 rounds 装进屏幕唯一源 */
         } catch(e){}
       });
+      /* 2.275：开机把账装进 LB.rows 后立刻重画——冷启动不再只停在
+         「暂无消息」的空屏，等用户手点一下才出内容。 */
+      try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
       return Object.keys(LB.lbSum || {}).length;
     }).catch(() => 0);
   } catch(e){ return Promise.resolve(0); }
@@ -989,7 +1015,8 @@ function lbKeepApply(d){
             + '|留=' + kept.length, 'ok'); } catch(e){}
         }catch(e){}
       });
-      return Promise.all(puts);
+      /* 2.275：裁剪也改了 LB.rows —— 落盘完成后按账本重画 */
+      return Promise.all(puts).then(() => { try { lbRepaint(); } catch(e){} });
     }).catch(() => {});
   }catch(e){}
 }
@@ -1083,7 +1110,9 @@ function lbSyncApply(d){
             + '|rounds=' + (parseInt(d.rounds) || 0), 'ok'); } catch(e){}
         }catch(e){}
       });
-      return Promise.all(puts);
+      /* 2.275：服务端足额补发落地后立刻重画（缺额补上却不上屏＝老板说的
+         「怎么刷新思维流都不来」） */
+      return Promise.all(puts).then(() => { try { lbRepaint(); } catch(e){} });
     }).catch(() => {});
   }catch(e){}
 }
@@ -2201,12 +2230,16 @@ function ledgerStorePut(sid, title, rounds, opt){
       if (_uidEff) LB.lbHave.add(_uidEff);
       lbSumSet(_uidEff, _t, out);
       lbRowsPut(_uidEff, _t, out);            /* 2026-11-24：账本更新即刷屏幕唯一源 */
-      try {   /* 2026-11-24：账本一变，屏幕立刻按账本重画（只认小账本） */
-        const _a = String(S.anchorSid || '');
+      /* 2.275：只要落的是「当前正在看的那本账」就立刻重画；锚点没设时
+         退回 curSid()/curTitle() 判断——开机阶段 S.anchorSid 常为空，
+         旧逻辑因此一次都不重绘，主界面永远是空白/旧画面。 */
+      try {
+        const _a = String(S.anchorSid || (typeof curSid === 'function' ? curSid() : '') || '');
+        const _at = String(S.anchorTitle || (typeof curTitle === 'function' ? curTitle() : '') || '');
         const _au = _a && (typeof lbUidPick === 'function')
-          ? String(lbUidPick(null, _a, S.anchorTitle || '') || '') : '';
+          ? String(lbUidPick(null, _a, _at) || '') : '';
         if ((_uidEff && _au && _uidEff === _au)
-            || (!_uidEff && _t && String(S.anchorTitle || '') === _t)) renderAll();
+            || (_t && _at && _t === _at)) lbRepaint();
       } catch(e){}
       lbWriteBackSnap(_uidEff, _t, out);                   /* 改1：最新账本立刻回写秒显源 */
       /* 2.214：同一会话（同 sid 或同名，含旧「重复」后缀）只留一本账 */
