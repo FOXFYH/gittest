@@ -250,9 +250,44 @@ function lbScreenMsgs(sid, title){
        改为并集合并：两处账本的每一条都收进来，按 _msgKey 去重，同一条
        只升不降（'a' 终极行覆盖 'th' 思维流行、正文取更长），一条不丢。
        这样主界面恒等于小账本，新消息先入账本再上屏，绝不会只剩人类。 */
-    const out = [], at = {};
+    /* 2.308（老板 2026-11-25 20:31 令「让小账本短路显示到主界面」）：
+       主界面原只吃账本帧（LB.rows）。账本帧由服务端按「末 N 轮 + 缺 mid 整轮剔除」
+       下发（运行日志 20:05:50-53 实锤：无ID不发 mid=sid 0047…），而小账本
+       （snap_conv 存帧）走快照通路，最新轮常常先到——于是「小账本有 20 点、
+       主界面只到 19 点」。此处把内存存帧（_frameMem，小账本同源）里当前会话的
+       u/a 行一并并入主界面：账本落后/漏轮时直接由存帧补齐，主界面恒等于小账本。
+       切服不串显：两边都有服务器归属且不同时整份跳过（3.01 口径）。 */
+    const groups = [];
+    try{
+      const _tag = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : '';
+      let _fr = null;
+      if (typeof _frameMem !== 'undefined'){
+        const _mk = (typeof _frameMemKey === 'function') ? _frameMemKey(sid) : '';
+        if (_mk && _frameMem[_mk]) _fr = _frameMem[_mk];
+        if (!_fr && t && typeof _frameTitleKey === 'function'){
+          const _tk = _frameTitleKey(t);
+          if (_tk && _frameMemByTitle && _frameMemByTitle[_tk]) _fr = _frameMemByTitle[_tk];
+        }
+      }
+      if (_fr && Array.isArray(_fr.msgs) && _fr.msgs.length){
+        const _fs = String(_fr._srv || '');
+        if (!(_tag && _fs && _tag !== _fs)){
+          const _rows = [];
+          _fr.msgs.forEach(m => {
+            const k = (typeof _lbKeepRow === 'function') ? _lbKeepRow(m) : m;
+            if (k) _rows.push([k]);
+          });
+          if (_rows.length) groups.push(_rows);
+        }
+      }
+    }catch(e){}
+    /* 账本帧（LB.rows）放后面并：同一 mid 以账本（服务端定稿）为准，存帧只补账本没有的轮。 */
     for (const k of keys){
       const rs = LB.rows[k];
+      if (Array.isArray(rs) && rs.length) groups.push(rs);
+    }
+    const out = [], at = {};
+    for (const rs of groups){
       if (!Array.isArray(rs) || !rs.length) continue;
       rs.forEach(r => (r || []).forEach(m => {
         if (!Array.isArray(m)) return;
