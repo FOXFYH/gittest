@@ -162,6 +162,39 @@ function lbScreenMsgs(sid, title){
     return out;
   }catch(e){ return []; }
 }
+/* 2.279（老板 2026-11-25 08:04 令）：账本→主界面「3 秒兜底自检」。
+   正常链路：新消息先进小账本落盘 → lbRowsPut 立刻 lbRepaint 重画主界面。
+   万一某一拍回调漏了重绘，这里每 3 秒按**ID 序列**比对小账本(lbScreenMsgs)
+   与主界面(#msgs 里带 data-mid 的正式行)——条数或顺序只要不一致就强制重画。
+   思维流活卡(data-think)不算正式行，跳过。 */
+let _lbGuardAt = 0;
+function lbGuardTick(){
+  try{
+    if (Date.now() - _lbGuardAt < 2500) return;
+    const box = document.getElementById('msgs');
+    if (!box) return;
+    const want = (typeof lbScreenMsgs === 'function') ? (lbScreenMsgs() || []) : [];
+    const wm = [];
+    want.forEach(m => {
+      const id = Array.isArray(m) ? String(m[6] || '') : '';
+      if (id) wm.push(id);
+    });
+    const dm = [];
+    box.querySelectorAll('.msg').forEach(el => {
+      if (el.getAttribute('data-think')) return;
+      const id = el.getAttribute('data-mid') || '';
+      if (id) dm.push(id);
+    });
+    if (!wm.length && !dm.length) return;
+    if (wm.length !== dm.length || wm.some((x, i) => x !== dm[i])){
+      _lbGuardAt = Date.now();
+      try { diagLog('主界面兜底重绘|账本=' + wm.length + '|屏幕=' + dm.length, 'warn'); } catch(e){}
+      lbRepaint(0);
+    }
+  }catch(e){}
+}
+try { setInterval(lbGuardTick, 3000); } catch(e){}
+
 function _lbSecOf(m){
   try{
     const id = String((Array.isArray(m) && m[6]) || '');
