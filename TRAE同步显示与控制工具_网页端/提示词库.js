@@ -1,21 +1,18 @@
 'use strict';
-/* 提示词库.js（网页端）  版本 2.283  日期 2026-11-25
-   老板口径（2026-11-25 09:51）：全局/岗位/自定/人类提示词平时几乎不改，却每个会话
-   各存一份、内容大量重复。服务端「提示词总库」已按正文去重（系统词拆「私有头+全局段」），
-   每条唯一正文一个代码（Q0001…）+ 一个版本号（sha1 前 8 位）。
+/* 提示词库.js（网页端）  版本 2.284  日期 2026-11-25
+   老板口径（2026-11-25 09:52）：「提示词仓库模块的风格有点像会话记录模块一样，
+   它占一行，不过这一行里面，它会有一组多个的版本号码，对应每一条提示词绝对差异化的。」
+   ⇒ 本块只占一行：状态 + 一串「代码·版本」小钮（一条提示词一个版本号）+ 对账/清空；
+      点某个版本号才在下方展开全文（平时不占高度）。
 
-   本文件做三件事：
-   ① 平时只收「代码+版本」索引（ev k=plib_idx），全文不再随广播反复传；
-   ② 与 localStorage 缓存比对：缺码 / 版本不符 → 只对这几条发 plib_get 取全文，
-      其余全部吃缓存（断网也能看、能复制）；
-   ③ 设置页新增「提示词库」块：按代码拼贴成按钮（点开看全文/一键复制），并按会话
-      把「私有头+全局+岗位」拼成整段（同样只用本地缓存拼，不再向电脑要全文）。
+   服务端「提示词总库」已按正文去重（系统词拆「私有头+全局段」），每条唯一正文
+   一个代码（Q0001…）+ 一个版本号（sha1 前 8 位）。网页端平时只收「代码+版本」索引，
+   缺码/版本不符才 plib_get 取那几条全文；其余全部吃 localStorage 缓存。
 
    协议：cmd('plib_idx') → ev/plib_idx {n,idx:[{c,v,k,t,z,u}],conv:[{sid,n,p:[[k,c]…]}]}
          cmd('plib_get',[码…]) → ev/plib_text {items:{码:全文}}            */
 (function(){
   const KEY = 'plib_cache_v1';
-  const KIND_ORDER = ['全局', '岗位', '系统', '自定', '人类', '私有头'];
   let L = load();
   let built = false;
   let tried = false;
@@ -37,7 +34,13 @@
   }
   function fsEl(){ return document.getElementById('plib_fs'); }
 
-  /* —— 建块（设置页 .nbody 里、版本标签之前） —— */
+  /* 类别 → 小钮颜色（缓存到本机=实线，缺=虚线暖色） */
+  const KIND_COLOR = {
+    '全局': '#7aa7d9', '岗位': '#8bbf7a', '系统': '#b39ddb',
+    '自定': '#e0a45f', '人类': '#d98ba6', '私有头': '#9aa7b5'
+  };
+
+  /* —— 一行式块：状态 + 版本号组 + 对账/清空（插在设置页版本标签之前） —— */
   function build(){
     if (built || fsEl()) { built = true; return; }
     const body = document.querySelector('#page_net .nbody');
@@ -45,14 +48,20 @@
     const fs = document.createElement('fieldset');
     fs.id = 'plib_fs';
     fs.innerHTML =
-      '<legend>提示词库（去重 · 按代码缓存）</legend>'
-      + '<div class="row" id="plib_stat"><span class="hint">尚未同步</span></div>'
-      + '<div class="row" style="gap:8px;">'
-      +   '<button id="plib_sync" style="flex:1;">立即对账</button>'
-      +   '<button id="plib_clear" style="flex:1;">清空本机缓存</button>'
+      '<legend>提示词库（一行版本条 · 按代码缓存）</legend>'
+      + '<div class="row" id="plib_strip" style="flex-wrap:nowrap;overflow-x:auto;'
+      +   'gap:6px;align-items:center;padding-bottom:2px;margin:0;min-height:24px;">'
+      +   '<span id="plib_stat" class="hint" style="white-space:nowrap;font-size:11px;">尚未同步</span>'
+      +   '<span id="plib_chips" style="display:inline-flex;gap:5px;flex-wrap:nowrap;"></span>'
+      +   '<select id="plib_convsel" title="按会话拼贴（只用本机缓存）" '
+      +     'style="max-width:110px;font-size:11px;padding:1px 4px;border-radius:10px;'
+      +     'border:1px solid #99c;background:#f3f6ff;flex:0 0 auto;min-height:22px;">'
+      +     '<option value="">拼贴…</option></select>'
+      +   '<button id="plib_sync" title="立即与服务端对账（只收代码+版本）" '
+      +     'style="font-size:11px;padding:1px 8px;border-radius:10px;flex:0 0 auto;min-height:22px;">对账</button>'
+      +   '<button id="plib_clear" title="清空本机提示词缓存" '
+      +     'style="font-size:11px;padding:1px 8px;border-radius:10px;flex:0 0 auto;min-height:22px;">清空</button>'
       + '</div>'
-      + '<div id="plib_idxbox"></div>'
-      + '<div id="plib_convbox"></div>'
       + '<pre id="plib_view" style="display:none;white-space:pre-wrap;word-break:break-all;'
       +   'max-height:220px;overflow:auto;background:#fff;border:1px solid #ccd;'
       +   'border-radius:6px;padding:8px;font-size:12px;line-height:1.5;"></pre>'
@@ -68,6 +77,11 @@
       L = {txt:{}, ver:{}}; save(); tried = false;
       flash('已清空本机提示词缓存，稍后自动重新取', 'var(--orange)');
       render(); sync(false);
+    };
+    document.getElementById('plib_convsel').onchange = (e) => {
+      const sid = e.target.value;
+      e.target.value = '';
+      if (sid) showConv(sid);
     };
     document.getElementById('plib_copy').onclick = () => {
       const t = document.getElementById('plib_view').textContent || '';
@@ -89,7 +103,7 @@
   function onIdx(v){
     v = v || {};
     if (v.err){
-      setStat('⚠ 电脑端：' + v.err);
+      setStat('⚠ ' + v.err);
       return;
     }
     const idx = Array.isArray(v.idx) ? v.idx : [];
@@ -107,12 +121,10 @@
     const miss = idx.filter(e => ver[e.c] !== e.v).map(e => e.c);
     render();
     if (miss.length){
-      setStat('电脑端共 ' + (v.n || idx.length) + ' 条；本机缺 ' + miss.length
-              + ' 条，正在取…');
+      setStat((v.n || idx.length) + '条·缺' + miss.length + '…');
       if (typeof cmd === 'function') cmd('plib_get', miss);
     } else {
-      setStat('电脑端共 ' + (v.n || idx.length) + ' 条；本机已全部缓存 ✓'
-              + (v.ts ? '（' + v.ts + '）' : ''));
+      setStat((v.n || idx.length) + '条·全缓存✓');
       flash('提示词库已是最新（' + (v.n || idx.length) + ' 条）', 'var(--green)');
     }
   }
@@ -129,70 +141,55 @@
     render();
     const total = (L.idx || []).length;
     const have = (L.idx || []).filter(e => L.txt[e.c] != null).length;
-    setStat('电脑端共 ' + total + ' 条；本机已缓存 ' + have + ' 条'
-            + (have < total ? '，还缺 ' + (total - have) + ' 条' : ' ✓'));
+    setStat(total + '条·已缓' + have + (have < total ? '·缺' + (total - have) : '✓'));
     if (n) flash('已取回 ' + n + ' 条提示词全文', 'var(--green)');
   }
 
   function setStat(t){
     const s = document.getElementById('plib_stat');
-    if (s) s.innerHTML = '<span class="hint">' + esc(t) + '</span>';
+    if (s) s.textContent = t;
   }
 
-  /* —— 渲染：条目按钮（按代码）+ 会话拼贴按钮 —— */
+  /* —— 渲染：一条提示词一个「代码·版本」小钮，整组排在同一行里 —— */
   function render(){
     if (!fsEl()) return;              /* 设置页还没建块：等 build() 后再画 */
     const idx = L.idx || [];
+    const box = document.getElementById('plib_chips');
+    if (!box) return;
     if (!idx.length){
-      setStat('本机还没有提示词缓存（点「立即对账」从电脑端取）');
+      box.innerHTML = '';
+      setStat('无缓存');
       return;
     }
-    const groups = {};
-    idx.forEach(e => { (groups[e.k] = groups[e.k] || []).push(e); });
     let html = '';
-    KIND_ORDER.concat(Object.keys(groups).filter(k => KIND_ORDER.indexOf(k) < 0))
-      .forEach(k => {
-        const arr = groups[k];
-        if (!arr || !arr.length) return;
-        html += '<div class="row" style="margin-top:6px;"><b style="font-size:12px;">'
-             +  esc(k) + '（' + arr.length + '）</b></div>'
-             +  '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
-        arr.forEach(e => {
-          const has = L.txt[e.c] != null;
-          html += '<button class="plib_btn" data-c="' + esc(e.c) + '" '
-               +  'title="' + esc(e.t) + '" style="font-size:11px;padding:4px 7px;'
-               +  'border-radius:12px;border:1px solid ' + (has ? '#9c9' : '#e99')
-               +  ';background:' + (has ? '#f3fff3' : '#fff6f3') + ';">'
-               +  esc(e.c) + ' · ' + esc(e.t) + ' · ' + esc(e.z) + '字'
-               +  (e.u > 1 ? ' · ' + e.u + '会话' : '') + '</button>';
-        });
-        html += '</div>';
-      });
-    const box = document.getElementById('plib_idxbox');
+    idx.forEach(e => {
+      const has = L.txt[e.c] != null;
+      const col = KIND_COLOR[e.k] || '#9aa7b5';
+      const ver8 = String(e.v || '').slice(0, 8);
+      html += '<button class="plib_btn" data-c="' + esc(e.c) + '" '
+           +  'title="' + esc(e.k) + '｜' + esc(e.t) + '｜' + esc(e.z) + '字'
+           +  (e.u > 1 ? '｜' + e.u + '个会话共用' : '') + '" '
+           +  'style="font-size:11px;padding:1px 7px;border-radius:10px;white-space:nowrap;'
+           +  'min-height:22px;line-height:1.2;'
+           +  'border:1px ' + (has ? 'solid ' : 'dashed ') + col + ';'
+           +  'background:' + (has ? '#fff' : '#fff8f4') + ';">'
+           +  esc(e.c) + '·' + esc(ver8) + '</button>';
+    });
     box.innerHTML = html;
     box.querySelectorAll('.plib_btn').forEach(b => {
       b.onclick = () => showCode(b.getAttribute('data-c'));
     });
 
-    const conv = (L.conv || []).filter(c => !/（临时）\s*$/.test(String(c.sid || '')));
-    let ch = '';
-    if (conv.length){
-      ch += '<div class="row" style="margin-top:8px;"><b style="font-size:12px;">'
-         +  '按会话拼贴（私有头+全局+岗位，全用本机缓存）</b></div>'
-         +  '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
+    /* 拼贴下拉：一个会话一项（临时行不列） */
+    const sel = document.getElementById('plib_convsel');
+    if (sel){
+      const conv = (L.conv || []).filter(c => !/（临时）\s*$/.test(String(c.sid || '')));
+      let oh = '<option value="">拼贴…</option>';
       conv.forEach(c => {
-        ch += '<button class="plib_cbtn" data-sid="' + esc(c.sid) + '" '
-           +  'style="font-size:11px;padding:4px 7px;border-radius:12px;'
-           +  'border:1px solid #99c;background:#f3f6ff;">'
-           +  esc(c.n || c.sid) + '</button>';
+        oh += '<option value="' + esc(c.sid) + '">' + esc(c.n || c.sid) + '</option>';
       });
-      ch += '</div>';
+      sel.innerHTML = oh;
     }
-    const cb = document.getElementById('plib_convbox');
-    cb.innerHTML = ch;
-    cb.querySelectorAll('.plib_cbtn').forEach(b => {
-      b.onclick = () => showConv(b.getAttribute('data-sid'));
-    });
   }
 
   function showCode(code){
@@ -202,7 +199,7 @@
     const row = document.getElementById('plib_copyrow');
     view.style.display = ''; row.style.display = '';
     view.textContent = (t == null)
-      ? '（本机还没缓存这条，点「立即对账」取回）\n' + (e.t || '')
+      ? '（本机还没缓存这条，点「对账」取回）\n' + (e.t || '')
       : t;
     if (t == null) if (typeof cmd === 'function') cmd('plib_get', [code]);
     view.scrollIntoView({block: 'nearest'});
