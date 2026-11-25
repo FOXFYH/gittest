@@ -107,14 +107,19 @@ function exitFmsg(){
 el.fexit.onclick = exitFmsg;
 el.msgs.addEventListener('scroll', () => {
   if (Date.now() < fLockUntil) return;      // 1.19：程序滚动静默期
-  /* 2.64：切会话在途——一律不判定（等切换定论，免得把中间态重排当成上翻）。 */
+  /* 2.312（老板 2026-11-25 22:25 令「滑动就该灭灯，别等切换」）：
+     灭灯信号只认「人手滚动」，但**不受切换/直播等待态影响**——旧代码在
+     switch_pend/livePend 期间整段 return，一旦等待态卡住，怎么滑都不发灭灯
+     （＝必须切换才灭）。手势窗已保证不是程序滚动，故此处先发信号。 */
+  const human = (Date.now() - lastGestureAt) <= GESTURE_WINDOW_MS;
+  if (human){
+    /* 2.25：上下翻滚=真实人类操作 → actSend('scroll')。
+       是否真发由统一闸门决定（3 秒节流 / 仅当前选中会话 / 橙灯才发）。 */
+    actSend('scroll');
+  }
+  /* 2.64：切会话/直播等待在途——其余滚动判定（进全屏/拉历史）照旧一律不做。 */
   if (S.switch_pend || S.livePend) return;
-  /* 2.64：只认「人手滚动」。程序化重排（空渲染把 scrollTop 夹回 0 等）没有
-     手势窗口，直接忽略——这是「切会话自动跳顶 + 进全屏 + 拉历史」的根治点。 */
-  if (Date.now() - lastGestureAt > GESTURE_WINDOW_MS) return;
-  /* 2.25：上下翻滚=真实人类操作 → actSend('scroll')。
-     是否真发由统一闸门决定（3 秒节流 / 仅当前选中会话 / 橙灯才发）。 */
-  actSend('scroll');
+  if (!human) return;
   if (fTyping()) return;                    // 1.21：正在打字不进全屏
   const m = el.msgs;
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
@@ -152,9 +157,13 @@ el.msgs.addEventListener('scroll', () => {
 });
 /* 2.64：手势来源监听——只有这几种【真实人类输入】才开手势窗口，程序滚动不会。
    touchmove 覆盖触屏拖动（含持续拖动不断续期）；wheel 覆盖桌面/触控板滚轮；
-   keydown 覆盖键盘翻页（空格/方向键等）。 */
-el.msgs.addEventListener('touchmove', markGesture, {passive: true});
-el.msgs.addEventListener('wheel', markGesture, {passive: true});
+   keydown 覆盖键盘翻页（空格/方向键等）。
+   2.312：触屏/滚轮一起手就顺手发一次灭灯信号——短会话没有可滚空间、
+   scroll 事件根本不触发，旧逻辑就永远不发（老板「怎么滑都不灭」的另一半）。
+   actSend 自带 3 秒全局 / 同会话 60 秒节流，多调几次也不会多发。 */
+function _mgAct(){ markGesture(); actSend('scroll'); }
+el.msgs.addEventListener('touchmove', _mgAct, {passive: true});
+el.msgs.addEventListener('wheel', _mgAct, {passive: true});
 document.addEventListener('keydown', markGesture);
 /* 1.24：Q 弹退出全屏——用户最常用的回底方式是「滑回最新」，到底
    后浏览器出现 Q 弹（overscroll 回弹）说明人已经到底还想继续。
