@@ -1632,13 +1632,32 @@ function thinkCardPaint(c){
     const box = document.getElementById('msgs');
     if (!box) return;
     const nodes = box.querySelectorAll('.thinklive');
+    let _hit = 0;
     for (let i = nodes.length - 1; i >= 0; i--){
       const nd = nodes[i];
       if (String(nd.getAttribute('data-think') || '') !== String(c.thinkId)) continue;
+      _hit++;
       if (typeof _thinkCardHtml === 'function') nd.outerHTML = _thinkCardHtml(c);
       else {
         const bd = nd.querySelector('.body');
         if (bd && typeof _mdBody === 'function') bd.innerHTML = _mdBody(String(c.text || ''));
+      }
+    }
+    /* 2.301（老板 2026-11-25 19:03 令）：主界面原先是「正在获取思维流」占位气泡
+       （data-think 为空），首帧真实思维流走瘦帧只调本函数——同 thinkId 节点不存在
+       时把占位气泡就地换成真实卡片，免得字幕一直停在「正在获取」。只换本端当前
+       选中会话的卡，别家会话的思维流绝不串显。 */
+    if (!_hit && typeof _thinkCardHtml === 'function'){
+      const ph = box.querySelector('.thinklive.thinkph');
+      if (ph){
+        const _cs = String((typeof curSid === 'function' ? curSid() : '') || '');
+        const _ct = String((typeof curTitle === 'function' ? curTitle() : '') || '');
+        const _sameSid = !!c.sid && !!_cs
+          && (String(c.sid) === _cs || (typeof 稳定键 === 'function'
+              && 稳定键(String(c.sid), '') === 稳定键(_cs, '')));
+        const _sameTitle = (typeof _thinkTitleEq === 'function')
+          ? _thinkTitleEq(c.title, _ct) : (String(c.title || '') === _ct);
+        if (_sameSid || _sameTitle) ph.outerHTML = _thinkCardHtml(c);
       }
     }
   } catch(e){}
