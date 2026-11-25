@@ -35,7 +35,14 @@ function rnd8(){
   return s;
 }
 function foxNewMid(){
-  const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  /* 2.311（2026-11-25 老板令）：FOXID 头 14 位时间戳一律写【北京时间】。
+     旧写法 new Date().toISOString() 是 UTC，比北京时间慢 8 小时，测试器
+     「传输时间」列因此算不出、只能显示「—」。这里用 epoch+8h 取 UTC 字段，
+     与本机时区无关，恒等于北京墙钟。 */
+  const b = new Date(Date.now() + 8 * 3600 * 1000);
+  const p2 = n => (n < 10 ? '0' : '') + n;
+  const ts = '' + b.getUTCFullYear() + p2(b.getUTCMonth() + 1) + p2(b.getUTCDate())
+           + p2(b.getUTCHours()) + p2(b.getUTCMinutes()) + p2(b.getUTCSeconds());
   return ts + rnd8();
 }
 function foxSliceBytes(raw, cap){  // v2.1 原语：可切成 ≤cap 的字节片（回退边界）
