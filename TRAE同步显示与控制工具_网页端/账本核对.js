@@ -123,8 +123,23 @@ function lbRowsPut(uid, title, rounds){
   try{
     if (!Array.isArray(rounds) || !rounds.length) return;
     const u = String(uid || '').trim(), t = String(title || '').trim();
-    if (u) LB.rows[_lbRowsKey(u, '')] = rounds;
-    if (t) LB.rows[_lbRowsKey('', t)] = rounds;
+    /* 2.280（老板 2026-11-25 08:37 实测：最新回复在主界面闪一下又消失、小账本
+       也没了）：新回复先随完整帧上屏，紧接着又一帧「只有人类、没有 AI」的轮次
+       把整份账本覆盖掉 ⇒ 屏幕与账本一起丢。凡新帧一条 AI 行都没有、旧账本里
+       却有 AI 行 ⇒ 拒写保留旧账本，等下一拍齐了再落；新会话首条人类消息
+       （旧账本也没有 AI）不受影响。 */
+    const _hasAI = arr => (arr || []).some(r => Array.isArray(r)
+      && r.some(m => Array.isArray(m) && String(m[0] || '') !== 'u'));
+    const put = k => {
+      const old = LB.rows[k];
+      if (!_hasAI(rounds) && Array.isArray(old) && old.length && _hasAI(old)){
+        try { diagLog('账本拒覆盖|键=' + k + '|新帧无AI|旧轮=' + old.length, 'warn'); } catch(e){}
+        return;
+      }
+      LB.rows[k] = rounds;
+    };
+    if (u) put(_lbRowsKey(u, ''));
+    if (t) put(_lbRowsKey('', t));
     /* 2.276：屏幕唯一源一改就重画（lbRepaint 自带 250ms 节流）。
        放在这里＝所有写口（落地/开机/裁剪/补发/快照还原）一个都不漏。 */
     if (typeof lbRepaint === 'function') lbRepaint();
