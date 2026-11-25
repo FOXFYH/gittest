@@ -350,6 +350,8 @@ function lbSumOf(rounds){
     const a = (r && r.length) ? r[r.length - 1] : null;
     if (!a) return;
     if (String(a[0] || '').toLowerCase() !== 'a') return;
+    /* 2.287：思维流（th: 专属 ID / 纯思维块）永不进上报与轮次计数。 */
+    if (/^th:/i.test(String(a[6] || '')) || lbPureThink(a)) return;
     codes.push({mid: String(a[6] || ''),
                 fin: (String(a[7] || '').trim() ? 1 : 0),
                 hash: lbHash(a[7] || a[1] || '')});
@@ -510,6 +512,18 @@ function _lbFakeLedgerRec(rec){
 }
 /* 2.213：lbSidValid／_lbNoIdLog／lbRoundIdFilter 已撤——不再按「假会话 ID」
    「缺 mid」拒收或过滤，收不收由后端判断，前端只显示/落盘。 */
+/* 2.287（老板 2026-11-25 12:47 令）：纯思维块——正文第一行（可先有 TraeWork）
+   就是「思考过程／思考中」的行。TRAE 把思考折叠区单独渲染成一条带 ID 的 AI 行，
+   它只配待在虚线思维流框里，永远不能当终极回复、也不能进对账集合。 */
+function lbPureThink(m){
+  if (!Array.isArray(m)) return false;
+  const lines = String(m[1] == null ? '' : m[1]).split(/\r?\n/)
+    .map(s => s.trim()).filter(s => s);
+  if (!lines.length) return false;
+  const i = (lines[0] === 'TraeWork' || lines[0] === 'Trae Work') ? 1 : 0;
+  if (i >= lines.length) return false;
+  return /^(?:思考过程|思考中|正在思考|已深度思考)(?:$|[\s:：])/.test(lines[i]);
+}
 /* 2.212（老板 2026-11-20 07:28 bug①）：终极回复的**唯一判据**——命中即 final，
    任何地方（尤其虚线思维流框）绝不再把它当 think。命中任一：
      · 完成卡摘要 index7 非空（标准 fin/rounds 终态都会写它）；
@@ -518,6 +532,10 @@ function _lbFakeLedgerRec(rec){
 function lbIsFinalRow(m){
   if (!Array.isArray(m)) return false;
   if (String(m[0] || '').toLowerCase() !== 'a') return false;
+  /* 2.287（老板 2026-11-25 12:47 令）：思维流专属 ID（th: 前缀）或纯思维块，
+     即使历史数据里 fin/index8 标错，也永远不算终极回复。 */
+  if (/^th:/i.test(String(m[6] || ''))) return false;
+  if (lbPureThink(m)) return false;
   const k = String((m.length > 8 && m[8]) || '').toLowerCase();
   if (k === 'a' || k === 'final' || k === 'patched') return true;
   if (lbPatchMarked(m)) return true;
@@ -1610,6 +1628,8 @@ function lbRoundsFromMsgs(msgs){
       /* 3.02（老板 12:21 令）：思维流永远只有一条、挂账本最底部、不占保留轮数
          ——轮次里只收 AI 终极回复('a')，th 一律不进轮次。 */
       if (String((m.length > 8 && m[8]) || '').toLowerCase() === 'th') return;
+      /* 2.287（老板 12:47 令）：思维流专属 ID / 纯思维块永不进轮次（哪怕标错 fin）。 */
+      if (/^th:/i.test(String(m[6] || '')) || lbPureThink(m)) return;
       const fin = String((m.length > 7 && m[7]) || '').trim();
       const patch = lbPatchMarked(m);
       /* '提前终极'/'补记'/'账本定稿' 是来源标记不是正文，正文保留原文
