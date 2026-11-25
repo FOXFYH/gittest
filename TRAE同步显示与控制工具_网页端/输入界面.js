@@ -481,9 +481,15 @@ function renderState(snap){
     if (typeof LB !== 'undefined' && LB && LB.vchkOpen){
       if (!LB.vchkEndAt || Date.now() < LB.vchkEndAt){
         const _vt = String(LB.vchkTitle || curTitle() || '').trim();
-        el.state.textContent = '核对中'
-          + (_vt ? ' · ' + (_vt.length > 14 ? _vt.slice(0, 14) + '…' : _vt) : '');
-        el.state.style.color = 'var(--blue)';
+        /* 2.300（老板 2026-11-25 18:53 令）：不许出现裸「核对中」三个字——
+           核对的前提是已切到正确会话，必须带会话名，与其他状态同口径。
+           取不到会话名时宁可不占横幅（只保留顶栏圆球橙闪），绝不显示
+           「核对中」而不说在核对谁。 */
+        if (_vt){
+          el.state.textContent = '核对中 · '
+            + (_vt.length > 14 ? _vt.slice(0, 14) + '…' : _vt);
+          el.state.style.color = 'var(--blue)';
+        }
       } else {
         LB.vchkOpen = 0; LB.vchkEndAt = 0;
       }
