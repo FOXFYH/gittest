@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.51';
+  const APP_VERSION = 'v1.73';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -101,6 +101,9 @@
     if (上滑参数 && typeof 上滑参数 === 'object') o['自动上滑参数'] = 上滑参数;
     // v1.63 卷内时间参数：跟着参考答案一起留在小尾巴里，保存时原样保留
     if (卷时间参数 && typeof 卷时间参数 === 'object') o['时间参数'] = 卷时间参数;
+    // v1.63 题库档案 + 阅读参数：同样原样保留（网页版的档案编辑在 py 版向导里做）
+    if (题库信息 && typeof 题库信息 === 'object') o['题库信息'] = 题库信息;
+    if (阅读参数 && typeof 阅读参数 === 'object') o['阅读参数'] = 阅读参数;
     return META_BEGIN + JSON.stringify(o) + META_END;
   }
 
@@ -207,6 +210,8 @@
   let settings = loadSettings();
   let 上滑参数来自文件 = false;   // 当前文件的小尾巴自带上滑参数
   let 时间参数 = null;            // v1.63 卷内出卷时间参数（选择题 3 字/秒 / 书写题 1 字/秒）
+  let 题库信息 = null;            // v1.63 题库档案（卷名/年级/科目/题数/上次打开/上次考试…）
+  let 阅读参数 = null;            // v1.63 本文件专属字体/字号（有就优先，无则用全局设置）
   let 上滑参数用户改过 = false;   // 用户在本文件内手动改过
   const editor = $('editor');
 
@@ -432,15 +437,24 @@
     btn.type = 'button';
     btn.className = 'btn tiny primary';
     btn.textContent = '立即公布';
-    btn.addEventListener('click', 公布答案);
+    btn.title = '正式公布，算一次考试（次数记进文件）';
+    btn.addEventListener('click', function () { 公布答案(); });
     const btn2 = document.createElement('button');
     btn2.type = 'button';
     btn2.className = 'btn tiny';
     btn2.textContent = '暂不显示';
     btn2.addEventListener('click', 暂不显示答案);
+    // v1.68 测试显示：只看答案，不算一次考试
+    const btn3 = document.createElement('button');
+    btn3.type = 'button';
+    btn3.className = 'btn tiny';
+    btn3.textContent = '测试显示';
+    btn3.title = '测试显示，只查看答案，不算一次考试';
+    btn3.addEventListener('click', function () { 公布答案(true); });
     bar.appendChild(txt);
     bar.appendChild(btn);
     bar.appendChild(btn2);
+    bar.appendChild(btn3);
     document.body.appendChild(bar);
     答案状态.bar = bar;
     答案状态.textEl = txt;
@@ -453,7 +467,102 @@
     }, 1000);
   }
 
-  function 公布答案() {
+  // v1.68 考试次数存在文件本身（题库信息里）；这里只做本机镜像，供文件列表那个方形格子显示
+  function 考试次数(id) {
+    try {
+      const m = JSON.parse(cacheGet('exam_count', '{}')) || {};
+      return Number(m[String(id || '')]) || 0;
+    } catch (e) { return 0; }
+  }
+  function 记考试次数镜像(id, n) {
+    if (!id) return;
+    try {
+      const m = JSON.parse(cacheGet('exam_count', '{}')) || {};
+      m[String(id)] = Number(n) || 0;
+      cacheSet('exam_count', JSON.stringify(m));
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // foxrich 文件正文是单行 JSON，判类型前先取出其中的 text（纯文本）；普通文本原样返回
+  function 正文纯文本(内容) {
+    const s = String(内容 || '');
+    if (s.trim().charAt(0) === '{') {
+      try {
+        const j = JSON.parse(s);
+        if (j && typeof j === 'object' && typeof j['text'] === 'string') return j['text'];
+      } catch (e) { /* 不是 JSON 就按纯文本 */ }
+    }
+    return s;
+  }
+
+  // v1.69 文件类型：题库 / 参考答案 / 复习材料 / 板书 / 出题规则 / 其他
+  // 优先读文件里的 题库信息.类型；没有就按文件名与正文判定（只判断、不改文件）
+  function 判类型(名, 正文, qbIn) {
+    const qb = qbIn || {};
+    const 显式 = String(qb['类型'] || '').trim();
+    if (显式) return 显式;
+    // v1.73 模板层：选择题 / 填空 / 简答 / 混合 都算题库
+    const 题型0 = String(qb['题型'] || '').trim();
+    if (['选择题', '填空', '简答', '混合', '题库'].indexOf(题型0) >= 0) return '题库';
+    const 全 = String(正文 || '');
+    if (!全.trim()) return '其他';
+    const 文件名 = String(名 || '');
+    const 头 = 全.slice(0, 400);
+    if (文件名.indexOf('规则') >= 0 || 头.indexOf('出题规则') >= 0) return '出题规则';
+    if (文件名.indexOf('板书') >= 0 || 头.slice(0, 60).indexOf('板书') >= 0) return '板书';
+    if (/卷|测试|抽测|抽查|练习|写词语|写拼音|十问|简答/.test(文件名)) return '题库';
+    if (文件名.indexOf('参考答案') >= 0 || 头.indexOf('参考答案') >= 0) return '参考答案';
+    const 题区 = 全.split('【参考答案')[0];
+    const 题号 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
+    if (题号 >= 5) return /(^|\n)\s*[A-DＡ-Ｄ][.．、]/.test(题区) ? '题库' : '复习材料';
+    if (题号 >= 1 && 全.indexOf('【参考答案') >= 0) return '题库';
+    if (头.indexOf('说明：') >= 0) return '复习材料';
+    return '其他';
+  }
+  function 判定类型(qbIn) {
+    return 判类型((doc && doc.name) || '', (editor && editor.textContent) || '', qbIn || 题库信息 || {});
+  }
+  function 文件类型(id) {
+    try {
+      const m = JSON.parse(cacheGet('file_kind', '{}')) || {};
+      return String(m[String(id || '')] || '');
+    } catch (e) { return ''; }
+  }
+  function 记类型镜像(id, t) {
+    if (!id || !t) return;
+    try {
+      const m = JSON.parse(cacheGet('file_kind', '{}')) || {};
+      m[String(id)] = t;
+      cacheSet('file_kind', JSON.stringify(m));
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // v1.68 正式公布答案＝一次考试：题库信息 记「考试次数+1 / 上次考试」并静默写回文件本身
+  function 记一次考试() {
+    try {
+      if (!doc) return;
+      let qb = 题库信息 || {};
+      // 本卷还没有档案时铺一个最小档案，保证次数能存进文件
+      if (!(qb['卷名'] || qb['题型'] || qb['题数'])) {
+        const 题区 = (editor.textContent || '').split('【参考答案')[0];
+        const 题数推 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
+        const 推 = { 卷名: String(doc.name || '').replace(/\.txt$/i, '') };
+        if (题区.indexOf('选择题') >= 0) 推['题型'] = '选择题';
+        else if (题区.indexOf('填空') >= 0) 推['题型'] = '填空';
+        else if (题区.indexOf('简答') >= 0 || /十问/.test(String(doc.name || ''))) 推['题型'] = '简答';
+        if (题数推 > 0) 推['题数'] = 题数推;
+        qb = Object.assign(推, qb);
+      }
+      qb['考试次数'] = (Number(qb['考试次数']) || 0) + 1;
+      qb['上次考试'] = fmtDateTime();
+      题库信息 = qb;
+      if (doc.id) 记考试次数镜像(doc.id, qb['考试次数']);
+      刷新数据行();
+      if (doc.id && !doc.isNew) 同步查看时间();   // 静默写回：正文不动，只把 meta 存进文件
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function 公布答案(测试) {
     if (!答案状态 || 答案状态.revealed) return;
     答案状态.revealed = true;
     if (答案状态.timer) { clearInterval(答案状态.timer); 答案状态.timer = null; }
@@ -462,6 +571,8 @@
     if (答案状态.bar && 答案状态.bar.parentNode) 答案状态.bar.parentNode.removeChild(答案状态.bar);
     答案状态.bar = null;
     // 公布只改显示层：不动正文、不置 doc.dirty、不写盘
+    // v1.68 正式公布算一次考试（测试显示传 true 不计数）
+    if (测试 !== true) 记一次考试();
   }
 
   function 暂不显示答案() {
@@ -1044,7 +1155,21 @@
   }
 
   function restoreDocCache() {
-    setEditorContent(cacheGet('doc_text', ''));
+    const 缓存文 = cacheGet('doc_text', '');
+    const 拆 = 拆分元信息(缓存文);
+    setEditorContent(拆.payload || 缓存文);
+    // v1.63 缓存恢复也要读题库档案/阅读参数/时间参数（否则刷新后数据行与字号会丢）
+    题库信息 = (拆.meta && typeof 拆.meta['题库信息'] === 'object') ? 拆.meta['题库信息'] : null;
+    阅读参数 = (拆.meta && typeof 拆.meta['阅读参数'] === 'object') ? 拆.meta['阅读参数'] : null;
+    if (阅读参数) {
+      const 字号 = Number(阅读参数['字号']);
+      if (isFinite(字号) && 字号 >= 6 && 字号 <= 128) settings.fontSize = 字号;
+      const 字体 = String(阅读参数['字体'] || '').trim();
+      if (字体) settings.fontFamily = 字体;
+    }
+    applyFont();
+    套用文件上滑参数(拆.meta && 拆.meta['自动上滑参数']);
+    套用文件时间参数(拆.meta && 拆.meta['时间参数']);
     let meta = null;
     try { meta = JSON.parse(cacheGet('doc_meta', '{}')); } catch (e) { meta = {}; }
     meta = meta || {};
@@ -1062,8 +1187,11 @@
       baseSig: String(meta.baseSig || sigOf(cacheGet('doc_text', ''))),
       rawContent: String(meta.rawContent || '')
     };
+    // v1.69 缓存恢复时 doc 晚于数据行赋值，这里补刷一次（类型镜像/考次镜像都要 doc.id）
+    刷新数据行();
     // 刷新后也回到该文档上次位置（没有记录回顶部）
     try { requestAnimationFrame(回原位); } catch (e) {}
+    重置自动同步计数();      // v1.71 刷新恢复后重新计数
   }
 
   // ===== v1.32 阅读位置：记住上次看到哪里，打开文件/改设置都回到原位 =====
@@ -1098,6 +1226,15 @@
       rawContent: String(content || '')
     };
     setEditorContent(拆.payload);
+    // v1.63 题库档案 + 阅读参数：先读出来（档案给数据行/更多用；字体字号有就套用）
+    题库信息 = (拆.meta && typeof 拆.meta['题库信息'] === 'object') ? 拆.meta['题库信息'] : null;
+    阅读参数 = (拆.meta && typeof 拆.meta['阅读参数'] === 'object') ? 拆.meta['阅读参数'] : null;
+    if (阅读参数) {
+      const 字号 = Number(阅读参数['字号']);
+      if (isFinite(字号) && 字号 >= 6 && 字号 <= 128) settings.fontSize = 字号;
+      const 字体 = String(阅读参数['字体'] || '').trim();
+      if (字体) settings.fontFamily = 字体;
+    }
     applyFont();
     套用文件上滑参数(拆.meta && 拆.meta['自动上滑参数']);
     套用文件时间参数(拆.meta && 拆.meta['时间参数']);
@@ -1108,6 +1245,7 @@
     editor.scrollTop = 0;
     try { requestAnimationFrame(回原位); } catch (e) {}
     try { setTimeout(回原位, 300); } catch (e) {}
+    重置自动同步计数();      // v1.71 换文档即重新计数
   }
 
   function markDirty() {
@@ -1137,6 +1275,7 @@
     updateHeader();
     scheduleDocCache();
     updateTitle();
+    记编辑变更();     // v1.71 自动同步计数（满 10 步或满 60 秒且有改动就静默上传）
   }
 
   // ===================== 显示与偏好 =====================
@@ -1288,22 +1427,50 @@
   }
 
   // 顶部数据行：小字号、不随正文字号缩放、随正文一起翻走（用 ::before 渲染，不进正文、不会被保存）
+  // v1.63：有题库档案就显示档案摘要；手机窄屏只留「速度 + 题数」这几项最关键的（老板口径）
   function 刷新数据行() {
     if (!editor) return;
-    const 有卷 = !!(时间参数 && 时间参数['题型']);
-    if (!有卷) {
+    const tp = 时间参数 || {};
+    // v1.69 只有「题库」才显示题库档案（题型/题数/考N次/签名）；参考答案、复习材料、板书、规则一律不显示
+    const 类型 = 判定类型(题库信息);
+    if (doc && doc.id) 记类型镜像(doc.id, 类型);
+    let qb = (类型 === '题库') ? (题库信息 || {}) : {};
+    const 有卷 = !!(tp['题型']);
+    let 是题库 = !!(qb['卷名'] || qb['题型'] || qb['题数']);
+    // v1.67 存量卷兜底：题库没有档案（手工粘贴/旧格式）时按正文与文件名推断，只显示、不写盘
+    if (类型 === '题库' && !是题库) {
+      const 题区 = (editor.textContent || '').split('【参考答案')[0];
+      const 题数推 = (题区.match(/(^|\n)\s*\d+\s*[.．、]/g) || []).length;
+      if (题数推 > 0) {
+        const 推 = { 卷名: ((doc && doc.name) || '').replace(/\.txt$/i, ''), 题数: 题数推 };
+        if (题区.indexOf('选择题') >= 0) 推['题型'] = '选择题';
+        else if (题区.indexOf('填空') >= 0) 推['题型'] = '填空';
+        else if (题区.indexOf('简答') >= 0 || /十问/.test(String((doc && doc.name) || ''))) 推['题型'] = '简答';
+        qb = Object.assign(推, qb);
+        是题库 = true;
+      }
+    }
+    if (!是题库 && !有卷) {
       editor.removeAttribute('data-bar');
       return;
     }
-    片 = [String(时间参数['题型'])];
-    const 每秒 = Number(时间参数['每秒字数']);
-    if (isFinite(每秒) && 每秒 > 0) {
-      片.push(每秒 + ' 字/秒 · 卷内规定');
+    // v1.73 题库固定只给四个值（题数 · 速度 · 已核/未核 · 答题次数），其余进「更多属性」
+    const 片 = [];
+    const 每秒 = Number(tp['每秒字数'] || qb['每秒字数']);
+    const 速率 = (isFinite(每秒) && 每秒 > 0) ? 每秒 : settings.secPerChar;
+    if (是题库) {
+      const 题数 = Number(qb['题数']) || 0;
+      const 考次 = Number(qb['考试次数']) || 0;
+      片.push(题数 + '题');
+      片.push(速率 + '字/秒');
+      片.push(String(qb['制作人签名'] || '').trim() ? '已核' : '未核');
+      片.push(考次 + '次');
+      if (doc && doc.id) 记考试次数镜像(doc.id, 考次);
     } else {
-      片.push(settings.secPerChar + ' 字/秒 · 上次手动');
+      片.push(速率 + '字/秒');
+      片.push(((editor.textContent || '').replace(/\s/g, '').length) + '字');
     }
-    片.push(((editor.textContent || '').replace(/\s/g, '').length) + ' 字');
-    editor.setAttribute('data-bar', 片.join('    ·    '));
+    editor.setAttribute('data-bar', 片.join('  ·  '));
   }
 
   function 标记上滑用户修改() {
@@ -1376,6 +1543,11 @@
     settings.fontSize = n;
     applyFont();
     saveSettings();
+    // v1.63 字号一调就记进本文件的阅读参数（随文件保存，下次打开优先用）
+    if (!阅读参数 || typeof 阅读参数 !== 'object') 阅读参数 = {};
+    阅读参数['字体'] = settings.fontFamily;
+    阅读参数['字号'] = n;
+    if (doc && doc.id && !doc.isNew) { try { 同步查看时间(); } catch (e) {} }
   }
 
   // ===================== 顶栏与标题 =====================
@@ -2030,8 +2202,10 @@
     }
   }
 
-  async function saveToCloud(asNew) {
-    if (syncBusy) { toast('正在同步，请稍候'); return; }
+  async function saveToCloud(asNew, 静默) {
+    if (syncBusy) { if (!静默) toast('正在同步，请稍候'); return; }
+    静默 = !!静默;
+    if (静默 && (asNew || !doc.id || doc.isNew)) return;   // 自动同步只管已有云端文件，不新建也不命名
     let name = doc.name;
     if (asNew) {
       name = await askText('另存为', '请输入新的云端文件名', doc.name || '无标题.txt');
@@ -2107,13 +2281,14 @@
 
       const judge = sub['判定结果'];
       if (sub.status === 'conflict' || judge === '同步冲突') {
+        if (静默) { toast('自动保存：云端有更新，已保留本地，请手动核对'); return; }
         await handleConflict(id, name, content, S, E, data, sub['云端版本号']);
         return;
       }
       if (judge === '无需上传') {
         applyCloudVersion(Number(sub['云端版本号']) || E);
         doc.name = name;
-        toast('云端已是最新，无需上传');
+        if (!静默) toast('云端已是最新，无需上传');
       } else if (judge === '全新接收' || judge === '收为临时') {
         const ver = Number(sub['云端版本号'] || sub['终点号'] || E) || E;
         if (parts) {
@@ -2127,21 +2302,57 @@
         doc.folder = folder;
         doc.createTime = createTime;
         applyCloudVersion(ver);
-        toast('已同步到 6.0 云端：' + name + '（v' + ver + '）');
+        if (!静默) toast('已同步到 6.0 云端：' + name + '（v' + ver + '）');
       } else {
         // 兜底：把两号追平，不误报失败
         applyCloudVersion(E);
         doc.name = name;
-        toast('同步完成：' + name);
+        if (!静默) toast('同步完成：' + name);
+      }
+      // 上传期间用户又改了正文：不能把新改动误标为已保存
+      if (doc.id === id && sigOf(serializeEditor()) !== 正文字号) {
+        doc.dirty = true;
+        updateHeader();
+        updateTitle();
       }
       if (page === 'files') await refreshIndex(true);
     } catch (err) {
-      toast('同步失败：' + (err.message || err));
+      if (!静默) toast('同步失败：' + (err.message || err));
+      else toast('自动保存失败：' + (err.message || err) + '（本地已保留）');
     } finally {
       await unlockCloud();
       syncBusy = false;
       $('btnSync').disabled = false;
     }
+  }
+
+  // ===== v1.71 自动同步（网页版）=====
+  // 规则：编辑累计满 10 次 → 静默上传；或这段编辑已持续 ≥60 秒且确实有改动 → 静默上传。
+  // 只对已有云端文件生效（未命名的本地新稿不自动传）；遇云端更新只提示、不覆盖。
+  const 自动同步_步数 = 10;
+  const 自动同步_秒 = 60;
+  let 编辑步数 = 0;
+  let 编辑起算时刻 = 0;
+  let 自动同步计时 = null;
+
+  function 记编辑变更() {
+    编辑步数 += 1;
+    if (!编辑起算时刻) 编辑起算时刻 = Date.now();
+    if (!自动同步计时) 自动同步计时 = setInterval(自动同步检查, 5000);
+  }
+
+  function 重置自动同步计数() {
+    编辑步数 = 0;
+    编辑起算时刻 = 0;
+  }
+
+  async function 自动同步检查() {
+    if (!doc || !doc.id || doc.isNew || !doc.dirty || syncBusy) return;
+    const 够步数 = 编辑步数 >= 自动同步_步数;
+    const 够时间 = 编辑起算时刻 > 0 && (Date.now() - 编辑起算时刻) >= 自动同步_秒 * 1000;
+    if (!够步数 && !够时间) return;
+    重置自动同步计数();
+    await saveToCloud(false, true);
   }
 
   async function handleConflict(id, name, content, S, E, data, cloudVer) {
@@ -2282,6 +2493,46 @@
     if (renameBtn) renameBtn.disabled = n !== 1;
   }
 
+  // v1.70 列表补全：当前文件夹里还没判过类型的文件，后台逐份拉正文判类型并缓存。
+  // 题库一律渲染方形次数格（0 也显示 0），方便一眼认出是不是题库；判过的文件不再重复拉。
+  let 类型补全中 = false;
+  async function 补全文件夹类型(rows) {
+    if (类型补全中) return;
+    const 待办 = rows.filter(function (f) {
+      const id = String(f['ID'] || '');
+      return id && !isFolderId(id) && !文件类型(id);
+    });
+    if (!待办.length) return;
+    类型补全中 = true;
+    let 有新增 = false;
+    try {
+      for (let i = 0; i < 待办.length; i += 3) {
+        const 批 = 待办.slice(i, i + 3);
+        // 拉取可并发，但镜像写入必须串行——否则读-改-写互相覆盖，只剩最后一个
+        const 结果批 = await Promise.all(批.map(async function (f) {
+          const id = String(f['ID'] || '');
+          try {
+            const info = await fetchContentById(id);
+            const content = String((info && info.content) || '');
+            const 拆 = 拆分元信息(content);
+            const qb = (拆.meta && typeof 拆.meta['题库信息'] === 'object') ? 拆.meta['题库信息'] : {};
+            return { id: id, t: 判类型(String(f['文件名'] || ''), 正文纯文本(拆.payload || content), qb), qb: qb };
+          } catch (e) {
+            return null;   // 单份失败跳过，下次进列表再试
+          }
+        }));
+        结果批.forEach(function (r) {
+          if (!r) return;
+          记类型镜像(r.id, r.t);
+          const 次 = Number(r.qb['考试次数']);
+          if (isFinite(次) && 次 >= 0) 记考试次数镜像(r.id, 次);
+          有新增 = true;
+        });
+      }
+    } finally { 类型补全中 = false; }
+    if (有新增) renderFiles();
+  }
+
   async function refreshIndex(silent) {
     try {
       const r = await cloudCall('读取索引');
@@ -2339,14 +2590,16 @@
       txt.textContent = String(f['文件名'] || '（无名称）');
       txt.title = txt.textContent;
       wrap.appendChild(ico);
-      if (!isFolder) {
+      // v1.69 方形格子只给「题库」：类型未知（没打开过）也不显示，避免复习材料/板书/参考答案误挂次数
+      if (!isFolder && 文件类型(id) === '题库') {
         const oc = document.createElement('button');
         oc.className = 'open-count';
-        oc.textContent = String(打开次数(id));
-        oc.title = '本机打开次数（点开查看是否给学生展示过）';
+        // v1.68 方形格子改显示「考试次数」（存在文件本身，这里读本机镜像）
+        oc.textContent = String(考试次数(id));
+        oc.title = '考试次数（正式公布答案即算一次，记录存在文件里）';
         oc.addEventListener('click', function (e) {
           e.stopPropagation();
-          toast('本机打开次数：' + 打开次数(id));
+          toast('考试次数：' + 考试次数(id) + ' 次（存在文件里）');
         });
         wrap.appendChild(oc);
       }
@@ -2418,6 +2671,8 @@
     if (upBtn) upBtn.disabled = !currentFolder;
     renderSortMarks();
     updateSelectionUI();
+    // v1.70 后台补齐本文件夹文件的类型（判过的不再拉），完成后自动重渲染，题库显示 0 也有的次数格
+    补全文件夹类型(rows);
   }
 
   function 记住当前文件夹() {
@@ -2479,7 +2734,7 @@
       });
       showPage('edit');
       if (settings.autoScroll) startAutoScroll(); else stopAutoScroll();
-      累加打开次数(id);
+      // v1.68 原来按设备累加「本机打开次数」，现改为考试次数存文件本身（见 记一次考试），这里不再累加
       toast('已打开：' + info.name);
       同步查看时间();
     } catch (err) {
@@ -3057,6 +3312,10 @@
 
     settings.fontFamily = family;
     settings.fontSize = size;
+    // v1.63 设置里改字体/字号，同样记进本文件阅读参数
+    if (!阅读参数 || typeof 阅读参数 !== 'object') 阅读参数 = {};
+    阅读参数['字体'] = family;
+    阅读参数['字号'] = size;
     settings.lineSpacing = spacing;
     settings.wordWrap = !!$('setWrap').checked;
     settings.autoScroll = !!$('setAutoScroll').checked;
@@ -3139,15 +3398,34 @@
     const 查看时间 = (meta && meta['最后一次查看时间']) || doc.viewTime || '-';
     const 编辑时间 = (meta && meta['最后一次编辑时间']) || doc.editTime || '-';
     const 文件夹 = doc.folder ? folderPathText(doc.folder) : '根目录';
-    const 行 = [
+    const qb = (meta && meta['题库信息'] && typeof meta['题库信息'] === 'object')
+      ? meta['题库信息'] : (题库信息 || {});
+    const rp = (meta && meta['阅读参数'] && typeof meta['阅读参数'] === 'object')
+      ? meta['阅读参数'] : (阅读参数 || {});
+    const 类型 = 判定类型(qb);
+    const 是题库 = (类型 === '题库');
+    const 题库行 = [];
+    const 加档 = function (n2, v2) { const v = String(v2 == null ? '' : v2).trim(); if (v) 题库行.push([n2, v]); };
+    if (是题库) {
+      加档('卷名', qb['卷名']); 加档('年级', qb['年级']); 加档('科目', qb['科目']);
+      加档('范围', qb['范围']); 加档('题型', qb['题型']); 加档('题数', qb['题数']);
+      加档('作者', qb['作者']); 加档('创建时间', qb['创建时间']);
+      加档('上次打开', qb['上次打开']); 加档('上次考试', qb['上次考试']);
+      加档('制作人签名', qb['制作人签名']);
+    }
+    加档('文件类型', 类型 + (是题库 ? '' : '（非题库，不计考试次数）'));
+    加档('本文件字体', rp['字体']); 加档('本文件字号', rp['字号']);
+    const 行 = 题库行.concat([
       ['文件名', doc.name || '未命名'],
       ['ID', doc.id || '（未保存到云端）'],
       ['所属文件夹路径', 文件夹],
       ['起点号 / 终点号', (doc.s === null || doc.s === undefined ? '-' : doc.s) + ' / ' + (doc.e === null || doc.e === undefined ? '-' : doc.e)],
       ['内容字符数', String(cpLen(payload))],
       ['创建日期', doc.createTime || (row && row['创建日期']) || '-'],
-      ['云端最后编辑时间', (row && row['最后编辑时间']) || doc.editTime || '-'],
-      ['本机打开次数', String(打开次数(doc.id))],
+      ['云端最后编辑时间', (row && row['最后编辑时间']) || doc.editTime || '-']
+    ].concat(是题库 ? [
+      ['考试次数', String(Number((题库信息 || {})['考试次数']) || 0) + ' 次（存在文件里）']
+    ] : []).concat([
       ['最后一次查看时间', 查看时间],
       ['最后一次编辑时间', 编辑时间],
       ['自动上滑参数 · 开关', 参数['开关'] ? '开' : '关'],
@@ -3155,7 +3433,7 @@
       ['自动上滑参数 · 速度模式', 参数['速度模式'] === 'char' ? '每 N 秒 1 字（char）' : '像素（px）'],
       ['自动上滑参数 · 每字秒', String(参数['每字秒']) + ' 秒/字'],
       ['自动上滑参数 · 测算口径', 参数['测算口径'] === 'cjk' ? '中文（cjk）' : '中英平均（mixed）']
-    ];
+    ]));
     行.forEach(function (kv) {
       const d = document.createElement('div');
       d.textContent = kv[0] + '：' + kv[1];
