@@ -722,6 +722,27 @@ function _frameTailOrder(msgs){
   }
   return {n: n, mid: mid};
 }
+/* 2.286（老板 2026-11-25 12:10 实测：AI 终极回复在账本里，切几次会话就没了）：
+   根因＝落盘闸只认「尾 mid 更新」，服务端省流片段帧（pane/ledger 只带最后 1~2 轮）
+   尾 mid 更新 ⇒ 整条记录被片段覆盖，前面整轮连带 AI 回复一起丢。
+   本函数把「新帧之前的历史」从旧记录补回：以新帧最早一条 mid 为界，旧记录里
+   更早的行原样保留，再拼新帧（同 mid 以新帧为准，尾部真正的撤回/删除不受影响）。 */
+function _framePrefixFill(oldMsgs, newMsgs){
+  try{
+    if (!Array.isArray(oldMsgs) || !oldMsgs.length) return newMsgs;
+    if (!Array.isArray(newMsgs) || !newMsgs.length) return oldMsgs;
+    const midOf = m => String((Array.isArray(m) && m[6]) || '');
+    let first = '';
+    newMsgs.forEach(m => { const d = midOf(m); if (d && (!first || d < first)) first = d; });
+    if (!first) return newMsgs;                    /* 新帧无 mid：无从对齐，保持原样 */
+    const have = new Set(newMsgs.map(midOf).filter(Boolean));
+    const pre = oldMsgs.filter(m => { const d = midOf(m); return d && d < first && !have.has(d); });
+    if (!pre.length) return newMsgs;
+    if (typeof diagLog === 'function')
+      diagLog('账本补回历史|' + pre.length + '行', 'ok');
+    return pre.concat(newMsgs);
+  }catch(e){ return newMsgs; }
+}
 function _frameNewerOrEqual(a, b){
   /* true＝a（新帧）可以覆盖 b（已存帧） */
   if (!b || !Array.isArray(b.msgs) || !b.msgs.length) return true;
@@ -742,6 +763,8 @@ function _frameTrimN(msgs, sk, quiet){
 }
 function _frameCommit(sk, frame, meta, onOk, memNow, force){
   const _mk = String(meta.title || '').trim();
+  /* 2.286：记住落笔前的旧帧，供 _put 把「片段帧之前的历史」补回（防越切越少）。 */
+  const _prevMem = _frameMem[sk] || null;
   /* 3.01：给存帧盖「当前服务器」归属，供小账本短路按 srv+sid 校验（切服不串显）。 */
   try { if (frame && typeof frame === 'object' && typeof lbSrvTag === 'function')
           frame._srv = String(lbSrvTag()); } catch(e){}
@@ -749,6 +772,17 @@ function _frameCommit(sk, frame, meta, onOk, memNow, force){
      会以「条数更多」把裁后的 5 轮新帧判成旧帧拒收。 */
   if (frame && Array.isArray(frame.msgs)) frame.msgs = _frameTrimN(frame.msgs, sk, false);
   const _put = () => {
+    /* 2.286（老板 2026-11-25 12:10 实测：账本 10 条→7 条→3 条，越切越少）：
+       片段帧（pane/ledger 只带最后 1~3 轮）尾 mid 更新就把整本覆盖掉。落笔前
+       先把旧帧里比新帧更早的行补回（_framePrefixFill），force 强制覆盖除外。 */
+    try {
+      if (!force && Array.isArray(frame && frame.msgs)){
+        const _base = (_prevMem && _prevMem !== frame) ? _prevMem
+                    : ((_frameMem[sk] && _frameMem[sk] !== frame) ? _frameMem[sk] : null);
+        if (_base && Array.isArray(_base.msgs))
+          frame.msgs = _frameTrimN(_framePrefixFill(_base.msgs, frame.msgs), sk, true);
+      }
+    } catch(e){}
     _frameMem[sk] = frame;
     if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
     _idbReq('snap_conv', 'readwrite', st => {
