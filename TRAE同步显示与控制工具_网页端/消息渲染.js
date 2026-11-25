@@ -134,19 +134,50 @@ function _pendOwnerOk(pend){
    走不到 ledger 落盘/轮次统计/终极回复任何一条路。样式内联，免改 css。 */
 function _thinkCardHtml(c){
   /* 2.231（老板 22:36 令·恢复 2.229 头部口径）：只留 🧠 + 会话名 + HH:MM + 版本号，
-     不写「思维流」三字；会话名 flex:1 可省略，时间/版本不缩。 */
+     不写「思维流」三字；会话名 flex:1 可省略，时间/版本不缩。
+     2.301（老板 2026-11-25 19:03 令）：思维灯亮但思维流还没到时，主界面该位置由
+     思维气泡占位——有内容显示内容，没内容显示「正在获取思维流」；确认当前选中
+     与服务器选中不一致时显示「当前选中与服务器不一致，无法获取思维流」。
+     占位气泡不带版本号（没内容就无版本可言）。 */
+  const _ph = !!c.placeholder;
   const _m = String(c.time || '').match(/(\d{1,2}):(\d{2})/);
   const hm = _m ? (('0' + _m[1]).slice(-2) + ':' + _m[2]) : '';
   const tm = hm ? '<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">' + hm + '</span>' : '';
-  const ver = '<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">v' + (parseInt(c.thinkVer, 10) || 1) + '</span>';
+  const ver = _ph ? '' : ('<span class="tm" style="flex-shrink:0;white-space:nowrap;margin-left:6px">v'
+       + (parseInt(c.thinkVer, 10) || 1) + '</span>');
   const ttl = '<span class="tk" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;'
        + 'white-space:nowrap;margin-left:6px">' + esc(c.title || '') + '</span>';
-  return '<div class="msg agent thinklive" data-think="' + esc(c.thinkId || '') + '"'
+  const body = String(c.text || '').trim() || (_ph ? '正在获取思维流' : '');
+  return '<div class="msg agent thinklive' + (_ph ? ' thinkph' : '') + '" data-think="'
+       + esc(c.thinkId || '') + '"'
        + ' style="border:1px dashed #4a9eff;border-radius:10px;padding:8px 10px;margin-top:8px">'
        + '<div class="who" style="display:flex;align-items:center;min-width:0">'
        + '<span style="flex-shrink:0">🧠</span>' + ttl + tm + ver + '</div>'
        + '<div class="body" style="white-space:pre-wrap;word-break:break-word;'
-       + 'max-height:45vh;overflow:auto">' + _mdBody(String(c.text || '')) + '</div></div>';
+       + 'max-height:45vh;overflow:auto">' + _mdBody(body) + '</div></div>';
+}
+/* 2.301：当前选中 ≠ 服务器选中（原 输入界面.js 橙色横幅的判据，现改为只进思维气泡）。 */
+function thinkMismatchNow(){
+  try{
+    const _srvKey = 稳定键(selSidOf(S.snap || {}), selTitleOf(S.snap || {}));
+    const _myKey = String(S.anchorSid || '');
+    return !!(_srvKey && _myKey && _srvKey !== _myKey);
+  }catch(e){ return false; }
+}
+/* 2.301：本屏最后一轮是否已有 AI 终极回复——有就绝不让占位气泡盖住终答。 */
+function _lbLastRoundFinal(msgs){
+  try{
+    const arr = Array.isArray(msgs) ? msgs : [];
+    let lastU = -1;
+    for (let i = arr.length - 1; i >= 0; i--){
+      if (Array.isArray(arr[i]) && arr[i][0] === 'u'){ lastU = i; break; }
+    }
+    if (lastU < 0) return false;
+    for (let i = lastU + 1; i < arr.length; i++){
+      if (typeof lbIsFinalRow === 'function' && lbIsFinalRow(arr[i])) return true;
+    }
+    return false;
+  }catch(e){ return false; }
 }
 
 /* 2.216（0047 游客体验·第1件）：首屏/空态三步引导。
@@ -228,8 +259,31 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   key += '#lbf:' + (S.lb_foldRounds || 0);
   /* 2.266：非 1 号思维流占位指纹（原 2.203 #nt:）随「1 号」废除整块拆除。 */
   /* 2.207（V1.0 §五-8/9/10）：小账本最底部固定挂一张思维流卡——四维＋思维灯
-     亮才出（thinkCardNow 判定），新版/终极到达必须重画（版本号＋正文进指纹）。 */
-  const _think = (typeof thinkCardNow === 'function') ? thinkCardNow(msgs) : null;
+     亮才出（thinkCardNow 判定），新版/终极到达必须重画（版本号＋正文进指纹）。
+     2.301（老板 2026-11-25 19:03 令）：只要思维灯开着，思维气泡就开着——
+     有内容显示内容；没内容显示「正在获取思维流」；确认当前选中与服务器选中
+     不一致时显示「当前选中与服务器不一致，无法获取思维流」。本轮终极回复一旦
+     上屏（_lbLastRoundFinal）立即让位，占位气泡绝不盖住终答。 */
+  let _think = (typeof thinkCardNow === 'function') ? thinkCardNow(msgs) : null;
+  if (!_think && !_lbLastRoundFinal(msgs)){
+    try{
+      const _light = (typeof _curConvLight === 'function') ? _curConvLight() : '';
+      let _hasCard = null;
+      try{
+        _hasCard = (typeof thinkCardGet === 'function')
+          ? thinkCardGet(String((typeof curSid === 'function' ? curSid() : '') || ''),
+                         String((typeof curTitle === 'function' ? curTitle() : '') || ''))
+          : null;
+      }catch(e){ _hasCard = null; }
+      if (_light === 'busy' || _hasCard){
+        _think = {placeholder: true, thinkId: '', time: '', thinkVer: 0,
+                  title: String((typeof curTitle === 'function' ? curTitle() : '') || ''),
+                  text: (typeof thinkMismatchNow === 'function' && thinkMismatchNow())
+                    ? '当前选中与服务器不一致，无法获取思维流'
+                    : '正在获取思维流'};
+      }
+    }catch(e){}
+  }
   key += '#tc:' + (_think
     ? (_think.thinkId + '\u0001' + String(_think.text || '').slice(-40)) : '0');
   if (key === S.msgs_key) return;
@@ -254,14 +308,14 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     return qsentList(pend);
   })();
   const empty = !msgs.length && !opts.length;
-  if (empty && !S.pending.length && !S.switch_pend
+  if (empty && !_think && !S.pending.length && !S.switch_pend
       && !(pend || []).length && !_qLatch.length){
     el.msgs.innerHTML = (guideDone()
           ? '<div class="empty">（暂无消息，发送一条开始对话）</div>'
           : guideHtml());
     return;
   }
-  if (empty && !(pend || []).length && !_qLatch.length){
+  if (empty && !_think && !(pend || []).length && !_qLatch.length){
     renderPending();
     return;
   }

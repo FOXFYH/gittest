@@ -802,6 +802,36 @@
       });
       bindFx(box);
     }
+    /* 2.301（老板 2026-11-25 19:03 令·镜像会话拆分页第 10 条）：当前会话思维灯
+       亮、且最后一轮还没有 AI 终极回复时，在小账本详情底部挂一张「尚在思维流
+       状态中」占位小卡（与桌面会话拆分页同文案）。只画在这里，绝不写进 LB.rows
+       ——主界面那一位由思维气泡占领（消息渲染.js），终答一到气泡与占位自然让位。 */
+    try {
+      var _curSid2 = String((typeof curSid === 'function') ? (curSid() || '') : '');
+      var _sid2 = String(it.sid || '');
+      var _same2 = !!_sid2 && (_curSid2 ? (_sid2 === _curSid2)
+        : (!!S.anchorSid && typeof 稳定键 === 'function'
+           && 稳定键(_sid2, it.title || '') === String(S.anchorSid)));
+      var _busy2 = (typeof _curConvLight === 'function') && _curConvLight() === 'busy';
+      var _lastU = -1, _fin2 = false, _已有占 = false;
+      (it.msgs || []).forEach(function(m, i){
+        if (!Array.isArray(m)) return;
+        if (String(m[1] || '').indexOf('尚在思维流状态中') >= 0) _已有占 = true;
+        if (m[0] === 'u'){ _lastU = i; _fin2 = false; }
+        else if (_lastU >= 0 && kindOf(m) === 'final'){ _fin2 = true; }
+      });
+      if (_same2 && _busy2 && _lastU >= 0 && !_fin2 && !_已有占){
+        var _pd = document.createElement('div');
+        _pd.className = 'cv_msg a';
+        _pd.style.border = '1px dashed #4a9eff';
+        _pd.style.borderRadius = '10px';
+        _pd.style.padding = '6px 8px';
+        _pd.style.marginTop = '8px';
+        _pd.innerHTML = '<div class="who">🧠 思维流 · 尚在思维流状态中</div>'
+          + bodyHtml('尚在思维流状态中', false);
+        box.appendChild(_pd);
+      }
+    } catch(e){}
     s.appendChild(box);
     host.appendChild(s);
     /* 2.250（老板 2026-11-25 12:32 令·小账本恒定卡）：预备画面下方固定两张卡——

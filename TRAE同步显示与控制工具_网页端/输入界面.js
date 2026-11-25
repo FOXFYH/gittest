@@ -449,28 +449,9 @@ function renderState(snap){
     el.state.style.color = 'var(--orange)';
     setSendBtn(false, false);
   }
-  /* 2.266（老板 2026-11-24 20:38 令·废「1 号」新规则）：思维流按会话匹配——
-     服务端只推「服务器选中会话」的思维流（广播全员，各端按会话自匹配）。
-     本端选中的会话在服务器侧有思维流（思维灯 busy＝正在产出，或本端已收过
-     该会话思维流卡），但快照服务器选中 ≠ 本端选中 ⇒ 思维流暂停，状态栏如实
-     提示；切回一致（快照选中与锚定对齐）后本分支自然不再命中，提示自动消失。
-     放在借框段之后＝压过忙闲四态（灯亮≠能看到思维流），低于核对中/登录横幅。 */
-  if (!S.switch_pend && !S.inputBusy){
-    try {
-      const _srvKey = 稳定键(selSidOf(snap), selTitleOf(snap));
-      const _myKey = String(S.anchorSid || '');
-      if (_srvKey && _myKey && _srvKey !== _myKey){
-        const _curBusy = (typeof _curConvLight === 'function'
-                          ? _curConvLight() : '') === 'busy';
-        const _hasThink = (typeof thinkCardGet === 'function')
-          && !!thinkCardGet(String(curSid() || ''), String(curTitle() || ''));
-        if (_curBusy || _hasThink){
-          el.state.textContent = '当前选中的会话与服务器选中的会话不同，思维流暂停';
-          el.state.style.color = 'var(--orange)';
-        }
-      }
-    } catch(e){}
-  }
+  /* 2.301（老板 2026-11-25 19:03 令）：原橙色横幅「当前选中的会话与服务器
+     选中的会话不同，思维流暂停」整段撤除——以后不一致提醒只在主界面思维
+     气泡里出现（消息渲染.js thinkMismatchNow），横幅不再占位。 */
   /* 2.229（老板 2026-11-20 22:01）：强核对不再有独立大悬浮窗——复用本条顶部
      横幅，临时改文案「核对中」，终态后由 LB.vchkOpen 清位自动恢复原四态文案。
      2.233（老板 2026-11-20 23:07）：只写「核对中」三个字等于没替换——必须带
