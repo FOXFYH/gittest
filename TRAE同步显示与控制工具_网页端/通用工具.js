@@ -330,7 +330,9 @@ function midValid(mid){
   return /^[0-9a-fA-F]{24}$/.test(String(mid == null ? '' : mid).trim());
 }
 function midSec(mid){
-  const s = String(mid == null ? '' : mid).trim();
+  /* 2.287（老板 2026-11-25 12:47 令）：思维流有了专属 ID 前缀 th:——
+     算时间时先剥前缀，照旧按原 24 位时间戳取时。 */
+  const s = String(mid == null ? '' : mid).trim().replace(/^th:/i, '');
   if (!/^[0-9a-fA-F]{24}$/.test(s)) return NaN;
   const sec = parseInt(s.slice(0, 8), 16);
   return isFinite(sec) ? sec : NaN;
