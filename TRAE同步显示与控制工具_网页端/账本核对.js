@@ -1,5 +1,10 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.055  日期 2026-11-24
+/* 账本核对.js（网页端）  版本 1.056  日期 2026-11-25
+   【1.056 lbsync 的 add 行优先覆盖本地（老板 2026-11-25 15:12 令「核对成功也补
+     不进来」）】`lbSyncApply` 的 order 重建改为「addMap 命中即用服务器整行」——旧版
+     本地优先，服务器把该行从思维流半成品升成「AI 终极回复」后本地旧 th 永远粘住。
+     配套服务端 WS桥 0.110：keep 里类型升级为 a 的 mid 会进 add 整行下发。
+     1.055→1.056。
    【1.055 通用模块清单补全（老板 2026-11-24 21:11 令）】`ledgerVcheckBuild` 上报
      模块数组由 sig/snote/macct/convs/didp/think 扩为再加 srv（服务器身份）/input
      （输入框镜像）——只在 LB.mods 有值时才报，旧帧/无值不报，绝不因「没报过」让
@@ -1136,8 +1141,11 @@ function lbSyncApply(d){
           let 补 = 0;
           const kept = [];
           order.forEach(mid => {
-            if (localMap.has(mid)){ kept.push(localMap.get(mid)); return; }
+            /* 2.293（老板 2026-11-25 15:12 令「核对成功也补不进来」）：服务器
+               下发的 add 行优先覆盖本地旧行——旧版本地优先，导致服务器已把
+               该行从思维流半成品升成「AI 终极回复」时，本地旧 th 永远粘住。 */
             if (addMap.has(mid)){ kept.push(addMap.get(mid)); 补++; return; }
+            if (localMap.has(mid)){ kept.push(localMap.get(mid)); return; }
           });
           const 留 = kept.length - 补;
           const 键 = sid || wantUid || wantTitle;
