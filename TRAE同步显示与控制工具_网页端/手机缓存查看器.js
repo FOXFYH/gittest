@@ -1,5 +1,12 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.253  日期 2026-11-25
+/* 手机缓存查看器.js（网页端）  版本 2.303  日期 2026-11-25
+   2.303（老板 2026-11-25 19:29 令·编号级镜像电脑版会话拆分页）：小账本详情的
+     预备画面改为「按轮出编号」——最近 5 轮（最多 10 条），每轮＝一条人类发言＋
+     该轮终极回复；该轮没有终极回复时补占位行（最新一轮且思维灯亮→「尚在思维流
+     状态中」，否则「未抓到本轮终极回复」）；逐条带 #1…#N，顺序、mid、类型与桌面
+     分页_采集拆分器._五轮视图 完全一致。纯本地换算，不改任何账本数据；同时给
+     2.301 的占位小卡加 _viewPh 守卫，避免与编号视图占位行重复。与 Python 版
+     逐条比对 10/10 一致（含空闲/忙碌两种占位文案）。2.253→2.303（整页 2.303）。
    2.253（老板 2026-11-25 17:34 令·小账本显字符数）：小账本详情每条「人类发言／
      AI 终极回复」的顶部信息行追加「· N 字」——N＝该条正文（index1/text）按码点
      计数的字符数，与对账用的 lbCharN 同一口径（Array.from）。老板原话：AI 终极
@@ -775,9 +782,37 @@
     if (!it.msgs.length){
       box.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'（这份预备画面是空的）'}));
     } else {
-      /* 2.249（老板 2026-11-21 11:37）：账本有什么就显示什么——不再把旧思维流
-         折叠丢弃（曾导致「条数算进去、详情看不见」）；思维流也逐条显示并带类型。 */
-      it.msgs.forEach(function(m){
+      /* 2.303（老板 2026-11-25 19:29 令）：小账本按「电脑版会话拆分页」口径出编号——
+         最近 5 轮（最多 10 条），每轮＝人类发言＋该轮终极回复；该轮没有终极回复时
+         补一条「尚在思维流状态中 / 未抓到本轮终极回复」占位行；逐条带 #1…#N，
+         顺序、mid、类型与桌面 _五轮视图 完全一致（纯本地换算，不改任何账本数据）。 */
+      var _rv = (function(ms, idle, n){
+        var rows = (ms || []).filter(function(m){ return Array.isArray(m); });
+        var rounds = [];
+        rows.forEach(function(m){
+          if (String(m[0] || '').toLowerCase() === 'u') rounds.push({u: m, ai: []});
+          else if (rounds.length) rounds[rounds.length - 1].ai.push(m);
+        });
+        rounds = rounds.slice(-Math.max(1, n || 5));
+        var out = [];
+        rounds.forEach(function(w, k){
+          out.push({m: w.u, ph: false});
+          var term = null;
+          w.ai.forEach(function(m){
+            if (String(m[0] || '').toLowerCase() === 'a') term = m;
+          });
+          if (term) out.push({m: term, ph: false});
+          else {
+            var ph = ['a', '', '', 0, 0, '', '', '', 'th'];
+            ph[1] = (k === rounds.length - 1 && !idle)
+              ? '尚在思维流状态中' : '未抓到本轮终极回复';
+            out.push({m: ph, ph: true});
+          }
+        });
+        return out;
+      })(it.msgs, !(typeof _curConvLight === 'function' && _curConvLight() === 'busy'), 5);
+      _rv.forEach(function(_v, _i){
+        var m = _v.m;
         var x = rowText(m);
         /* 2.208：类型以服务端下发为准（index8/kind）；缺则按角色＋终答推导；不得空白。 */
         var _k = kindOf(m);
@@ -795,7 +830,9 @@
         var _cnTxt = (_k === 'think') ? '' : (' · ' + _cn + ' 字');
         var d = document.createElement('div');
         d.className = 'cv_msg ' + (user ? 'u' : 'a');
-        d.innerHTML = '<div class="who">' + kindTag(m) + esc((user ? '你' : 'AI') +
+        d.innerHTML = '<div class="who">'
+          + '<b style="color:#666;margin-right:4px">#' + (_i + 1) + '</b>'
+          + kindTag(m) + esc((user ? '你' : 'AI') +
           (tm ? ' · ' + tm : '') + (mid && _k !== 'think' ? ' · ' + mid : '') + _cnTxt) + '</div>' +
           bodyHtml(x.text, user);
         box.appendChild(d);
@@ -820,7 +857,11 @@
         if (m[0] === 'u'){ _lastU = i; _fin2 = false; }
         else if (_lastU >= 0 && kindOf(m) === 'final'){ _fin2 = true; }
       });
-      if (_same2 && _busy2 && _lastU >= 0 && !_fin2 && !_已有占){
+      /* 2.303：编号视图已在最后一轮补过占位行 ⇒ 不再重复挂 2.301 那张占位小卡。 */
+      var _viewPh = false;
+      try { _viewPh = (typeof _rv !== 'undefined') && Array.isArray(_rv)
+        && _rv.some(function(v){ return v && v.ph; }); } catch(e){}
+      if (_same2 && _busy2 && _lastU >= 0 && !_fin2 && !_已有占 && !_viewPh){
         var _pd = document.createElement('div');
         _pd.className = 'cv_msg a';
         _pd.style.border = '1px dashed #4a9eff';
