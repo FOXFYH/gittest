@@ -690,6 +690,9 @@ function lbConv12Report(sid, title){
       if (!Array.isArray(m)) return;
       const r = String(m[0] || '').toLowerCase();
       if (r !== 'u' && r !== 'a') return;
+      /* 2.289（老板 12:47 令）：思维流（th: 专属 ID / 纯思维块）绝不算对决 ID——
+         否则核对会拿思维流号去比对、反复判缺并补发，等于让它冒充终极回复。 */
+      if (r === 'a' && (/^th:/i.test(String(m[6] || '')) || lbPureThink(m))) return;
       const mid = String(m[6] || '');
       if (mid) chat.push(mid);
     });
