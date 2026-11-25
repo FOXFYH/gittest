@@ -566,6 +566,17 @@ function actCurUnread(cv){            /* ③ 当前会话是否亮着橙灯（ID
 }
 function actClearLocal(cv){           /* ③ 发后乐观清本地未读 → 灯灭即停 */
   const s = S.snap || {};
+  /* 2.312（老板 2026-11-25 22:25「别两套值互顶」）：列表橙灯**只认**
+     convs_full.status（会话列表.js 的 stdot-uread 与 actCurUnread 同源），
+     故此处也把该条目的 unread/light 一并清掉——否则旧代码只清
+     conv_unread_ids，灯还得等服务端回快照才灭，看着就像「滑了没用」。 */
+  if (Array.isArray(s.convs_full)) for (const o of s.convs_full){
+    if (!o || !o.status) continue;
+    const hit = (cv.uid && o.stable === cv.uid) || (cv.sid && o.sid === cv.sid);
+    if (!hit) continue;
+    o.status.unread = false;
+    if (o.status.light === 'unread') o.status.light = '';
+  }
   if (Array.isArray(s.conv_unread_ids) && cv.sid)
     s.conv_unread_ids = s.conv_unread_ids.filter(x => x !== cv.sid);
   if (Array.isArray(s.conv_unread_ids) && cv.uid){
