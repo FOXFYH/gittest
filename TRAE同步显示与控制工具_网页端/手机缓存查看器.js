@@ -1,5 +1,9 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.249  日期 2026-11-21
+/* 手机缓存查看器.js（网页端）  版本 2.250  日期 2026-11-25
+   2.250（老板 2026-11-25 12:32 令·小账本恒定卡）：小账本详情页在预备画面下方
+     固定挂两张卡——「💭 思维流」「⏳ 官方排队条」，没有就明写「没有」；
+     排队条只认当前会话（S.snap.pend，逐条 pendItemMine 归属校验），思维流取
+     本条记录里 kind=think 的行，绝不跨会话串显。2.249→2.250。
    2.249（老板 2026-11-21 11:37）：①「N 条」只算人类＋AI 终极，思维流单列 thN；
      ② 带终答的 AI 行即使后端标 th 也认回 AI 终极；③ 详情不再折叠丢弃旧思维流；
      ④ AI 正文只在 index7 时兜底取出。
@@ -766,6 +770,58 @@
     }
     s.appendChild(box);
     host.appendChild(s);
+    /* 2.250（老板 2026-11-25 12:32 令·小账本恒定卡）：预备画面下方固定两张卡——
+       思维流 / 官方排队条；没有就明写「没有」，不让老板猜。 */
+    var _pendRows = [], _thRows = [];
+    try {
+      var _curR = String((typeof curSid === 'function') ? (curSid() || '') : '');
+      var _sidR = String(it.sid || '');
+      var _sameR = !!_sidR && (_curR ? (_sidR === _curR)
+        : (!!S.anchorSid && typeof 稳定键 === 'function'
+           && 稳定键(_sidR, it.title || '') === String(S.anchorSid)));
+      if (_sameR && S.snap && Array.isArray(S.snap.pend)){
+        S.snap.pend.forEach(function(p){
+          if (typeof pendItemMine === 'function' && pendItemMine(p) === false) return;
+          var _tx = (p && p.text != null) ? String(p.text) : String((p && p.t) || '');
+          if (_tx) _pendRows.push(_tx);
+        });
+      }
+    } catch(e){}
+    it.msgs.forEach(function(m){
+      if (kindOf(m) !== 'think') return;
+      var _x = rowText(m);
+      if (_x.text) _thRows.push(_x);
+    });
+    function _恒卡(title, rows, renderOne){
+      var _sec = document.createElement('div');
+      _sec.className = 'cv_sec';
+      _sec.innerHTML = '<h3>' + title + ' <span class="n">' + rows.length + ' 条</span></h3>';
+      var _bx = document.createElement('div');
+      _bx.style.padding = '4px 10px 12px';
+      if (!rows.length){
+        _bx.appendChild(Object.assign(document.createElement('div'),
+          {className:'cv_empty', textContent:'没有'}));
+      } else {
+        rows.forEach(function(x){ _bx.appendChild(renderOne(x)); });
+        bindFx(_bx);
+      }
+      _sec.appendChild(_bx);
+      host.appendChild(_sec);
+    }
+    _恒卡('💭 思维流', _thRows, function(x){
+      var _d = document.createElement('div');
+      _d.className = 'cv_msg a';
+      var _tm = String(x.mid || '') ? String((typeof timeFromMid === 'function' ? timeFromMid(x.mid) : '') || '') : '';
+      _d.innerHTML = '<div class="who">思维流' + (_tm ? ' · ' + _tm : '')
+        + (x.mid ? ' · ' + x.mid : '') + '</div>' + bodyHtml(x.text, false);
+      return _d;
+    });
+    _恒卡('⏳ 官方排队条', _pendRows, function(t){
+      var _d = document.createElement('div');
+      _d.className = 'cv_msg u';
+      _d.innerHTML = '<div class="who">排队中</div>' + bodyHtml(String(t), false);
+      return _d;
+    });
   }
 
   /* ---------- ② 全部缓存 ---------- */
