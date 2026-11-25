@@ -490,11 +490,30 @@ function _markNoMid(m){
   return m;
 }
 function orderMsgs(list){
-  /* 2.213（前端零拦截）：顺序完全按后端下发——不排序、不剔除、不挪位。
-     无有效 mid 的行原位保留（只是该行不显示时间）；同 mid 重复也不重排。 */
+  /* 2.311（老板 2026-11-25 22:54 令「主界面的顺序必须跟小账本一致」）：
+     2.213 的「完全按后端下发、绝不排序」作废——主界面正文由「小账本 rounds
+     ＋内存存帧」并集而来，两组各自有序、并起来却可能把 AI 终极排到人类提问
+     上面（实抓：小账本 [u,a] 正确，主界面 [a,u] 颠倒）。改为**按消息编号
+     时序稳定排序**：mid 前 8 位十六进制＝unix 秒；无 mid 的行沿用上一行的
+     时刻（原位不动）；解析不出合理秒值（如 14 位 DID、排队条）同样按无 mid
+     处理，绝不把卡条甩到顶上。同时刻保持原有先后（稳定）。 */
   try {
-    return Array.isArray(list) ? list : [];
-  } catch(e){ return list; }
+    if (!Array.isArray(list) || list.length < 2) return Array.isArray(list) ? list : [];
+    const _secOf = m => {
+      if (!Array.isArray(m) || m.length < 7) return 0;
+      let id = String(m[6] == null ? '' : m[6]).trim();
+      if (id.slice(0, 3).toLowerCase() === 'th:') id = id.slice(3);
+      if (!/^[0-9a-fA-F]{8}/.test(id)) return 0;
+      const v = parseInt(id.slice(0, 8), 16);
+      /* 合理区间 2020-01-01 ~ 2033-05-18，之外视为「不是时间戳」 */
+      return (v >= 1577836800 && v <= 2000000000) ? v : 0;
+    };
+    const arr = list.map((m, i) => ({m, i, s: _secOf(m)}));
+    let carry = 0;
+    arr.forEach(o => { if (o.s) carry = o.s; else o.s = carry; });
+    arr.sort((a, b) => (a.s - b.s) || (a.i - b.i));
+    return arr.map(o => o.m);
+  } catch(e) { return list; }
 }
 function _swSnapIsTargetNow(sp){
   /* 2.106（A4）：切换在途，这拍快照正文是否已【确认为目标】——判据＝正文非空、
