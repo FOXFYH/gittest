@@ -310,6 +310,125 @@ function lbScreenMsgs(sid, title){
     return out;
   }catch(e){ return []; }
 }
+/* 2.310（老板 2026-11-25 21:25 令「点读取小账本必须立刻生效、主界面恒等于小账本」）：
+   原按钮只走 lbHaveLoad→lbRowsPut，有三处会让它「点了没反应」：
+     ① 键对不上（rec.uid/rec.title 与当前会话的终身号/会话名不同）→ 写进查不到的别名键；
+     ② 2.280 拒覆盖 + 1.060 尾部保留 → 小账本内容被旧账本挡住，写不进屏幕唯一源；
+     ③ IDB 被占用时 lbHaveLoad 静默 catch，按钮却照报成功。
+   本函数把 snap_conv（小账本唯一真源）里当前会话的存帧【整体覆盖】回屏幕：
+   按 sid/会话名（兜底终身号）圈定记录 → 各记录按轮去重合并（一条不多一条不少）
+   → 清掉当前会话全部别名键 → 直接写 LB.rows（不合并、不拒覆盖）
+   → 同步替换 _frameMem（防旧存帧并集把账本内容冲掉）→ 立刻重画。
+   返回 Promise<{ok,n,rounds,recs,err}>；3 秒无回音如实报失败，绝不假装成功。 */
+function lbForceReload(sid, title){
+  const s = String(sid || ''), t = String(title || '').trim();
+  const u = (typeof lbUidPick === 'function')
+    ? String(lbUidPick(null, s, t) || '') : '';
+  const scrKeys = [];
+  if (u) scrKeys.push(_lbRowsKey(u, ''));
+  if (t) scrKeys.push(_lbRowsKey('', t));
+  const read = left => {
+    const to = new Promise((_, rej) => setTimeout(
+      () => rej(new Error('小账本被占用（3 秒无回音）')), 3000));
+    return Promise.race([
+      _idbReq('snap_conv', 'readonly', st => st.getAll()), to
+    ]).catch(err => {
+      if (left > 1) return new Promise(r => setTimeout(r, 400)).then(() => read(left - 1));
+      throw err;
+    });
+  };
+  return read(3).then(rows => {
+    const _sidOf = x => {
+      try { return (typeof 稳定键 === 'function')
+        ? String(稳定键(String(x || ''), '') || '') : String(x || ''); }
+      catch(e){ return String(x || ''); }
+    };
+    const skSid = _sidOf(s);
+    const tNorm = (typeof lbNormTitle === 'function') ? lbNormTitle(t) : t;
+    const usable = rec => !!(rec && rec.frame && Array.isArray(rec.frame.msgs)
+      && rec.frame.msgs.length && String(rec.title || '').trim());
+    /* 先按 sid/会话名圈（精确），一个都没有才按终身号兜底——避免把同一终身号
+       名下别的会话一起拉进来。 */
+    let mine = (rows || []).filter(rec => {
+      if (!usable(rec)) return false;
+      if (s && String(rec.sid || '') === s) return true;
+      if (skSid && _sidOf(rec.sid) === skSid) return true;
+      if (t && String(rec.title || '').trim() === t) return true;
+      if (t && tNorm && String((typeof lbNormTitle === 'function'
+            ? lbNormTitle(rec.title) : rec.title) || '') === String(tNorm)) return true;
+      return false;
+    });
+    if (!mine.length && u){
+      mine = (rows || []).filter(rec => usable(rec)
+        && String(rec.uid || '').trim() === u);
+    }
+    mine.sort((a, b) => _lbMaxSec(a) - _lbMaxSec(b));
+    if (!mine.length) return {ok: true, n: 0, rounds: 0, recs: 0};
+    const seen = new Set(), all = [];
+    mine.forEach(rec => {
+      let rounds = [];
+      try { rounds = lbRoundsFromMsgs(_lbCleanMsgs(rec.frame.msgs).msgs); } catch(e){}
+      (rounds || []).forEach(r => {
+        const k = (typeof lbRoundKey === 'function') ? lbRoundKey(r) : JSON.stringify(r);
+        if (seen.has(k)) return;
+        seen.add(k); all.push(r);
+      });
+    });
+    if (!all.length) return {ok: true, n: 0, rounds: 0, recs: mine.length};
+    const _rsec = r => {
+      let mx = 0;
+      (r || []).forEach(m => {
+        if (!Array.isArray(m)) return;
+        const v = (typeof _lbSecOf === 'function') ? _lbSecOf(m) : 0;
+        if (v > mx) mx = v;
+      });
+      return mx;
+    };
+    all.sort((a, b) => _rsec(a) - _rsec(b));
+    /* 当前会话所有别名键先清空：旧账一律作废，绝不让并集把旧内容带回屏幕。 */
+    const alias = {};
+    scrKeys.forEach(k => { alias[k] = 1; });
+    const addAlias = (ru, rt) => {
+      if (ru) alias[_lbRowsKey(ru, '')] = 1;
+      if (rt) alias[_lbRowsKey('', rt)] = 1;
+    };
+    mine.forEach(rec => addAlias(String(rec.uid || '').trim(),
+                                 String(rec.title || '').trim()));
+    if (!LB.rows || typeof LB.rows !== 'object') LB.rows = {};
+    Object.keys(alias).forEach(k => { delete LB.rows[k]; });
+    if (u) LB.rows[_lbRowsKey(u, '')] = all;
+    if (t) LB.rows[_lbRowsKey('', t)] = all;
+    mine.forEach(rec => addAlias(String(rec.uid || '').trim(),
+                                 String(rec.title || '').trim()));
+    /* 别名键同样写整份 rounds（号/名两个入口都命中同一份，绝不再各存一半）。 */
+    mine.forEach(rec => {
+      const ru = String(rec.uid || '').trim(), rt = String(rec.title || '').trim();
+      if (ru) LB.rows[_lbRowsKey(ru, '')] = all;
+      if (rt) LB.rows[_lbRowsKey('', rt)] = all;
+    });
+    /* _frameMem 同步替换：lbScreenMsgs 会并集内存存帧，不换掉它屏幕仍可能≠小账本。 */
+    try {
+      const flat = [];
+      all.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) flat.push(m.slice()); }));
+      const newest = mine[mine.length - 1];
+      const fr = Object.assign({}, newest.frame, {msgs: flat});
+      const mk = (typeof _frameMemKey === 'function')
+        ? _frameMemKey(s || String(newest.sid || '')) : '';
+      if (mk && typeof _frameMem !== 'undefined') _frameMem[mk] = fr;
+      if (t && typeof _frameMemByTitle !== 'undefined'
+          && typeof _frameTitleKey === 'function'){
+        const tk = _frameTitleKey(t);
+        if (tk) _frameMemByTitle[tk] = fr;
+      }
+    } catch(e){}
+    const n = all.reduce((a, r) => a + (r || []).length, 0);
+    try { diagLog('读取小账本|' + (t || s) + '|记录=' + mine.length
+      + '|轮=' + all.length + '|条=' + n, 'ok'); } catch(e){}
+    try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
+    return {ok: true, n: n, rounds: all.length, recs: mine.length};
+  }).catch(err => ({ok: false,
+    err: String((err && err.message) || err || '读取失败')}));
+}
 /* 2.279（老板 2026-11-25 08:04 令）：账本→主界面「3 秒兜底自检」。
    正常链路：新消息先进小账本落盘 → lbRowsPut 立刻 lbRepaint 重画主界面。
    万一某一拍回调漏了重绘，这里每 3 秒按**ID 序列**比对小账本(lbScreenMsgs)

@@ -61,6 +61,51 @@ function lbPullToScreen(){
   drawerClose();
   const sid = (typeof curSid === 'function') ? String(curSid() || '') : '';
   const title = (typeof curTitle === 'function') ? String(curTitle() || '') : '';
+  const bottom = () => {
+    try {
+      const b = document.getElementById('msgs');
+      if (b) b.scrollTop = b.scrollHeight;
+    } catch(e){}
+  };
+  /* 2.310（老板 2026-11-25 21:25 令）：按钮必须一下生效，且失败要明说。
+     走 lbForceReload 整体覆盖（不合并、不拒覆盖、IDB 卡住重试 3 次），
+     画完再清点主界面条数——没画出来就报红，绝不再静默报「已读取」。 */
+  if (typeof lbForceReload === 'function'){
+    flash('正在读取小账本…', 'var(--blue)', 8000);
+    Promise.resolve(lbForceReload(sid, title)).then(r => {
+      if (!r || !r.ok){
+        flash('读取小账本失败：' + ((r && r.err) || '未知原因'), 'var(--red)', 8000);
+        return;
+      }
+      if (!r.n){
+        flash('小账本里没有当前会话的记录（先在☰里点「📒 小账本」看它存了哪些会话）',
+              'var(--orange)', 8000);
+        return;
+      }
+      try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
+      bottom();
+      setTimeout(() => {
+        let drawn = 0;
+        try {
+          const b = document.getElementById('msgs');
+          if (b) b.querySelectorAll('.msg').forEach(x => {
+            if (!x.getAttribute('data-think')) drawn++;
+          });
+        } catch(e){}
+        bottom();
+        if (drawn)
+          flash('✓ 已按小账本重读 ' + r.n + ' 条（' + r.rounds + ' 轮）并刷新主界面',
+                'var(--green)');
+        else
+          flash('小账本已读到 ' + r.n + ' 条，但主界面没画出来；请刷新页面一次并把这句话告诉我',
+                'var(--red)', 10000);
+      }, 60);
+    }, e => {
+      flash('读取小账本失败：' + ((e && e.message) || e || '未知原因'), 'var(--red)', 8000);
+    });
+    return;
+  }
+  /* 兜底（极旧版本无 lbForceReload 时）：原逻辑原样保留。 */
   const done = () => {
     let n = 0;
     try {
@@ -68,10 +113,7 @@ function lbPullToScreen(){
         ? (lbScreenMsgs(sid, title) || []).length : 0;
     } catch(e){}
     try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
-    try {
-      const b = document.getElementById('msgs');
-      if (b) b.scrollTop = b.scrollHeight;
-    } catch(e){}
+    bottom();
     flash(n ? ('✓ 已读取小账本 ' + n + ' 条并刷新主界面')
             : '小账本里没有当前会话的记录（可先在☰里点「📒 小账本」看看）',
           n ? 'var(--green)' : 'var(--orange)');
