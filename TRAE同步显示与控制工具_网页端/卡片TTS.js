@@ -145,7 +145,9 @@ function foxHintCards(txt, out){
   }
   if (unclosed && !hz.sys && !hz.usr && !hz.co && !hz.ai)
     foxClosedWarn('hint', '(@fox-sys1/@fox-usr1/@fox-co1)', '(@f / 空行');
-  if (!hz.sys && !hz.usr && !hz.co && !hz.ai) return s0;  /* 只有残标、无有效内容 → 原样 */
+  /* 2.292：只有代码标记、本机镜像暂无全文（刚 plib_get 还在路上）→ 也不能把
+     Q 代码露给用户：先把 lib 段整段摘掉，等全文到齐 redrawMsgs 重画出按钮。 */
+  if (!hz.sys && !hz.usr && !hz.co && !hz.ai) return s0.replace(FLIB_ANY, '').replace(/\(@fox-lib1\s*\)?/g, '');
   out.push(hz);
   const h = head.replace(/\s+$/, '');
   return (h ? h + '\n' : '') + '@@FHC' + (out.length - 1) + '@@';
