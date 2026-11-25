@@ -1,5 +1,16 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.059  日期 2026-11-25
+/* 账本核对.js（网页端）  版本 1.060  日期 2026-11-25
+   【1.060 主界面「出现一下立刻消失」第三处真凶：lbRowsPut 整份替换（老板 2026-11-25 18:15 令）】
+     现象：发出一句话→主界面出现→立刻消失；小账本里确实有；点「📒 读取小账本」显示
+     约一秒又消失，再点一次才留下。
+     根因：`lbRowsPut` 是**整份替换** `LB.rows[k]=rounds`。服务端某一拍下发的窗口还不含
+     刚发的那句（抓取抖动/落盘滞后），整份替换就把本地已有该句的账抹掉；而 snap_conv
+     (小账本)里该句还在 ⇒ 屏幕没了、小账本有。点拉取从 snap_conv 装回来能显示，下一拍
+     旧窗口又整份替换 ⇒ 再次消失；等服务器真抓到那一拍才稳定。
+     修法：写入前做「更新行保留」——新帧里没有、但旧账本里 mid 时间戳不早于新帧最新
+     一条的行（无 mid 的未认证新行按更新处理），按时间顺序追加到末尾保留；只保留尾部
+     最多 6 行防堆积，被服务器正式抓到后自然归位。2.280 的「新帧无 AI 拒写」保持原样。
+     1.059→1.060（整页版本 2.297）。
    【1.059 最新回复不再被对账删掉 / 不再被自检清屏（老板 2026-11-25 17:30 令）】
      现象：打开会话看不到最新回复；刷新后出现，过一会又消失；小账本里还有；
      「读取小账本」也拉不回主界面。两处修：
@@ -163,13 +174,55 @@ function lbRowsPut(uid, title, rounds){
        （旧账本也没有 AI）不受影响。 */
     const _hasAI = arr => (arr || []).some(r => Array.isArray(r)
       && r.some(m => Array.isArray(m) && String(m[0] || '') !== 'u'));
+    /* 1.060（老板 18:15 令）：mid 前 8 位 hex＝秒级时间戳，用来判断「谁更新」 */
+    const _secOf = id => {
+      const v = parseInt(String(id || '').slice(0, 8), 16);
+      return isNaN(v) ? 0 : v;
+    };
+    const _roundSec = r => {
+      let mx = 0;
+      (r || []).forEach(m => {
+        if (!Array.isArray(m)) return;
+        const s = _secOf(m[6]);
+        if (s > mx) mx = s;
+      });
+      return mx;
+    };
     const put = k => {
       const old = LB.rows[k];
       if (!_hasAI(rounds) && Array.isArray(old) && old.length && _hasAI(old)){
         try { diagLog('账本拒覆盖|键=' + k + '|新帧无AI|旧轮=' + old.length, 'warn'); } catch(e){}
         return;
       }
-      LB.rows[k] = rounds;
+      /* 1.060：整份替换前先把「本地更新、服务器这拍还没抓到」的轮留在尾部。
+         判据：新帧里一条都没有它的 mid，且它的 mid 时间不早于新帧最新一条
+         （无 mid 的未认证行按最新处理——它只可能是刚发还没认证的）。 */
+      let merged = rounds;
+      if (Array.isArray(old) && old.length){
+        const inNew = new Set();
+        rounds.forEach(r => (r || []).forEach(m => {
+          if (Array.isArray(m) && m[6]) inNew.add(String(m[6]));
+        }));
+        const top = _roundSec(rounds);
+        const tail = [];
+        old.forEach(r => {
+          const rs2 = Array.isArray(r) ? r : [];
+          const ids = rs2.filter(m => Array.isArray(m) && m[6]).map(m => String(m[6]));
+          if (ids.length && ids.some(id => inNew.has(id))) return;   /* 新帧已有 ⇒ 听新帧 */
+          const mx = _roundSec(rs2);
+          const noId = !ids.length;
+          if (!noId && mx < top) return;      /* 比新帧最新还旧 ⇒ 正常淘汰 */
+          tail.push(r);
+        });
+        if (tail.length){
+          tail.sort((a, b) => _roundSec(a) - _roundSec(b));
+          while (tail.length > 6) tail.shift();
+          merged = rounds.concat(tail);
+          try { diagLog('账本保留更新行|键=' + k + '|保留轮=' + tail.length
+            + '|新帧轮=' + rounds.length, 'warn'); } catch(e){}
+        }
+      }
+      LB.rows[k] = merged;
     };
     if (u) put(_lbRowsKey(u, ''));
     if (t) put(_lbRowsKey('', t));
