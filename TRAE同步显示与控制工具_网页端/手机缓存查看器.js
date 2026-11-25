@@ -1,5 +1,11 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.304  日期 2026-11-25
+/* 手机缓存查看器.js（网页端）  版本 2.305  日期 2026-11-25
+   2.305（老板 2026-11-25 19:42 令·思维流判定交给电脑端）：① 删除网页端一切
+     「服务器选中 ≠ 网页选中 ⇒ 思维流不可见」的认定；② 小账本第 10 条占位按
+     本会话自己的思维灯判定——灯亮且电脑选中的不是该会话，文案改为「尚在思维
+     流状态中（但电脑未选中该对话，无法获得思维流）」；灯亮且就是电脑选中＝
+     「尚在思维流状态中」；灯没亮＝「未抓到本轮终极回复」。只读电脑下发的灯态
+     与会话状态，网页端不参与认定。2.304→2.305（整页 2.305）。
    2.304（老板 2026-11-25 19:36 令·「手机上出现了 9 条」）：条数显示不再数「实际
      留下的行」，改为镜像电脑版口径 `_lbViewN`＝min(5, 人类条数)×2（每轮恒 2 条，
      缺终答由占位行补齐）——卡片「N 条」与详情页标题统一走它，电脑版 10 条手机
@@ -348,6 +354,27 @@
       if (Array.isArray(m) && String(m[0] || '').toLowerCase() === 'u') rounds++;
     });
     return Math.min(5, rounds) * 2;
+  }
+  /* 2.305（老板 19:42 令）：会话自己的思维灯——只读电脑下发的会话状态，
+     不再拿「网页选中 vs 服务器选中」做任何认定。返回 run/fail/stop/'' 。 */
+  function _convLightOf(sid, title){
+    var st = String(sid || ''), sk = '';
+    try { sk = (typeof 稳定键 === 'function') ? String(稳定键(st, title || '')) : ''; } catch(e){ sk = ''; }
+    var cf = (S.snap && Array.isArray(S.snap.convs_full)) ? S.snap.convs_full : [];
+    for (var i = 0; i < cf.length; i++){
+      var o = cf[i];
+      if (!o) continue;
+      if ((st && o.sid === st) || (sk && o.stable === sk)){
+        return String((o.status && o.status.light) || '');
+      }
+    }
+    var rows = (S.snap && Array.isArray(S.snap.convs)) ? S.snap.convs : [];
+    for (var j = 0; j < rows.length; j++){
+      var r = rows[j];
+      if (!r || r[0] !== 'c') continue;
+      if ((st && r[4] === st) || (title && r[1] === title)) return String(r[3] || '');
+    }
+    return '';
   }
   function readSnapConvs(){
     return openSnapDB().then(function(db){
@@ -800,7 +827,25 @@
          最近 5 轮（最多 10 条），每轮＝人类发言＋该轮终极回复；该轮没有终极回复时
          补一条「尚在思维流状态中 / 未抓到本轮终极回复」占位行；逐条带 #1…#N，
          顺序、mid、类型与桌面 _五轮视图 完全一致（纯本地换算，不改任何账本数据）。 */
-      var _rv = (function(ms, idle, n){
+      /* 2.305（老板 19:42 令）：思维流能不能拿到，由电脑端事实决定——本会话灯亮
+         但电脑选中的不是它，就补一句括号说明；网页端只按灯态与内容显示，不再
+         做任何「选中不一致」认定。 */
+      var _myL = '', _extra = '';
+      try {
+        _myL = _convLightOf(it.sid, it.title);
+        var _selS = String((S.snap && S.snap.selSid) || '');
+        if (!_selS){
+          var _cr = (S.snap && Array.isArray(S.snap.convs)) ? S.snap.convs : [];
+          for (var _ci = 0; _ci < _cr.length; _ci++){
+            if (_cr[_ci] && _cr[_ci][0] === 'c' && _cr[_ci][2]){ _selS = String(_cr[_ci][4] || ''); break; }
+          }
+        }
+        var _myS = String(it.sid || '');
+        var _sameSel = !!_selS && (_myS === _selS || (typeof 稳定键 === 'function'
+          && String(稳定键(_myS, it.title || '')) === _selS));
+        if (_myL === 'run' && !_sameSel) _extra = '（但电脑未选中该对话，无法获得思维流）';
+      } catch(e){ _myL = ''; _extra = ''; }
+      var _rv = (function(ms, idle, n, extra){
         var rows = (ms || []).filter(function(m){ return Array.isArray(m); });
         var rounds = [];
         rows.forEach(function(m){
@@ -819,12 +864,12 @@
           else {
             var ph = ['a', '', '', 0, 0, '', '', '', 'th'];
             ph[1] = (k === rounds.length - 1 && !idle)
-              ? '尚在思维流状态中' : '未抓到本轮终极回复';
+              ? ('尚在思维流状态中' + (extra || '')) : '未抓到本轮终极回复';
             out.push({m: ph, ph: true});
           }
         });
         return out;
-      })(it.msgs, !(typeof _curConvLight === 'function' && _curConvLight() === 'busy'), 5);
+      })(it.msgs, _myL !== 'run', 5, _extra);
       _rv.forEach(function(_v, _i){
         var m = _v.m;
         var x = rowText(m);

@@ -1,6 +1,9 @@
 'use strict';
-/* 消息渲染.js（网页端）  版本 2.131  日期 2026-10-24
+/* 消息渲染.js（网页端）  版本 2.305  日期 2026-11-25
    【维护记录】
+   2.305  2026-11-25  老板 19:42 令：删除 thinkMismatchNow 与「当前选中与服务器
+                     不一致，无法获取思维流」文案——思维流可见性不再由网页端做
+                     选中一致性认定，气泡只按本会话思维灯与已到内容显示。
    2.131  2026-10-24  官方排队条「串台」（老板原话：「排队条一定要核实清楚属于
                      哪个会话，不能乱显示，是谁的就显示在谁那边」）：`renderMsgs`
                      画「⏳ 官方排队条」前先校验归属——取快照顶层 `pend_sid`
@@ -136,8 +139,8 @@ function _thinkCardHtml(c){
   /* 2.231（老板 22:36 令·恢复 2.229 头部口径）：只留 🧠 + 会话名 + HH:MM + 版本号，
      不写「思维流」三字；会话名 flex:1 可省略，时间/版本不缩。
      2.301（老板 2026-11-25 19:03 令）：思维灯亮但思维流还没到时，主界面该位置由
-     思维气泡占位——有内容显示内容，没内容显示「正在获取思维流」；确认当前选中
-     与服务器选中不一致时显示「当前选中与服务器不一致，无法获取思维流」。
+     思维气泡占位——有内容显示内容，没内容显示「正在获取思维流」。
+     2.305：选中不一致文案已随认定逻辑删除，气泡不再受服务器选中影响。
      占位气泡不带版本号（没内容就无版本可言）。 */
   const _ph = !!c.placeholder;
   const _m = String(c.time || '').match(/(\d{1,2}):(\d{2})/);
@@ -156,14 +159,8 @@ function _thinkCardHtml(c){
        + '<div class="body" style="white-space:pre-wrap;word-break:break-word;'
        + 'max-height:45vh;overflow:auto">' + _mdBody(body) + '</div></div>';
 }
-/* 2.301：当前选中 ≠ 服务器选中（原 输入界面.js 橙色横幅的判据，现改为只进思维气泡）。 */
-function thinkMismatchNow(){
-  try{
-    const _srvKey = 稳定键(selSidOf(S.snap || {}), selTitleOf(S.snap || {}));
-    const _myKey = String(S.anchorSid || '');
-    return !!(_srvKey && _myKey && _srvKey !== _myKey);
-  }catch(e){ return false; }
-}
+/* 2.305（老板 2026-11-25 19:42 令）：原 2.301 thinkMismatchNow（当前选中 ≠ 服务器
+   选中）整块删除——「选中不一致 ⇒ 思维流不可见」的认定不再由网页端参与。 */
 /* 2.301：本屏最后一轮是否已有 AI 终极回复——有就绝不让占位气泡盖住终答。 */
 function _lbLastRoundFinal(msgs){
   try{
@@ -261,9 +258,11 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   /* 2.207（V1.0 §五-8/9/10）：小账本最底部固定挂一张思维流卡——四维＋思维灯
      亮才出（thinkCardNow 判定），新版/终极到达必须重画（版本号＋正文进指纹）。
      2.301（老板 2026-11-25 19:03 令）：只要思维灯开着，思维气泡就开着——
-     有内容显示内容；没内容显示「正在获取思维流」；确认当前选中与服务器选中
-     不一致时显示「当前选中与服务器不一致，无法获取思维流」。本轮终极回复一旦
-     上屏（_lbLastRoundFinal）立即让位，占位气泡绝不盖住终答。 */
+     有内容显示内容；没内容显示「正在获取思维流」。本轮终极回复一旦
+     上屏（_lbLastRoundFinal）立即让位，占位气泡绝不盖住终答。
+     2.305（老板 2026-11-25 19:42 令）：「服务器选中 ≠ 网页选中 ⇒ 思维流不可见」
+     这套判定整块删除，网页端不再参与任何选中一致性认定；气泡只按本会话
+     思维灯与已到内容显示。 */
   let _think = (typeof thinkCardNow === 'function') ? thinkCardNow(msgs) : null;
   if (!_think && !_lbLastRoundFinal(msgs)){
     try{
@@ -278,9 +277,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
       if (_light === 'busy' || _hasCard){
         _think = {placeholder: true, thinkId: '', time: '', thinkVer: 0,
                   title: String((typeof curTitle === 'function' ? curTitle() : '') || ''),
-                  text: (typeof thinkMismatchNow === 'function' && thinkMismatchNow())
-                    ? '当前选中与服务器不一致，无法获取思维流'
-                    : '正在获取思维流'};
+                  text: '正在获取思维流'};
       }
     }catch(e){}
   }
