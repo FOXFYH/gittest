@@ -28,7 +28,7 @@ var _cvFold = {};
 function _cvFoldEff(title, srvFlag){
   const f = _cvFold[title];
   if (f && f.want != null) return !!f.want;
-  return !!srvFlag;
+  return !srvFlag;               /* 服务端快照 flag=true＝已折叠，false＝已展开 */
 }
 function _cvKeyOf(kind, title, sid){
   return kind === 'f' ? ('f|' + title)
