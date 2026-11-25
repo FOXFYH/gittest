@@ -1,5 +1,10 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.316  日期 2026-11-26
+/* 手机缓存查看器.js（网页端）  版本 2.317  日期 2026-11-26
+   2.317（老板 2026-11-25 23:40 令「账本只能是人类发言或 AI 终极回复，思维流
+     只能在思维流框临时展示」）：小账本「预备画面·编号视图」只认终极回复——本轮
+     回复位取最后一条 kindOf=final 的 AI 行；兜底也排除思维流行；思维流行永不
+     进编号（不占 #N），改由下方「💭 思维流」专属卡展示。与桌面采集拆分器
+     `_五轮视图` 1.34「th 行永不进消息位」同一口径。2.316→2.317。
    2.316（老板 2026-11-25 23:26 令「既然有 17 个，那就 17 个都显示，垃圾我自己
      删」）：同一会话的第二份缓存副本不再静默合并——按身份去重时留下的那份记入
      dups，页尾单列「🗂 重复副本」分区，每条卡片自带 🗑 可逐条删（只删本机
@@ -909,18 +914,22 @@
         rounds.forEach(function(w, k){
           out.push({m: w.u, ph: false});
           var term = null;
+          /* 2.317：回复位只认「判成终答」的 AI 行——思维流（kindOf=think）永不占位。
+             与桌面采集拆分器 `_五轮视图` 1.34 同一口径。 */
           w.ai.forEach(function(m){
-            if (String(m[0] || '').toLowerCase() === 'a') term = m;
+            if (String(m[0] || '').toLowerCase() === 'a'
+                && kindOf(m) === 'final') term = m;
           });
           if (term) out.push({m: term, ph: false});
           else {
             /* 2.307（老板 2026-11-25 20:10 令）：永远不再写「未抓到本轮终极回复」——
                两条人类发言之间一定有内容（原文分页就看得见）。没有判成终答的行时，
-               取本轮最后一条有正文的 AI 行原样显示；历史轮真的零 AI 行就不补占位。 */
+               取本轮最后一条有正文的、非思维流的 AI 行原样显示；历史轮真的零 AI
+               行就不补占位。（2.317：兜底同样不许回落到思维流行。） */
             var lastTxt = null;
             w.ai.forEach(function(m){
               var _x = rowText(m);
-              if (String(_x.text || '').trim()) lastTxt = m;
+              if (String(_x.text || '').trim() && kindOf(m) !== 'think') lastTxt = m;
             });
             if (lastTxt) out.push({m: lastTxt, ph: false});
             else if (k === rounds.length - 1 && !idle){
