@@ -347,8 +347,12 @@ function lbRounds(){ return Math.min(50, Math.max(1, parseInt(CFG.lb_rounds) || 
    不再自行 slice/去重/按 N 截尾。 */
 function lbMirrorMode(){
   try {
-    return String((S && S.snap && S.snap.lbmode) || '').indexOf('全量镜像') >= 0;
-  } catch(e){ return false; }
+    const v = String((S && S.snap && S.snap.lbmode) || '');
+    /* 2.306：字段为空＝老服务端（尚未带 lbmode）。现行服务端只有「全量镜像」
+       一种模式，故按全量镜像处理；将来新增模式时服务端必带该字段，此处不参与。 */
+    if (!v) return true;
+    return v.indexOf('全量镜像') >= 0;
+  } catch(e){ return true; }
 }
 
 /* ================= 版本底账（每服务端一份；客户端不重算指纹，
