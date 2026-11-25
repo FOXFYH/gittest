@@ -651,6 +651,70 @@ function _frameTitleKey(title){
   const t = String(title || '').trim();
   return t ? frameKey() + '|' + t : '';
 }
+/* 2.319（老板 2026-11-26 02:05 令「查为什么会产生重复账本」）：唯一落笔键——
+   有权威 4 位终身号就用号（改名不换本），拿不到号才退会话名 / sid。
+   现场实锤：快照路（snapIdbTick/paneFrameStore）写 frame|<会话名>，账本路
+   （lbWriteBackSnap/lbHistToLedger）写 frame|<终身号>，同一会话天天各长一本，
+   小账本「重复副本」即由此而来。此后所有落盘统一走本函数，与账本路同口径。 */
+function snapKeyOf(sid, title){
+  try{
+    if (typeof lbLedgerSnapKey === 'function'){
+      const k = String(lbLedgerSnapKey(sid, title) || '');
+      if (k) return k;
+    }
+  }catch(e){}
+  const t = String(title || '').trim();
+  let k = '';
+  try { k = (typeof 稳定键 === 'function') ? String(稳定键(sid, t) || '') : ''; } catch(e){ k = ''; }
+  return _frameMemKey(k || String(sid || '') || t);
+}
+/* 2.319：同一会话只留一本——uid 键落笔成功后，顺手清掉旧的「名称键 / 完整 sid 键」
+   副本。安全口径：① 别服的同名账本绝不碰；② 旧副本行数多于新本时保留（宁可多一条，
+   绝不丢行）；③ 同一会话每组键只试一次，删不掉也不反复折腾，留给人工删。 */
+const _snapDropped = {};
+function _snapCleanDup(sk, sid, title, newN){
+  try{
+    const t = String(title || '').trim();
+    let cand = [];
+    if (t) cand.push(_frameMemKey(t));
+    if (sid) cand.push(_frameMemKey(sid));
+    cand = cand.filter(function(k, i){
+      return k && k !== sk && cand.indexOf(k) === i;
+    });
+    if (!cand.length) return;
+    const tag = sk + '>' + cand.join(',');
+    if (_snapDropped[tag]) return;
+    _snapDropped[tag] = 1;
+    const mySrv = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : '';
+    _idbReq('snap_conv', 'readonly', function(st){
+      const got = [];
+      const q = st.openCursor();
+      q.onsuccess = function(){
+        const c = q.result;
+        if (!c) return;
+        const v = c.value || {};
+        if (cand.indexOf(String(v.sk || '')) >= 0) got.push(v);
+        c.continue();
+      };
+      return {result: got};
+    }).then(function(arr){
+      const del = [];
+      (arr || []).forEach(function(v){
+        const rs = String(v.srv || '');
+        if (mySrv && rs && rs !== mySrv) return;            /* 别服的账不碰 */
+        const n = (v.frame && Array.isArray(v.frame.msgs)) ? v.frame.msgs.length : 0;
+        if (n > (newN | 0)) return;                          /* 旧本更全：保留 */
+        del.push(String(v.sk || ''));
+      });
+      if (!del.length) return;
+      del.forEach(function(k){ try { delete _frameMem[k]; } catch(e){} });
+      _idbReq('snap_conv', 'readwrite', function(st){
+        del.forEach(function(k){ st.delete(k); });
+        return null;
+      }).catch(function(){});
+    }).catch(function(){});
+  }catch(e){}
+}
 function idbOpen(){
   if (_idbP) return _idbP;
   _idbP = new Promise((res, rej) => {
@@ -863,6 +927,13 @@ function _frameCommit(sk, frame, meta, onOk, memNow, force){
               title: meta.title, ts: meta.ts, frame: frame});
       return null;
     }).catch(() => {});
+    /* 2.319：落笔后顺手收回同一会话的旧键副本（名称键 / 完整 sid 键），
+       从此同一会话只长一本，不再天天冒「重复副本」。 */
+    try {
+      if (frame && Array.isArray(frame.msgs) && frame.msgs.length
+          && typeof _snapCleanDup === 'function')
+        _snapCleanDup(sk, meta.sid, meta.title, frame.msgs.length);
+    } catch(e){}
     if (typeof onOk === 'function') onOk();
   };
   if (Object.prototype.hasOwnProperty.call(_frameMem, sk)){
@@ -927,7 +998,9 @@ function snapIdbPrewarm(key){
     return {result: out};
   }).then(arr => {
     (arr || []).forEach(rec => {
-      const sk = k + '|' + rec.sid;
+      /* 2.319：内存键以记录自己的 sk 为准（记录的 sid 可能是完整 SID，用它拼键
+         会与落盘键对不上，切会话就命中不了内存）。 */
+      const sk = String(rec.sk || (k + '|' + rec.sid));
       const old = _frameMem[sk] || null;
       /* 3.01：内存存帧带上记录里的服务器归属，供小账本短路 srv+sid 校验。 */
       try { if (rec.frame && typeof rec.frame === 'object') rec.frame._srv = String(rec.srv || ''); } catch(e){}
@@ -961,14 +1034,17 @@ function snapIdbTick(force){
   if (typeof _liveLockOn === 'function' && _liveLockOn()) return;
   const s = S.snap || {};
   if (!Array.isArray(s.convs) || !s.convs.length) return;   /* 还没快照 */
-  const sid = (S.anchorSid || curSid() || '');
+  /* 2.319：sid 取真实完整 SID（锚定键可能是会话名，不能当 sid 存）；落笔键统一
+     走 snapKeyOf（终身号优先），与账本路同一本。 */
+  const _sidFull = String(curSid() || '');
+  const sid = (_sidFull || String(S.anchorSid || '') || '');
   if (!sid) return;
   const now = Date.now();
   /* 2.100（老板 12:14）：① 旗标 S.idbFirstFull＝切换/重连后首份完整快照 ⇒ 立即落
      （不受节流；上面几道闸已保证本拍正文属当前锚定会话、不是脏帧）；
      ② force=true（liveClear 真帧到手／切走）同样立即落；
      ③ 其后 ⇒ 「该会话 ≥ 10 秒 且 有更新（指纹变化）才落盘」。 */
-  const _sk = _frameMemKey(sid);
+  const _sk = snapKeyOf(sid, curTitle());
   const _full = !!(s.msgs && s.msgs.length);
   const _first = !!S.idbFirstFull && _full;
   if (force !== true && !_first && now - (_idbLastAtBy[_sk] || 0) < 10000) return;
@@ -1020,11 +1096,16 @@ function snapIdbGet(sid, title){
   if (!sid) return Promise.reject(new Error('无 sid'));
   const key = frameKey();
   const t = String(title || '').trim();
-  return _idbReq('snap_conv', 'readonly', st => st.get(key + '|' + sid))
+  /* 2.319：先按唯一键（终身号优先）取；旧版本留下的「名称键 / 完整 sid 键」照样
+     兼容读，保证升级后第一拍不白屏，等新一轮落盘再自动并成一本。 */
+  const _skU = snapKeyOf(sid, t), _skL = _frameMemKey(sid);
+  return _idbReq('snap_conv', 'readonly', st => st.get(_skU))
     .then(rec => {
-      if (rec && (!rec.sid || String(rec.sid) === String(sid))) return rec;
-      if (!t) return null;
-      return _idbGetByTitle(key, t);
+      if (rec) return rec;
+      if (_skL === _skU) return t ? _idbGetByTitle(key, t) : null;
+      return _idbReq('snap_conv', 'readonly', st => st.get(_skL))
+        .then(r2 => r2 || (t ? _idbGetByTitle(key, t) : null),
+              () => (t ? _idbGetByTitle(key, t) : null));
     }, () => null);
 }
 function snapIdbListGet(){
@@ -1152,8 +1233,7 @@ function snapIdbShow(sid, title){
 function paneFrameStore(sid, title, v){
   try{
     if (!sid || !v || !Array.isArray(v.msgs)) return false;
-    const _sid = 稳定键(sid, title || '') || String(sid);
-    const _sk = _frameMemKey(_sid), key = frameKey(), now = Date.now();
+    const _sk = snapKeyOf(sid, title), key = frameKey(), now = Date.now();
     const frame = {online: !!(S.snap && S.snap.online),
                    login: (S.snap && S.snap.login),
                    msgs: _frameMsgs(v.msgs.slice(), true),   /* 3.05：pane 帧按已结束处理 */

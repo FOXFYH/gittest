@@ -268,8 +268,13 @@ function lbScreenMsgs(sid, title){
       const _tag = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : '';
       let _fr = null;
       if (typeof _frameMem !== 'undefined'){
-        const _mk = (typeof _frameMemKey === 'function') ? _frameMemKey(sid) : '';
+        /* 2.319：内存存帧键同落盘口径（终身号优先），旧名称键兜底。 */
+        const _mk = (typeof snapKeyOf === 'function') ? snapKeyOf(sid, t)
+          : ((typeof _frameMemKey === 'function') ? _frameMemKey(sid) : '');
         if (_mk && _frameMem[_mk]) _fr = _frameMem[_mk];
+        if (!_fr && sid && typeof _frameMemKey === 'function'
+            && _frameMemKey(sid) !== _mk && _frameMem[_frameMemKey(sid)])
+          _fr = _frameMem[_frameMemKey(sid)];
         if (!_fr && t && typeof _frameTitleKey === 'function'){
           const _tk = _frameTitleKey(t);
           if (_tk && _frameMemByTitle && _frameMemByTitle[_tk]) _fr = _frameMemByTitle[_tk];
@@ -2403,14 +2408,21 @@ function lbFillFinals(sid, title, msgs){
     const s = String(sid || ''), t = String(title || '').trim();
     let local = null;
     try {
-      const _sid = (typeof 稳定键 === 'function')
+      const _leg = (typeof 稳定键 === 'function')
         ? (String(稳定键(s, t) || '') || s || t) : (s || t);
-      const sk = (typeof _frameMemKey === 'function') ? _frameMemKey(_sid) : '';
+      /* 2.319：内存存帧键与落盘同口径（终身号优先），旧名称键照样兜底读。 */
+      const sk = (typeof snapKeyOf === 'function') ? snapKeyOf(s, t)
+        : ((typeof _frameMemKey === 'function') ? _frameMemKey(_leg) : '');
+      const _legSk = (typeof _frameMemKey === 'function') ? _frameMemKey(_leg) : '';
       if (sk && typeof _frameMem === 'object' && _frameMem[sk]
           && Array.isArray(_frameMem[sk].msgs)) local = _frameMem[sk].msgs;
+      if (!local && _legSk && _legSk !== sk && typeof _frameMem === 'object'
+          && _frameMem[_legSk] && Array.isArray(_frameMem[_legSk].msgs))
+        local = _frameMem[_legSk].msgs;
       if (!local && S.liveFrame && Array.isArray(S.liveFrame.msgs)){
         const _lp = String(S.livePend || S.anchorSid || '');
-        if (!_lp || (typeof _frameMemKey === 'function' && _frameMemKey(_lp) === sk))
+        if (!_lp || (typeof _frameMemKey === 'function'
+                     && (_frameMemKey(_lp) === sk || _frameMemKey(_lp) === _legSk)))
           local = S.liveFrame.msgs;
       }
     } catch(e){}
@@ -2433,11 +2445,18 @@ function lbFillFinalsAsync(sid, title){
     const s = String(sid || ''), t = String(title || '').trim();
     const key = (typeof 稳定键 === 'function') ? (String(稳定键(s, t) || '') || s || t) : (s || t);
     if (!key) return;
-    const sk = _frameMemKey(key);
+    /* 2.319：读/写/内存槽统一用唯一键（终身号优先）；旧名称键只作读兜底。 */
+    const _legSk = _frameMemKey(key);
+    const sk = (typeof snapKeyOf === 'function') ? snapKeyOf(s, t) : _legSk;
     const now = Date.now();
     if (_lbFillAsyncAt[sk] && now - _lbFillAsyncAt[sk] < 600) return;
     _lbFillAsyncAt[sk] = now;
     _idbReq('snap_conv', 'readonly', st => st.get(sk)).then(rec => {
+      if ((!rec || !rec.frame) && _legSk && _legSk !== sk)
+        return _idbReq('snap_conv', 'readonly', st => st.get(_legSk))
+          .then(r2 => r2 || rec, () => rec);
+      return rec;
+    }).then(rec => {
       const loc = (rec && rec.frame && Array.isArray(rec.frame.msgs)) ? rec.frame.msgs : null;
       if (!loc || !loc.length) return;
       /* 读盘回来再验一次锚定：已切走就只回填内存槽、不动屏幕 */
