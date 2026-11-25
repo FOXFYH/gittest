@@ -322,6 +322,20 @@ function renderMsgs(msgs, finish, opts, ask, pend){
          输出与原逻辑逐字一致。 */
       if (user){
         bodyHtml = '<div class="body">' + _mdBody(_src) + '</div>';
+        /* 2.290（老板 14:47 令「按钮还要有，内容到前端领」）：服务端 0.106 起正文
+           不再夹带专属提示词（省流），「系统▸/自定▸/人定▸/岗位▸」按钮由本机
+           提示词库镜像按会话补画——只认本工具发出的人类原话（首行带 14 位 DID），
+           且正文里没有内联提示词段（历史消息照旧走内联折叠卡，绝不画两遍）。 */
+        try{
+          const _raw0 = String(m[1] || '');
+          const _mine0 = /^\s*\d{14}/.test(_raw0);
+          const _inline0 = /\(@fox-sys1|\(@fox-usr1|\(@fox-co1|\(@fox-ai1/.test(_raw0);
+          if (_mine0 && !_inline0 && typeof window.plibHintSegs === 'function'){
+            const _hz0 = window.plibHintSegs(
+              (typeof curSid === 'function' ? curSid() : ''), '');
+            if (_hz0) bodyHtml += foxHintHtml(_hz0);
+          }
+        }catch(e){}
       } else {
         const _blks = thinkBlocks(_src);
         bodyHtml = _blks.map(b => b.t === 'text'
