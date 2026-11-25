@@ -1118,7 +1118,11 @@ function foxReady(){ return !!ws && ws.readyState === 1; }
 async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中继丢弃）
   if (!foxReady()) return false;   /* 未连接：返回 false——调用方须保留原文，不得静默丢 */
   const parts = foxSplit(text);
-  const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  /* 2.311（2026-11-25 老板令）：FOXID 头 14 位时间戳写【北京时间】。
+     旧写法 toISOString 是 UTC、慢 8 小时，测试器「传输时间」算不出只显示「—」。 */
+  const _b = new Date(Date.now() + 8 * 3600 * 1000), _p = n => (n < 10 ? '0' : '') + n;
+  const ts = '' + _b.getUTCFullYear() + _p(_b.getUTCMonth() + 1) + _p(_b.getUTCDate())
+           + _p(_b.getUTCHours()) + _p(_b.getUTCMinutes()) + _p(_b.getUTCSeconds());
   const mid = ts + rnd8();
   for (let i = 1; i <= parts.length; i++){
     if (!foxReady()) return false;         /* 中途掉线：如实回报失败 */
@@ -2356,7 +2360,11 @@ function ttsFoxSend(obj){
   /* 把一条 JSON 按 FOX 帧发到 TTS 频道（本链路恒单段，超 64KB 才分段） */
   if (!ttsOnLine || !ttsWs || ttsWs.readyState !== 1) return false;
   const parts = foxSplit(JSON.stringify(obj));
-  const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  /* 2.311（2026-11-25 老板令）：FOXID 头 14 位时间戳写【北京时间】。
+     旧写法 toISOString 是 UTC、慢 8 小时，测试器「传输时间」算不出只显示「—」。 */
+  const _b = new Date(Date.now() + 8 * 3600 * 1000), _p = n => (n < 10 ? '0' : '') + n;
+  const ts = '' + _b.getUTCFullYear() + _p(_b.getUTCMonth() + 1) + _p(_b.getUTCDate())
+           + _p(_b.getUTCHours()) + _p(_b.getUTCMinutes()) + _p(_b.getUTCSeconds());
   const mid = ts + rnd8();
   try {
     for (let i = 1; i <= parts.length; i++){
@@ -4223,10 +4231,11 @@ function convMenuOpen(title, disp){
   ov.id = 'convmenu';
   ov.innerHTML = '<div class="cmsheet">'
     + '<div class="cmtitle">' + esc(view) + '</div>'
+    /* 2.78（老板 2026-11-21 10:47）：长按菜单按常用度重排——①设置备注 ②重命名 ③定时。 */
+    + '<button data-act="note">📝 备注</button>'
+    + '<button data-act="ren">✎ 重命名</button>'
     + '<button data-act="sched">⏰ 定时自我激活'
     + (nSched ? '（' + nSched + '）' : '') + '</button>'
-    + '<button data-act="ren">✎ 重命名</button>'
-    + '<button data-act="note">📝 备注</button>'
     + '<button class="cmdel" data-act="del">🗑 删除此会话</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
     + '</div>';
