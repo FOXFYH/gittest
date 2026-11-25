@@ -17,6 +17,19 @@ var _cvUnreadMemo = null;      /* {k, titles, ids}：上一份带未读数据的
 var _cvNodeMap = {};          /* key（'c|s:sid' / 'c|t:标题' / 'f|标题'）→ 已建节点 */
 var _cvHintEl = null;         /* 顶部缓存提示行（常驻复用，不反复新建） */
 var _cvServerKey = null;      /* 当前服务器键（cur|port，换服才清旧节点） */
+/* 2.281（老板 2026-11-25 09:45：「想展开仔细查看，你那边立刻刷新掉又折起来了」）：
+   服务端快照是「TRAE 真实折叠态」的定期回放，用户刚点开文件夹、下一拍旧快照一到
+   就被折回去。这里按文件夹名记「本机展开意图」：
+     want=1/0 → 用户手动要展开/折叠（粘住，直到服务端确认或用户再点一次）；
+     kids     → 上次服务端展开帧里的组内会话行（折叠帧不下发子行，靠它补回查看）；
+     srv      → 最近一拍服务端折叠态。
+   仅内存、不持久化；换服务器（cur|port 变）整份清空。 */
+var _cvFold = {};
+function _cvFoldEff(title, srvFlag){
+  const f = _cvFold[title];
+  if (f && f.want != null) return !!f.want;
+  return !!srvFlag;
+}
 function _cvKeyOf(kind, title, sid){
   return kind === 'f' ? ('f|' + title)
     : ('c|' + (sid ? ('s:' + sid) : ('t:' + title)));
@@ -182,7 +195,21 @@ function _cvBuildFolder(){
   d.appendChild(p);
   d.onclick = () => {              /* 1.09：折叠/展开也要有反馈 */
     const title = d.dataset.title || '';
-    srvOpSend('toggle_folder', title, '折叠/展开', '「' + title + '」');
+    const srv = d.dataset.srv === '1' ? 1 : 0;
+    if (srvNeedOnline('折叠/展开')) return;
+    /* 2.281：先把本机意图落地并立刻按新意图重画（不等服务端）——
+       之后任何一拍旧折叠快照到达，也不会把用户手动展开的组折回去。 */
+    const f = _cvFold[title] || (_cvFold[title] = {});
+    f.want = _cvFoldEff(title, srv) ? 0 : 1;
+    f.at = Date.now();
+    S.convs_key = null;
+    renderConvs(S.snap.convs || [], S.snap.conv_unread, S.snap.conv_unread_ids);
+    if (!srvOpSend('toggle_folder', title, '折叠/展开', '「' + title + '」')){
+      /* 命令没发出去（WS 未打开等）→ 撤掉本机意图，界面与实际保持一致 */
+      f.want = null;
+      S.convs_key = null;
+      renderConvs(S.snap.convs || [], S.snap.conv_unread, S.snap.conv_unread_ids);
+    }
   };
   d._cvNm = nm; d._cvKind = 'f';
   return d;
@@ -276,6 +303,7 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
   const _sk = String(S.cur || '') + '|' + String(S.port || '');
   if (_cvServerKey !== _sk){
     _cvServerKey = _sk;
+    _cvFold = {};                  /* 2.281：换服务器＝另一套文件夹/意图，整份清空 */
     Object.keys(_cvNodeMap).forEach(k => {
       const n = _cvNodeMap[k];
       if (n && n.parentNode) n.parentNode.removeChild(n);
@@ -298,23 +326,56 @@ function renderConvs(rows, conv_unread, conv_unread_ids){
   }
   /* 2.218：撤掉 2.217 的「最近时间」与按时间倒序——顺序完全沿用服务端 rows
      原序（含文件夹组头与组内会话），行内不再出现任何时间。 */
-  let inFolder = false;
+  let inFolder = false, _curOpen = true;
   const _order = [], _used = {};
   /* 1.31：按位取值（兼容旧 3 元组）——r[3]=状态灯 run/done/fail/stop/''
      v1.95：r[4]=会话稳定 ID（缺失则回退标题锚定）
-     2.218：dataset.idx 恢复为服务端原始序号（无 sid 时切换回退用原始位置）。 */
+     2.218：dataset.idx 恢复为服务端原始序号（无 sid 时切换回退用原始位置）。
+     2.281：先合成本次要上屏的行序列（{r:行, i:原序号}）——
+       ① 服务端展开帧：把组内子行缓存到 _cvFold[组名].kids；
+       ② 服务端折叠帧不下发子行，但本机意图要展开：用缓存子行补回，可继续查看。 */
+  const _seq = [];
   for (let _i = 0; _i < rows.length; _i++){
     const r = rows[_i] || [];
+    _seq.push({r: r, i: _i});
+    if (r[0] !== 'f') continue;
+    const _ft = r[1] || '';
+    const _fd = _cvFold[_ft] || (_cvFold[_ft] = {});
+    _fd.srv = r[2] ? 1 : 0;
+    if (!r[2]){
+      const kids = [];
+      for (let j = _i + 1; j < rows.length; j++){
+        const q = rows[j] || [];
+        if (q[0] !== 'c') break;
+        kids.push({r: q, i: j});
+      }
+      _fd.kids = kids;
+      if (_fd.want === 1) _fd.want = null;   /* 服务端已展开＝意图达成 */
+    } else if (_fd.want === 1 && _fd.kids && _fd.kids.length){
+      _fd.kids.forEach(k => _seq.push(k));
+    }
+  }
+  for (let _n = 0; _n < _seq.length; _n++){
+    const _ent = _seq[_n], r = _ent.r || [], _i = _ent.i;
     const kind = r[0], title = r[1] || '', flag = r[2], st = r[3] || '';
     const sid = r[4] || '';
     const ck = _cvKeyOf(kind, title, sid);
     let d = _cvNodeMap[ck];
     if (kind === 'f'){
       if (!d || d._cvKind !== 'f'){ d = _cvBuildFolder(); _cvNodeMap[ck] = d; }
+      _curOpen = _cvFoldEff(title, flag);
       d.dataset.title = title;
-      d._cvNm.textContent = (flag ? '▸ ' : '▾ ') + title;
+      d.dataset.srv = flag ? '1' : '0';
+      d.dataset.open = _curOpen ? '1' : '0';
+      d._cvNm.textContent = (_curOpen ? '▾ ' : '▸ ') + title;
       inFolder = true;
     } else {
+      /* 2.281：本机把该组折起来了 → 子行立即下屏（节点留在 _cvNodeMap，展开即复用） */
+      if (inFolder && !_curOpen){
+        _used[ck] = true;
+        if (d && d.parentNode) d.parentNode.removeChild(d);
+        continue;
+      }
       if (!d || d._cvKind !== 'c'){ d = _cvBuildItem(); _cvNodeMap[ck] = d; }
       /* 2026-10-16：稳定性键＝终身号；列表选中态与锚定态同源 */
       const sKey = 稳定键(sid, title);
