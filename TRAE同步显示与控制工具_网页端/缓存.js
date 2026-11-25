@@ -333,12 +333,45 @@ function reqHistPrev(conv, from_seq, count){
     }
   }, 8000);
 }
+/* 2.318（省流：切会话只问版本号）：hist 整段重建的唯一用途是给上顶翻页留
+   「账本游标(seq)」+ 并入小账本，正文本身由快照帧提供。实测每次切会话都发
+   have_seq=0/ver=0 ⇒ 服务端 rebuild 整段回 39.6KB。现改为：同一会话在本页
+   生命周期内取过一次 hist 后不再重建，切回来只问 `ver`（约 150B）；版本号
+   真变了才整段重建。显示路径零改动。 */
+function reqVer(conv){
+  const id = ++reqSeq;
+  S_reqs[id] = {conv: conv || '', ts: Date.now()};
+  sendJson({t: 'req', id: id, c: 'ver', conv: conv || '',
+            lt: _ltOf(conv)});
+}
+/* 2.318：hist 结果按会话缓存（仅内存，页面重开即失效；最多 12 个会话）。 */
+function _hcacheGet(key){
+  const m = S.histCache;
+  return (m && key && m[key]) ? m[key] : null;
+}
+function _hcachePut(key){
+  if (!key || !Array.isArray(S.histRaw) || !S.histRaw.length) return;
+  if (!S.histCache) S.histCache = {};
+  const m = S.histCache;
+  const ks = Object.keys(m);
+  if (!m[key]){
+    while (ks.length >= 12){ delete m[ks.shift()]; }
+  }
+  m[key] = {ver: S.histVer | 0, have: S.histHave | 0,
+            end: !!S.histEnd, raw: S.histRaw};
+}
 function onRes(id, k, v){
   const rq = S_reqs[id];
   if (rq) delete S_reqs[id];
   if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
   if (k === 'hist') applyHist(rq ? rq.conv : '', v);
   else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || [], v.end);
+  else if (k === 'ver'){
+    /* 2.318：版本没变＝缓存仍有效，不重建；只有真变了才整段 hist 重建。
+       回包晚到（已切走）一律作废，免得给旧会话白建一份。 */
+    if (rq && rq.conv === S.histConv && (v.ver | 0) !== (S.histVer | 0))
+      reqHist(rq.conv, 0, 0);
+  }
 }
 function applyHist(conv, v){
   if (conv !== S.histConv) return;             /* 过期回包（已切会话） */
@@ -364,6 +397,7 @@ function applyHist(conv, v){
      3.00：不再写本地账本副本（LS_HIST 已废）。
      2.264（老板 2026-11-24）：拉回来的历史能进前 N 轮就并入小账本——地位等同核对账本，
      走 lbHistToLedger 同一条 _frameCommit 通道（older=false＝增量新段）。 */
+  _hcachePut(conv);                            /* 2.318：结果入内存缓存，切回直接复用 */
   try { if (typeof lbHistToLedger === 'function') lbHistToLedger(false); } catch(e){}
   renderAll();
 }
@@ -407,14 +441,21 @@ function ensureHist(){
   const key = S.anchorSid || 稳定键(curSid(), curTitle());
   if (!key || key === S.histConv) return;
   S.histConv = key;
-  S.histRaw = []; S.histPrevRaw = []; S.histVer = 0; S.histHave = 0;
-  S.histLoadingPrev = false;
-  S.histEnd = false; S.histPullFrom = 0;   /* 2.49：换会话重置到底标记/游标 */
   /* 3.00（老板 2026-11-05 23:10）：正文只认「快照 + 预备画面」——
      不再读本地账本副本（LS_HIST 已废），也不再拿账本秒显。
-     这里只发一次 hist 请求取「账本游标(seq)」，供用户上顶时翻更早页。
-     （不发渲染、不落盘；快照到位前由预备画面顶住。） */
-  reqHist(key, 0, 0);
+     hist 只用来取「账本游标(seq)」，供用户上顶时翻更早页；不发渲染、不落盘。
+     2.318：本页已取过同一会话 ⇒ 直接复用（raw/have/ver/end），只问版本号
+     核对，版本没变零流量重建；没取过或版本变了才整段重建。 */
+  const cc = _hcacheGet(key);
+  S.histRaw = cc && Array.isArray(cc.raw) ? cc.raw.slice() : [];
+  S.histPrevRaw = [];
+  S.histVer = cc ? (cc.ver | 0) : 0;
+  S.histHave = cc ? (cc.have | 0) : 0;
+  S.histLoadingPrev = false;
+  S.histEnd = cc ? !!cc.end : false;
+  S.histPullFrom = 0;                      /* 2.49：换会话重置到底标记/游标 */
+  if (cc) reqVer(key);                     /* 2.318：约 150B，代替 39.6KB 重建 */
+  else reqHist(key, 0, 0);
 }
 /* 2.112（X2-2/X2-4）：正式 mid＝十六进制串（前 8 位＝Unix 秒）；`temp-agent-…`
    这类非 hex 一律视为「生成期临时号」，不得当正式身份参与去重/对齐/排序。 */
