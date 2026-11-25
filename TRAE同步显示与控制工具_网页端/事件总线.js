@@ -418,26 +418,8 @@ function onEv(kind, v){
       } catch(e){}
       break;
     }
-    case 'profiles': {
-      /* v1.45：分身状态数据（服务端外挂「谷歌分身助手转接器」推送） */
-      S.profiles = v;
-      if (el.profpage.classList.contains('on')) renderProf();
-      return;
-    }
-    case 'profiles_run': {
-      /* v1.45：立刻实测状态（on=true 开始 / on=false 结束）。
-         v1.47：结束带 stopped=true 表示「被停止」，用户可确认停止成功。 */
-      S.prof_run = !!(v && v.on);
-      if (v && !v.on && v.stopped) flash('已停止本次实测', 'var(--orange)');
-      if (el.profpage.classList.contains('on')) renderProf();
-      return;
-    }
-    case 'profiles_login': {
-      /* 2.18：补登录结果回投（v={name,ok,msg}）。 */
-      if (v && v.msg) flash((v.ok ? '✓ ' : '✗ ') + v.msg,
-                            v.ok ? 'var(--green)' : 'var(--red)');
-      return;
-    }
+    /* 2.285（老板 2026-11-25 11:54 令）：profiles / profiles_run / profiles_login
+       三个分身事件随「分身状态」整块拆除，不再接收（事件到达直接忽略）。 */
     case 'switch_migrate': {
       /* 2.19：一键换号迁移进度（v={stage,msg,ok,done,target,log:[...]}）。
          阶段+逐行日志写进分身页的 #prof_swlog；末条 done 定成败。 */
