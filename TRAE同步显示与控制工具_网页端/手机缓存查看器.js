@@ -1,5 +1,8 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.251  日期 2026-11-25
+/* 手机缓存查看器.js（网页端）  版本 2.252  日期 2026-11-25
+   2.252（老板 2026-11-25 12:47 令·补漏）：新增 `_pureThinkText`——没带 th: 前缀的
+     历史脏行（正文以 TraeWork/思考过程 打头）同样先判 think，不再被 2.249 的
+     「带完成卡摘要就认终极」翻案冒充终极回复。2.251→2.252。
    2.251（老板 2026-11-25 12:47 令·思维流专属ID）：思维流行统一带 `th:` 专属
      前缀（kindOf 见到即判 think，先于 2.249 的「带终答认终极」）；详情与恒定卡
      不再显示思维流的号码（纯展示用）。同批服务端 WS桥 0.107 让思维流不进账本。
@@ -424,6 +427,17 @@
     if (s === 'th' || s === 'think' || s === 'snap') return 'think';
     return '';
   }
+  /* 2.252（老板 12:47 令）：纯思维块识别——正文以 TraeWork/思考过程 打头的 AI 行
+     永远算思维流；即使历史账本行带着完成卡摘要，也不许按 2.249 翻案成终极回复。 */
+  function _pureThinkText(txt){
+    var ls = String(txt == null ? '' : txt).split(/\r?\n/).map(function(s){
+      return s.trim();
+    }).filter(function(s){ return s; });
+    if (!ls.length) return false;
+    var i = (ls[0] === 'TraeWork' || ls[0] === 'Trae Work') ? 1 : 0;
+    if (i >= ls.length) return false;
+    return /^(?:思考过程|思考中|正在思考|已深度思考)(?:$|[\s:：])/.test(ls[i]);
+  }
   function kindOf(m){
     /* 2.213（前端零拦截）：类型只认后端下发——行 index8（u/a/th）或对象 kind/type；
        缺字段一律 ''，显示「类型未知」；前端不再按角色/完成卡自己推断。 */
@@ -431,6 +445,8 @@
     /* 2.287（老板 2026-11-25 12:47 令）：思维流专属 ID（th: 前缀）＝思维流，铁定
        不是终极回复——先于下面 2.249「带终答就认终极」的规则，防止历史脏数据翻案。 */
     if (Array.isArray(m) && /^th:/i.test(String(m[6] || ''))) return 'think';
+    /* 2.252：纯思维块（没带 th: 前缀的历史行）同样先判思维流，不翻案。 */
+    if (Array.isArray(m) && m[0] === 'a' && _pureThinkText(m[1])) return 'think';
     var k = Array.isArray(m) ? _kindNorm(m[8])
                              : _kindNorm(m.kind != null ? m.kind : m.type);
     /* 2.249（老板 2026-11-21 11:37）：TRAE 思维流与终极回复同号，后端有时把
