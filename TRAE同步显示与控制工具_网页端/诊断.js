@@ -921,9 +921,11 @@ const VER = '2.293';   /* 2.293（2026-11-25 15:12 老板令·核对成功也补
    升级后常用浏览器可能仍跑旧 JS。把「上次见过的版本」落盘，发现与本次
    不同（刚升级/缓存错乱）就带 ?v=VER 重载一次绕过缓存取最新，之后不再刷；
    首次访问只记录不刷。 */
+/* 2.299（老板 2026-11-25 18:35「刚才闪现了一下 298 后，又变成了 293」）：
+   上面那条「?v=VER 原地重载」已撤除。它用本页内存里的 VER 拼 URL，既丢掉
+   原 query，又会和 2.298 的版本哨兵（以服务器 版本.txt 为唯一权威、只向上
+   跳）互相打架，造成 298↔293 来回跳。现只落盘「上次见过的版本」，是否升级
+   完全交给哨兵单向决定。 */
 try {
-  const _VK = 'trae_webm_ver_seen', _pv = localStorage.getItem(_VK);
-  localStorage.setItem(_VK, VER);
-  if (_pv !== null && _pv !== VER)
-    location.replace(location.href.split('?')[0] + '?v=' + VER);
+  localStorage.setItem('trae_webm_ver_seen', VER);
 } catch(e){}
