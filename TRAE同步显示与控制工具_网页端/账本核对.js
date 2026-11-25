@@ -1,5 +1,10 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.060  日期 2026-11-25
+/* 账本核对.js（网页端）  版本 1.061  日期 2026-11-25
+   【1.061 小账本思维流：不落盘只抓内存、抓到就核对、灯灭即无思维（老板 19:03 令，
+     0005 转达）】thinkCardsReport 对「当前会话且本地思维灯没开」的卡不再上报
+     （不参与核对、差异也不收）；小账本专属位置改从 thinkCardGet 内存活卡取数，
+     灯灭直接显示「无思维」。差异由服务端判定并立即补发，客户端只保证如实上报。
+     1.060→1.061（整页版本 2.302）。
    【1.060 主界面「出现一下立刻消失」第三处真凶：lbRowsPut 整份替换（老板 2026-11-25 18:15 令）】
      现象：发出一句话→主界面出现→立刻消失；小账本里确实有；点「📒 读取小账本」显示
      约一秒又消失，再点一次才留下。
@@ -1745,10 +1750,21 @@ function thinkCardNow(msgs){
 function thinkCardsReport(){
   const out = {};
   const srv = String((typeof lbSrvKey === 'function' ? lbSrvKey() : ''));
+  /* 2.302（老板 2026-11-25 19:03 令）：思维流「抓到什么都参与核对」，
+     但本地思维灯没开的会话例外——直接不核对、不等差异补发，界面显示「无思维」
+     （就算服务端那边有差异也不收，见 手机缓存查看器.js renderDetail 恒卡）。 */
+  const _cs = String((typeof curSid === 'function' ? curSid() : '') || '');
+  const _light = (typeof _curConvLight === 'function' ? _curConvLight() : '');
   Object.keys(THINK_CARDS).forEach(k => {
     const c = THINK_CARDS[k];
     if (!c || !c.sid || !c.thinkId) return;
     if (c.srv && srv && c.srv !== srv) return;         /* 别服的不上报 */
+    if (_cs && _light !== 'busy'){
+      const _same = (String(c.sid) === _cs)
+        || (typeof 稳定键 === 'function'
+            && 稳定键(c.sid, '') === 稳定键(_cs, ''));
+      if (_same) return;                                /* 思维灯没开：本会话不参与核对 */
+    }
     out[String(c.sid)] = c.thinkId;
   });
   return out;

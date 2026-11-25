@@ -856,7 +856,35 @@
       var _x = rowText(m);
       if (_x.text) _thRows.push(_x);
     });
-    function _恒卡(title, rows, renderOne){
+    /* 2.302（老板 2026-11-25 19:03 令·小账本思维流专属位置）：
+       ① 该位置**不记录**，只从内存抓（thinkCardGet 的活卡；账本/缓存里的旧思维流不再当来源）；
+       ② 本地思维灯没开 ⇒ 不参与核对、位置直接显示「无思维」，就算缓存里有差异也显示「无思维」；
+       ③ 抓到的内容照常参与核对（账本核对.js thinkCardsReport 上报，服务端判差异并补发）。 */
+    var _curT2 = String((typeof curSid === 'function') ? (curSid() || '') : '');
+    var _sidT2 = String(it.sid || '');
+    var _sameT2 = !!_sidT2 && (_curT2 ? (_sidT2 === _curT2)
+      : (!!S.anchorSid && typeof 稳定键 === 'function'
+         && 稳定键(_sidT2, it.title || '') === String(S.anchorSid)));
+    var _lightOff2 = false;
+    try { _lightOff2 = _sameT2 && (typeof _curConvLight === 'function')
+      && _curConvLight() !== 'busy'; } catch(e){}
+    var _thShow = _thRows;
+    if (_sameT2){
+      _thShow = [];
+      if (!_lightOff2){
+        try {
+          var _cT2 = (typeof thinkCardGet === 'function')
+            ? thinkCardGet(_sidT2, String(it.title || '')) : null;
+          if (!_cT2 && typeof _dispTitle === 'function')
+            _cT2 = thinkCardGet(_sidT2, _dispTitle(it));
+          if (_cT2 && String(_cT2.text || '').trim()){
+            _thShow = [{mid: String(_cT2.textMid || _cT2.anchorMid || ''),
+                        text: String(_cT2.text)}];
+          }
+        } catch(e){}
+      }
+    }
+    function _恒卡(title, rows, renderOne, emptyText){
       var _sec = document.createElement('div');
       _sec.className = 'cv_sec';
       _sec.innerHTML = '<h3>' + title + ' <span class="n">' + rows.length + ' 条</span></h3>';
@@ -864,7 +892,7 @@
       _bx.style.padding = '4px 10px 12px';
       if (!rows.length){
         _bx.appendChild(Object.assign(document.createElement('div'),
-          {className:'cv_empty', textContent:'没有'}));
+          {className:'cv_empty', textContent: emptyText || '没有'}));
       } else {
         rows.forEach(function(x){ _bx.appendChild(renderOne(x)); });
         bindFx(_bx);
@@ -872,14 +900,14 @@
       _sec.appendChild(_bx);
       host.appendChild(_sec);
     }
-    _恒卡('💭 思维流', _thRows, function(x){
+    _恒卡('💭 思维流', _thShow, function(x){
       var _d = document.createElement('div');
       _d.className = 'cv_msg a';
       var _tm = String(x.mid || '') ? String((typeof timeFromMid === 'function' ? timeFromMid(x.mid) : '') || '') : '';
       _d.innerHTML = '<div class="who">思维流' + (_tm ? ' · ' + _tm : '') + '</div>'
         + bodyHtml(x.text, false);
       return _d;
-    });
+    }, _lightOff2 ? '无思维' : '');
     _恒卡('⏳ 官方排队条', _pendRows, function(t){
       var _d = document.createElement('div');
       _d.className = 'cv_msg u';
