@@ -1,4 +1,11 @@
 'use strict';
+/* 连接.js（网页端）  版本 2.315  日期 2026-11-25
+   【2.315（老板 2026-11-25 23:05 令）：心跳合并为「主动核对」单路】
+     删除本文件的第二路心跳：cliLogin 不再起 60 秒 hb 定时器，cliBeat 整段删除
+     （含「闲置5分钟自动下线」——它与小账本调控页「离线倒计时（默认120秒）」
+     重复且互相争抢）。此后主动核对（账本核对.js / vcheck）是全端唯一心跳，
+     离线由小账本调控页离线倒计时负责；回前台秒续改发最小 vcheck beat 帧。
+*/
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -277,20 +284,9 @@ function cliLogin(reason){
       || (typeof curSid === 'function' ? curSid() : '') || '');
   } catch(e){}
   lastBeatOk = Date.now();
+  /* 2.315（老板 2026-11-25 23:05 令）：主动核对＝全端唯一心跳——
+     这里不再起 60s hb 定时器（cliBeat 已整段删除），登录只做登记。 */
   clearInterval(hbTimer);
-  hbTimer = setInterval(cliBeat, HB_SEC * 1000);
-}
-function cliBeat(){
-  if (!loggedIn){ clearInterval(hbTimer); return; }
-  if (!ws || ws.readyState !== 1){
-    loggedIn = false; clearInterval(hbTimer); return;
-  }
-  /* 唯一的自检：仅「前台且闲置超时」才退出登录；后台不算下线 */
-  if (!document.hidden && Date.now() - lastAct > IDLE_MS){
-    cliLogout('闲置5分钟'); return;
-  }
-  sendJson({t: 'hb', fg: !document.hidden, nick: nickGet()});
-  lastBeatOk = Date.now();
 }
 function cliLogout(reason){
   const was = loggedIn;
@@ -315,7 +311,7 @@ function cliResume(reason){
   if (ws && ws.readyState === 1){
     const stale = !lastBeatOk || (Date.now() - lastBeatOk > 120000);
     if (!loggedIn || stale) cliLogin(reason || '回前台');
-    else { sendJson({t: 'hb', fg: true, nick: nickGet()}); lastBeatOk = Date.now(); }
+    else { try { sendJson({t: 'vcheck', act: 'beat', sid: String((typeof curSid === 'function' ? curSid() : '') || '')}); } catch(e){} lastBeatOk = Date.now(); }
   } else {
     ensureConnect();
   }
