@@ -1,5 +1,11 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.061  日期 2026-11-25
+/* 账本核对.js（网页端）  版本 1.062  日期 2026-11-25
+   【1.062 主动核对成唯一心跳：内容没变也发最小存活帧（老板 2026-11-25 23:05 令，
+     整页版本 2.315）】删除网页端 60 秒 hb 第二路心跳后，主动核对（timer）成为全端
+     唯一心跳。而 1.052 的「指纹没变就不发」会让长时间无变化的端彻底静默、被服务端
+     判下线。故 ledgerVcheckSend 的 timer 分支在指纹相同、没什么可核对时不再裸
+     return，改发 `{t:'vcheck', act:'beat', sid}` 最小存活帧；服务端（WS桥 0.116）
+     只登记在线时刻，不对账、不回 vack、不补模块。1.061→1.062。
    【1.061 小账本思维流：不落盘只抓内存、抓到就核对、灯灭即无思维（老板 19:03 令，
      0005 转达）】thinkCardsReport 对「当前会话且本地思维灯没开」的卡不再上报
      （不参与核对、差异也不收）；小账本专属位置改从 thinkCardGet 内存活卡取数，
@@ -1099,7 +1105,12 @@ function ledgerVcheckSend(act, sid){
     if (act === 'timer'){
       const _sig = JSON.stringify({m: _fr.mods, th: _fr.thinks || null,
                                    sid: String(sid || '')});
-      if (_sig === LB.lastTimerSig) return false;
+      if (_sig === LB.lastTimerSig){
+        /* 2.315（老板令）：主动核对＝全端唯一心跳。内容没变只发最小存活帧，
+           服务端仅登记在线时刻，不对账、不回帧、不补模块。 */
+        try { sendJson({t: 'vcheck', act: 'beat', sid: String(sid || '')}); } catch(e){}
+        return false;
+      }
       LB.lastTimerSig = _sig;
     }
     sendJson(_fr);
