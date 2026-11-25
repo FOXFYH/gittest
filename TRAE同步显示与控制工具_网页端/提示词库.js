@@ -1,5 +1,9 @@
 'use strict';
-/* 提示词库.js（网页端）  版本 2.284  日期 2026-11-25
+/* 提示词库.js（网页端）  版本 2.285  日期 2026-11-25
+   2.285（老板 14:47 令「按钮还要有，内容到前端领」）：服务端 0.106 起正文不再
+   夹带专属提示词（省流），消息里的「系统▸/自定▸/人定▸/岗位▸」按钮因此消失。
+   本文件新增 `window.plibHintSegs(sid)`：按会话从本机镜像（代码→缓存全文）拼出
+   四段提示词，供消息渲染补画同一张折叠卡；缺码自动 plib_get，只传代码不传正文。
    老板口径（2026-11-25 09:52）：「提示词仓库模块的风格有点像会话记录模块一样，
    它占一行，不过这一行里面，它会有一组多个的版本号码，对应每一条提示词绝对差异化的。」
    ⇒ 本块只占一行：状态 + 一串「代码·版本」小钮（一条提示词一个版本号）+ 对账/清空；
@@ -241,4 +245,30 @@
   else
     build();
   window.plibSync = () => sync(true);
+
+  /* 2.285：正文渲染用——按会话取四段提示词（只用本机镜像缓存；缺码只发代码去取）。
+     会话键＝本地库里的「段」（终身号），前端 sid 前 4 位就是终身号，先按它精确匹配，
+     匹配不到再按会话名兜底。返回 {sys,usr,co,ai}（无内容 → null）。 */
+  window.plibHintSegs = function(sid, title){
+    try{
+      const conv = L.conv || [];
+      const h4 = String(sid || '').slice(0, 4);
+      let c = conv.find(x => h4 && String(x.sid) === h4);
+      if (!c && title) c = conv.find(x => String(x.n || '') === String(title));
+      if (!c) return null;
+      const MAP = {'私有头': 'sys', '全局': 'sys', '系统': 'sys',
+                   '自定': 'usr', '人类': 'co', '岗位': 'ai'};
+      const hz = {sys: '', usr: '', co: '', ai: ''};
+      const miss = [];
+      (c.p || []).forEach(function(pr){
+        const k = MAP[pr[0]], code = pr[1];
+        if (!k || !code) return;
+        const t = L.txt[code];
+        if (t == null){ miss.push(code); return; }
+        hz[k] += String(t);
+      });
+      if (miss.length && typeof cmd === 'function') cmd('plib_get', miss.slice(0, 20));
+      return (hz.sys || hz.usr || hz.co || hz.ai) ? hz : null;
+    }catch(e){ return null; }
+  };
 })();
