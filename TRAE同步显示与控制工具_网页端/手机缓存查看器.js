@@ -1,5 +1,9 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.305  日期 2026-11-25
+/* 手机缓存查看器.js（网页端）  版本 2.306  日期 2026-11-25
+   2.306（老板 2026-11-25 20:05 令·全量镜像）：服务器维护方式随 hello/convs 下发
+     lbmode；＝全量镜像时 ③ 调控页显示「当前服务器采用：全量镜像」，隐藏「保存最近
+     N 轮」与「保留轮数」两个控件；小账本条数与明细取消 5 轮上限，服务器给多少就显
+     示多少，网页端不做任何裁剪（8/9 条与服务器不符由此根治）。2.305→2.306。
    2.305（老板 2026-11-25 19:42 令·思维流判定交给电脑端）：① 删除网页端一切
      「服务器选中 ≠ 网页选中 ⇒ 思维流不可见」的认定；② 小账本第 10 条占位按
      本会话自己的思维灯判定——灯亮且电脑选中的不是该会话，文案改为「尚在思维
@@ -353,6 +357,9 @@
     (ms || []).forEach(function(m){
       if (Array.isArray(m) && String(m[0] || '').toLowerCase() === 'u') rounds++;
     });
+    /* 2.306（老板 2026-11-25 20:05 令）：全量镜像——不设 5 轮上限，条数＝
+       服务器下发的全部轮次×2，保证与服务器条数完全一致。 */
+    if (typeof lbMirrorMode === 'function' && lbMirrorMode()) return rounds * 2;
     return Math.min(5, rounds) * 2;
   }
   /* 2.305（老板 19:42 令）：会话自己的思维灯——只读电脑下发的会话状态，
@@ -852,7 +859,8 @@
           if (String(m[0] || '').toLowerCase() === 'u') rounds.push({u: m, ai: []});
           else if (rounds.length) rounds[rounds.length - 1].ai.push(m);
         });
-        rounds = rounds.slice(-Math.max(1, n || 5));
+        /* 2.306：n>0 才截最近 n 轮；全量镜像传 0＝全部列出，不截断。 */
+        if (n > 0) rounds = rounds.slice(-Math.max(1, n));
         var out = [];
         rounds.forEach(function(w, k){
           out.push({m: w.u, ph: false});
@@ -869,7 +877,8 @@
           }
         });
         return out;
-      })(it.msgs, _myL !== 'run', 5, _extra);
+      })(it.msgs, _myL !== 'run',
+         (typeof lbMirrorMode === 'function' && lbMirrorMode()) ? 0 : 5, _extra);
       _rv.forEach(function(_v, _i){
         var m = _v.m;
         var x = rowText(m);
@@ -1176,8 +1185,18 @@
        原「📒 我的小账本」第二本账整块删除（renderLbCards/readLedgerRows/
        delLedgerRow 一并删，不是隐藏）；③ 顶部改放从 ① 挪来的「预备账册参数」——
        它是配套参数，不是账本本体。 */
+    var _mir = (typeof lbMirrorMode === 'function' && lbMirrorMode());
     var cfg = document.createElement('div');
     cfg.className = 'cv_sec';
+    if (_mir){
+      /* 2.306（老板 2026-11-25 20:05 令）：服务器采用全量镜像——此处只读展示，
+         不再提供「保存最近 N 轮」；保留什么、删什么全听服务器，网页端无删除逻辑。 */
+      cfg.innerHTML = '<h3>预备账册参数</h3>' +
+        '<div style="padding:10px 14px;font-size:13px;line-height:1.7">' +
+        '当前服务器采用：<b>全量镜像</b><br>' +
+        '<span class="cv_meta" style="margin:0">小账本完全跟随服务器——保留哪些、删除哪些全由服务器决定，网页端不裁剪、不设条数上限。</span></div>';
+      host.appendChild(cfg);
+    } else {
     /* 2.204（B1）：单位统一为「轮」（1 轮＝人类发言＋终极回复），默认 5 轮，
        与本地账本 CFG.lb_rounds、服务端 ledger_push_rounds 三处同值；
        此处与下方「本地账本保留轮数」是同一个值，改任一处两边同步。 */
@@ -1205,6 +1224,7 @@
       nEl.parentElement.lastElementChild.textContent = '已保存：之后每次落盘只留最近 ' + v + ' 轮（本地账本＝服务端下发同值）';
       lbRoundsApplied();
     };
+    }
     var hud = document.createElement('div');
     hud.className = 'cv_sec';
     hud.innerHTML = '<h3>核对与离线倒计时 <span class="n">每秒递减；任意操作即重置回配置值</span></h3>' +
@@ -1225,6 +1245,8 @@
       '<div class="cv_lbhint">以上为账本系统 V1.0 全部调控项（唯一集中入口）。小账本本体在「① 会话预备画面」，本页只放配套调控；原始记录仍可在「② 全部缓存」展开 IndexedDB · trae_webm_idb · ledger_conv。保留轮数三处同值：本地账本 / 预备画面 / 服务端补发默认（服务端侧可配）。</div>';
     host.appendChild(fs);
     var q = function(id){ return fs.querySelector('#' + id); };
+    /* 2.306：全量镜像下隐藏「保留轮数」控件——网页端不参与任何本地裁剪。 */
+    if (_mir){ var _rr0 = q('lb_in_rounds'); if (_rr0 && _rr0.parentElement) _rr0.parentElement.style.display = 'none'; }
     var save = function(){ try { if (typeof cfgSave === 'function') cfgSave(); } catch(e){} };
     q('lb_ck_clean').checked = !!(typeof CFG !== 'undefined' && CFG.lb_autoclean);
     q('lb_ck_hud').checked = !!(typeof CFG !== 'undefined' && CFG.lb_hud);

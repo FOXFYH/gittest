@@ -48,6 +48,12 @@ function onHello(d){
     S.points = d.points;
     el.points.textContent = '积分 ' + d.points;
   }
+  /* 2.306（老板 2026-11-25 20:05 令）：服务器小账本维护方式（当前＝全量镜像）
+     随 hello 下发。先暂存，切换服务器后 S.snap 会被 applySwitch 清空，故在
+     下方切换处理后再落一次。全量镜像＝保留/删除全由服务器决定，网页端不得
+     再做任何本地裁剪或条数上限。 */
+  const _lbm = (d.lbmode !== undefined) ? String(d.lbmode || '') : null;
+  if (_lbm !== null){ S.snap = S.snap || {}; S.snap.lbmode = _lbm; }
   if (!d.box || !d.port) return;
   const port = parseInt(d.port);
   if (d.box !== S.box){
@@ -56,6 +62,11 @@ function onHello(d){
     try { lbVerLoad(); if (window.ledgerVcheckSend) ledgerVcheckSend('svr'); } catch(e){}
   }
   else if (port !== S.port){ S.port = port; }
+  if (_lbm !== null){
+    if (!S.snap || typeof S.snap !== 'object') S.snap = {};
+    S.snap.lbmode = _lbm;
+    try { if (typeof solidSave === 'function') solidSave(); } catch(e){}
+  }
   if (d.conn) onEv('connected', S.port);
 }
 

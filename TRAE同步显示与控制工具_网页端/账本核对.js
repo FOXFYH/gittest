@@ -342,6 +342,14 @@ let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默�
 function lbPeriodMs(){ const v = parseInt(CFG.lb_period) || 90; return Math.max(15, v) * 1000; }   /* 2.241：兜底 60→90 */
 function lbOfflineSecs(){ return Math.max(15, parseInt(CFG.lb_offline) || 120); }
 function lbRounds(){ return Math.min(50, Math.max(1, parseInt(CFG.lb_rounds) || 5)); }
+/* 2.306（老板 2026-11-25 20:05 令）：服务器小账本维护方式＝全量镜像时，
+   保留什么、删什么完全由服务器决定——网页端关闭一切本地裁剪与条数上限，
+   不再自行 slice/去重/按 N 截尾。 */
+function lbMirrorMode(){
+  try {
+    return String((S && S.snap && S.snap.lbmode) || '').indexOf('全量镜像') >= 0;
+  } catch(e){ return false; }
+}
 
 /* ================= 版本底账（每服务端一份；客户端不重算指纹，
    只存服务端下发过的 ver 做比对——协议定稿 2.1 明文） ================= */
@@ -896,7 +904,9 @@ function ledgerVcheckBuild(act, sid){
               codes: Array.isArray(s.codes) ? s.codes : []};
   });
   mods.ledger = led;                       /* ledger 按「本地真存会话（终身号）」逐会话上报 */
-  mods.lb_rounds = lbRounds();             /* 规范§七：目标缓存轮数参数（统一按轮） */
+  /* 规范§七：目标缓存轮数参数（统一按轮）。2.306：全量镜像下不再上报
+     lb_rounds——保留几轮由服务器决定，网页端无权让服务器缩水。 */
+  if (!lbMirrorMode()) mods.lb_rounds = lbRounds();
   /* 4.10（老板 2026-11-24 20:24 令·第四节）：当前选中会话的 12 条 ID 清单
      （mods.conv＝{sid,key,ids}）——会话模块无版本号，核对走逐条 ID 比对、
      差异条单条粒度补发。旧服务端不认识该键自动忽略，向后兼容。 */
@@ -1137,6 +1147,8 @@ function ledgerMod(d){
     }
     case 'convs': {                        /* 会话列表（改名/删除触发本地账本清理 H2） */
       if (body && S.snap && typeof S.snap === 'object'){
+        /* 2.306：服务器小账本维护方式随会话帧下发（全量镜像）。 */
+        if (body.lbmode !== undefined) S.snap.lbmode = String(body.lbmode || '');
         if (Array.isArray(body.convs)) S.snap.convs = body.convs;
         if (Array.isArray(body.convs_full)) S.snap.convs_full = body.convs_full;
         /* 2.215：收下服务端下发的权威终身号（标准 4 位或名称兜底；uid/uids 都认）。 */
@@ -1924,6 +1936,8 @@ function lbRoundsFromMsgs(msgs){
    lastView/pend/diag/think 一律保留；屏幕上的消息不受影响（零拦截不变）。
    quiet=true 时不逐本记日志（开机批量只记一条汇总）。 */
 function lbLedgerTrimRounds(rounds, key, quiet){
+  /* 2.306：全量镜像＝原样返回，不裁剪、不去重（该留该删全听服务器）。 */
+  if (lbMirrorMode()) return Array.isArray(rounds) ? rounds : [];
   const n = lbRounds();
   const arr = Array.isArray(rounds) ? rounds : [];
   const seen = new Set(), uniq = [];
@@ -1947,6 +1961,8 @@ function lbLedgerTrimRounds(rounds, key, quiet){
    前端零拦截不变。 */
 function lbTrimFrameMsgs(msgs, key, quiet){
   const arr = Array.isArray(msgs) ? msgs : [];
+  /* 2.306：全量镜像＝预备画面原样镜像服务器，一行不动。 */
+  if (lbMirrorMode()) return arr;
   if (!arr.length) return arr;
   const groups = [];
   let cur = null;
@@ -2949,6 +2965,8 @@ let _lbTrimAllAt = 0;
    重写、不记日志；幂等，裁到的每条记 `预备画面裁剪|键=…|裁前=n|裁后=N`。 */
 let _lbTrimSnapAt = 0;
 function lbTrimAllSnaps(force){
+  /* 2.306：全量镜像下不做任何批量裁剪（服务器下发即为准）。 */
+  if (lbMirrorMode()) return Promise.resolve(0);
   try {
     const now = Date.now();
     if (!force && now - _lbTrimSnapAt < 5000) return Promise.resolve(0);
