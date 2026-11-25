@@ -1,5 +1,10 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.308  日期 2026-11-25
+/* 手机缓存查看器.js（网页端）  版本 2.316  日期 2026-11-26
+   2.316（老板 2026-11-25 23:26 令「既然有 17 个，那就 17 个都显示，垃圾我自己
+     删」）：同一会话的第二份缓存副本不再静默合并——按身份去重时留下的那份记入
+     dups，页尾单列「🗂 重复副本」分区，每条卡片自带 🗑 可逐条删（只删本机
+     snap_conv）；头部口径改为「N 条本地预备画面记录 → M 个会话（本服务器 ·
+     其它服务器 · 未标服务器 · 重复副本 N 条在下方单列）」。2.315→2.316。
    2.308（老板 2026-11-25 20:31 令·小账本短路进主界面）：主界面消息不再只吃账本帧
      LB.rows，先把小账本同源的存帧 _frameMem（经 _lbKeepRow 过滤）打一组并进来，再并
      账本组（同一 mid 以账本/服务端定稿为准），_srv 不同即丢弃防切服串显。手机网页版
@@ -658,6 +663,11 @@
       });
       /* 2.214：组内同一身份只出一张卡（有权威终身号认终身号，否则认同名），
          再按时间倒序；组与组之间不合并，绝不把 A 服务器的卡吞进 B 服务器。 */
+      /* 2.316（老板 2026-11-25 23:26 令「既然有 17 个，那就 17 个都显示出来，
+         垃圾我自己看到了该删除就删除」）：同一会话的多份缓存副本**不再静默
+         吞掉**——按身份去重时留下的那份记进 dups，稍后单列「重复副本」区，
+         每张卡自带 🗑，可逐条删。 */
+      var dups = [];
       gorder.forEach(function(k){
         var arr = gmap[k], _byKey = {}, _order = [];
         arr.forEach(function(it){
@@ -665,7 +675,8 @@
           if (!key){ _byKey['sk:' + it.sk] = it; _order.push('sk:' + it.sk); return; }
           var prev = _byKey[key];
           if (!prev){ _byKey[key] = it; _order.push(key); return; }
-          if ((it.n || 0) > (prev.n || 0)) _byKey[key] = it;
+          if ((it.n || 0) > (prev.n || 0)){ dups.push(prev); _byKey[key] = it; }
+          else { dups.push(it); }
         });
         arr = _order.map(function(x){ return _byKey[x]; });
         arr.sort(function(a, b){ return _lm(b) - _lm(a); });
@@ -681,9 +692,16 @@
       var unknownK = Object.prototype.hasOwnProperty.call(gmap, '') ? '' : null;
       var _mineN = ownK ? gmap[ownK].length : 0, _otherN = 0;
       otherKs.forEach(function(k){ _otherN += (gmap[k] || []).length; });
-      s.querySelector('.n').textContent = list.length + ' 个会话有本地预备画面'
+      /* 2.316（老板 23:26）：口径写全——「N 条记录 → M 个会话（…）」，并注明
+         重复副本多少条另列，不再让人看不出「17」和「8+1」为什么对不上。 */
+      var _idN = _mineN + _otherN
+        + (unknownK !== null ? gmap[unknownK].length : 0);
+      s.querySelector('.n').textContent = list.length + ' 条本地预备画面记录'
+        + ' → ' + _idN + ' 个会话'
         + '（本服务器 ' + _mineN + ' · 其它服务器 ' + _otherN
-        + (unknownK !== null ? (' · 未标服务器 ' + gmap[unknownK].length) : '') + '）'
+        + (unknownK !== null ? (' · 未标服务器 ' + gmap[unknownK].length) : '')
+        + (dups.length ? (' · 重复副本 ' + dups.length + ' 条在下方单列') : '')
+        + '）'
         + (_hid ? (' · ' + _hid + ' 条读取异常已跳过') : '');
       if (!list.length){
         s.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty',
@@ -819,6 +837,22 @@
         paintSec('🗄 其它服务器 · ' + srvLabelOf(k), gmap[k]);
       });
       if (unknownK !== null){ paintSec('❓ 未标服务器（旧缓存）', gmap[unknownK]); }
+      /* 2.316（老板 23:26）：重复副本单列——同一会话多存的那几份全部露出，
+         条数少的通常是旧份，自己看着删；删的只是本机缓存，不动服务器与 TRAE。 */
+      if (dups.length){
+        dups.sort(function(a, b){ return _lm(b) - _lm(a); });
+        var _ds = document.createElement('div');
+        _ds.className = 'cv_sec';
+        _ds.style.marginTop = '12px';
+        _ds.innerHTML = '<h3>🗂 重复副本（同一会话多存的一份） <span class="n">'
+          + dups.length + ' 条</span></h3>';
+        var _dg = document.createElement('div');
+        _dg.className = 'cv_grid';
+        _dg.style.marginTop = '10px';
+        dups.forEach(function(it){ _dg.appendChild(cardOf(it)); });
+        _ds.appendChild(_dg);
+        host.appendChild(_ds);
+      }
     });
   }
   /* 2.10：单会话详情（人类发言按主代码格式折叠） */
