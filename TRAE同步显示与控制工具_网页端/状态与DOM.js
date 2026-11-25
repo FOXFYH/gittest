@@ -171,9 +171,6 @@ const el = {
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
   favlist: $('fav_list'),
-  prof: $('btn_prof'), profpage: $('page_prof'),
-  profback: $('btn_profback'), profref: $('btn_profref'),
-  profhint: $('prof_hint'), proflist: $('prof_list'),
-  profswitch: $('btn_profswitch'), prof_swlog: $('prof_swlog'),
+  prof: $('btn_prof'),                  /* 2.285：分身页拆除后仅剩「读取小账本」按钮 */
 };
 
