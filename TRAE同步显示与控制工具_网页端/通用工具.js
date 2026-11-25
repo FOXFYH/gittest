@@ -543,10 +543,18 @@ function actCurConv(){                /* 当前正在看的会话（锚定优先
 }
 function actCurUnread(cv){            /* ③ 当前会话是否亮着橙灯（ID 优先，终身号再认，回退标题） */
   const s = S.snap || {};
+  /* 2.312（老板 2026-11-25 22:25 令「灯亮着就必须能滑灭」）：列表上的灯来自
+     convs_full.status，与 conv_unread_ids 是两套来源；只认后者会出现
+     「灯明明亮着却判无未读 → 怎么滑都不发灭灯」。二者任一命中即算亮。 */
+  const cf = Array.isArray(s.convs_full) ? s.convs_full : [];
+  for (const o of cf){
+    if (!o || !o.status) continue;
+    if (!(o.status.unread || o.status.light === 'unread')) continue;
+    if ((cv.uid && o.stable === cv.uid) || (cv.sid && o.sid === cv.sid)) return true;
+  }
   if (Array.isArray(s.conv_unread_ids)){
     if (cv.sid && s.conv_unread_ids.indexOf(cv.sid) >= 0) return true;
     /* 2.204：跨天完整 sid 变了，但终身号不变——按终身号再认一次 */
-    const cf = Array.isArray(s.convs_full) ? s.convs_full : [];
     if (cv.uid) for (const id of s.conv_unread_ids){
       const o = cf.find(x => x && x.sid === id);
       if (o && typeof 稳定键 === 'function'
