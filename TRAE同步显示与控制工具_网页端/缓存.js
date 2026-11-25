@@ -715,6 +715,60 @@ function _snapCleanDup(sk, sid, title, newN){
     }).catch(function(){});
   }catch(e){}
 }
+/* 2.319：开机一次性收敛旧副本——同一服务器、同一终身号、同一会话名只留一本
+   （留行数最多的；同条数优先终身号键，再比时间）。只动有权威 4 位 uid 的记录，
+   未登记会话一律不碰；别服的同名账本也绝不碰。 */
+function snapIdbDedupUid(){
+  return _idbReq('snap_conv', 'readonly', function(st){
+    const got = [];
+    const q = st.openCursor();
+    q.onsuccess = function(){
+      const c = q.result;
+      if (!c) return;
+      const v = c.value || {};
+      if (String(v.sk || '').indexOf('|@snap') < 0) got.push(v);
+      c.continue();
+    };
+    return {result: got};
+  }).then(function(arr){
+    const mySrv = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : '';
+    const by = {};
+    (arr || []).forEach(function(v){
+      const u = String(v.uid || '').trim();
+      if (!/^\d{4}$/.test(u)) return;
+      const rs = String(v.srv || '');
+      if (mySrv && rs && rs !== mySrv) return;
+      const t = String(v.title || '').trim();
+      const g = u + '|' + t;
+      (by[g] = by[g] || []).push(v);
+    });
+    const del = [];
+    Object.keys(by).forEach(function(g){
+      const list = by[g];
+      if (list.length < 2) return;
+      const u = g.split('|')[0];
+      list.sort(function(a, b){
+        const na = (a.frame && a.frame.msgs) ? a.frame.msgs.length : 0;
+        const nb = (b.frame && b.frame.msgs) ? b.frame.msgs.length : 0;
+        if (na !== nb) return nb - na;
+        const ka = String(a.sk) === _frameMemKey(u) ? 1 : 0;
+        const kb = String(b.sk) === _frameMemKey(u) ? 1 : 0;
+        if (ka !== kb) return kb - ka;
+        return (b.ts || 0) - (a.ts || 0);
+      });
+      list.slice(1).forEach(function(v){ del.push(String(v.sk)); });
+    });
+    if (!del.length) return 0;
+    del.forEach(function(k){ try { delete _frameMem[k]; } catch(e){} });
+    return _idbReq('snap_conv', 'readwrite', function(st){
+      del.forEach(function(k){ st.delete(k); });
+      return null;
+    }).then(function(){
+      try { diagLog('重复账本收敛|删 ' + del.length + ' 本|' + del.join(' , '), 'ok'); } catch(e){}
+      return del.length;
+    });
+  }).catch(function(){ return 0; });
+}
 function idbOpen(){
   if (_idbP) return _idbP;
   _idbP = new Promise((res, rej) => {

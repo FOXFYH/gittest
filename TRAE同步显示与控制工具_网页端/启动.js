@@ -34,6 +34,8 @@
        snap_conv 并清表（只跑一次），再按正文账重建真存集/摘要表（vcheck 上报口径不变）。 */
     .then(function(){ try { if (typeof lbHaveLoad === 'function') return lbHaveLoad(); } catch(e){} })
     .then(function(){ return snapIdbPrewarm(); })
+    /* 2.319：开机收敛历史重复账本（同一会话只留一本），再 boot 上屏。 */
+    .then(function(){ return (typeof snapIdbDedupUid === 'function') ? snapIdbDedupUid() : 0; })
     .catch(function(){})
     .then(function(){ snapIdbBoot(sk); });
 }
