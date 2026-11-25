@@ -1,5 +1,33 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.056  日期 2026-11-25
+/* 账本核对.js（网页端）  版本 1.059  日期 2026-11-25
+   【1.059 最新回复不再被对账删掉 / 不再被自检清屏（老板 2026-11-25 17:30 令）】
+     现象：打开会话看不到最新回复；刷新后出现，过一会又消失；小账本里还有；
+     「读取小账本」也拉不回主界面。两处修：
+     ① `lbSyncApply`：服务器这一拍会话模块还没抓到最新一条时（写盘滞后/窗口截断），
+        order 里没有它，原逻辑「不在 order 就删」把网页手里更晚的行一起删了，
+        主界面与 snap_conv 同时丢。现改为本地比 order 最新一条更晚的行保留尾部、
+        不参与删除，只删确实不比服务器最新更晚的多余行（order 空仍走原拒删）。
+     ② `lbGuardTick`：原无参调 `lbScreenMsgs()` 恒为空表，屏幕有行就每 2.5 秒判
+        「不一致」强制重画；当前会话账本为空时重画＝清屏。现按当前会话取账本，
+        账本为空直接返回，绝不清屏。1.058→1.059（整页版本 2.295）。
+   【1.058 落盘只收 u/a，清掉历史「类型未知」（老板 2026-11-25 17:03 令）】
+     小账本落盘只许两种：人类发言(u)、AI 终极回复(a)；思维流（index8=th/think/
+     snap、mid 带 th: 前缀、纯思维块）与官方排队条一律不落盘（它们的临时显示仍走
+     内存 _frameMem/虚线框，不动）。新增唯一过滤器 `_lbKeepRow`（保留行把 index8
+     归一写死 u/a，杜绝「类型未知」），`ledgerStorePut` 的 _rs0 与 `lbRoundsFromMsgs`
+     统一经它过滤；开机 `lbHaveLoad` 从 snap_conv 重建 rounds 时同样过滤，并把清理
+     后的 msgs 回写同一张 snap_conv（老用户打开一次即清掉 th/未知行，u/a 一条不少）。
+     服务端/协议不动。1.057→1.058（整页版本 2.294 不变）。
+   【1.057 对账加字符数 n，修手机停在旧版本（老板 2026-11-25 15:42 令）】
+     AI 终极回复可能先后认定出多个版本，电脑端最新版盖旧版；但手机端只按 MID
+     判「我已有了」，同号旧版本永不更新。故：① 新增 `lbCharN`（Array.from 码点
+     计数，与服务端 WS桥 0.113 的 len() 对齐）；② `lbSumOf` 上报的每条 codes
+     在 mid/fin/hash 外再加 `n`＝该 MID **正文（index1）**的字符数（服务端同取
+     row[1]/text；补发路径 index7 是「账本定稿」来源标记，不参与计数；hash 仍
+     取 `a[7]||a[1]`）。
+     ③ 同 mid 且字符数不同时以新到者为准覆盖旧版（`lbScreenMsgs`/`_lbLedgerTop`/
+     `_lbMergeRows`/`ledgerStorePut._apply`），思维流(th)↔终极(a) 类型升级规则
+     保持原样。1.056→1.057（整页版本 2.294）。
    【1.056 lbsync 的 add 行优先覆盖本地（老板 2026-11-25 15:12 令「核对成功也补
      不进来」）】`lbSyncApply` 的 order 重建改为「addMap 命中即用服务器整行」——旧版
      本地优先，服务器把该行从思维流半成品升成「AI 终极回复」后本地旧 th 永远粘住。
@@ -176,7 +204,14 @@ function lbScreenMsgs(sid, title){
         const ot = String(out[i][1] || ''), nt = String(m[1] || '');
         const ok = String((out[i].length > 8 && out[i][8]) || '').toLowerCase();
         const nk = String((m.length > 8 && m[8]) || '').toLowerCase();
-        if ((nk === 'a' && ok !== 'a') || nt.length > ot.length) out[i] = m.slice();
+        /* 1.057（老板 15:42 令）：类型升级（th→a）规则不动。同为终极行时，
+           正文（index1）字符数不同即以新到者为准覆盖旧版——旧版即便更长也不许留。 */
+        if (nk === 'a' && ok !== 'a'){ out[i] = m.slice(); return; }
+        if (ok === 'a' && nk === 'a'){
+          if (lbCharN(m[1] || '') !== lbCharN(out[i][1] || '')) out[i] = m.slice();
+          return;
+        }
+        if (nt.length > ot.length) out[i] = m.slice();
       }));
     }
     return out;
@@ -193,7 +228,15 @@ function lbGuardTick(){
     if (Date.now() - _lbGuardAt < 2500) return;
     const box = document.getElementById('msgs');
     if (!box) return;
-    const want = (typeof lbScreenMsgs === 'function') ? (lbScreenMsgs() || []) : [];
+    /* 1.059（老板 2026-11-25 17:30）：原来无参调 lbScreenMsgs() ⇒ 一律拿到空表，
+       屏幕只要还有行就每 2.5 秒判一次「不一致」并强制重画；当前会话账本恰好为空
+       （行被坏帧删掉/键没对上）时，重画就把屏幕清空 ＝「过一会又不见了」。
+       现在按当前会话取，账本空就什么都不做。 */
+    const _sid = (typeof curSid === 'function') ? String(curSid() || '') : '';
+    const _ttl = (typeof curTitle === 'function') ? String(curTitle() || '') : '';
+    const want = (typeof lbScreenMsgs === 'function')
+      ? (lbScreenMsgs(_sid, _ttl) || []) : [];
+    if (!want.length) return;                 /* 账本空：没有可比对的，绝不清屏 */
     const wm = [];
     want.forEach(m => {
       const id = Array.isArray(m) ? String(m[6] || '') : '';
@@ -273,7 +316,24 @@ function lbHaveLoad(){
           if (!fr || !Array.isArray(fr.msgs) || !fr.msgs.length) return;
           const t = String(rec.title || '').trim();
           if (!t) return;
-          const rounds = lbRoundsFromMsgs(fr.msgs);
+          /* 1.058（老板 17:03 令·历史脏行清理）：开机重建 rounds 前先过落盘唯一
+             过滤器——th/排队条/未知类型剔掉、u/a 的 index8 归一；有变化就把干净
+             的 msgs 回写同一张 snap_conv（复用原记录 sk，不另造存储）。全脏的一本
+             直接删记录（没有 u/a 可留）。 */
+          const _clean = _lbCleanMsgs(fr.msgs);
+          if (_clean.changed){
+            if (!_clean.msgs.length){
+              try { _idbReq('snap_conv', 'readwrite', st => st.delete(rec.sk)).catch(() => {}); } catch(e){}
+              try { diagLog('账本类型清理|删空本|' + t, 'ok'); } catch(e){}
+              return;
+            }
+            const nr = Object.assign({}, rec);
+            nr.frame = Object.assign({}, fr, {msgs: _clean.msgs});
+            try { _idbReq('snap_conv', 'readwrite', st => st.put(nr)).catch(() => {}); } catch(e){}
+            try { diagLog('账本类型清理|' + t + '|清前=' + fr.msgs.length
+              + '|清后=' + _clean.msgs.length, 'ok'); } catch(e){}
+          }
+          const rounds = lbRoundsFromMsgs(_clean.msgs);
           if (!rounds || !rounds.length) return;
           const u = String(rec.uid || '').trim()
             || (typeof lbUidPick === 'function' ? String(lbUidPick(null, rec.sid, t) || '') : '');
@@ -341,6 +401,39 @@ function lbHash(s){
     return ('0000000' + h.toString(16)).slice(-8);
   } catch(e){ return ''; }
 }
+/* 1.057（老板 2026-11-25 15:42 令·根因修正）：字符数 n——按码点（Array.from）
+   计数，与服务端 WS桥 0.113 的 Python len() 对齐；异常时退回 UTF-16 长度。
+   n 固定取**正文 a[1]**（服务端同口径 row[1]/text），专为识别「同号不同版」；
+   补发路径 a[7] 是来源标记「账本定稿」，不能拿来数字符。hash 仍取 a[7]||a[1]。 */
+function lbCharN(s){
+  try{
+    const t = String(s == null ? '' : s);
+    return Array.from(t).length;
+  }catch(e){ return String(s == null ? '' : s).length; }
+}
+/* 1.057：判断两轮是否「同一个消息号的不同版本」——正式 mid 有交集，且同一 mid 的
+   正文（index1）字符数不一致（不取 index7：补发路径它是来源标记）。用于同号时让
+   服务端这一版覆盖旧版，不再因旧版本更长而留住旧版。 */
+function _lbSameMidDiffN(a, b){
+  try{
+    const cnt = {};
+    (a || []).forEach(m => {
+      if (Array.isArray(m) && _midIsFormal(String(m[6] || '')))
+        cnt[String(m[6])] = lbCharN(m[1] || '');
+    });
+    let hasOverlap = false;
+    (b || []).forEach(m => {
+      if (!Array.isArray(m)) return;
+      const id = String(m[6] || '');
+      if (!_midIsFormal(id) || !(id in cnt)) return;
+      hasOverlap = true;
+      /* 字符数固定按正文 index1 计（服务端 row[1]/text 同口径） */
+      if (cnt[id] !== lbCharN(m[1] || '')) cnt[id] = -1;   /* -1＝字符数不同 */
+    });
+    if (!hasOverlap) return false;
+    return Object.keys(cnt).some(k => cnt[k] === -1);
+  }catch(e){ return false; }
+}
 function lbSumOf(rounds){
   /* 2.184 契约（2026-11-19 统筹/S1 定死·上行 mods.ledger.codes 唯一形态）：
      {mid:<hex>, fin:0|1, hash:<8位hex FNV>}——fin 必须是 0/1 整数（完成卡摘要
@@ -359,7 +452,10 @@ function lbSumOf(rounds){
     if (/^th:/i.test(String(a[6] || '')) || lbPureThink(a)) return;
     codes.push({mid: String(a[6] || ''),
                 fin: (String(a[7] || '').trim() ? 1 : 0),
-                hash: lbHash(a[7] || a[1] || '')});
+                hash: lbHash(a[7] || a[1] || ''),
+                /* 1.057（老板 15:42 令）：n＝该 MID **正文 a[1]** 的字符数（服务端
+                   同口径 row[1]/text）；补发路径 index7 是来源标记，不计入。 */
+                n: lbCharN(a[1] || '')});
   });
   return {rounds: codes.length, codes: codes};
 }
@@ -1147,6 +1243,31 @@ function lbSyncApply(d){
             if (addMap.has(mid)){ kept.push(addMap.get(mid)); 补++; return; }
             if (localMap.has(mid)){ kept.push(localMap.get(mid)); return; }
           });
+          /* 1.059（老板 2026-11-25 17:30 复现「刷新出现、过一会又消失」）：
+             服务器这一拍会话模块可能还没抓到最新一条（账本库写盘滞后/窗口截断），
+             order 里没有它 ⇒ 原逻辑「不在 order 就删」把网页手里的最新回复也删了，
+             主界面与 snap_conv 一起丢，之后「读取小账本」自然拉不回来。现改为：
+             本地比 order 最新一条更晚的行一律保留在尾部、不参与删除；只删确实
+             不比服务器最新更晚的多余行。order 为空时不动（走上面的拒删）。 */
+          const _ordSec = order.reduce((m, id) => {
+            const v = parseInt(String(id).slice(0, 8), 16) || 0;
+            return v > m ? v : m;
+          }, 0);
+          const _extraNew = [];
+          localMap.forEach((v, k) => {
+            if (orderSet.has(k)) return;
+            const sec = parseInt(String(k).slice(0, 8), 16) || 0;
+            if (_ordSec && sec > _ordSec) _extraNew.push(v);
+          });
+          if (_extraNew.length){
+            _extraNew.sort((a, b) =>
+              String((a && a[6]) || '').localeCompare(String((b && b[6]) || '')));
+            _extraNew.forEach(v => kept.push(v));
+            删 = Math.max(0, 删 - _extraNew.length);
+            try { diagLog('lbsync 保留更新行|sid=' + (sid || wantUid || wantTitle)
+              + '|本地新于服务器=' + _extraNew.length + '|order=' + order.length,
+              'warn'); } catch(e){}
+          }
           const 留 = kept.length - 补;
           const 键 = sid || wantUid || wantTitle;
           /* 2.277（老板 2026-11-25 07:45 令「明明有 10 条，突然只剩 1 条」）：
@@ -1624,14 +1745,64 @@ function lbRoundKey(r){
       + String((m && m[7]) || '').replace(/\s+/g, '').slice(0, 12);
   }).join('#');
 }
+/* 1.058（老板 2026-11-25 17:03 令）：落盘唯一过滤器——小账本只收人类发言(u)与
+   AI 终极回复(a) 两种：
+     · 非数组/长度<2、角色不是 u/a（含官方排队条等）⇒ 丢；
+     · mid（index6）带 th: 前缀、index8 归一为 th/think/snap/q/queue ⇒ 丢；
+     · a 行正文是纯思维块（TraeWork/思考过程…，与查看器同规则 lbPureThink）⇒ 丢；
+     · a 行 index8 为空的历史行：只有 m[7] 非空且不是来源标记（补记/提前终极/
+       账本定稿）才当终答保留，否则按思维流丢；
+     · 保留行 index8 归一写死：u→'u'、a→'a'（消除「类型未知」）。
+   思维流/排队条的临时显示走内存 _frameMem，不经过这里、也不受此过滤影响。 */
+function _lbKeepRow(m){
+  if (!Array.isArray(m) || m.length < 2) return null;
+  const role = String(m[0] == null ? '' : m[0]).toLowerCase();
+  if (role !== 'u' && role !== 'a') return null;
+  if (/^th:/i.test(String(m[6] || ''))) return null;
+  const k = String((m.length > 8 && m[8]) || '').trim().toLowerCase();
+  if (k === 'q' || k === 'queue') return null;      /* 排队条永不落盘 */
+  const _fin7 = String((m.length > 7 && m[7]) || '').trim();
+  const _真终答 = !!_fin7 && _fin7 !== '补记'
+    && _fin7 !== '提前终极' && _fin7 !== '账本定稿';
+  if (k === 'th' || k === 'think' || k === 'snap'){
+    /* 1.058（对齐 2.249）：th 默认是思维流、不落盘；但实测后端会把「带真终答
+       的 AI 行」误标成 th——这种本质是终极回复，保留并归一为 'a'，否则手机
+       会把真答案一起丢掉。th: 前缀 mid 已在上面直接丢，不走这里。 */
+    if (!(role === 'a' && _真终答)) return null;
+  }
+  if (role === 'a'){
+    if (lbPureThink(m)) return null;
+    if (!k && !_真终答) return null;   /* 无类型又无终答 ⇒ 按思维流丢 */
+  }
+  const row = m.slice();
+  row[0] = role;                       /* 角色也归一为小写 u/a */
+  row[8] = (role === 'u') ? 'u' : 'a'; /* 类型归一，消除「类型未知」 */
+  return row;
+}
+/* 1.058：按 `_lbKeepRow` 清洗一组平铺 msgs；changed=true 表示确有行被丢或被归一
+   （供开机清理时决定是否把干净结果回写 snap_conv）。 */
+function _lbCleanMsgs(msgs){
+  const src = Array.isArray(msgs) ? msgs : [];
+  const out = [];
+  let changed = false;
+  src.forEach(m => {
+    const k = _lbKeepRow(m);
+    if (!k){ changed = true; return; }
+    if (k.length !== m.length || String(k[8]) !== String(m[8])) changed = true;
+    out.push(k);
+  });
+  return {msgs: out, changed: changed};
+}
 function lbRoundsFromMsgs(msgs){
-  /* 2.213（前端零拦截）：这里只做「u 起一轮」的分组，不筛不弃——
-     缺 mid／缺类型／未认证的 AI 行一律原样收；行类型照抄后端 index8（缺则空，
-     显示端显「类型未知」）。无人类行在前的 AI 行也单列一轮，绝不丢。 */
+  /* 1.058（老板 17:03 令）：2.213「不筛不弃」改为先过落盘唯一过滤器 `_lbKeepRow`
+     ——th/排队条/纯思维块/未知类型一律不进账本轮次，u/a 行类型归一。
+     过滤后仍按「u 起一轮」分组；'a' 行 index7「补记/提前终极/账本定稿」是来源
+     标记不是正文，显示正文回退 m[1]。 */
   const rounds = [];
   let cur = null;
-  (msgs || []).forEach(m => {
-    if (!Array.isArray(m)) return;
+  (msgs || []).forEach(m0 => {
+    const m = _lbKeepRow(m0);
+    if (!m) return;
     if (m[0] === 'u'){
       if (cur && cur.length) rounds.push(cur);       /* 半轮也落 */
       cur = [m.slice()];
@@ -2066,7 +2237,13 @@ function _lbLedgerTop(loc, target){
         const _nk = String((m.length > 8 && m[8]) || '').toLowerCase();
         /* 3.02（老板 12:21 令）：只升不降——新帧已判终极('a')时，必须覆盖旧帧
            存下的思维流类型('th')，否则旧类型会被唯一账一直沿用、终答永远被藏。 */
-        if ((_nk === 'a' && _ok !== 'a') || nt.length > ot.length) out[at] = m;
+        if (_nk === 'a' && _ok !== 'a'){ out[at] = m; return; }
+        /* 1.057（老板 15:42 令）：同为终极行、正文（index1）字符数不同 ⇒ 新到者胜，覆盖旧版。 */
+        if (_ok === 'a' && _nk === 'a'){
+          if (lbCharN(m[1] || '') !== lbCharN(out[at][1] || '')) out[at] = m;
+          return;
+        }
+        if (nt.length > ot.length) out[at] = m;
         return;
       }
       /* 只收账本里没有的新行：有正式 mid 且比账本末条更新；无 mid 行不补（防历史重复） */
@@ -2288,13 +2465,16 @@ function ledgerStorePut(sid, title, rounds, opt){
     const _diag = _dt.diag;
     const _t = String(title || '').trim();
     /* 2.213（前端零拦截）：撤「会话 ID 无效不建账」「只收 human/final」「缺 mid 不收」
-       三道闸——收到什么就落什么；行类型照抄后端 index8，前端不推断、不回写。 */
+       三道闸——不按会话号/名字拒收。
+       1.058（老板 17:03 令）：但「收哪些行」重新收口——落盘只收 u/a，见下面 `_rs0`
+       的 `_lbKeepRow`（th/排队条/纯思维块/未知类型一律不落盘）。 */
     if (_diag){
       try { diagLog('收到无名条目（诊断口不设限）→ 已建诊断账本 title='
         + _t + ' sid=' + String(sid || ''), 'bad'); } catch(e){}
     }
     const _rs0 = (rounds || []).map(r => {
-      const rows = (r || []).filter(m => Array.isArray(m)).map(m => m.slice());
+      const rows = (r || []).map(_lbKeepRow).filter(Boolean);
+      /* 1.058：整轮没有可落行（整轮都是 th/排队条/未认证）⇒ 空轮不落 */
       return rows.length ? rows : null;
     }).filter(Boolean);
     if (!_rs0.length) return;
@@ -2363,6 +2543,10 @@ function ledgerStorePut(sid, title, rounds, opt){
           const inc = k ? _incU.get(k) : null;
           if (!inc){ _keepOld.push(r); return; }
           if (inc.length >= r.length) return;    /* 新轮更厚：旧半轮让位 */
+          /* 1.057（老板 15:42 令）：旧轮更长不代表更新——同号（正式 mid 有交集）
+             而字符数不同时，服务端这版才是权威新版，旧轮让位；否则旧版本会因
+             「更长」把同号新版本挡在门外。 */
+          if (_lbSameMidDiffN(r, inc)) return;
           _incU.delete(k);                       /* 旧轮更厚：新半轮不并入 */
           _keepOld.push(r);
         });
@@ -2750,7 +2934,7 @@ function _snapMergeKey(rec){
   return srv + '|s:' + (s || String(r.sk || ''));
 }
 function _lbMergeRows(a, b){
-  /* mid 去重合并（同 mid：保留更厚的那条）；无 mid 仅按整行相同判重。 */
+  /* mid 去重合并（同 mid：默认保留更厚的那条）；无 mid 仅按整行相同判重。 */
   const A = (a || []).map(m => Array.isArray(m) ? m.slice() : m);
   const seen = new Map();
   A.forEach((m, i) => { if (Array.isArray(m) && m[6]) seen.set(String(m[6]), i); });
@@ -2759,7 +2943,17 @@ function _lbMergeRows(a, b){
     const id = String(m[6] || '');
     if (id && seen.has(id)){
       const i = seen.get(id);
-      if (m.length > (A[i] || []).length) A[i] = m.slice();
+      const _old = A[i] || [];
+      const _oT = String((_old.length > 8 && _old[8]) || '').toLowerCase();
+      const _nT = String((m.length > 8 && m[8]) || '').toLowerCase();
+      /* 1.057（老板 15:42 令）：类型升级（th→a）照旧；同为终极行时，正文（index1）
+         字符数不同即以新到者为准，不再因「旧行数组更长」把同号旧版本留住。 */
+      if (_nT === 'a' && _oT !== 'a'){ A[i] = m.slice(); return; }
+      if (_oT === 'a' && _nT === 'a'){
+        if (lbCharN(m[1] || '') !== lbCharN(_old[1] || '')) A[i] = m.slice();
+        return;
+      }
+      if (m.length > _old.length) A[i] = m.slice();
       return;
     }
     if (!id && A.some(x => JSON.stringify(x) === JSON.stringify(m))) return;

@@ -31,11 +31,6 @@ select{font-size:12px;}
 #lbl_srv{font-weight:bold; font-size:12px; color:var(--blue);
   white-space:nowrap; max-width:34%; overflow:hidden;
   text-overflow:ellipsis; cursor:pointer;}
-/* 2.234（老板 2026-11-20 23:42）：核对在途 → 「操控:」旁圆球变橙闪烁
-   （账本核对.js lbChkBall 负责加/去 .chk；只改颜色不动连接态语义） */
-.srvdot{color:inherit;}
-.srvdot.chk{color:#f39c12 !important; animation:srvchk 1s ease-in-out infinite;}
-@keyframes srvchk{0%,100%{opacity:1}50%{opacity:.25}}
 .h2row{display:flex; align-items:center; gap:5px; padding:2px 8px 5px;
   flex-wrap:nowrap;}   /* 2.133：不许换行撑高顶栏；窄屏只压缩非关键元素 */
 #cmb_box{flex:0 1 auto; max-width:30%; min-width:0;}
@@ -66,9 +61,9 @@ select{font-size:12px;}
 /* ── 消息区 ── */
 #msgs{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   padding:8px 8px 4px; background:#f5f5f5;}   /* 2.91：对齐原版画布 #f5f5f5 */
-/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/输入行，
+/* 1.14：历史全屏（上翻约一屏触发）——隐藏顶栏/附件行/输入行，
    消息区独占整屏，能看更多历史；body.fmsg 生效 */
-body.fmsg #hdr, body.fmsg #statebar,
+body.fmsg #hdr, body.fmsg #statebar, body.fmsg #attach_row,
 body.fmsg #input_row{ display:none; }
 #fexit{display:none; position:fixed; right:12px; bottom:16px;
   z-index:30; border:1px solid var(--blue); background:#fff;
@@ -110,7 +105,7 @@ body.fmsg #msgs{padding-top:22px;}
 #ftoast.on{opacity:1;}
 /* 本专项 B3：直播帧提示条——横幅正下方细条，仅当显示的是本地存帧
    （尚未收到当前锚定会话的直播帧）时出现；真直播帧到达即撤。
-   2.57：层级降到 28（原 36）——必须低于左上角 ☰ 抽屉 #drawer(30) 与
+   2.57：层级降到 28（原 36）——必须低于左侧抽屉 #drawer(30) 与
    遮罩 #mask(29)；否则拉开左侧菜单时这条细条还压在菜单上面（用户实测）。 */
 #livebar{display:none; position:fixed; left:0; right:0; z-index:28;
   padding:2px 8px; text-align:center; font-size:11px; line-height:1.3;
@@ -284,9 +279,6 @@ body.fmsg #msgs{padding-top:22px;}
 .msg.pend .pstat{font-size:11px; margin-left:6px; padding:1px 7px;
   border-radius:9px; background:rgba(239,108,0,.14); color:var(--orange);}
 .msg.pend.ok .pstat{background:rgba(10,125,50,.14); color:var(--green);}
-/* 2.178 Y26：done 超 15s 未落地 → 灰态「已送达（未同步显示）」 */
-.msg.pend.gray{opacity:.62;}
-.msg.pend.gray .pstat{background:rgba(90,107,125,.14); color:var(--gray);}
 .msg.pend.bad{border-color:rgba(198,40,40,.65);}
 .msg.pend.bad .pstat{background:rgba(198,40,40,.14); color:var(--red);}
 .msg.pend .pacts{margin-left:auto; display:flex; gap:4px;}
@@ -417,7 +409,16 @@ body.fmsg #msgs{padding-top:22px;}
 #fullswarn .fsw_btns button:first-child{background:#fff3d6; color:#8a5a00;
   border:1px solid #e6b04a;}
 #fullswarn .fsw_btns button:last-child{background:#b26a00; color:#fff;}
-/* ── 输入行 ── */
+/* ── 附件行 / 输入行 ── */
+#attach_row{display:none; gap:4px; padding:2px 8px; flex-wrap:wrap;
+  flex:none; background:#fff;}
+#attach_row.on{display:flex;}
+.chip{border-radius:5px; padding:2px 8px; font-size:12px;
+  display:inline-flex; gap:4px; align-items:center; min-height:26px;}
+.chip.pend{background:#eee; color:#666;}
+.chip.ok{background:#e3f0fb; color:var(--blue);}
+.chip .rm{color:var(--red); cursor:pointer; font-weight:bold;
+  padding:0 2px;}
 /* 1.78：输入行底部同样去掉 env(safe-area-inset-bottom)——主界面底部
    约两行空白元凶；固定 6px 上下留白，输入行顶到屏幕下缘。 */
 #input_row{display:flex; gap:6px; align-items:center;
@@ -425,7 +426,7 @@ body.fmsg #msgs{padding-top:22px;}
   background:#fff; border-top:1px solid var(--bd); flex:none;}
 /* 1.76：输入行小按钮统一正方形 36×36（原 📎/📂 是 46×36 扁条）
    T63：新增「急」加急插入勾选，同款正方形、与既有 4 个风格统一 */
-#btn_bench,#btn_take,#btn_copy,#btn_urgent{width:36px;
+#btn_attach,#btn_bench,#btn_take,#btn_copy,#btn_urgent{width:36px;
   min-width:36px; height:36px; min-height:36px; padding:0; flex:none;
   font-size:15px; display:inline-flex; align-items:center;
   justify-content:center;}
@@ -441,10 +442,11 @@ body.fmsg #msgs{padding-top:22px;}
 #ent{flex:1; min-width:0; font-size:16px; height:34px; max-height:390px;
   line-height:22px; border:none; outline:none; resize:none;
   overflow-y:auto; box-sizing:border-box; font-family:inherit;}
-/* 1.27：聚焦增高 255px（原 170 再 +50%）；增高时 📂/发送 跳到
+/* 1.27：聚焦增高 255px（原 170 再 +50%）；增高时 📎/📂/发送 跳到
    顶行，输入框独占整行矩形（原来左右被按钮夹住，宽度受限） */
 #ent.grow{height:255px;}
 #input_row.grow{flex-wrap:wrap;}
+#input_row.grow #btn_attach,
 #input_row.grow #btn_bench,
 #input_row.grow #btn_send{order:1;}
 #input_row.grow #btn_send{margin-left:auto;}
@@ -541,8 +543,33 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 #bfoot{flex:none; padding:6px 12px;
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
-/* 2.285（老板 2026-11-25 11:54 令）：「分身状态」页整块拆除，
-   #page_prof / .profhint / #prof_list / .prof_* 样式一并删除。 */
+/* ── 1.45：谷歌分身状态页（全屏覆盖）——服务端外挂
+   「谷歌分身助手转接器」推送：历史积分+登录状态，立刻实测=真实访问 ── */
+#page_prof{position:fixed; inset:0; z-index:40; background:#f2f4f7;
+  display:none; flex-direction:column;}
+#page_prof.on{display:flex;}
+.profhint{flex:none; padding:6px 12px; font-size:12px; color:var(--blue);
+  background:#eef4fb; border-bottom:1px solid var(--bd);}
+#prof_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:8px; overscroll-behavior:contain;}
+.prof_card{border:1px solid var(--bd); border-radius:8px; background:#fff;
+  margin-bottom:8px; padding:8px 10px;}
+.prof_row1{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+.prof_name{font-weight:bold; color:var(--blue);}
+.prof_st{font-size:12px; padding:0 6px; border-radius:10px;
+  background:#ecf5ec; color:var(--green);}
+.prof_st.down{background:#fdecea; color:var(--red);}
+.prof_st.unk{background:#f1f1f1; color:var(--gray);}
+.prof_acc{font-size:12px; color:#555;}
+.prof_test{margin-left:auto; font-size:12px; padding:2px 8px;
+  min-height:24px; color:var(--blue); border-color:var(--bd);}
+.prof_test:disabled{color:#bbb; background:#f5f5f5;}
+.prof_login{margin-left:6px; font-size:12px; padding:2px 8px;
+  min-height:24px; color:var(--green); border-color:var(--bd);}
+.prof_login:disabled{color:#bbb; background:#f5f5f5;}
+.prof_row2{display:flex; flex-wrap:wrap; margin-top:4px; font-size:12px;
+  color:#333; gap:2px 10px;}
+.prof_pts{color:#7c4dff; font-weight:bold;}
 /* ── 1.15：模型收藏管理页（全屏覆盖）── */
 #page_fav{position:fixed; inset:0; z-index:40; background:#f2f4f7;
   display:none; flex-direction:column;}

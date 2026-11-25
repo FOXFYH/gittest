@@ -4223,11 +4223,10 @@ function convMenuOpen(title, disp){
   ov.id = 'convmenu';
   ov.innerHTML = '<div class="cmsheet">'
     + '<div class="cmtitle">' + esc(view) + '</div>'
-    /* 2.78（老板 2026-11-21 10:47）：长按菜单按常用度重排——①设置备注 ②重命名 ③定时。 */
-    + '<button data-act="note">📝 备注</button>'
-    + '<button data-act="ren">✎ 重命名</button>'
     + '<button data-act="sched">⏰ 定时自我激活'
     + (nSched ? '（' + nSched + '）' : '') + '</button>'
+    + '<button data-act="ren">✎ 重命名</button>'
+    + '<button data-act="note">📝 备注</button>'
     + '<button class="cmdel" data-act="del">🗑 删除此会话</button>'
     + '<button class="cmcancel" data-act="cancel">取消</button>'
     + '</div>';
