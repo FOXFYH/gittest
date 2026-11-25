@@ -1,5 +1,9 @@
 'use strict';
-/* 提示词库.js（网页端）  版本 2.285  日期 2026-11-25
+/* 提示词库.js（网页端）  版本 2.286  日期 2026-11-25
+   2.286（老板 14:50 令「传聊天记录到网页版时，提示词段落打包成一个代码」）：
+      服务端 WS桥 0.109 起，下发正文只夹代码标记 `(@fox-lib1)Q0001,Q0002(@fox-lib2)`；
+      本文件新增 `window.plibHintByCodes(codes)`——按代码到本机镜像领全文、拼四段；
+      全文到齐后自动重画消息区，折叠按钮立即出现。提示词全文仍只存在本机镜像。
    2.285（老板 14:47 令「按钮还要有，内容到前端领」）：服务端 0.106 起正文不再
    夹带专属提示词（省流），消息里的「系统▸/自定▸/人定▸/岗位▸」按钮因此消失。
    本文件新增 `window.plibHintSegs(sid)`：按会话从本机镜像（代码→缓存全文）拼出
@@ -143,6 +147,7 @@
     });
     save();
     render();
+    if (n) redrawMsgs();          /* 2.286：全文到齐后重画消息，折叠按钮立即出现 */
     const total = (L.idx || []).length;
     const have = (L.idx || []).filter(e => L.txt[e.c] != null).length;
     setStat(total + '条·已缓' + have + (have < total ? '·缺' + (total - have) : '✓'));
@@ -266,6 +271,48 @@
         const t = L.txt[code];
         if (t == null){ miss.push(code); return; }
         hz[k] += String(t);
+      });
+      if (miss.length && typeof cmd === 'function') cmd('plib_get', miss.slice(0, 20));
+      return (hz.sys || hz.usr || hz.co || hz.ai) ? hz : null;
+    }catch(e){ return null; }
+  };
+  /* 2.286：全文到齐后重画当前消息区（参数原样取自 S.msgs_last，与 通用工具.js 重放同口径）。 */
+  function redrawMsgs(){
+    try{
+      if (typeof renderMsgs !== 'function') return;
+      if (typeof S !== 'object' || !S || !Array.isArray(S.msgs_last)
+          || S.msgs_last.length !== 5) return;
+      renderMsgs(S.msgs_last[0], S.msgs_last[1], S.msgs_last[2],
+                 S.msgs_last[3], S.msgs_last[4]);
+    }catch(e){}
+  }
+
+  /* 2.286（老板 2026-11-25 14:50 令）：服务端下发正文里的提示词段落已打包成
+     代码标记 (@fox-lib1)Q0001,Q0002(@fox-lib2)。本函数按代码到本机提示词仓库
+     镜像领取全文，拼成 {sys,usr,co,ai} 供折叠卡渲染；缺码只发代码去取。 */
+  window.plibHintByCodes = function(codes){
+    try{
+      const MAP = {'私有头': 'sys', '全局': 'sys', '系统': 'sys',
+                   '自定': 'usr', '人类': 'co', '岗位': 'ai'};
+      const arr = String(codes == null ? '' : codes)
+                    .split(/[,，\s]+/).filter(Boolean);
+      const hz = {sys: '', usr: '', co: '', ai: ''};
+      const miss = [];
+      const kindOf = function(code){
+        const e = (L.idx || []).find(x => x.c === code);
+        if (e && e.k) return e.k;
+        const conv = L.conv || [];
+        for (let i = 0; i < conv.length; i++){
+          const pr = (conv[i].p || []).find(p => p[1] === code);
+          if (pr) return pr[0];
+        }
+        return '';
+      };
+      arr.forEach(function(code){
+        const k = MAP[kindOf(code)];
+        const t = L.txt[code];
+        if (t == null){ miss.push(code); return; }
+        if (k) hz[k] += String(t);
       });
       if (miss.length && typeof cmd === 'function') cmd('plib_get', miss.slice(0, 20));
       return (hz.sys || hz.usr || hz.co || hz.ai) ? hz : null;
