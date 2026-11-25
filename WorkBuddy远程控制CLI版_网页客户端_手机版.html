@@ -435,7 +435,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
   background:#fff; color:var(--blue); cursor:pointer; white-space:nowrap;}
 #btn_favrefresh:disabled{color:var(--gray); cursor:default; opacity:.7;}
 /* ── 2.00：批量签到遥控面板（全屏覆盖）——电脑端「批量签到」分页的遥控版：
-   本地执行、每个账号间隔 10 秒；本端仅取数/触发（无实际签到动作）。 ── */
+   本地执行、间隔可调（签到默认 5 秒 / 刷新积分默认 1 秒）；本端仅取数/触发
+   （无实际签到动作）。 ── */
 #page_checkin{position:fixed; inset:0; z-index:40; background:#f2f4f7;
   display:none; flex-direction:column;}
 #page_checkin.on{display:flex;}
@@ -621,7 +622,7 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_new" title="新建任务" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="拉起（重启当前目标）" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
-    <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔 10 秒）">✍ 批量签到</div>
+    <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔可调，默认 5 秒）">✍ 批量签到</div>
     <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
     <div class="dmi" id="btn_turnview" title="手机上的小账本＝快照账（切会话先顶用的那份）">🗂 小账本（快照账）</div>
   </div>
@@ -676,14 +677,18 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 </div>
 
 <!-- 2.00：批量签到遥控面板（全屏覆盖）——电脑端「批量签到」分页的遥控版。
-     本地执行、每个账号间隔 10 秒；本端只遥控：打开即 checkin_state 取
+     本地执行、间隔可调（签到默认 5 秒 / 刷新积分默认 1 秒）；本端只遥控：打开即 checkin_state 取
      「账号枚举＋上次结果」，按钮触发 checkin_all / credits_refresh_all。 -->
 <div id="page_checkin">
   <div class="nhdr">
     <button id="btn_ckback">‹ 返回</button>
     <b>✍ 批量签到</b>
   </div>
-  <div id="ck_hint">本地执行、每个账号间隔 10 秒，网页端只是遥控面板；结束时电脑端会自动切回原账号。</div>
+  <div id="ck_hint">本地执行、间隔可调（默认签到 5 秒 / 刷新 1 秒），网页端只是遥控面板；结束时电脑端会自动切回原账号。</div>
+  <div id="ck_ivs" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:6px 10px; font-size:13px;">
+    <label>签到间隔(秒)<input id="ck_iv_checkin" type="number" min="0" step="1" value="5" style="width:64px; margin-left:4px;"></label>
+    <label>刷新积分间隔(秒)<input id="ck_iv_refresh" type="number" min="0" step="1" value="1" style="width:64px; margin-left:4px;"></label>
+  </div>
   <div id="ck_stat">未连接</div>
   <div id="ck_wrap">
     <table id="ck_tbl">
@@ -931,7 +936,7 @@ function channelUrl(){
   return chanUrlTmpl().replace('%s', CH_PFX + key);
 }
 /* 1.83：TTS 直连频道（用户 2026-10-07）——网页端直连 TTS 专属频道，不经本地
-   服务端中转；频道名 = 固定前缀 'TTS' + 同一把密钥（与主集群共用，用户只输
+   服务端中转；频道名 = 固定前缀 'TTS' + 同一把密钥（与主频道共用，用户只输
    一次、自动拼接），故项目复制到任何电脑都能连上「任何一台开着 TTS 的电脑」。 */
 const TTS_PFX = 'TTS';
 function ttsChannelUrl(){
@@ -1360,6 +1365,7 @@ const el = {
   ck_stat: $('ck_stat'), ck_body: $('ck_body'), ck_selall: $('ck_selall'),
   ck_start: $('ck_start'), ck_refreshpts: $('ck_refreshpts'),
   ck_reload: $('ck_reload'),
+  ck_iv_checkin: $('ck_iv_checkin'), ck_iv_refresh: $('ck_iv_refresh'),
   md: $('model_dlg'), md_title: $('md_title'), md_body: $('md_body'),
   md_ok: $('md_ok'),
 };
@@ -2261,7 +2267,7 @@ setInterval(() => {
 }, 20000);
 
 /* ================= 1.84：TTS 直连通道（FOX 2.0 · 全程静默） =================
-   网页有播报需求时，自己连上 TTS 专属频道（'TTS'+密钥，与主集群共用同一把
+   网页有播报需求时，自己连上 TTS 专属频道（'TTS'+密钥，与主频道共用同一把
    密钥、自动拼接，用户只输一次）提需求、自己取回音频；**直连为默认通道**，
    故项目复制到任何电脑都能连上「任何一台开着 TTS 的电脑」。遵守
    《13_软件外连联网如WebSocket等规范》：
@@ -2273,7 +2279,7 @@ setInterval(() => {
      （音频按 ≤10KB 应用层切片、每片仍单段），不触发分批/补发路径。
 
    ★ 服务端「本机 TTS 中转」保留为**备用兜底通道**（用户 2026-10-07）：仅在
-   直连这条路**30 秒内没给出结果**时才回落（经主集群发 t=='tts'，由服务端
+   直连这条路**30 秒内没给出结果**时才回落（经主频道发 t=='tts'，由服务端
    tts_api 调本机 edge-tts）。
    ★ 2.02 口径（老板 2026-10-19，与 TRAE 侧同一标准）：
    ①**优先 WS 直连**；②**串行**——同一请求任何时刻只走一条路，绝不并发；
@@ -2345,7 +2351,7 @@ function ttsFallback(id){
     return;
   }
   f.srvSent = true;                              // 标记本 id 兜底已用（同 id 最多一次）
-  try { sendJson(ttsPayload(id)); } catch(e){}   // 备用：经主集群发服务端中转
+  try { sendJson(ttsPayload(id)); } catch(e){}   // 备用：经主频道发服务端中转
 }
 function ttsErrorFallback(id){
   /* 直连回 tts_error：允许一次服务端兜底。返回 true = 已发起兜底。 */
@@ -6435,10 +6441,9 @@ const APP_NAME = 'wb远程';
       （`wb_snap_rounds`，默认 5 轮≈10 条），上面②里的条数参数与查看器里的「保留条数」
       输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。
    ★2.77（2026-11-21 老板）：调控页「离线倒计时/离线倒计时启用/切后台自动下线」三项合并成
-      「自动下线」（默认 120 秒，0＝不下线）；「主动核对周期」（即强制核对）默认 90 秒。
-   ★2.78（2026-11-24 术语整改）：注释中指代 WS 线路的「主频道」改称「主集群」
-      （真房间号仍叫频道）；仅措辞，逻辑不变。 */
-const VER = '2.78';
+      「自动下线」（默认 120 秒，0＝不下线）；「主动核对周期」（即强制核对）默认 90 秒。 */
+/* 2.79（2026-11-25 老板令）：批量签到间隔可调（默认 5 秒）、批量刷新积分独立参数（1 秒）。 */
+const VER = '2.79';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
@@ -6793,7 +6798,7 @@ const VER = '2.78';
                          允许一次服务端兜底；直连一连通即把仍等待的改走直连。直连全程静默
                          （无 ping/hello），断线 ≤3 次退避 + 60s 硬时限。
                          1.83：TTS 直连（用户 2026-10-07）——网页端播报不再经本地服务端
-                         中转，改为自己连上「TTS+密钥」专属频道（与主集群共用同一把密钥、
+                         中转，改为自己连上「TTS+密钥」专属频道（与主频道共用同一把密钥、
                          自动拼接，用户只输一次），用 FOX 2.0 数据帧提需求、取回音频分片后
                          本地拼回播放；全程静默（无 ping/hello），只在点 ▶/试听时才说话；
                          断线按「≤3 次退避 + 60s 硬时限」重连、用尽宣告失败，绝不死磕；
@@ -7183,7 +7188,7 @@ function handleBody(body){
   if (d.t === 'vack') { try { onVack(d); } catch(e){} return; }
   if (d.t === 'mod')  { try { onMod(d);  } catch(e){} return; }
   if (d.t === 'hello') onHello(d);
-  /* 1.84：主集群承载**备用兜底**的 TTS 回包——直连走不通时经服务端本机中转，
+  /* 1.84：主频道承载**备用兜底**的 TTS 回包——直连走不通时经服务端本机中转，
      回 tts_ack（阶段回执）+ tts_resp（整段 b64 / err）。 */
   if (d.t === 'tts_ack') { onTtsAck(d); return; }
   if (d.t === 'tts_resp'){ onTtsResp(d); return; }
@@ -8907,18 +8912,41 @@ if (el.ck_body) el.ck_body.addEventListener('change', ev => {
     el.ck_selall.checked = rows.length > 0 &&
       rows.every(r => o[String((r && r.账号) || '')]);
 });
-el.ck_start.onclick = () => {            /* 开始批量签到：本地后台执行（间隔 10 秒） */
+/* 2.79（2026-11-25 老板令）：批量任务的间隔都可调——签到默认 5 秒（原写死 10 秒）、
+   刷新积分独立参数默认 1 秒。入参统一为 {keys, 间隔}，服务端照此执行。 */
+function ckIv(mode){
+  const box = mode === 'refresh' ? el.ck_iv_refresh : el.ck_iv_checkin;
+  const dft = mode === 'refresh' ? 1 : 5;
+  let v = box ? parseFloat(box.value) : NaN;
+  if (!isFinite(v) || v < 0) v = dft;
+  try {
+    localStorage.setItem(mode === 'refresh' ? 'wb_ck_iv_refresh' : 'wb_ck_iv_checkin',
+                         String(v));
+  } catch(e){}
+  return v;
+}
+function ckArgs(mode){
+  return {keys: ckPickKeys(), 间隔: ckIv(mode)};
+}
+/* 2.79：恢复上次填的间隔（缺省 5 / 1 秒） */
+try {
+  const a = parseFloat(localStorage.getItem('wb_ck_iv_checkin'));
+  if (isFinite(a) && a >= 0 && el.ck_iv_checkin) el.ck_iv_checkin.value = String(a);
+  const b = parseFloat(localStorage.getItem('wb_ck_iv_refresh'));
+  if (isFinite(b) && b >= 0 && el.ck_iv_refresh) el.ck_iv_refresh.value = String(b);
+} catch(e){}
+el.ck_start.onclick = () => {            /* 开始批量签到：本地后台执行（间隔取面板，默认 5 秒） */
   if (srvNeedOnline('批量签到')) return;
   if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
   if (S.checkin_all_busy){ flash('批量签到请求处理中，请稍候…', 'var(--orange)'); return; }
   S.checkin_all_busy = true;
-  srvOpSend('checkin_all', ckPickKeys(), '批量签到');   // 传账号键数组＝只跑勾选的；null＝全部
+  srvOpSend('checkin_all', ckArgs('checkin'), '批量签到');   // {keys,间隔}；keys=null＝全部
   setTimeout(() => { S.checkin_all_busy = false; }, 4000);   /* 兜底：ack 未到也不永久卡住 */
 };
-el.ck_refreshpts.onclick = () => {       /* 批量刷新积分：逐个账号查余额（间隔 10 秒） */
+el.ck_refreshpts.onclick = () => {       /* 批量刷新积分：逐个账号查余额（独立间隔，默认 1 秒） */
   if (srvNeedOnline('批量刷新积分')) return;
   if (S.checkin_running){ flash('已有批量任务在进行中…', 'var(--orange)'); return; }
-  srvOpSend('credits_refresh_all', ckPickKeys(), '批量刷新积分');
+  srvOpSend('credits_refresh_all', ckArgs('refresh'), '批量刷新积分');
 };
 
 /* —— 1.07：导出功能整体移除（用户要求网页版不要导出）：
