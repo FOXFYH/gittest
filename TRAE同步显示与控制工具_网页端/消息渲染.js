@@ -297,6 +297,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     }
     const d = document.createElement('div');
     d.className = 'msg ' + (user ? 'user' : 'agent');
+    /* 2.279（老板 2026-11-25 08:04 令）：把消息 ID 落到 DOM 上，供「小账本 vs
+       主界面」3 秒兜底自检按 ID 一一比对；账本有、屏幕没画出来时强制重绘。 */
+    try { if (m[6]) d.setAttribute('data-mid', String(m[6])); } catch(e){}
     /* 1.90：AI 消息正文识别 (@fox-play1)...(@fox-play2) 包夹段 →
        渲染成语音小卡片（占位符先过 mdHtml，再替换成卡片 HTML） */
     let bodyHtml;
