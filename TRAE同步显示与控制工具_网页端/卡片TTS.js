@@ -254,11 +254,16 @@ function foxStripTail(txt){
   FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
   if (idx > 0){
     const head = s.slice(0, idx), tail = s.slice(idx);
+    /* 2.309（老板 20:57 令）：账本抓回来的正文末尾常多一行「展示更多」（TRAE 界面
+       按钮文字被一起抓进正文）。旧逻辑把这点噪声当「用户自己写的内容」，于是判成
+       「不是你写的尾巴」→ 整段专属提示词原样留在剪贴板。判定前先剔掉这类界面噪声行。 */
+    const NOISE = /(?:^|\n)[ \t]*(?:展示更多|显示更多)[ \t]*(?=\n|$)/g;
     const cut = tail.replace(FSC_ANY, '').replace(FUC_ANY, '')
-                    .replace(FCC_ANY, '').replace(FAI_ANY, '').replace(FH_ANY, '');
+                    .replace(FCC_ANY, '').replace(FAI_ANY, '').replace(FH_ANY, '')
+                    .replace(NOISE, '');
     /* 四段删完还剩真内容 ⇒ 这对标记是用户自己写在正文里的，只摘标记、内容全留；
-       一点不剩（只剩空白）⇒ 确属服务端追加的尾巴，连内容整段砍。 */
-    s = cut.trim() ? (head + tail.replace(FH_ANY, '')) : head;
+       一点不剩（只剩空白/界面噪声）⇒ 确属服务端追加的尾巴，连内容整段砍。 */
+    s = cut.trim() ? (head + tail.replace(FH_ANY, '').replace(NOISE, '')) : head;
   }
   s = s.replace(/\r\n?/g, '\n')
        .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
