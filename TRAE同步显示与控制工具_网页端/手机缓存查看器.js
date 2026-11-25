@@ -1,5 +1,8 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.250  日期 2026-11-25
+/* 手机缓存查看器.js（网页端）  版本 2.251  日期 2026-11-25
+   2.251（老板 2026-11-25 12:47 令·思维流专属ID）：思维流行统一带 `th:` 专属
+     前缀（kindOf 见到即判 think，先于 2.249 的「带终答认终极」）；详情与恒定卡
+     不再显示思维流的号码（纯展示用）。同批服务端 WS桥 0.107 让思维流不进账本。
    2.250（老板 2026-11-25 12:32 令·小账本恒定卡）：小账本详情页在预备画面下方
      固定挂两张卡——「💭 思维流」「⏳ 官方排队条」，没有就明写「没有」；
      排队条只认当前会话（S.snap.pend，逐条 pendItemMine 归属校验），思维流取
@@ -425,6 +428,9 @@
     /* 2.213（前端零拦截）：类型只认后端下发——行 index8（u/a/th）或对象 kind/type；
        缺字段一律 ''，显示「类型未知」；前端不再按角色/完成卡自己推断。 */
     if (!m || typeof m !== 'object') return '';
+    /* 2.287（老板 2026-11-25 12:47 令）：思维流专属 ID（th: 前缀）＝思维流，铁定
+       不是终极回复——先于下面 2.249「带终答就认终极」的规则，防止历史脏数据翻案。 */
+    if (Array.isArray(m) && /^th:/i.test(String(m[6] || ''))) return 'think';
     var k = Array.isArray(m) ? _kindNorm(m[8])
                              : _kindNorm(m.kind != null ? m.kind : m.type);
     /* 2.249（老板 2026-11-21 11:37）：TRAE 思维流与终极回复同号，后端有时把
@@ -762,7 +768,7 @@
         var d = document.createElement('div');
         d.className = 'cv_msg ' + (user ? 'u' : 'a');
         d.innerHTML = '<div class="who">' + kindTag(m) + esc((user ? '你' : 'AI') +
-          (tm ? ' · ' + tm : '') + (mid ? ' · ' + mid : '')) + '</div>' +
+          (tm ? ' · ' + tm : '') + (mid && _k !== 'think' ? ' · ' + mid : '')) + '</div>' +
           bodyHtml(x.text, user);
         box.appendChild(d);
       });
@@ -812,8 +818,8 @@
       var _d = document.createElement('div');
       _d.className = 'cv_msg a';
       var _tm = String(x.mid || '') ? String((typeof timeFromMid === 'function' ? timeFromMid(x.mid) : '') || '') : '';
-      _d.innerHTML = '<div class="who">思维流' + (_tm ? ' · ' + _tm : '')
-        + (x.mid ? ' · ' + x.mid : '') + '</div>' + bodyHtml(x.text, false);
+      _d.innerHTML = '<div class="who">思维流' + (_tm ? ' · ' + _tm : '') + '</div>'
+        + bodyHtml(x.text, false);
       return _d;
     });
     _恒卡('⏳ 官方排队条', _pendRows, function(t){
