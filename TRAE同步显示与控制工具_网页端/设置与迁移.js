@@ -54,157 +54,37 @@ el.net.onclick = (ev) => {
   diagRender();
 };
 
-/* ================= 分身状态页（v1.45） ================= */
-
-function renderProf(){
-  if (!el.profpage.classList.contains('on')) return;
-  const d = S.profiles;
-  const run = !!S.prof_run;
-  el.profref.disabled = false;
-  el.profref.textContent = run ? '停止' : '全量实测';
-  const hint = d
-    ? ('管理分身 ' + d.count + ' 个 · 已实测 ' + d.checked + ' 个 · 最近实测 ' +
-       (d.last_refresh || '—') +
-       (run ? ' · 正在实测（真实访问网页，耗时数分钟）' : '') +
-       '  ·  右侧「实测」=查登录/积分，「补登录」=借登录助手自动登录')
-    : '（无数据）';
-  el.profhint.textContent = hint;
-  const list = (d && d.profiles) || [];
-  let html = '';
-  for (const p of list){
-    const st = p.status || '未实测';
-    const cls = st === '已登录' ? '' : (st === '掉线' ? ' down' : ' unk');
-    const qn = JSON.stringify(p.name);         /* 精确名，防前缀连带 */
-    html += '<div class="prof_card"><div class="prof_row1">' +
-      '<span class="prof_name">' + esc(p.name) + '</span>' +
-      '<span class="prof_st' + cls + '">' + esc(st) + '</span>' +
-      '<button class="prof_test" data-n="' + qn + '" onclick="profTest(' +
-      qn + ')">实测</button>' +
-      '<button class="prof_login" data-n="' + qn + '" onclick="profLogin(' +
-      qn + ')">补登录</button>' +
-      '<span class="prof_acc">' + esc(p.account || '') + '</span></div>' +
-      '<div class="prof_row2">' +
-      '<span>总积分 <b class="prof_pts">' + esc(p.points || '—') + '</b></span>' +
-      '<span>月积分 ' + esc(p.monthly || '—') + '</span>' +
-      '<span>最近到期 ' + esc(p.expire || '—') + '</span>' +
-      '<span>实测 ' + esc(p.time || '—') + '</span>' +
-      '</div></div>';
-  }
-  el.proflist.innerHTML = html || '<div class="empty">（暂无分身数据）</div>';
-}
-
-/* v1.46：单测指定分身。
-   v1.47：取代机制——若已在实测，服务端 start_refresh 会自动终止旧的
-   改测本分身（即便在跑也可再点，直接取代，不再拒绝）。 */
-function profTest(name){
-  if (srvNeedOnline('实测分身')) return;
-  /* 2.109：统一四态出口——②＋rcpt ③④（profiles_run 事件另回填进度）。 */
-  srvOpSend('profiles_refresh', [name], '实测分身', name);
-  S.prof_run = true;
-  renderProf();
-}
-
-/* 2.18：补登录——借服务端「谷歌分身助手 / T登录助手」的 HTTP 接口，对指定
-   分身发起自动登录（分身名→编号自动映射手机号，跟人手操作一样）。服务没起
-   时服务端会自动拉起分身助手；滑块/超时由对方负责，跑完回 profiles_login。*/
-function profLogin(name){
-  if (srvNeedOnline('补登录')) return;
-  /* 2.109：统一四态出口——②＋rcpt ③④（profiles_login 事件另回填结果）。 */
-  srvOpSend('profiles_login', name, '补登录',
-            name + '（服务端会先确保登录助手在线）');
-}
-
-el.prof.onclick = () => {
+/* 2.285（老板 2026-11-25 11:54 令）：原「分身状态」整块作废，按钮位改「读取小账本」。
+   lbPullToScreen＝把小账本（IndexedDB 唯一账 snap_conv）里当前会话的正文强制读回
+   内存并重画主界面；只读不写账本、不造 mid、不改任何消息。 */
+function lbPullToScreen(){
   drawerClose();
-  srvOpSend('profiles', null, '拉取分身数据');   // 2.109：②＋rcpt ③④（profiles 事件另回填）
-  renderProf();
-  el.profpage.classList.add('on');
-};
-el.profback.onclick = () => el.profpage.classList.remove('on');
-el.profref.onclick = () => {
-  if (srvNeedOnline('分身实测')) return;
-  /* v1.47：运行中为「停止」；空闲为「全量实测」。停止成功与否由
-     profiles_run stopped 事件反馈。 */
-  if (S.prof_run){ srvOpSend('profiles_stop', null, '停止实测'); return; }   // 2.109
-  /* 2.109：统一四态出口——②＋rcpt ③④（profiles_run 事件另回填进度）。 */
-  srvOpSend('profiles_refresh', null, '全量实测');
-  S.prof_run = true;
-  renderProf();
-};
-
-/* 2.19：一键换号迁移——填目标号码，服务端一站式完成「原版换号
-   （沙盒启动器 origin-login）+ 对话记录智能迁移（最重度账号全部会话换新ID
-   并入当前账号）」。进度经 switch_migrate 事件流回投到 #prof_swlog。 */
-function switchMigratePrompt(){
-  if (srvNeedOnline('一键换号迁移')) return;
-  let ov = $('swmask');
-  if (ov) ov.remove();
-  ov = document.createElement('div');
-  ov.id = 'swmask';
-  ov.style.cssText = 'position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.45);'
-    + 'display:flex; align-items:center; justify-content:center;';
-  ov.innerHTML =
-    '<div style="background:#fff; border-radius:10px; padding:16px; width:90%; max-width:400px;'
-    + ' max-height:88vh; overflow:auto;">'
-    + '<div style="font-weight:bold; font-size:15px; margin-bottom:8px;">🔁 一键换号迁移</div>'
-    + '<div style="font-size:12px; color:#555; line-height:1.5; margin-bottom:10px;">'
-    + '把原版 TRAE 换成目标号码的账号，并按下面设置处理对话记录（与电脑上的'
-    + '「TRAE换号工具」同一款内核）。期间会短暂关闭原版 TRAE（写完自动拉起）；'
-    + '分身若掉线会自动拉起分身助手补登录（弹滑块需人工滑）。</div>'
-    + '<input id="swin" inputmode="numeric" autocomplete="off"'
-    + ' placeholder="目标号码，如 18" style="width:100%; box-sizing:border-box;'
-    + ' padding:9px; border:1px solid #ccc; border-radius:6px; font-size:16px;">'
-    + '<div style="margin-top:10px; font-size:13px;">保留最近 '
-    + '<input id="swkeep" inputmode="numeric" value="100" style="width:64px; padding:5px;'
-    + ' border:1px solid #ccc; border-radius:6px; font-size:14px;"> 轮对话'
-    + '<span style="color:#888; font-size:12px;">（0=不裁，原样全留）</span></div>'
-    + '<label style="display:block; margin-top:8px; font-size:13px;">'
-    + '<input type="checkbox" id="swpurge" checked> 清理其它账号（只保留当前登录账号）</label>'
-    + '<label style="display:block; margin-top:6px; font-size:13px;">'
-    + '<input type="checkbox" id="swmig"> 智能迁移最重度账号（把最重账号对话并入当前号）</label>'
-    + '<label style="display:block; margin-top:6px; font-size:13px;">'
-    + '<input type="checkbox" id="swvac" checked> 自动压缩（回收已删空页，库变小更快）</label>'
-    + '<div id="swerr" style="color:#c62828; font-size:12px; min-height:16px;'
-    + ' margin-top:6px;"></div>'
-    + '<div style="display:flex; gap:8px; margin-top:6px;">'
-    + '<button id="swcancel" style="flex:1; padding:10px; border:1px solid #ccc;'
-    + ' border-radius:6px; background:#f7f7f7;">取消</button>'
-    + '<button id="swok" style="flex:1; padding:10px; border:0; border-radius:6px;'
-    + ' background:#0a7d32; color:#fff; font-weight:bold;">开始</button></div>'
-    + '</div>';
-  document.body.appendChild(ov);
-  const inp = $('swin'), err = $('swerr');
-  setTimeout(() => { try{ inp.focus(); }catch(e){} }, 80);
-  const close = () => { try{ ov.remove(); }catch(e){} };
-  $('swcancel').onclick = close;
-  ov.onclick = e => { if (e.target === ov) close(); };
-  const go = () => {
-    const n = (inp.value || '').replace(/\D/g, '');
-    if (!n){ err.textContent = '请输入目标号码（纯数字）'; return; }
-    const keep = Math.max(0, parseInt(($('swkeep').value || '').replace(/\D/g, ''), 10) || 0);
-    const purge = $('swpurge').checked, mig = $('swmig').checked, vac = $('swvac').checked;
-    /* 2.117：手机端原生 confirm 被静默屏蔽 ⇒ 自绘确认层（危险操作必须看清楚再点） */
-    const _run = () => {
-      close();
-      const slog = $('prof_swlog');
-      if (slog){ slog.style.display = 'block'; slog.textContent = '（已提交，等待服务端…）'; }
-      /* 2.109：统一四态出口——②＋rcpt ③④（switch_migrate 事件另回投逐行进度）。 */
-      srvOpSend('switch_migrate',
-                { '目标': n, '轮次': keep, '清理': purge, '压缩': vac, '迁移': mig },
-                '一键换号迁移', '目标 ' + n + ' 号', 6000);
-      S.switch_mig = { on: true, ok: null, log: [] };
-    };
-    if (purge){
-      uiConfirm('⚠ 清除其它账号的对话记录',
-        '将【清除其它所有账号的对话记录】（只保留当前登录账号），确定？', '确定清除', _run);
-      return;
-    }
-    _run();
+  const sid = (typeof curSid === 'function') ? String(curSid() || '') : '';
+  const title = (typeof curTitle === 'function') ? String(curTitle() || '') : '';
+  const done = () => {
+    let n = 0;
+    try {
+      n = (typeof lbScreenMsgs === 'function')
+        ? (lbScreenMsgs(sid, title) || []).length : 0;
+    } catch(e){}
+    try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
+    try {
+      const b = document.getElementById('msgs');
+      if (b) b.scrollTop = b.scrollHeight;
+    } catch(e){}
+    flash(n ? ('✓ 已读取小账本 ' + n + ' 条并刷新主界面')
+            : '小账本里没有当前会话的记录（可先在☰里点「📒 小账本」看看）',
+          n ? 'var(--green)' : 'var(--orange)');
   };
-  $('swok').onclick = go;
-  inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) go(); };
+  try {
+    const p = (typeof lbHaveLoad === 'function') ? lbHaveLoad() : 0;
+    Promise.resolve(p).then(done, done);
+  } catch(e){ done(); }
 }
-el.profswitch.onclick = switchMigratePrompt;
+el.prof.onclick = lbPullToScreen;
+
+/* 2.285（老板 2026-11-25 11:54 令）：原「一键换号迁移」网页入口随分身页一并拆除；
+   电脑版主页仍有独立入口（分页_主页·换号迁移按钮），迁移模块与 switch_migrate 命令保留。 */
 
 
 el.wsurl.value = chanGet();          /* v1.27：网络页改存频道名 */
