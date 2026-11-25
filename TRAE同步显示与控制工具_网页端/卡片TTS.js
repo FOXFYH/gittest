@@ -7,7 +7,7 @@
    ③ 整段再无 `(@f` ⇒ 取头标之后【第一个空行】断句收尾（不再吞到消息末尾）；
    ④ 连空行都没有（单行到底）⇒ 不识别为卡片（当普通正文）并记一条告警。
    开头标记须写全（如 `(@fox-play1)`）。 */
-const _FOX_ALL_HEAD = '\\(@fox-(?:play1|ask1|sys1|usr1|co1)\\s*\\)';
+const _FOX_ALL_HEAD = '\\(@fox-(?:play1|ask1|sys1|usr1|co1|ai1|lib1)\\s*\\)';
 function _foxAllHeadRe(){ return new RegExp(_FOX_ALL_HEAD, 'g'); }
 /* 未识别告警（10s 节流）：console + 诊断日志 + 一次性横幅，让问题立刻可见。 */
 const _foxWarnT = {};
@@ -98,7 +98,7 @@ function foxAskCards(txt, out){
    公司 (@fox-co1)…(@fox-co2)。网页端把三段合成**一张折叠小卡片**：平时只显示一排
    小标签（系统 ▸ / 用户 ▸ / 公司 ▸），点一个标签就展开该段内容、再点收起。
    2.107：三段各自按与语音卡/提问卡相同的收尾判定摘取（标记名不同，互不干扰）。 */
-const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1', '(@fox-ai1'];
+const FH_HEADS = ['(@fox-sys1', '(@fox-usr1', '(@fox-co1', '(@fox-ai1', '(@fox-lib1'];
 /* 卡片开合状态 + 内容登记：快照每秒重画，开合要撑过重画 → 记在模块级表里（键＝三段内容指纹） */
 const _fh_state = {};      /* key -> {open:bool, which:'sys'|'usr'|'co'|''} */
 const _fh_data = {};       /* key -> {sys,usr,co,ai} */
@@ -123,10 +123,26 @@ function foxHintCards(txt, out){
   grab(/\(@fox-usr1\s*\)/g, 'usr');
   grab(/\(@fox-co1\s*\)/g, 'co');
   grab(/\(@fox-ai1\s*\)/g, 'ai');
+  /* 2.291（老板 2026-11-25 14:50 令）：服务端下发正文只夹「代码标记」
+     (@fox-lib1)Q0001,Q0002(@fox-lib2)，不再重传提示词全文。这里只取代码，
+     到本机提示词仓库镜像（提示词库.js）按码领取全文，拼回同一张折叠卡；
+     内联四段（历史消息）优先，代码段只补空缺，绝不画两遍。 */
+  const libCodes = [];
+  {
+    const rl = _foxScanCards(t, /\(@fox-lib1\s*\)/g, seg => { libCodes.push(seg); return ''; });
+    if (rl.unclosed) unclosed = true;
+    t = rl.text;
+  }
   const hz = {sys: segs.sys.length ? segs.sys[segs.sys.length - 1] : '',
               usr: segs.usr.length ? segs.usr[segs.usr.length - 1] : '',
               co:  segs.co.length  ? segs.co[segs.co.length - 1]  : '',
               ai:  segs.ai.length  ? segs.ai[segs.ai.length - 1]  : ''};
+  if (libCodes.length && typeof window.plibHintByCodes === 'function'){
+    try{
+      const h2 = window.plibHintByCodes(libCodes[libCodes.length - 1]);
+      if (h2) ['sys', 'usr', 'co', 'ai'].forEach(k => { if (!hz[k] && h2[k]) hz[k] = h2[k]; });
+    }catch(e){}
+  }
   if (unclosed && !hz.sys && !hz.usr && !hz.co && !hz.ai)
     foxClosedWarn('hint', '(@fox-sys1/@fox-usr1/@fox-co1)', '(@f / 空行');
   if (!hz.sys && !hz.usr && !hz.co && !hz.ai) return s0;  /* 只有残标、无有效内容 → 原样 */
@@ -189,8 +205,10 @@ function stripHintMarks(txt){
   s = _foxScanCards(s, /\(@fox-usr1\s*\)/g, () => '').text;
   s = _foxScanCards(s, /\(@fox-co1\s*\)/g, () => '').text;
   s = _foxScanCards(s, /\(@fox-ai1\s*\)/g, () => '').text;
+  /* 2.291：代码标记段整段删（连代码一起），绝不把 Q0001 留在正文里。 */
+  s = _foxScanCards(s, /\(@fox-lib1\s*\)/g, () => '').text;
   return s
-    .replace(/\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g, '')
+    .replace(/\(@fox-(?:sys|usr|co|ai|lib)\d?\s*\)/g, '')
     .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
 }
 /* 2.164（老板 2026-11-15）：「我从手机发出去的文本，不管那边你怎么给我加小尾巴，
@@ -208,9 +226,12 @@ const FSC_ANY = /\(@fox-sys1\s*\)([\s\S]*?)(?:\(@fox-sys2\s*\)|$)/g;
 const FUC_ANY = /\(@fox-usr1\s*\)([\s\S]*?)(?:\(@fox-usr2\s*\)|$)/g;
 const FCC_ANY = /\(@fox-co1\s*\)([\s\S]*?)(?:\(@fox-co2\s*\)|$)/g;
 const FAI_ANY = /\(@fox-ai1\s*\)([\s\S]*?)(?:\(@fox-ai2\s*\)|$)/g;
+/* 2.291：提示词代码段（服务端只下发代码）——整段连代码一起删，绝不让
+   「Q0001,Q0002」这种代码串回到输入框/剪贴板/待办卡。 */
+const FLIB_ANY = /\(@fox-lib1\s*\)([\s\S]*?)(?:\(@fox-lib2\s*\)|$)/g;
 const FPLAY_ANY = /\(@fox-play\d?\s*\)/g;
 const FASK_ANY  = /\(@fox-ask\d?\s*\)/g;
-const FH_ANY    = /\(@fox-(?:sys|usr|co|ai)\d?\s*\)/g;
+const FH_ANY    = /\(@fox-(?:sys|usr|co|ai|lib)\d?\s*\)/g;
 /* 2.168（老板 2026-11-17）：「自报家门」头两行——凡总管命令投递都会强制带上，
    回填输入框/复制时必须剥掉，绝不让它跑到老板眼前。
    只认行首固定标记，避免误伤正文里自己写的【来自…】。 */
@@ -226,7 +247,7 @@ function foxStripTail(txt){
   let s = String(_stripFromHead(txt) == null ? '' : _stripFromHead(txt));
   if (s.indexOf('(@fox-') < 0) return s;
   const raw = s;
-  s = s.replace(FPLAY_ANY, '').replace(FASK_ANY, '');
+  s = s.replace(FPLAY_ANY, '').replace(FASK_ANY, '').replace(FLIB_ANY, '');
   let idx = -1;
   FH_HEADS.forEach(p => { const i = s.indexOf(p); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
   if (idx > 0){
@@ -240,7 +261,8 @@ function foxStripTail(txt){
   s = s.replace(/\r\n?/g, '\n')
        .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
   if (!s && raw.trim()){
-    s = raw.replace(FPLAY_ANY, '').replace(FASK_ANY, '').replace(FH_ANY, '')
+    s = raw.replace(FPLAY_ANY, '').replace(FASK_ANY, '').replace(FLIB_ANY, '')
+           .replace(FH_ANY, '')
            .replace(/\n{3,}/g, '\n\n').trim();
   }
   return s;
@@ -255,6 +277,7 @@ function foxStripTail(txt){
    实现＝先 stripHintMarks（吃三段前后缀、含残标），再 stripFoxMarks（吃 play/ask 标记留正文）。 */
 function stripFoxMarks(txt){
   return String(txt == null ? '' : txt)
+    .replace(FLIB_ANY, '')                              /* 2.291：代码段连代码一起删 */
     .replace(/\(@fox-(?:play|ask)[12]\s*\)?/gi, '')      /* play/ask 前后标（容错缺右括号） */
     .replace(/\(@fox-[a-z]+\d?\s*\)?/gi, '')             /* 其余 FOX 标记兜底 */
     .replace(/\(@f[a-z\-]*\d?\s*\)?/gi, '')              /* 半截残标 `(@f…` */
