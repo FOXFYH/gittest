@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1,
   viewport-fit=cover" data-page-node-id="3pAT19sRNvcHLEENr5FckV">
 <meta name="theme-color" content="#1565c0" data-page-node-id="LMt34Q21IFwsNFyUp62eYG">
-<title>TRAE远程 v2.20</title>
+<title>TRAE远程 v2.21</title>
 <style>
 :root{
   --blue:#1565c0; --green:#0a7d32; --orange:#ef6c00; --red:#c62828;
@@ -1129,7 +1129,11 @@ function pad3(n){ return String(n).padStart(3, '0'); }
 async function foxSend(text){      // 分段发送（多段微间隔 30ms 防中继丢弃）
   if (!ws || ws.readyState !== 1) return;    /* 未连接不发（onopen/helloWatch 兜底） */
   const parts = foxSplit(text);
-  const ts = new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  /* 2.21（2026-11-25 老板令）：FOXID 头 14 位时间戳写【北京时间】。
+     旧写法 toISOString 是 UTC、慢 8 小时，测试器「传输时间」算不出只显示「—」。 */
+  const _b = new Date(Date.now() + 8 * 3600 * 1000), _p = n => (n < 10 ? '0' : '') + n;
+  const ts = '' + _b.getUTCFullYear() + _p(_b.getUTCMonth() + 1) + _p(_b.getUTCDate())
+           + _p(_b.getUTCHours()) + _p(_b.getUTCMinutes()) + _p(_b.getUTCSeconds());
   const mid = ts + rnd8();
   for (let i = 1; i <= parts.length; i++){
     const s = '【FOXID:' + mid + MY_ID + '=cut(' + pad3(i) + '/'
@@ -3271,7 +3275,9 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.20';   /* 2.20：网页端【锚定】——取消"跟随"，网页版守住自己锚定的
+const VER = '2.21';   /* 2.21：FOXID 头 14 位时间戳改【北京时间】（原 toISOString 是 UTC、
+                         慢 8 小时，测试器「传输时间」算不出只显示「—」）；其余同 2.20。
+                         2.20：网页端【锚定】——取消"跟随"，网页版守住自己锚定的
                          会话，别人在电脑版（含会话路由器临时占用）切到别的会话
                          也不跟着跳（adoptSnap：来拍快照选中 != 锚定即冻结正文类
                          字段、只并入会话列表，选中标志改写到锚定行）；点会话行
