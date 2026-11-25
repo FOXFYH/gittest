@@ -1982,6 +1982,15 @@ function lbFillFinalsAsync(sid, title){
         _frameMem[sk] = f;
         if (t) _frameMemByTitle[_frameTitleKey(t)] = f;
       } catch(e){}
+      /* 2.286（老板 2026-11-25 12:09 实测：小账本里「两句人类＋各自 AI」都在，
+         主界面却只剩人类）：本函数以前只补盘上账本与 S.snap，不补内存账本
+         LB.rows，而主界面只认 LB.rows ⇒ 被补回来的 AI 终答永远上不了屏。
+         现在把同一份 out 同步进内存账本，屏幕＝小账本。 */
+      try {
+        if (typeof lbRowsPut === 'function' && typeof lbRoundsFromMsgs === 'function')
+          lbRowsPut((typeof lbUidPick === 'function' ? (lbUidPick(null, s, t) || '') : ''),
+                    t, lbRoundsFromMsgs(out));
+      } catch(e){}
       /* 先落盘：同一份写回唯一账（只进不退；内容未变时闸门自然拒收，无副作用） */
       try {
         if (typeof _frameCommit === 'function')
