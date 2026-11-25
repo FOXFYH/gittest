@@ -1,5 +1,9 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.303  日期 2026-11-25
+/* 手机缓存查看器.js（网页端）  版本 2.304  日期 2026-11-25
+   2.304（老板 2026-11-25 19:36 令·「手机上出现了 9 条」）：条数显示不再数「实际
+     留下的行」，改为镜像电脑版口径 `_lbViewN`＝min(5, 人类条数)×2（每轮恒 2 条，
+     缺终答由占位行补齐）——卡片「N 条」与详情页标题统一走它，电脑版 10 条手机
+     也必是 10 条，再不会因末轮没出终答掉成 9 条。2.303→2.304（整页 2.304）。
    2.303（老板 2026-11-25 19:29 令·编号级镜像电脑版会话拆分页）：小账本详情的
      预备画面改为「按轮出编号」——最近 5 轮（最多 10 条），每轮＝一条人类发言＋
      该轮终极回复；该轮没有终极回复时补占位行（最新一轮且思维灯亮→「尚在思维流
@@ -335,6 +339,16 @@
       });
     }).catch(function(){ return 0; });
   }
+  /* 2.303：镜像电脑版会话拆分页的条数口径——5 轮窗口内每轮恒出 2 条（人类＋
+     终极回复；缺终答时补占位行），所以显示条数＝min(5, 人类条数)×2，绝不是
+     「实际留下的行数」（少一条终答就变 9 条的假象由此根治）。 */
+  function _lbViewN(ms){
+    var rounds = 0;
+    (ms || []).forEach(function(m){
+      if (Array.isArray(m) && String(m[0] || '').toLowerCase() === 'u') rounds++;
+    });
+    return Math.min(5, rounds) * 2;
+  }
   function readSnapConvs(){
     return openSnapDB().then(function(db){
       return new Promise(function(res){
@@ -364,7 +378,7 @@
                       uid: v.uid || '',
                       srv: v.srv || '', srvName: v.srvName || '', srvFox: v.srvFox || '',
                       port: v.port, ts: v.ts || 0,
-                      n: _nVis, thN: _nTh,
+                      n: _nVis, nView: _lbViewN(_msAll), thN: _nTh,
                       msgs: _msAll,
                       _raw: v});
             c.continue();
@@ -699,7 +713,7 @@
              && 稳定键(sid, it.title || '') === String(S.anchorSid)));
         /* 2.206/2.208：更新时间只取「最后一条有 mid 的记录」由 mid 推导；
            两个来源都取不到时只显示条数（绝不显示缓存落盘时间，也不留空变量）。 */
-        var _tsTxt = it.n + ' 条';
+        var _tsTxt = ((it.nView != null) ? it.nView : _lbViewN(it.msgs)) + ' 条';
         try {
           var _ms = it.msgs || [], _lm0 = '';
           for (var _mi = _ms.length - 1; _mi >= 0; _mi--){
@@ -775,7 +789,7 @@
     s.className = 'cv_sec';
     /* 2.206：详情头不再显示缓存落盘时间（时间只看每条 mid）。 */
     /* 2.249：N 条＝人类＋AI 终极；思维流单列另注，口径透明。 */
-    s.innerHTML = '<h3>预备画面 · ' + esc(it.n + ' 条')
+    s.innerHTML = '<h3>预备画面 · ' + esc(((it.nView != null) ? it.nView : _lbViewN(it.msgs)) + ' 条')
       + (it.thN ? esc('（另有 ' + it.thN + ' 条思维流）') : '') + '</h3>';
     var box = document.createElement('div');
     box.style.padding = '4px 10px 12px';
