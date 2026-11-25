@@ -1,5 +1,18 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.053  日期 2026-11-24
+/* 账本核对.js（网页端）  版本 1.055  日期 2026-11-24
+   【1.055 通用模块清单补全（老板 2026-11-24 21:11 令）】`ledgerVcheckBuild` 上报
+     模块数组由 sig/snote/macct/convs/didp/think 扩为再加 srv（服务器身份）/input
+     （输入框镜像）——只在 LB.mods 有值时才报，旧帧/无值不报，绝不因「没报过」让
+     服务端判缺。LB.mods 来源不变：mod 帧（含 input）写 `LB.mods[m]=v`，hello/vack
+     的 mods 整体经 `lbModsSet` 覆盖（含 srv/input）。官方排队条自服务端 0.92 起
+     不再单列通用模块（只属会话模块 12 条子行）。1.054→1.055。
+   【1.054 账本足额同步（老板 2026-11-24 20:53 令）】新增服务端对账帧 t:'lbsync'
+     处理函数 lbSyncApply（仿 lbKeepApply）：按 d.order（服务器完整全序 mid）重建
+     本会话账本 msgs——本地有该 mid 用本地行、否则用 d.add 给的行（缺条只补内容，
+     不盲发全部）、都不存在跳过不造假；不在 order 里的多余行丢弃；重建后
+     lbSumSet/lbRowsPut/_frameMem/snap_conv 一并同步，最终两边条数/ID/顺序/内容
+     一致。对应服务端「足额补发」默认模式；「智能补发」仍走原 12 条逐条比对。d.think/
+     d.pend 服务端另推，不在本函数处理。1.053→1.054。
    【4.10 核对模块化重设计（老板 2026-11-24 20:24 令）】① vcheck 上报升级：
      mods.conv＝当前选中会话「12 条 ID 清单」（最近 10 条对话 mid＋思维流 1 条
      ＋官方排队条 1 条；会话模块无版本号；lbConv12Report 新函数），服务端逐条
@@ -83,12 +96,53 @@ function _lbRowsKey(uid, title){
      带标签会导致账本装进去却查不到。单服务器日常使用下不存在串服问题。 */
   return '|' + (String(uid || '').trim() || String(title || '').trim());
 }
+/* 2.275（老板 2026-11-25 通宵实测复现：LB.rows 里 5 轮 u+a 齐全、
+   lbScreenMsgs 返回 10 条，主界面 #msgs 却一条不渲染；手动 renderAll()
+   立刻 10 条全出）：账本变了不等于屏幕重画——账本落地/补发/裁剪都在
+   异步回调里改 LB.rows，没有任何一处触发重绘。凡是账本变动一律走本函数，
+   节流 250ms 统一重画。 */
+let _lbRepaintT = null, _lbRepaintAt = 0;
+function lbRepaint(delay){
+  try{
+    if (typeof renderAll !== 'function') return;
+    const d = (delay == null) ? 250 : delay;
+    if (d <= 0){
+      _lbRepaintAt = Date.now();
+      renderAll();
+      return;
+    }
+    if (_lbRepaintT) return;
+    _lbRepaintT = setTimeout(() => {
+      _lbRepaintT = null;
+      _lbRepaintAt = Date.now();
+      try { renderAll(); } catch(e){}
+    }, d);
+  }catch(e){}
+}
 function lbRowsPut(uid, title, rounds){
   try{
     if (!Array.isArray(rounds) || !rounds.length) return;
     const u = String(uid || '').trim(), t = String(title || '').trim();
-    if (u) LB.rows[_lbRowsKey(u, '')] = rounds;
-    if (t) LB.rows[_lbRowsKey('', t)] = rounds;
+    /* 2.280（老板 2026-11-25 08:37 实测：最新回复在主界面闪一下又消失、小账本
+       也没了）：新回复先随完整帧上屏，紧接着又一帧「只有人类、没有 AI」的轮次
+       把整份账本覆盖掉 ⇒ 屏幕与账本一起丢。凡新帧一条 AI 行都没有、旧账本里
+       却有 AI 行 ⇒ 拒写保留旧账本，等下一拍齐了再落；新会话首条人类消息
+       （旧账本也没有 AI）不受影响。 */
+    const _hasAI = arr => (arr || []).some(r => Array.isArray(r)
+      && r.some(m => Array.isArray(m) && String(m[0] || '') !== 'u'));
+    const put = k => {
+      const old = LB.rows[k];
+      if (!_hasAI(rounds) && Array.isArray(old) && old.length && _hasAI(old)){
+        try { diagLog('账本拒覆盖|键=' + k + '|新帧无AI|旧轮=' + old.length, 'warn'); } catch(e){}
+        return;
+      }
+      LB.rows[k] = rounds;
+    };
+    if (u) put(_lbRowsKey(u, ''));
+    if (t) put(_lbRowsKey('', t));
+    /* 2.276：屏幕唯一源一改就重画（lbRepaint 自带 250ms 节流）。
+       放在这里＝所有写口（落地/开机/裁剪/补发/快照还原）一个都不漏。 */
+    if (typeof lbRepaint === 'function') lbRepaint();
   }catch(e){}
 }
 function lbScreenMsgs(sid, title){
@@ -99,16 +153,63 @@ function lbScreenMsgs(sid, title){
     const keys = [];
     if (u) keys.push(_lbRowsKey(u, ''));
     if (t) keys.push(_lbRowsKey('', t));
+    /* 2.274（老板 2026-11-25 01:28 实测：主界面只剩人类发言、小账本却正常）：
+       只选一份必然丢——新来的人类消息常常只写进其中一处键的副本，那份
+       「更新但还没有 AI 终答」，选中它就只剩人类行（2.273 取最新也踩这个坑）。
+       改为并集合并：两处账本的每一条都收进来，按 _msgKey 去重，同一条
+       只升不降（'a' 终极行覆盖 'th' 思维流行、正文取更长），一条不丢。
+       这样主界面恒等于小账本，新消息先入账本再上屏，绝不会只剩人类。 */
+    const out = [], at = {};
     for (const k of keys){
       const rs = LB.rows[k];
       if (!Array.isArray(rs) || !rs.length) continue;
-      const out = [];
-      rs.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) out.push(m.slice()); }));
-      if (out.length) return out;
+      rs.forEach(r => (r || []).forEach(m => {
+        if (!Array.isArray(m)) return;
+        const mk = _msgKey(m);
+        const i = at[mk];
+        if (i === undefined){ at[mk] = out.length; out.push(m.slice()); return; }
+        const ot = String(out[i][1] || ''), nt = String(m[1] || '');
+        const ok = String((out[i].length > 8 && out[i][8]) || '').toLowerCase();
+        const nk = String((m.length > 8 && m[8]) || '').toLowerCase();
+        if ((nk === 'a' && ok !== 'a') || nt.length > ot.length) out[i] = m.slice();
+      }));
     }
-    return [];
+    return out;
   }catch(e){ return []; }
 }
+/* 2.279（老板 2026-11-25 08:04 令）：账本→主界面「3 秒兜底自检」。
+   正常链路：新消息先进小账本落盘 → lbRowsPut 立刻 lbRepaint 重画主界面。
+   万一某一拍回调漏了重绘，这里每 3 秒按**ID 序列**比对小账本(lbScreenMsgs)
+   与主界面(#msgs 里带 data-mid 的正式行)——条数或顺序只要不一致就强制重画。
+   思维流活卡(data-think)不算正式行，跳过。 */
+let _lbGuardAt = 0;
+function lbGuardTick(){
+  try{
+    if (Date.now() - _lbGuardAt < 2500) return;
+    const box = document.getElementById('msgs');
+    if (!box) return;
+    const want = (typeof lbScreenMsgs === 'function') ? (lbScreenMsgs() || []) : [];
+    const wm = [];
+    want.forEach(m => {
+      const id = Array.isArray(m) ? String(m[6] || '') : '';
+      if (id) wm.push(id);
+    });
+    const dm = [];
+    box.querySelectorAll('.msg').forEach(el => {
+      if (el.getAttribute('data-think')) return;
+      const id = el.getAttribute('data-mid') || '';
+      if (id) dm.push(id);
+    });
+    if (!wm.length && !dm.length) return;
+    if (wm.length !== dm.length || wm.some((x, i) => x !== dm[i])){
+      _lbGuardAt = Date.now();
+      try { diagLog('主界面兜底重绘|账本=' + wm.length + '|屏幕=' + dm.length, 'warn'); } catch(e){}
+      lbRepaint(0);
+    }
+  }catch(e){}
+}
+try { setInterval(lbGuardTick, 3000); } catch(e){}
+
 function _lbSecOf(m){
   try{
     const id = String((Array.isArray(m) && m[6]) || '');
@@ -176,6 +277,9 @@ function lbHaveLoad(){
           lbRowsPut(u, t, rounds);            /* 2026-11-24：开机把账本 rounds 装进屏幕唯一源 */
         } catch(e){}
       });
+      /* 2.275：开机把账装进 LB.rows 后立刻重画——冷启动不再只停在
+         「暂无消息」的空屏，等用户手点一下才出内容。 */
+      try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
       return Object.keys(LB.lbSum || {}).length;
     }).catch(() => 0);
   } catch(e){ return Promise.resolve(0); }
@@ -594,7 +698,7 @@ function ledgerVcheckBuild(act, sid){
      每模块编码独立可辨、服务端逐模块校验。 */
   const mods = {};
   const b = LB.mods || {};
-  ['sig', 'snote', 'macct', 'convs', 'didp', 'think'].forEach(k => {
+  ['sig', 'snote', 'macct', 'convs', 'didp', 'think', 'srv', 'input', 'points'].forEach(k => {
     if (b[k]) mods[k] = b[k];
   });
   /* 2.184 改4（规范§七 :194 同号不同态＋「客户端上报参数」三条）：ledger 改为
@@ -962,10 +1066,117 @@ function lbKeepApply(d){
             + '|留=' + kept.length, 'ok'); } catch(e){}
         }catch(e){}
       });
-      return Promise.all(puts);
+      /* 2.275：裁剪也改了 LB.rows —— 落盘完成后按账本重画 */
+      return Promise.all(puts).then(() => { try { lbRepaint(); } catch(e){} });
     }).catch(() => {});
   }catch(e){}
 }
+/* ============ 1.054：服务端对账帧 lbsync（账本足额同步：重排+补齐+删多余） ============ */
+function lbSyncApply(d){
+  /* 0.90 服务端「足额补发」配套：按 d.order（服务器完整全序 mid）重建本会话
+     账本 msgs——本地有该 mid 用本地行、否则用 d.add 给的行（缺条只补内容）、
+     都不存在跳过不造假；不在 order 里的多余行丢弃；重建后 lbSum/rows/snap_conv
+     一并同步，最终两边条数/ID/顺序/内容一致。d.think/d.pend 服务端另推，不在
+     本函数处理。无 order/无命中记录一律静默；不新增页面、不改布局。 */
+  try{
+    if (!d || typeof d !== 'object') return;
+    const order = Array.isArray(d.order)
+      ? d.order.map(x => String(x || '')).filter(Boolean) : [];
+    const orderSet = new Set(order);
+    const sid = String(d.sid || '').trim();
+    const wantUid = String(d.uid || '').trim();
+    const wantTitle = String(d.title || '').trim();
+    if (!sid && !wantUid && !wantTitle) return;
+    const addMap = new Map();
+    (Array.isArray(d.add) ? d.add : []).forEach(it => {
+      try{
+        if (!it || typeof it !== 'object') return;
+        const mid = String(it.mid || '');
+        if (mid && Array.isArray(it.row)) addMap.set(mid, it.row);
+      }catch(e){}
+    });
+    _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
+      const puts = [];
+      (rows || []).forEach(rec => {
+        try{
+          if (!rec || !rec.frame || !Array.isArray(rec.frame.msgs)) return;
+          const rs = String(rec.sid || ''), ru = String(rec.uid || '');
+          const rt = String(rec.title || '');
+          /* 三法命中：sid / uid / title 任一相等（同 lbKeepApply :928-930） */
+          const hit = (sid && (sid === rs || sid === ru || sid === rt))
+            || (wantUid && wantUid === ru) || (wantTitle && wantTitle === rt);
+          if (!hit) return;
+          const localMap = new Map();
+          rec.frame.msgs.forEach(m => {
+            if (Array.isArray(m) && m[6]) localMap.set(String(m[6]), m);
+          });
+          let 删 = 0;
+          localMap.forEach((v, k) => { if (!orderSet.has(k)) 删++; });
+          let 补 = 0;
+          const kept = [];
+          order.forEach(mid => {
+            if (localMap.has(mid)){ kept.push(localMap.get(mid)); return; }
+            if (addMap.has(mid)){ kept.push(addMap.get(mid)); 补++; return; }
+          });
+          const 留 = kept.length - 补;
+          const 键 = sid || wantUid || wantTitle;
+          /* 2.277（老板 2026-11-25 07:45 令「明明有 10 条，突然只剩 1 条」）：
+             只拦精准异常——服务端这一拍只给 1 条、本地已有 ≥3 条，才是被砍成
+             一条的现场，保留本地等下一拍；其余（含正常滚动变少）照常重建，
+             绝不因护栏本身把新消息卡住（07:49 实测回归修正）。 */
+          if (kept.length === 1 && localMap.size >= 3){
+            try { diagLog('lbsync 拒删|sid=' + 键 + '|order=' + order.length
+              + '|local=' + localMap.size + '|单条全序保留不动', 'warn'); } catch(e){}
+            return;
+          }
+          if (!kept.length){
+            /* 2.271（老板 2026-11-24 21:29 令·网页固化）：绝不删光——
+               order 为空（服务器这拍没给全序/读不到账本），或服务器没给任何可补
+               内容（add 空）而本地明明有货，一律拒删、原样保留并留痕。宁可让手机
+               显示旧账，也不能被一张坏帧把本地账本清成 0。 */
+            const _localN = localMap.size;
+            if (!order.length || (_localN > 0 && addMap.size === 0)){
+              try { diagLog('lbsync 拒删|sid=' + 键 + '|order=' + order.length
+                + '|add=' + addMap.size + '|local=' + _localN + '|保留不动', 'warn'); } catch(e){}
+              return;
+            }
+            puts.push(_idbReq('snap_conv', 'readwrite',
+              st => st.delete(rec.sk)).catch(() => {}));
+            try { LB.lbHave.delete(String(rec.uid || rec.sid || '')); } catch(e){}
+            try { lbSumDrop(rec.sid, rec.title); } catch(e){}
+            try { delete LB.rows[_lbRowsKey(String(rec.uid || ''), rt)]; } catch(e){}
+            try { delete _frameMem[rec.sk]; } catch(e){}
+            try { diagLog('lbsync 足额|sid=' + 键 + '|order=' + order.length
+              + '|留=0|补=' + 补 + '|删=' + 删
+              + '|rounds=' + (parseInt(d.rounds) || 0), 'ok'); } catch(e){}
+            return;
+          }
+          const nr = Object.assign({}, rec);
+          nr.frame = Object.assign({}, rec.frame, {msgs: kept});
+          try {
+            if (_frameMem && _frameMem[rec.sk] && Array.isArray(_frameMem[rec.sk].msgs))
+              _frameMem[rec.sk].msgs = kept.map(m => m.slice());
+          } catch(e){}
+          const rounds = lbRoundsFromMsgs(kept);
+          const u = String(rec.uid || '').trim()
+            || (typeof lbUidPick === 'function'
+                ? String(lbUidPick(null, rec.sid, rt) || '') : '');
+          try { lbSumSet(u || String(rec.sid || ''), rt, rounds); } catch(e){}
+          try { lbRowsPut(u, rt, rounds); } catch(e){}
+          puts.push(_idbReq('snap_conv', 'readwrite',
+            st => st.put(nr)).catch(() => {}));
+          try { diagLog('lbsync 足额|sid=' + 键 + '|order=' + order.length
+            + '|留=' + 留 + '|补=' + 补 + '|删=' + 删
+            + '|rounds=' + (parseInt(d.rounds) || 0), 'ok'); } catch(e){}
+        }catch(e){}
+      });
+      /* 2.275：服务端足额补发落地后立刻重画（缺额补上却不上屏＝老板说的
+         「怎么刷新思维流都不来」） */
+      return Promise.all(puts).then(() => { try { lbRepaint(); } catch(e){} });
+    }).catch(() => {});
+  }catch(e){}
+}
+if (typeof window !== 'undefined') window.lbSyncApply = lbSyncApply;
 function o_unreadIds(arr){
   const out = [];
   arr.forEach(o => { if (o && o.sid && o.status && o.status.unread) out.push(o.sid); });
@@ -1075,12 +1286,9 @@ function ledgerThinkApply(sid, body){
     /* 2.214：把最新一版思维流挂到该会话账本最底部（只留一条，不进轮次）。 */
     try { lbThinkPut(sid, b.title || '', thinkCardGet(sid, b.title || '')); } catch(e){}
   }
-  /* 2.203（老板 2026-11-19 22:02 令）：思维流只为 1 号网页用户提供。非 1 号（2/3 号）
-     不消费本帧画面（不推思维流），该区域改由 消息渲染.js 按思维灯显示「您不是 1 号
-     网页用户，无法提供思维流」占位；终答仍由 ledger 模块照常补到位。 */
-  if (typeof hostIsFirst === 'function' && !hostIsFirst()){
-    return;
-  }
+  /* 2.266（老板 2026-11-24 20:38 令）：「思维流只为 1 号网页用户提供、非 1 号
+     不消费本帧画面」的限制随「1 号」概念废除整块拆除——思维流推送本就广播
+     全员且按会话携带，各端按「卡片所属会话 == 本端选中会话」自行匹配显示。 */
   if (_hasMsgs){
     /* 2.213：类型只认服务端 index8（u/a/th），前端不再就地推导/补写；
        缺 index8 的行走「类型未知」，原样上屏不丢。 */
@@ -1239,7 +1447,9 @@ function thinkCardGet(sid, title){
    本轮终极（fin=1 的 a 行）一到立即让位。任一条件不满足返回 null。 */
 function thinkCardNow(msgs){
   try {
-    if (typeof hostIsFirst === 'function' && !hostIsFirst()) return null;  /* 思维流只为 1 号 */
+    /* 2.266（老板 2026-11-24 20:38 令）：原「非 1 号 return null」随「1 号」
+       废除拆除——新口径＝谁把本端选中会话与卡片所属会话对上谁就能看；
+       下面 ②③ 会话名/会话 ID 匹配正是新规则的「按会话自匹配」。 */
     if ((typeof _curConvLight === 'function' ? _curConvLight() : '') !== 'busy') return null;
     const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
     const ct = String((typeof curTitle === 'function' ? curTitle() : '') || '');
@@ -1402,8 +1612,11 @@ function lbRoundsFromMsgs(msgs){
       if (String((m.length > 8 && m[8]) || '').toLowerCase() === 'th') return;
       const fin = String((m.length > 7 && m[7]) || '').trim();
       const patch = lbPatchMarked(m);
-      /* '提前终极'/'补记' 是来源标记不是正文，正文保留残片原文（2.212 口径）。 */
-      const _disp = (fin && fin !== '补记' && fin !== '提前终极')
+      /* '提前终极'/'补记'/'账本定稿' 是来源标记不是正文，正文保留原文
+         （2.212 口径；2.272 增 '账本定稿'——服务端 ledger 补发用它标 fin=1，
+         原样当正文会把 AI 终极回复顶成四个字）。 */
+      const _disp = (fin && fin !== '补记' && fin !== '提前终极'
+                     && fin !== '账本定稿')
         ? fin : (m[1] || '');
       const row = [m[0], _disp, '', 0, 0, '', m[6] || '',
                    fin || (patch ? '补记' : ''),
@@ -1769,6 +1982,15 @@ function lbFillFinalsAsync(sid, title){
         _frameMem[sk] = f;
         if (t) _frameMemByTitle[_frameTitleKey(t)] = f;
       } catch(e){}
+      /* 2.286（老板 2026-11-25 12:09 实测：小账本里「两句人类＋各自 AI」都在，
+         主界面却只剩人类）：本函数以前只补盘上账本与 S.snap，不补内存账本
+         LB.rows，而主界面只认 LB.rows ⇒ 被补回来的 AI 终答永远上不了屏。
+         现在把同一份 out 同步进内存账本，屏幕＝小账本。 */
+      try {
+        if (typeof lbRowsPut === 'function' && typeof lbRoundsFromMsgs === 'function')
+          lbRowsPut((typeof lbUidPick === 'function' ? (lbUidPick(null, s, t) || '') : ''),
+                    t, lbRoundsFromMsgs(out));
+      } catch(e){}
       /* 先落盘：同一份写回唯一账（只进不退；内容未变时闸门自然拒收，无副作用） */
       try {
         if (typeof _frameCommit === 'function')
@@ -2077,13 +2299,12 @@ function ledgerStorePut(sid, title, rounds, opt){
       if (_uidEff) LB.lbHave.add(_uidEff);
       lbSumSet(_uidEff, _t, out);
       lbRowsPut(_uidEff, _t, out);            /* 2026-11-24：账本更新即刷屏幕唯一源 */
-      try {   /* 2026-11-24：账本一变，屏幕立刻按账本重画（只认小账本） */
-        const _a = String(S.anchorSid || '');
-        const _au = _a && (typeof lbUidPick === 'function')
-          ? String(lbUidPick(null, _a, S.anchorTitle || '') || '') : '';
-        if ((_uidEff && _au && _uidEff === _au)
-            || (!_uidEff && _t && String(S.anchorTitle || '') === _t)) renderAll();
-      } catch(e){}
+      /* 2.276（探针实测：S.anchorSid 里存的竟是会话名「WB+TR整改专员 ST」
+         而不是 sid，lbUidPick 认不出 → 2.275 的两道条件全不成立，一次都不重绘；
+         renderTick 停在 11、LB 已 10 条而 DOM 仍是 0（手动 lbRepaint 立刻 10 条）。
+         ⇒ 不再猜「这本账是不是当前显示的」，账本一变就统一重画：
+         renderAll 幂等 + renderMsgs 有指纹早退 + 本函数 250ms 节流，代价可忽略。 */
+      try { lbRepaint(); } catch(e){}
       lbWriteBackSnap(_uidEff, _t, out);                   /* 改1：最新账本立刻回写秒显源 */
       /* 2.214：同一会话（同 sid 或同名，含旧「重复」后缀）只留一本账 */
       try { lbMergeForConv(_dialogSid, _t); } catch(e){}

@@ -1,6 +1,5 @@
 'use strict';
 const LS_SKEL = 'trae_webm_skel';        /* 骨架缓存（会话列表） */
-const LS_HIST = 'trae_webm_hist';        /* 历史消息缓存（按会话） */
 let cacheKey = null, reqSeq = 0, skelLastSave = 0;
 const S_reqs = {};                       /* id → {conv, ts}（防过期回包） */
 function cacheKeyNow(){ return VER + '|' + (S.srvVer || '0'); }
@@ -39,10 +38,10 @@ function checkVerBump(){
   const bumped = cacheKey !== null && cacheKey !== k;
   if (bumped){
     try { localStorage.removeItem(LS_SKEL);
-          localStorage.removeItem(LS_HIST); } catch(e){}
+          localStorage.removeItem('trae_webm_hist');   /* 2026-11-24：LS_HIST 常量已删，仍清旧键 */ } catch(e){}
     try { snapIdbClearList(); } catch(e){}   /* 2.17：只清列表骨架，预备画面保留 */
     _lsPurgeSnapKeys();
-    S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histPrevRaw = [];
+    S.histConv = ''; S.histRaw = []; S.histPrevRaw = [];
     /* 2.130：换代 → 内存存帧一并作废，再按新键重新全量预读 */
     try {
       Object.keys(_frameMem).forEach(x => { delete _frameMem[x]; });
@@ -105,7 +104,9 @@ function srvPackSave(){
                                      full: S.anchorFull || ''} : null,
               solid: {备注: S.备注 || {}, 定时: S.定时 || [],
                       models_full: S.models_full || [], boxes: S.boxes || [],
-                      acct: S.acct || '', model: (s.model || '')}};
+                      acct: S.acct || '', model: (s.model || ''),
+                      points: (S.points && S.points !== '—' && S.points !== '读取失败')
+                              ? S.points : ''}};
     const ks = Object.keys(all).sort((a, b) => (all[b].ts || 0) - (all[a].ts || 0));
     ks.slice(6).forEach(x => { delete all[x]; });
     localStorage.setItem(LS_SRV_PACK, JSON.stringify(all));
@@ -143,6 +144,11 @@ function srvPackRestore(box, port){
     try { if (d.acct){ S.acct = String(d.acct); renderAcct(); } } catch(e){}
     try { if (d.model && typeof syncModel === 'function'){ syncModel(d.model);
             if (S.snap) S.snap.model = d.model; } } catch(e){}
+    /* 2.269（老板 2026-11-24 21:29 令·积分固态化）：切回这台服务器＝立刻还原它
+       上次的积分，绝不显示「积分 —」；新积分到了由 points 事件/hello 帧覆盖。 */
+    try { if (d.points && d.points !== '—' && d.points !== '读取失败'){
+            S.points = String(d.points);
+            if (el.points) el.points.textContent = '积分 ' + S.points; } } catch(e){}
     /* 锚定：切回这台服务器＝回到它上次看的会话，立刻用该会话存帧铺满 */
     if (p.anchor && p.anchor.sid){
       S.anchorSid = p.anchor.sid; S.anchorTitle = p.anchor.title || '';
@@ -190,6 +196,8 @@ function solidSave(){
                boxes: S.boxes || [],
                acct: S.acct || '',
                model: (S.snap && S.snap.model) || '',
+               points: (S.points && S.points !== '—' && S.points !== '读取失败')
+                       ? S.points : '',
                pend: (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend : [],
                pend_sid: (S.snap && S.snap.pend_sid) || ''};
     localStorage.setItem(LS_SOLID, JSON.stringify(o));
@@ -231,6 +239,11 @@ function solidBoot(){
   } catch(e){}
   try { if (d.acct){ S.acct = String(d.acct); renderAcct(); } } catch(e){}
   try { if (d.model && typeof syncModel === 'function') syncModel(d.model); } catch(e){}
+  /* 2.269（老板 2026-11-24 21:29 令·积分固态化）：冷开/断网立刻显示上次积分，
+     绝不停在「积分 —」；新积分到（points 事件/hello）再覆盖。 */
+  try { if (d.points && d.points !== '—' && d.points !== '读取失败'){
+          S.points = String(d.points);
+          if (el.points) el.points.textContent = '积分 ' + S.points; } } catch(e){}
   try {
     if (Array.isArray(d.pend) && d.pend.length){
       if (!S.snap || typeof S.snap !== 'object') S.snap = {};
@@ -260,28 +273,6 @@ function solidBoot(){
    删除「只留最近 3 轮」的全部逻辑（原 2.59／用户 2026-10-07 口径作废）——
    快照与本地账本一律**整帧原样**，不再由网页端裁剪。 */
 /* —— 历史缓存：按 (端口|会话标题) 存账本记录 + 游标 —— */
-function histCacheRead(conv){
-  try {
-    const o = JSON.parse(localStorage.getItem(LS_HIST) || 'null');
-    /* 2.174：key 校验放宽（断网冷开也要能读上次在线的历史缓存） */
-    if (!o) return null;
-    const e = (o.convs || {})['p' + S.port + '|' + (conv || '')];
-    if (!e || !Array.isArray(e.msgs) || !e.msgs.length) return null;
-    return e;
-  } catch(e){ return null; }
-}
-function histCacheWrite(conv, ver, have_seq, msgs){
-  try {
-    let o = null;
-    try { o = JSON.parse(localStorage.getItem(LS_HIST) || 'null'); } catch(e){}
-    if (!o || o.key !== cacheKeyNow()) o = {key: cacheKeyNow(), convs: {}};
-    if (!o.convs) o.convs = {};
-    o.convs['p' + S.port + '|' + (conv || '')] =
-      {ver: ver | 0, have_seq: have_seq | 0,
-       msgs: Array.isArray(msgs) ? msgs : []};
-    localStorage.setItem(LS_HIST, JSON.stringify(o));
-  } catch(e){}
-}
 function ledToArr(r){
   /* 2.105（②）：账本行补 index6＝mid（原始记录自带 mid；index5 留空＝无服务端盖章），
      供 curMsgs 尾部追加「按 mid 优先去重」。
@@ -315,7 +306,8 @@ function _histFromSeq(){
 /* 2.125（老板 2026-10-22 21:21）：给服务端同时送「终身号 + 会话名」——服务端
    优先按终身号匹配账本（账本自 v2.55 起只按终身号记），匹配不上再退会话名。 */
 function _ltOf(conv){
-  try { return 稳定键(curSid(), conv || ''); } catch(e){ return ''; }
+  /* 2.261：hist/hist_prev 的 lt 以唯一锚定键为准 */
+  try { return S.anchorSid || 稳定键(curSid(), conv || ''); } catch(e){ return ''; }
 }
 function reqHist(conv, have_seq, ver){
   const id = ++reqSeq;
@@ -353,22 +345,26 @@ function applyHist(conv, v){
   const inc = v.msgs || [];
   if (v.rebuild){                              /* 版本不符：整体重建 */
     S.histRaw = inc.slice();                   /* 2.126：整段原样，不再裁 3 轮 */
-    S.histMsgs = S.histRaw.map(ledToArr);
     S.histVer = v.ver | 0;
   } else {                                     /* 游标增量：只补新段 */
     if (!Array.isArray(S.histRaw)) S.histRaw = [];
-    if (!Array.isArray(S.histMsgs)) S.histMsgs = [];
     for (const r of inc){
       if (S.histRaw.some(x => x.seq === r.seq)) continue;
       S.histRaw.push(r);
-      S.histMsgs.push(ledToArr(r));
     }
     S.histVer = v.ver | 0;
   }
   S.histHave = S.histRaw.length
     ? S.histRaw[S.histRaw.length - 1].seq : 0;
+  /* 2.263：hist 只回最新 N 轮（v.msgs 原样合并去重）。
+     has_more===false 即到底；字段缺失保持旧逻辑，不报错。 */
+  if (v.has_more === false) S.histEnd = true;
+  else if (v.has_more === true) S.histEnd = false;
   /* 2.126：整段原样保留，不再裁 3 轮。
-     3.00：不再写本地账本副本（LS_HIST 已废）。 */
+     3.00：不再写本地账本副本（LS_HIST 已废）。
+     2.264（老板 2026-11-24）：拉回来的历史能进前 N 轮就并入小账本——地位等同核对账本，
+     走 lbHistToLedger 同一条 _frameCommit 通道（older=false＝增量新段）。 */
+  try { if (typeof lbHistToLedger === 'function') lbHistToLedger(false); } catch(e){}
   renderAll();
 }
 function prependHist(conv, older, end){
@@ -391,8 +387,10 @@ function prependHist(conv, older, end){
   const _haveP = new Set(S.histPrevRaw.map(x => x.seq));
   const _addP = older.filter(r => !_haveP.has(r.seq));
   S.histPrevRaw = _addP.concat(S.histPrevRaw);
-  S.histMsgs = S.histRaw.map(ledToArr);
-  /* 3.00：不再写本地账本副本（LS_HIST 已废） */
+  /* 3.00：不再写本地账本副本（LS_HIST 已废）
+     2.264（老板 2026-11-24）：上顶翻出来的更早一页也一样——能进前 N 轮就并进小账本
+     （older=true＝更早段，排在账本前面）。 */
+  try { if (typeof lbHistToLedger === 'function') lbHistToLedger(true); } catch(e){}
   renderAll();
   /* 2.85：按「增量」还原阅读位置。旧写法 `scrollTop = 新height - 旧height`：
      ①用户在中间读（t0>0）时被硬拽回相对顶部（新-旧往往很小甚至为 0）；
@@ -405,17 +403,18 @@ function prependHist(conv, older, end){
 /* —— 会话历史打开：秒显本地 + 发请求式增量 —— */
 function ensureHist(){
   if (S.switch_pend) return;                   /* 切换在途：等快照定论 */
-  const title = curTitle();
-  if (!title || title === S.histConv) return;
-  S.histConv = title;
-  S.histMsgs = null; S.histRaw = []; S.histPrevRaw = []; S.histVer = 0; S.histHave = 0;
+  /* 2.261：histConv 存唯一锚定键（anchorSid），hist/hist_prev 均以锚定为准 */
+  const key = S.anchorSid || 稳定键(curSid(), curTitle());
+  if (!key || key === S.histConv) return;
+  S.histConv = key;
+  S.histRaw = []; S.histPrevRaw = []; S.histVer = 0; S.histHave = 0;
   S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;   /* 2.49：换会话重置到底标记/游标 */
   /* 3.00（老板 2026-11-05 23:10）：正文只认「快照 + 预备画面」——
      不再读本地账本副本（LS_HIST 已废），也不再拿账本秒显。
      这里只发一次 hist 请求取「账本游标(seq)」，供用户上顶时翻更早页。
      （不发渲染、不落盘；快照到位前由预备画面顶住。） */
-  reqHist(title, 0, 0);
+  reqHist(key, 0, 0);
 }
 /* 2.112（X2-2/X2-4）：正式 mid＝十六进制串（前 8 位＝Unix 秒）；`temp-agent-…`
    这类非 hex 一律视为「生成期临时号」，不得当正式身份参与去重/对齐/排序。 */
@@ -506,46 +505,8 @@ function _swSnapIsTargetNow(sp){
       && Array.isArray(sp && sp.prevMsgs)
       && !sameConvBody(sm, sp.prevMsgs));
 }
-/* 3.01（老板 2026-11-20 令·小账本短路）：取「当前会话」的本地全量快照正文。
-   来源优先级：_frameMem（按 srv+sid 预读/落地）→ 标题索引 → S.liveFrame。
-   服务器归属不符（f._srv 有值且≠当前服务器）⇒ 视为无缓存，绝不跨服串显。 */
-function _curLocalFrameMsgs(){
-  try{
-    const sid = (S.anchorSid || (typeof curSid === 'function' ? curSid() : '') || '');
-    const title = (typeof curTitle === 'function') ? curTitle() : '';
-    let f = sid ? _frameMem[_frameMemKey(sid)] : null;
-    if (!f && title) f = _frameMemByTitle[_frameTitleKey(title)];
-    if (!f && S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length)
-      f = S.liveFrame;
-    if (!f || !Array.isArray(f.msgs) || !f.msgs.length) return [];
-    const tag = (typeof lbSrvTag === 'function') ? String(lbSrvTag()) : '';
-    if (f._srv && tag && String(f._srv) !== tag) return [];
-    return f.msgs;
-  }catch(e){ return []; }
-}
-/* 3.01：同一 mid（无正式 mid 退「角色+正文」指纹）只留一条——本地铺底、活帧增量补尾；
-   同一条取正文更长的那份（终极回复长于生成中的壳行），绝不重复成两条。 */
-function _mergeLocalSnap(localMsgs, snapMsgs){
-  const local = Array.isArray(localMsgs) ? localMsgs : [];
-  const snap = Array.isArray(snapMsgs) ? snapMsgs : [];
-  if (!local.length) return snap;
-  const out = [], idx = new Map();
-  const idOf = m => {
-    const id = String((m && m[6]) || '');
-    return _midIsFormal(id) ? ('M\u0001' + id) : _msgKey(m);
-  };
-  const put = (m, live) => {
-    if (!Array.isArray(m)) return;
-    const k = idOf(m), at = idx.get(k);
-    if (at == null){ idx.set(k, out.length); out.push(m); return; }
-    const old = out[at];
-    const ot = String((old && old[1]) || ''), nt = String((m && m[1]) || '');
-    if (nt.length > ot.length || (nt.length === ot.length && live)) out[at] = m;
-  };
-  local.forEach(m => put(m, false));
-  snap.forEach(m => put(m, true));
-  return out;
-}
+/* 2026-11-24（老板令·只认小账本）：原 _curLocalFrameMsgs / _mergeLocalSnap
+   （本地存帧铺底、标题兜底、与活帧合并）整段删除——屏幕正文只从账本 rounds 出。 */
 function curMsgs(){
   /* 3.00（老板 2026-11-05 23:10）：正文唯一来源＝
      ① 服务端真快照（S.snap.msgs，内存，不落盘）；
@@ -556,10 +517,22 @@ function curMsgs(){
      正文更长的那份、绝不重复成两条；无本地缓存则原样用活帧（降级不报错）。 */
   const _sp = S.switch_pend;
   if ((S.livePend || (_sp && _sp.lockTarget && !_sp.arrived))
-      && !_swSnapIsTargetNow(_sp)) return [];
-  const _liveMsgs = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs.slice() : [];
-  const _localMsgs = _curLocalFrameMsgs();
-  const snapMsgs = _localMsgs.length ? _mergeLocalSnap(_localMsgs, _liveMsgs) : _liveMsgs;
+      && !_swSnapIsTargetNow(_sp)){
+    /* 2026-11-24 单账本：切会话在途也直接显示目标会话账本，不再清屏等快照。 */
+    const _l = (typeof lbScreenMsgs === 'function')
+      ? lbScreenMsgs((typeof curSid === 'function' ? curSid() : ''),
+                     (typeof curTitle === 'function' ? curTitle() : '')) : [];
+    return orderMsgs(_l);
+  }
+  /* 2026-11-24（老板 10:23「只认小账本」）：正文唯一来源＝当前会话账本 rounds。
+     2.265（老板 2026-11-24 铁令）：撤「账本读空回落服务端活帧」——S.snap.msgs
+     是 WS 直推内容（snap_pane 增量帧/直推人类行会把它污染成单条），回落＝
+     「主界面只剩最新一条、上下文全没了」的旁路；账本读空一律空态，
+     等账本帧/hist 补入后自动渲染，绝不直显直推单条。 */
+  const snapMsgs = (typeof lbScreenMsgs === 'function')
+    ? lbScreenMsgs((typeof curSid === 'function' ? curSid() : ''),
+                   (typeof curTitle === 'function' ? curTitle() : ''))
+    : [];
   const prevRaw = (S.histPrevRaw && S.histPrevRaw.length) ? S.histPrevRaw : [];
   if (!prevRaw.length) return orderMsgs(snapMsgs);
   const prevArr = prevRaw.map(ledToArr);
@@ -599,7 +572,7 @@ function curMsgs(){
 /* 2.244（老板令·一套账，对齐 WB IDB_VER=3/purgeConvStore）：升 3——
    ledger_conv 退役停写、一次性清空，本地只留 snap_conv 一套正文账。
    表定义仍保留（旧库升级不报 NotFound，清空后永不写入）。 */
-const IDB_NAME = 'trae_webm_idb', IDB_VER = 3;
+const IDB_NAME = 'trae_webm_idb', IDB_VER = 4;   /* 2026-11-24：v4 物理删除 ledger_conv（只留 snap_conv 一本账） */
 const IDB_KEEP_MS = 10 * 24 * 3600 * 1000;  /* 2.98：超 10 天剪枝（标准《快照缓存策略》§五，原 7 天） */
 /* 2.126：WEB_ROUNDS_KEEP 已删除（三轮口径作废，快照与账本一律整帧原样）。 */
 const IDB_PRUNE_MAX = 200;                  /* 单轮最多删 200 条，防长任务卡主线程 */
@@ -633,10 +606,18 @@ function idbOpen(){
         db.createObjectStore('snap_list', {keyPath: 'sk'});
       if (!db.objectStoreNames.contains('snap_pend'))
         db.createObjectStore('snap_pend', {keyPath: 'did'});  /* 占位卡持久化（C1） */
-      if (!db.objectStoreNames.contains('ledger_conv'))
-        db.createObjectStore('ledger_conv', {keyPath: 'sk'}); /* 账本V1.0：本地账本（账本核对.js） */
+      /* 2026-11-24（老板令·只留小账本）：ledger_conv 第二本账物理删除，不再创建。 */
+      if (db.objectStoreNames.contains('ledger_conv')) db.deleteObjectStore('ledger_conv');
     };
-    rq.onsuccess = () => res(rq.result);
+    rq.onsuccess = () => {
+      const db = rq.result;
+      /* 2.246：旧标签页（旧版本页）持着老连接的 IDB 不放手，会把 v3 升级永久卡在
+         blocked（本轮 CDP 实测：另一个 2.240 页面把主线 repro 卡死 60 秒）。收到
+         versionchange 立即关连接让位；本页随后的 DB 操作按需重开。 */
+      try { db.onversionchange = () => { try { db.close(); } catch(e){}
+        _idbP = null; }; } catch(e){}
+      res(db);
+    };
     rq.onerror = () => rej(rq.error || new Error('IndexedDB 打开失败'));
   });
   _idbP.catch(() => { _idbP = null; });     /* 失败可重试，不长期锁死 */
@@ -702,9 +683,12 @@ function _frameMsgs(msgs, idle){
     if (!Array.isArray(m)) return;
     const r = m.slice();
     if (m[0] === 'a'){
-      /* '提前终极'/'补记' 是来源标记不是正文，正文保持后端原文。 */
+      /* '提前终极'/'补记'/'账本定稿' 是来源标记不是正文，正文保持后端原文。
+         2.272：服务端 ledger 补发用 '账本定稿' 标 fin=1，原样当正文会让主界面
+         AI 终极回复只剩四个字（小账本却正常）。 */
       const fin = (m.length > 7) ? String(m[7] || '').trim() : '';
-      if (fin && fin !== '补记' && fin !== '提前终极') r[1] = fin;
+      if (fin && fin !== '补记' && fin !== '提前终极' && fin !== '账本定稿')
+        r[1] = fin;
     }
     out.push(r);
   });
@@ -738,6 +722,27 @@ function _frameTailOrder(msgs){
   }
   return {n: n, mid: mid};
 }
+/* 2.286（老板 2026-11-25 12:10 实测：AI 终极回复在账本里，切几次会话就没了）：
+   根因＝落盘闸只认「尾 mid 更新」，服务端省流片段帧（pane/ledger 只带最后 1~2 轮）
+   尾 mid 更新 ⇒ 整条记录被片段覆盖，前面整轮连带 AI 回复一起丢。
+   本函数把「新帧之前的历史」从旧记录补回：以新帧最早一条 mid 为界，旧记录里
+   更早的行原样保留，再拼新帧（同 mid 以新帧为准，尾部真正的撤回/删除不受影响）。 */
+function _framePrefixFill(oldMsgs, newMsgs){
+  try{
+    if (!Array.isArray(oldMsgs) || !oldMsgs.length) return newMsgs;
+    if (!Array.isArray(newMsgs) || !newMsgs.length) return oldMsgs;
+    const midOf = m => String((Array.isArray(m) && m[6]) || '');
+    let first = '';
+    newMsgs.forEach(m => { const d = midOf(m); if (d && (!first || d < first)) first = d; });
+    if (!first) return newMsgs;                    /* 新帧无 mid：无从对齐，保持原样 */
+    const have = new Set(newMsgs.map(midOf).filter(Boolean));
+    const pre = oldMsgs.filter(m => { const d = midOf(m); return d && d < first && !have.has(d); });
+    if (!pre.length) return newMsgs;
+    if (typeof diagLog === 'function')
+      diagLog('账本补回历史|' + pre.length + '行', 'ok');
+    return pre.concat(newMsgs);
+  }catch(e){ return newMsgs; }
+}
 function _frameNewerOrEqual(a, b){
   /* true＝a（新帧）可以覆盖 b（已存帧） */
   if (!b || !Array.isArray(b.msgs) || !b.msgs.length) return true;
@@ -758,6 +763,8 @@ function _frameTrimN(msgs, sk, quiet){
 }
 function _frameCommit(sk, frame, meta, onOk, memNow, force){
   const _mk = String(meta.title || '').trim();
+  /* 2.286：记住落笔前的旧帧，供 _put 把「片段帧之前的历史」补回（防越切越少）。 */
+  const _prevMem = _frameMem[sk] || null;
   /* 3.01：给存帧盖「当前服务器」归属，供小账本短路按 srv+sid 校验（切服不串显）。 */
   try { if (frame && typeof frame === 'object' && typeof lbSrvTag === 'function')
           frame._srv = String(lbSrvTag()); } catch(e){}
@@ -765,6 +772,17 @@ function _frameCommit(sk, frame, meta, onOk, memNow, force){
      会以「条数更多」把裁后的 5 轮新帧判成旧帧拒收。 */
   if (frame && Array.isArray(frame.msgs)) frame.msgs = _frameTrimN(frame.msgs, sk, false);
   const _put = () => {
+    /* 2.286（老板 2026-11-25 12:10 实测：账本 10 条→7 条→3 条，越切越少）：
+       片段帧（pane/ledger 只带最后 1~3 轮）尾 mid 更新就把整本覆盖掉。落笔前
+       先把旧帧里比新帧更早的行补回（_framePrefixFill），force 强制覆盖除外。 */
+    try {
+      if (!force && Array.isArray(frame && frame.msgs)){
+        const _base = (_prevMem && _prevMem !== frame) ? _prevMem
+                    : ((_frameMem[sk] && _frameMem[sk] !== frame) ? _frameMem[sk] : null);
+        if (_base && Array.isArray(_base.msgs))
+          frame.msgs = _frameTrimN(_framePrefixFill(_base.msgs, frame.msgs), sk, true);
+      }
+    } catch(e){}
     _frameMem[sk] = frame;
     if (_mk) _frameMemByTitle[meta.key + '|' + _mk] = frame;
     _idbReq('snap_conv', 'readwrite', st => {
@@ -958,18 +976,6 @@ function snapIdbClearList(){
 }
 /* 2.244（老板令·一套账，对齐 WB purgeConvStore/维护记录 2.49、2.50）：
    ledger_conv 停写并清空——历史轮次由 账本核对.js lbLedgerMigrateOnce 先一次性
-   并入唯一正文账 snap_conv，再调本函数清表；LS 标记保证一生只清一次。 */
-const LS_LB_PURGED_244 = 'trae_webm_lb_purged_244';
-function purgeLedgerStore(){
-  try { if (localStorage.getItem(LS_LB_PURGED_244) === '1') return Promise.resolve(false); } catch(e){}
-  return _idbReq('ledger_conv', 'readwrite', st => st.clear())
-    .then(() => {
-      try { localStorage.setItem(LS_LB_PURGED_244, '1'); } catch(e){}
-      try { diagLog('2.244 单账本：ledger_conv 已清空（此后只写 snap_conv）', 'ok'); } catch(e){}
-      return true;
-    })
-    .catch(() => false);
-}
 /* 剪枝①：超 10 天的记录按主键逐个删（绝不整库清空），单轮上限 IDB_PRUNE_MAX */
 function snapIdbPrune(){
   const cut = Date.now() - IDB_KEEP_MS;
@@ -1050,7 +1056,11 @@ function liveOverlay(snap){
   if (!_liveLockOn()) return snap;
   const f = S.liveFrame || {};
   return Object.assign({}, snap, {
-    msgs: (f.msgs || []), finish: f.finish || null, tail: f.tail || '',
+    msgs: (typeof lbScreenMsgs === 'function'
+           ? lbScreenMsgs((typeof curSid === 'function' ? curSid() : ''),
+                          (typeof curTitle === 'function' ? curTitle() : ''))
+           : (f.msgs || [])),
+    finish: f.finish || null, tail: f.tail || '',
     sendIdle: !!f.sendIdle, inputText: f.inputText || '',
     opts: f.opts || [], ask: f.ask || null,
     /* 2.173（固态化「打开即活」）：pend 不再硬清空——原 [] 是 2.57B 时代唯一
@@ -1068,43 +1078,12 @@ function liveOverlay(snap){
 /* 秒显：点会话后直接从内存取本地最新完整存帧同步铺上（不读盘、不请求） */
 function snapIdbShow(sid, title){
   if (!sid) return;
-  S.liveGot = false; S.livePend = sid;
+  S.liveGot = false; S.livePend = S.anchorSid || 稳定键(sid, title) || String(sid || '');   /* 2.261：一律存锚定键 */
   S.liveFrame = null;            /* 2.57B：旧会话 A 的正文退场（防张冠李戴） */
-  /* 2.64：先读到目标会话的存帧、再渲染「一次」——不再先画一版空帧。
-     原实现先 renderAll() 空帧、再异步补缓存，中间那版空版面会把消息区
-     scrollTop 夹回 0 并抛 scroll 事件，成为「自动跳顶 + 拉历史」的源头。
-     现在：有存帧 → 一次性铺上（全程不经过空帧）；无存帧 → 只留白一次等直播帧。 */
-  /* 2.130：全部会话存帧已在打开页面时预读进内存 ⇒ 同步命中即整屏铺上（0ms），
-     命中后【不再读 IDB】；只有内存未命中（新设备/未落过盘）才走一次磁盘兜底。 */
-  const _mk = _frameMemKey(sid);
-  const _mem = _frameMem[_mk] || _frameMemByTitle[_frameTitleKey(title)] || null;
-  if (_mem && Array.isArray(_mem.msgs) && _mem.msgs.length){
-    _frameMem[_mk] = _mem;                      /* 标题兜底命中：顺手补上 sid 索引 */
-    S.liveFrame = _mem;
-    S.swFrameReady = true;                      /* 存帧已上屏（读取闸视为已结） */
-    renderAll();
-    return;
-  }
-  snapIdbGet(sid, title).then(rec => {
-    S.swFrameReady = true;                      /* 2.97：存帧读取已结（有/无皆算结） */
-    /* 2.126：IDB 回读校正内存帧同样守「只进不退」——旧帧不得回盖内存里的新帧 */
-    if (rec && rec.frame && (!_mem || _frameNewerOrEqual(rec.frame, _mem)))
-      _frameMem[_mk] = rec.frame;
-    if (S.liveGot && Array.isArray((S.snap || {}).msgs)
-        && S.snap.msgs.length) return;           /* 2.15：真画面确有正文才不复盖；空则继续用缓存 */
-    if ((S.anchorSid || '') !== sid) return;    /* 已切走 */
-    if (S.livePrefetch) return;                 /* 2.67：服务端已预取该会话正文帧，别用本地存帧覆盖 */
-    if (_mem) return;                           /* 2.112：内存帧已上屏（且更新），不拿 IDB 旧帧回盖 */
-    /* 2.243：小账本已先合并上屏（冷启动 lbBootMerge），空/旧存帧不得再把它盖回空 */
-    if (!(rec && rec.frame && Array.isArray(rec.frame.msgs) && rec.frame.msgs.length)
-        && S.liveFrame && Array.isArray(S.liveFrame.msgs) && S.liveFrame.msgs.length) return;
-    S.liveFrame = (rec && rec.frame) || null;   /* 有存帧 → 一次性上屏 */
-    renderAll();
-  }).catch(() => {
-    /* 读取失败也要铺一次，免卡在上一会话画面 */
-    S.swFrameReady = true;                      /* 2.97：读取失败也算「结」→ 无存帧则留白（2.57B） */
-    if (!S.liveGot && (S.anchorSid || '') === sid) renderAll();
-  });
+  /* 2026-11-24 单账本：切会话不再用存帧铺底，直接按账本 rounds 渲染并返回。 */
+  S.swFrameReady = true;
+  renderAll();
+  return;
 }
 /* 2.113：非锚定会话的按需帧（snap_pane）→ 存为该会话的内存存帧＋按会话键落 IDB。
    键与 2.112 完全一致（`cacheKey|稳定键`，snapIdbTick/snapIdbShow 同源），点该会话时

@@ -32,7 +32,6 @@
   Promise.resolve()
     /* 2.244（老板令·一套账）：开机先把旧 ledger_conv 一次性并入唯一正文账
        snap_conv 并清表（只跑一次），再按正文账重建真存集/摘要表（vcheck 上报口径不变）。 */
-    .then(function(){ return (typeof lbLedgerMigrateOnce === 'function') ? lbLedgerMigrateOnce() : null; })
     .then(function(){ try { if (typeof lbHaveLoad === 'function') return lbHaveLoad(); } catch(e){} })
     .then(function(){ return snapIdbPrewarm(); })
     .catch(function(){})
@@ -44,6 +43,6 @@ pickCur(); renderSrvList(); renderTop(); /* v1.87：打开即渲染名册 + 直�
 /* 2.216（0047 第1件）：首帧未到、又没有本地存帧时，先把三步引导铺上（不白屏、不挡输入框）。 */
 try { if (typeof guideBoot === 'function') guideBoot(); } catch(e){}
 connect();
-/* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：原「副频道每 15 分钟探测
-   主频道、恢复即自动切回」的启动调用已删——切哪个频道就只连哪个，
-   想回主频道手动点「主频道」按钮。 */
+/* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：原「副集群每 15 分钟探测
+   主集群、恢复即自动切回」的启动调用已删——切哪个频道就只连哪个，
+   想回主集群手动点「主集群」按钮。 */

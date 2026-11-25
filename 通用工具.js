@@ -246,18 +246,14 @@ function warnFlash(msg){
   失败」+一个「确认」键立刻消除，3 秒自动消失，无其他按钮 */
 let swfTimer = null;
 function switchFail(title){
-  let t = $('swfbox');
-  if (!t){
-    t = document.createElement('div');
-    t.id = 'swfbox';
-    t.innerHTML = '<div class="t">⚠ 会话切换失败</div>'
-      + '<button>确认</button>';
-    t.querySelector('button').onclick = () => t.classList.remove('on');
-    document.body.appendChild(t);
-  }
-  t.classList.add('on');
-  clearTimeout(swfTimer);
-  swfTimer = setTimeout(() => t.classList.remove('on'), 3000);
+  /* 2.261（老板令·横幅唯一提醒）：切换失败只走顶部横幅「切换失败 · 会话名」，
+     删除旧悬浮小窗；横幅 5 秒后自动收起恢复常态，绝不丢会话名。 */
+  try {
+    if (typeof setBanner === 'function'){
+      setBanner('切换失败');
+      if (typeof clearBannerLater === 'function') clearBannerLater('切换失败', 5000);
+    }
+  } catch(e){}
 }
 
 /* 1.27：登录账号名显示（抽屉「登录账号」行） */
@@ -502,8 +498,7 @@ function curTitle(){
       if (r[0] === 'c' && _行稳定(r) === S.anchorSid) return r[1];
     if (S.anchorTitle) return S.anchorTitle;  /* 锚点不在列表：先用锚定标题兜底（A4 已弹提醒） */
   }
-  for (const r of convs) if (r[0] === 'c' && r[2]) return r[1];
-  return '当前会话';
+  return '当前会话';   /* 2.261：唯一锚定——删除「快照选中行 r[2]」兜底 */
 }
 /* v1.95：当前会话的稳定 ID（convs 'c' 行第 5 位，TRAE 后端主键）。
    本专项 A5：锚定优先；未锚定才回退快照选中行。拿不到返回 ''。
@@ -516,8 +511,7 @@ function curSid(){
       if (r[0] === 'c' && _行稳定(r) === S.anchorSid) return r[4] || '';
     return S.anchorFull || '';      /* 锚点暂不在列表：用最近一次命中的完整 sid 兜底 */
   }
-  for (const r of convs) if (r[0] === 'c' && r[2]) return r[4] || '';
-  return '';
+  return '';   /* 2.261：唯一锚定——删除「快照选中行 r[2]」兜底 */
 }
 
 /* ===== 2.25：act 上报统一闸门（用户 2026-10-05 三条约束）=====
@@ -542,8 +536,7 @@ function actCurConv(){                /* 当前正在看的会话（锚定优先
   if (S.anchorSid) for (const r of convs){
     if (r && r[0] === 'c' && _行稳定(r) === S.anchorSid){ row = r; break; }
   }
-  if (!row) for (const r of convs) if (r && r[0] === 'c' && r[2]){ row = r; break; }
-  if (!row) return null;
+  if (!row) return null;   /* 2.261：唯一锚定——未锚定不猜快照选中行 */
   return {title: (row[1] || '').trim(), sid: row[4] || '', uid: _行稳定(row)};
 }
 function actCurUnread(cv){            /* ③ 当前会话是否亮着橙灯（ID 优先，终身号再认，回退标题） */
@@ -587,11 +580,12 @@ function actSend(k){
   if (now - lastActAt < ACT_MIN_MS) return;   /* ① 全局 3 秒底线（不动） */
   const ck = cv.uid || cv.sid || ('t:' + cv.title);  /* 2.194/2.204：按会话（终身号优先）计频 */
   if (now - (lastActByConv[ck] || 0) < ACT_CONV_MIN_MS) return;  /* 同一会话 60 秒 1 条 */
-  lastActAt = now;
-  lastActByConv[ck] = now;
   /* 2.204：报文带会话名 title ＋ 会话编号 sid；终身号由服务端按 sid/title 归一
      （命令路由 act 分支只认 title/sid，绝不发它不认的字段）。 */
-  sendJson({t: 'act', k: k, title: cv.title, sid: cv.sid});
+  /* 2.260：只有真正交给已打开 socket 才算已发——未连接不发、也不占节流额度。 */
+  if (!sendJson({t: 'act', k: k, title: cv.title, sid: cv.sid})) return;
+  lastActAt = now;
+  lastActByConv[ck] = now;
   actClearLocal(cv);                  /* ③ 清完即停 */
 }
 
@@ -646,8 +640,9 @@ function anchorReport(){
       const sid = S.anchorFull || '', key = S.anchorSid || '', title = S.anchorTitle || '';
       const sig = sid + '\n' + key + '\n' + title;
       if (sig === anchorRepSig) return;      /* 去重：同一锚定不重复上报 */
+      /* 2.260：真正发出去了才记去重签名；未连接不发、下轮仍会重试。 */
+      if (!sendJson({t: 'anchor', sid: sid, key: key, title: title})) return;
       anchorRepSig = sig;
-      sendJson({t: 'anchor', sid: sid, key: key, title: title});
     } catch(e){}
   }, 300);
 }
@@ -911,6 +906,8 @@ function fillEntSafe(text){
 }
 
 function renderAll(){
+  /* 2.261：重画计数——横幅「核对成功」延后落位（等补发静默 600ms）用它判「无重画」。 */
+  S.renderTick = (S.renderTick | 0) + 1;
   /* 2.164（老板 11-15）：「手机重新展示到输入框的时候，小尾巴都要剥离掉」——
      每次刷新画面顺手把关一次输入框（换会话/换服务器/回退脏值残留都绕不过这里）；
      框里没有 '(@fox-' 就一个字不动（foxStripTail 首行 indexOf 早退）。 */
@@ -947,50 +944,30 @@ function renderAll(){
      旧会话 A 的画面（旧 2.97「维持现画面重放」已废）；swHold 仅在目标快照上屏后
      用于防中间态闪回（保 2.89 防交叉闪现）。见下方分支。 */
   const _locked = _liveLockOn();
-  const _lf = S.liveFrame;
-  /* 2.15（老板 2026-11-05 20:41）：真快照正文为空（框架帧/切会话空档）时，
-     即便不在切换锁态也用本地存帧兜底——有缓存就绝不白屏。 */
-  const _snapEmpty = !(Array.isArray((S.snap || {}).msgs) && S.snap.msgs.length);
-  const _storeMsgs = (_lf && Array.isArray(_lf.msgs) && _lf.msgs.length
-      && (_locked || _snapEmpty)) ? _lf.msgs : null;
-  /* 2.100（老板 2026-10-20 12:14 硬原则）：持屏闸只在「尚无新内容」时生效——一旦
-     锚定会话【自己的快照正文】已比存帧更新（非切换前旧正文、尾部更靠后），立即让位，
-     绝不拿旧存帧顶掉已到的新内容。 */
-  const _spu = S.switch_pend;
-  const _snapIsTarget = (_spu && _spu.lockTarget)
-      ? !sameConvBody((S.snap || {}).msgs, _spu.prevMsgs) : true;
+  /* 2.265（老板 2026-11-24 铁令）：撤原 2.15「S.liveFrame 存帧兜底上屏」——
+     liveFrame 是直推帧/预取帧暂存（直推人类行、snap_pane、switch_pre 都会写），
+     直上屏＝「主界面只剩最新一条」旁路；正文只认小账本 curMsgs()，账本读空
+     一律空态等待，绝不用 liveFrame/S.snap 直推内容铺屏。 */
+  /* 2026-11-24（老板 11:29 令「切会话立刻显示小账本，不许白屏等核对」）：
+     curMsgs() 本身就是「目标会话账本」，只要非空就直接上屏——
+     不再用「快照是否已是目标」把账本挡在锁定期外面。 */
   const _curNow = _locked ? curMsgs() : null;
-  const _tailKeyOf = a => (a && a.length) ? _msgKey(a[a.length - 1]) : '';
-  /* 2.105（03-P3）：让位判定放宽为「尾部消息身份不同即让位」——去掉旧的
-     `_curNow.length >= _storeMsgs.length` 条数限制。原判据在锚定会话发生【合法删除/
-     回退（变短）】时不满足 `>=` ⇒ 不让位 ⇒ 页面继续显示「比真实更旧/更长」的旧存帧；
-     真帧若更短、尾部身份不同，同样必须立即让位（绝不用旧存帧顶掉已到的新内容）。
-     2.106：curMsgs 已在「切换在途且快照正文仍属旧会话」时切断回落（返回 []），
-     故 _curNow 非空即「已确认是目标」，让位永不误放旧会话 A。 */
-  const _targetNewer = !!(_curNow && _curNow.length
-      && _snapIsTarget
-      && _tailKeyOf(_curNow) !== _tailKeyOf(_storeMsgs || []));
-  /* 2.106：目标落地快照上屏 → 置 swPPainted/swHold（此后再出现中间态方可原样重放防闪回）。 */
+  /* 2.265：目标账本（小账本）上屏 → 置 swPPainted/swHold（此后再出现中间态方可
+     原样重放防闪回；2.265 起唯一置位点＝小账本上屏，重放内容必为账本内容）。 */
   const _markSwPainted = () => { S.swPPainted = true; S.swHold = true; };
   const _replayLast = () => renderMsgs(S.msgs_last[0], S.msgs_last[1],
       S.msgs_last[2], S.msgs_last[3], S.msgs_last[4]);
   if (_locked){
-    /* 2.106（A·老板 2026-10-20 17:29「切换即清屏，只显目标快照，无则空白」）：
-       切换在途正文只允许「目标落地快照 / 已确认的目标真内容 / 留白」三种，绝不重放旧会话 A：
-       ① 目标真内容已到（_targetNewer，携已确认目标身份）→ 立即让位上屏（保 2.100）；
-       ② 否则有目标落地快照 → 顶它（这就是老板要的「看着快照减少烦躁」）；
-       ③ 目标真帧已在快照里（arrived）→ 顶上（2.101 防刷新/重连补发 switch 后整屏长留白）；
-       ④ 目标快照上过屏后才有中间态 → 原样重放它（防闪回，保 2.89）；
-       ⑤ 其余 → 清屏留白（【绝不放】旧会话正文）。 */
-    if (_targetNewer){
+    /* 2.106（A·老板 2026-10-20 17:29「切换即清屏」）＋ 2.265（老板 2026-11-24 铁令）：
+       切换在途正文只允许「小账本目标会话 rounds / 防闪回重放 / 留白」三种，
+       绝不重放旧会话 A、绝不直显直推单条：
+       ① 目标账本已到（_curNow 非空）→ 立即上屏（小账本即时性，老板 11:29 令）；
+       ② 目标快照上过屏后才有中间态 → 原样重放它（防闪回，保 2.89；重放内容必为
+          此前小账本上屏内容——原「liveFrame 存帧②/目标落地快照③直上屏」两分支
+          是「只剩最新一条」旁路，已随 2.265 撤除）；
+       ③ 其余 → 清屏留白（【绝不放】旧会话正文/直推单条），等账本帧补入后自动渲染。 */
+    if (_curNow && _curNow.length){
       renderMsgs(_curNow, snap.finish, opts0, snap.ask || null, snap.pend || []);
-      _markSwPainted();
-    } else if (_storeMsgs){
-      renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
-      _markSwPainted();
-    } else if (_spu && _spu.arrived
-               && Array.isArray((S.snap || {}).msgs) && S.snap.msgs.length){
-      renderMsgs(S.snap.msgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
       _markSwPainted();
     } else if (S.swPPainted && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
       _replayLast();                           /* 目标快照已上过屏：中间态重放它，防闪回 */
@@ -1002,13 +979,13 @@ function renderAll(){
     if (_cur.length){                      /* (b) 目标当前全量最新帧上屏 → 松开持屏 */
       renderMsgs(_cur, snap.finish, opts0, snap.ask || null, snap.pend || []);
       S.swHold = false;
-    } else if (_storeMsgs){                /* 2.15：真正文为空 → 用本地存帧兜底 */
-      renderMsgs(_storeMsgs, snap.finish, opts0, snap.ask || null, snap.pend || []);
     } else if (S.swHold && S.swPPainted
                && Array.isArray(S.msgs_last) && S.msgs_last.length === 5){
       /* 2.106：仅「已上屏目标快照之后」才原样重放（防闪回）；此前一律不重放旧会话 */
       _replayLast();
     } else {
+      /* 2.265：账本读空 → 空态等待账本帧/hist 补入后自动渲染（原 2.15
+         「S.liveFrame 存帧兜底」是直推单条上屏旁路，已随 2.265 撤除）。 */
       renderMsgs([], snap.finish, opts0, snap.ask || null, snap.pend || []);
     }
   }
@@ -1017,3 +994,13 @@ function renderAll(){
   syncModel(snap.model || '');
 }
 
+/* 2026-11-24（恢复）：输入框取文统一剥壳——先剥首行 DID，再剥四段专属提示词尾巴。
+   原 v84 有本函数（本次误还原丢失），输入界面.js:186 会优先调用它。 */
+function foxCleanTake(s){
+  try{
+    let t = String(s == null ? '' : s);
+    if (typeof stripHeadDid === 'function') t = stripHeadDid(t);
+    if (typeof foxStripTail === 'function') t = foxStripTail(t);
+    return t;
+  }catch(e){ return String(s == null ? '' : s); }
+}

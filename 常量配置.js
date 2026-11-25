@@ -10,8 +10,8 @@ const SERVER_ID= '1000000001';
 
 const WS_URL_TMPL = ('wss://free.blr2.piesocket.com/v3/%s'
                      + '?api_key=' + 'ReDFavhh0qnOCKUUjQiLKVZ9RdxA6e4BGVKxxNug');
-/* v1.50：副频道（WS2，新集群 s20307.nyc1）——备用兜底/翻倍流量配额。
- * 与服务端一致：副频道走独立模板，但频道名沿用主频道同名 */
+/* v1.50：副集群（WS2，新集群 s20307.nyc1）——备用兜底/翻倍流量配额。
+ * 与服务端一致：副集群走独立模板，但频道名沿用主集群同名 */
 const WS_URL_TMPL2 = ('wss://s20307.nyc1.piesocket.com/v3/%s'
                       + '?api_key=' + 'IWkfk43ha3yilmYGRGLDeAoVW9tu6QqiSviJmudL');
 const RECONNECT = 3;    // 断线重连间隔（秒）
@@ -57,7 +57,7 @@ const LS_CFG = 'trae_webm_cfg', LS_NET = 'trae_webm_net',
       LS_TM = 'trae_webm_times', LS_SRV = 'trae_webm_srv',
       LS_SRVS = 'trae_webm_srvs',     /* v1.84：多电脑名册落盘（name→最后出现毫秒） */
       LS_CH = 'trae_webm_channel',
-      /* v1.50：副频道名 + 当前选中频道（main/backup，本地落盘、不固化） */
+      /* v1.50：副集群频道名 + 当前选中集群（main/backup，本地落盘、不固化） */
       LS_CH2 = 'trae_webm_channel2', LS_SEL = 'trae_webm_selct';
 const LS_NICK = 'trae_webm_nick';   /* 13.1：本机昵称（非必填，只给人看，与软件号解耦） */
 
@@ -113,12 +113,12 @@ function ttsClearCache(){
 /* v1.27：频道名存独立键（旧 CFG.ws_url 含旧公开频道，直接作废） */
 try { if (CFG.ws_url) delete CFG.ws_url; } catch(e){}
 function curSel(){
-  /* 当前选中频道：'main' 主频道（默认）/ 'backup' 副频道。本地落盘，不固化。 */
+  /* 当前选中集群：'main' 主集群（默认）/ 'backup' 副集群。本地落盘，不固化。 */
   try { return (localStorage.getItem(LS_SEL) === 'backup') ? 'backup' : 'main'; }
   catch(e){ return 'main'; }
 }
 function chanGet(sel){
-  /* sel: 'main'|'backup'；缺省用当前选中。副频道名未单独设置时沿用主频道名。 */
+  /* sel: 'main'|'backup'；缺省用当前选中。副集群名未单独设置时沿用主集群名。 */
   const s = sel || curSel();
   const key = (s === 'backup') ? LS_CH2 : LS_CH;
   let v;

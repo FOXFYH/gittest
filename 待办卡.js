@@ -56,6 +56,10 @@ function pendStat(p){
      发出、服务端尚未回报任何阶段) / ③「服务器开始执行…」(typed，服务端
      已确认写入输入框) / 更后「已进官方排队条」「TRAE 已执行」只认服务端
      sent 事件推来的阶段；超时如实说「可能未送达」。 */
+  /* 2026-11-20（接手回执）：服务端一接手（rcpt accepted/running）就把卡翻成
+     「服务器已收到，正在处理…」，不再干等「等待服务器回应…」；该阶段按 sent
+     处理。销卡判据不变——仍只认 msgs 里出现该条 DID。 */
+  if (p.state === 'running') return ['服务器已收到，正在处理…', 'ok'];
   if (p.state === 'accepted') return ['服务器已受理，等待执行…', ''];
   if (p.state === 'typed')   return ['服务器开始执行…（已输入 TRAE）', ''];
   if (p.state === 'queued')  return ['已进 TRAE 官方排队条，等待 AI 处理…', 'ok'];
@@ -225,31 +229,16 @@ function pendLandingScan(msgs, pendArr){
   return ch;
 }
 
-/* ============ 2.203（老板 2026-11-19 22:02 令）：撤「页面选中与服务器选中不一致」提醒 ============
-   旧 2.178~2.180 的底部橙色胶囊 #anchint（「点此对齐 / 点此重试」）连同 2s 巡检
-   anchorCheck、末次点击意图 S.pendIntent 判定整块撤除，界面不再弹任何同义提醒。
-   新口径（机会充足：每条上行都带当前会话、切换/刷新自愈、快照每拍都会再核）：
-   ① 我是 1 号网页用户（服务端操控锁持有者＝本人）：发现服务器选中 ≠ 页面选中，
-      且没有别人正在借用输入框、也没有切换在途 → 静默发 switch 把桌面切回
-      【页面选中的会话】（不提示、不弹条）；
-   ② 我不是 1 号（2 号/3 号）：不提醒、也不抢切（避免抢别人操控）。 */
-const _anchHeal = {key: '', t0: 0, sent: 0};
-/* 快照到达（事件总线.js 快照分支调）：只做上面的静默自愈，不产出任何界面元素 */
+/* ============ 2.266（老板 2026-11-24 20:38 令）：静默自愈抢切换整块退役 ============
+   原 2.203 口径（1 号发现「服务器选中 ≠ 页面选中」就静默发 switch 把桌面切回
+   页面选中会话；非 1 号不提醒也不抢切）随「1 号网页用户」概念废除一并退役。
+   新口径：允许多端各看各的会话——服务端只推「服务器选中会话」的思维流，
+   不一致时状态栏如实提示「思维流暂停」（输入界面.js renderState）；谁最后
+   执行切换会话，服务器就选中谁的（用户手动切换＝最后的优待），绝不再自动
+   抢切（防多端互切打架）。函数保留空壳防调用点报错（事件总线.js 快照分支）。 */
+/* 2.266 快照到达（事件总线.js 快照分支调）：退役空壳，不再产出任何动作 */
 function anchorSelfHeal(liveKey){
-  if (!(typeof hostIsFirst === 'function' ? hostIsFirst() : true)) return;  /* ② 非 1 号 */
-  if (S.inputBusy || S.switch_pend) return;                    /* 有人借框/切换在途：不抢 */
-  if (!liveKey || !S.anchorSid || !S.anchorFull) return;
-  if (liveKey === S.anchorSid){                                 /* 已一致：清状态 */
-    _anchHeal.key = ''; _anchHeal.t0 = 0;
-    return;
-  }
-  const now = Date.now();
-  if (_anchHeal.key !== liveKey){ _anchHeal.key = liveKey; _anchHeal.t0 = now; }
-  if (now - _anchHeal.t0 < 2000) return;      /* 连拍确认，防快照抖动误发 */
-  if (now - _anchHeal.sent < 8000) return;    /* 8s 限频，防连发 */
-  _anchHeal.sent = now;
-  try { sendCmd('switch', S.anchorFull); } catch(e){}
-  try { if (window.ledgerVcheckSend) ledgerVcheckSend('switch', S.anchorFull); } catch(e){}
+  return;   /* 2.266 退役：不再静默抢切、不再发 switch（老板 20:38 令） */
 }
 
 /* 占位卡生命周期检查（快照到达/定时巡检调用）。
@@ -343,12 +332,9 @@ const SWITCH_TIMEOUT_MS = 90000;   /* 满 90s 未成功 → 判失败（2.176 �
 const SWITCH_OK_SHOW_MS = 2000;    /* 「切换成功」闪现时长，随后交回状态灯 */
 const SWITCH_HANG_MS = SWITCH_TIMEOUT_MS;   /* 兼容旧引用（原 24s 墙钟兜底） */
 
-/* 在途切换的目标 ref（稳定 ID 优先，其次序号）——补发用 */
+/* 在途切换的目标 ref＝唯一锚定的完整 sid（2.261：禁止下标，索引一律拒发） */
 function switchRef(){
-  const sp = S.switch_pend;
-  if (!sp) return 0;
-  return (sp.ref !== undefined && sp.ref !== null && sp.ref !== '')
-    ? sp.ref : (sp.sid || 0);
+  return S.anchorFull || '';
 }
 /* 目标匹配：双方都有 sid 按 sid，否则按 title（服务端回执可能只带其一） */
 function _swMatch(sp, v){
@@ -377,7 +363,9 @@ function switchReArm(){
 function switchResend(){
   const sp = S.switch_pend; if (!sp) return;
   if (sp.phase !== 'waiting') return;   /* 2.81：仅 waiting 补发；收 ack 后静默 */
-  sendCmd('switch', switchRef());       /* 补发（服务端同目标幂等，不会重复点） */
+  const _ref = switchRef();
+  if (!_ref) return;                     /* 2.261：无锚定完整 sid ⇒ 拒发（绝不下标） */
+  sendCmd('switch', _ref);               /* 补发（服务端同目标幂等，不会重复点） */
   sp.ts = Date.now();
   switchReArm();
 }
@@ -391,6 +379,9 @@ function switchTimeout(){
 /* 成功收口：显示「切换成功」2 秒，然后交回当前状态灯（用户：成功不常驻） */
 function switchOk(){
   const sp = S.switch_pend; if (!sp) return;
+  /* 2.261（老板令·状态时序④）：收到 switch_ok → 横幅「切换成功，正核对…」；
+     已有核对成功 pending 时不再倒回去写旧文案。 */
+  if (!S.bannerPending && typeof setBanner === 'function') setBanner('切换成功，正核对…');
   clearTimeout(sp._okT);
   clearTimeout(sp._resendT); clearTimeout(sp._tmoT);
   if (sp.phase !== 'ok'){
@@ -468,7 +459,7 @@ function pendSwitchSet(title, sid, ref, opt){
   if (same){
     S.switch_pend.ts = Date.now();
     S.switch_pend.sid = sid || S.switch_pend.sid;
-    if (ref !== undefined) S.switch_pend.ref = ref;
+    S.switch_pend.ref = sid || S.switch_pend.ref || '';   /* 2.261：只存完整 sid，拒绝下标 */
     /* 2.180 Y31（次因）：同目标复用旧 sp——只有本端主动动作（opt.lockTarget：
        点击会话行/开机锚定）才算「新一轮意图」，重置 ts0 重排 90s 死线；
        服务端广播回显（事件总线.js 调用不带 lockTarget）绝不刷 ts0，否则
@@ -494,7 +485,7 @@ function pendSwitchSet(title, sid, ref, opt){
     clearTimeout(S.switch_pend._okT);
   }
   S.switch_pend = {title: title, sid: sid,
-                   ref: (ref !== undefined ? ref : (sid || 0)),
+                   ref: sid || '',   /* 2.261：只存完整 sid，索引下标一律拒发 */
                    ts: Date.now(), fp0: msgsFp(S.snap.msgs),
                    phase: S.onLine ? 'waiting' : 'connecting',
                    lockTarget: !!(opt && opt.lockTarget),

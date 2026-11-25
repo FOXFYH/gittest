@@ -38,6 +38,9 @@ function teardownWs(){
   S.ws = null;
   S.lastSrv = 0;
   S.srvLost = false;
+  /* 2.260：拆旧连接＝退出旧集群——本服 FOX 号归零，等新集群 hello/首帧自报重落，
+     避免它服 mod/vack/lbkeep 被旧 curSid 的跨服闸门整批误杀。 */
+  S.curSid = '';
 }
 
 function connect(){
@@ -91,6 +94,8 @@ function connect(){
     cliRebind();
     cliLogin('上线');
     loginWatch();
+    /* 2.260：切集群时被打断的 FoxOut 长消息，等新线打开后整条重发（绝不半段旧线半段新线）。 */
+    try { FoxOut.resumeDeferred(); } catch(e){}
   };
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
@@ -129,8 +134,10 @@ function connect(){
     DIAG.err++;
     diagLog('连接出错 #' + DIAG.err + '（网络或中转问题）', 'bad');
   };
-  /* 2.68：主频道每次（重）连接时同步（重）连 TTS 直连频道（密钥随主频道走） */
+  /* 2.68：主集群每次（重）连接时同步（重）连 TTS 直连频道（密钥随主集群走） */
   ttsConnect();
+  /* 2.260：文件查看器 INS 收帧频道同样跟随当前集群（切集群即关旧、建新）。 */
+  try { if (typeof fvwrPickChanListen === 'function') fvwrPickChanListen(); } catch(e){}
 }
 
 /* 2.216（0047 游客体验·第3件）：连接失败可自救——顶栏「↻ 重连」按钮三态
@@ -261,8 +268,14 @@ function cliLogin(reason){
   S.anchor_reask = 1;
   sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
   /* 账本V1.0（I1/I2）：登录＝强核对场景之一，与 switch/svr/timer 共用
-     ledgerVcheckSend 同一构造函数（账本核对.js）。 */
-  try { if (window.ledgerVcheckSend) ledgerVcheckSend('login'); } catch(e){}
+     ledgerVcheckSend 同一构造函数（账本核对.js）。
+     2.273（老板 2026-11-25 00:07 实测：登录核对后不补齐、要手动刷新）：
+     login 也必须带上当前锚定 sid（与 timer/switch 同口径），否则服务端
+     不知道网页端在看哪个会话 ⇒ 无法按本户 12 条 ID 逐条补缺额。 */
+  try {
+    if (window.ledgerVcheckSend) ledgerVcheckSend('login', S.anchorFull
+      || (typeof curSid === 'function' ? curSid() : '') || '');
+  } catch(e){}
   lastBeatOk = Date.now();
   clearInterval(hbTimer);
   hbTimer = setInterval(cliBeat, HB_SEC * 1000);
@@ -468,12 +481,9 @@ function handleBody(body, fromId){
   }
   if (nm !== S.cur) return;                   // 非当前操控对象：忽略
   if (!srvIsoPass(d, fromId)) return;         // 2.184：非本服 FOX 号，整帧丢弃
-  /* 2.203（老板 2026-11-19 22:02 令）：服务端每帧盖 host＝当前操控持有者（1 号网页
-     用户）；此处只落状态，判定统一走 hostIsFirst()。空串＝当前无持有者。 */
-  if (d.host !== undefined){
-    S.hostId = String(d.host || '');
-    S.hostKnown = true;
-  }
+  /* 2.266（老板 2026-11-24 20:38 令）：「1 号网页用户」概念废除——服务端
+     host 字段已恒空串（旧服务端可能仍下发旧值），网页端不再落地/判定，
+     判定函数 hostIsFirst 已退役恒 true（见 状态与DOM.js）。 */
   /* 1.13：操控互斥——目标拒绝（正被其他客户端占用） */
   if (d.t === 'deny'){
     if (d.target === MY_ID)
@@ -503,6 +513,8 @@ function handleBody(body, fromId){
   if (d.t === 'mod'){ if (window.ledgerMod) ledgerMod(d); return; }
   /* 0.76：服务端连续链裁剪帧——只处理本地唯一账 snap_conv 的删/留。 */
   if (d.t === 'lbkeep'){ if (window.lbKeepApply) lbKeepApply(d); return; }
+  /* 1.054：服务端「足额补发」帧——按 order 重排+补齐+删多余（账本核对.js lbSyncApply）。 */
+  if (d.t === 'lbsync'){ if (window.lbSyncApply) lbSyncApply(d); return; }
   if (d.t === 'think_int_ack'){ if (window.lbThinkIntAck) lbThinkIntAck(d); return; }   /* 账本V1.0：set_think_int 回执（账本核对.js） */
   if (d.t === 'poll_set') return;                     // 1.35：档位已移除，忽略回执
 }

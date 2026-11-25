@@ -126,17 +126,10 @@ function _pendOwnerOk(pend){
             && 稳定键(ps, '') === 稳定键(cs, ''));
 }
 
-/* 2.203（老板 2026-11-19 22:02 令）：思维流只为 1 号网页用户提供。
-   非 1 号（2/3 号）且当前会话思维灯亮（busy）时，本来该出思维流的位置改显占位文案；
-   灯灭或换成别的灯（unread/fail/stop/无灯）即不显示（区域回归空态/正常渲染）。 */
-function _thinkNoHostOn(){
-  if (typeof hostIsFirst !== 'function' || hostIsFirst()) return false;
-  return ((typeof _curConvLight === 'function' ? _curConvLight() : '') === 'busy');
-}
-function _thinkNoHostHtml(){
-  return '<div class="msg agent thinkph"><div class="who">TraeWork</div>'
-       + '<div class="body">您不是 1 号网页用户，无法提供思维流</div></div>';
-}
+/* 2.266（老板 2026-11-24 20:38 令）：「思维流只为 1 号网页用户提供」及非 1 号
+   占位文案（_thinkNoHostOn/_thinkNoHostHtml，原 2.203）随「1 号」概念废除整块
+   拆除——思维流改按「卡片所属会话 == 本端当前选中会话」匹配（账本核对.js
+   thinkCardNow），全员提供；不一致暂停提示见 输入界面.js renderState。 */
 /* 2.207（V1.0 §五-8）：小账本最底部固定挂的「一张」思维流卡——只展示，
    走不到 ledger 落盘/轮次统计/终极回复任何一条路。样式内联，免改 css。 */
 function _thinkCardHtml(c){
@@ -233,9 +226,7 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   key += '#pend:' + pendSig();
   /* 账本V1.0（G1）：历史补发折叠面板轮数参与指纹（面板进出要重画） */
   key += '#lbf:' + (S.lb_foldRounds || 0);
-  /* 2.203：非 1 号思维流占位参与指纹（灯亮↔灯灭必须触发重画，占位才能即时撤） */
-  const _noHost = _thinkNoHostOn();
-  key += '#nt:' + (_noHost ? '1' : '0');
+  /* 2.266：非 1 号思维流占位指纹（原 2.203 #nt:）随「1 号」废除整块拆除。 */
   /* 2.207（V1.0 §五-8/9/10）：小账本最底部固定挂一张思维流卡——四维＋思维灯
      亮才出（thinkCardNow 判定），新版/终极到达必须重画（版本号＋正文进指纹）。 */
   const _think = (typeof thinkCardNow === 'function') ? thinkCardNow(msgs) : null;
@@ -265,16 +256,13 @@ function renderMsgs(msgs, finish, opts, ask, pend){
   const empty = !msgs.length && !opts.length;
   if (empty && !S.pending.length && !S.switch_pend
       && !(pend || []).length && !_qLatch.length){
-    el.msgs.innerHTML = _noHost
-      ? _thinkNoHostHtml()
-      : (guideDone()
+    el.msgs.innerHTML = (guideDone()
           ? '<div class="empty">（暂无消息，发送一条开始对话）</div>'
           : guideHtml());
     return;
   }
   if (empty && !(pend || []).length && !_qLatch.length){
     renderPending();
-    if (_noHost) el.msgs.insertAdjacentHTML('beforeend', _thinkNoHostHtml());
     return;
   }
   /* 2.187：正文为空但官方排队条有条目（新会话首条就进了队）——不再早退，
@@ -309,6 +297,9 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     }
     const d = document.createElement('div');
     d.className = 'msg ' + (user ? 'user' : 'agent');
+    /* 2.279（老板 2026-11-25 08:04 令）：把消息 ID 落到 DOM 上，供「小账本 vs
+       主界面」3 秒兜底自检按 ID 一一比对；账本有、屏幕没画出来时强制重绘。 */
+    try { if (m[6]) d.setAttribute('data-mid', String(m[6])); } catch(e){}
     /* 1.90：AI 消息正文识别 (@fox-play1)...(@fox-play2) 包夹段 →
        渲染成语音小卡片（占位符先过 mdHtml，再替换成卡片 HTML） */
     let bodyHtml;
@@ -422,9 +413,8 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     });
     el.msgs.appendChild(d);
   });
-  /* 2.203：非 1 号网页用户——思维灯亮时在「本该出思维流」的位置显示占位文案
-     （灯灭/换灯即撤，见 _thinkNoHostOn；指纹 #nt: 保证灯态变化必重画）。 */
-  if (_noHost) el.msgs.insertAdjacentHTML('beforeend', _thinkNoHostHtml());
+  /* 2.266：非 1 号占位渲染段（原 2.203，灯亮显示「您不是 1 号网页用户」
+     占位）随「1 号」概念废除整块拆除——思维流全员按会话匹配提供。 */
   /* 1.40：结构化 AI 提问卡（快照 ask，CDP 实测 TRAE
      AskUserQuestion 组件：选项=optionItem div + 「其他」textarea +
      底部 主按钮(下一步/确认)/取消）。可点选项、可填其他、可提交。

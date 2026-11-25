@@ -50,7 +50,6 @@ const S = {
   /* ===== 2.20 新架构：请求-响应 + 本地缓存 ===== */
   srvVer: '0',          /* 服务端版本号（hello 的 d.ver），拼缓存键用 */
   histConv: '',         /* 当前已拉取历史的会话标题（防重复发 req） */
-  histMsgs: null,       /* 本地缓存渲染数组 ['u'|'a',文本,tm,rev,del] */
   histRaw: [],          /* 账本原始记录 [{seq,role,text,tm,can_rev,can_del}] */
   histVer: 0, histHave: 0,   /* 游标：会话版本号 + 已存到的 seq */
   histLoadingPrev: false,    /* 向上补拉老历史防重入 */
@@ -116,17 +115,17 @@ const S = {
      插队）。**只活在本会话内存里、不落任何持久配置**：每次打开/刷新页面
      都回到 false（未选中）。 */
   urgent: false,
-  /* 2.203（老板 2026-11-19 22:02 令）：「谁是 1 号网页用户」——服务端每帧盖的
-     host＝本机操控互斥锁持有者 FOX 号（空串＝无持有者）。hostKnown=是否已收到过
-     该字段（旧服务端不下发时保守按 1 号，行为与改造前一致）。 */
-  hostId: '', hostKnown: false,
+  /* 2.266（老板 2026-11-24 20:38 令）：「谁是 1 号网页用户」概念整个废除
+     ——S.hostId/hostKnown 状态与 host 每帧落地一并拆除；思维流不再锚定
+     哪个网页用户，改按「卡片所属会话 == 本端当前选中会话」匹配（见
+     账本核对.js thinkCardNow），不一致时状态栏提示思维流暂停（输入界面.js）。 */
 };
 
-/* 2.203：是不是「1 号网页用户」（老大）——判据＝服务端操控锁持有者是自己；
-   无持有者（空串）视为 1 号（先到者可接管，与 _ctl_check「无主即接管」一致）。
-   非 1 号（2/3 号）：不提醒、不抢切，且思维流不提供（见 消息渲染.js/账本核对.js）。 */
+/* 2.266（老板 2026-11-24 20:38 令）退役：原判「自己是不是 1 号网页用户」
+   （服务端操控锁持有者＝自己）。互斥锁拆除后恒放行 true——函数与调用点
+   保留防引用报错；「非 1 号」一切限制（不抢切/思维流占位等）随之退役。 */
 function hostIsFirst(){
-  return !S.hostKnown || !S.hostId || S.hostId === MY_ID;
+  return true;
 }
 
 
@@ -172,9 +171,6 @@ const el = {
   fav: $('btn_fav'), favpage: $('page_fav'), favback: $('btn_favback'),
   favrefresh: $('btn_favrefresh'),
   favlist: $('fav_list'),
-  prof: $('btn_prof'), profpage: $('page_prof'),
-  profback: $('btn_profback'), profref: $('btn_profref'),
-  profhint: $('prof_hint'), proflist: $('prof_list'),
-  profswitch: $('btn_profswitch'), prof_swlog: $('prof_swlog'),
+  prof: $('btn_prof'),                  /* 2.285：分身页拆除后仅剩「读取小账本」按钮 */
 };
 

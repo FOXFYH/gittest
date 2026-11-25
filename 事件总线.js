@@ -84,7 +84,9 @@ function onEv(kind, v){
                        : (S.anchorSid && 稳定键(psid, pv.title || '') === S.anchorSid)))
         _spv.arrived = true;
       /* 撤「正在获取直播帧」条（liveClear 内含立即落盘）；无条则补一次存帧 */
-      if (S.livePend && (S.livePend === psid || S.livePend === S.anchorSid)) liveClear();
+      /* 2.261：livePend 存锚定键；比较一律走 稳定键() */
+      if (S.livePend && (稳定键(S.livePend) === 稳定键(psid, pv.title || '')
+                         || S.livePend === S.anchorSid)) liveClear();
       else { try { snapIdbTick(true); } catch(e){} }
       try { if (typeof paneReqDone === 'function') paneReqDone(psid); } catch(e){}
       /* V2 验收 Y5（2026-11-18）：撤卡渠道①③收口——账本V1.0 后正文多走
@@ -181,11 +183,11 @@ function onEv(kind, v){
         if (typeof lbFillFinals === 'function' && Array.isArray(v.msgs) && v.msgs.length)
           v.msgs = lbFillFinals(liveSid, selTitleOf(v), v.msgs);
       } catch(e){}
-      /* 2.203（老板 2026-11-19 22:02 令）：撤 2.178 的「页面选中与服务器选中不一致」
-         橙色胶囊提醒；改为静默自愈——1 号 + 无人借框 + 无在途切换时自动发 switch
-         把桌面切回页面选中会话；非 1 号不提示也不抢切（见 待办卡.js anchorSelfHeal）。 */
+      /* 2.266（老板 2026-11-24 20:38 令）：原 2.203「1 号静默自愈抢切」随
+         「1 号」概念废除整块退役——不再自动发 switch 抢桌面；「服务器选中
+         ≠ 本端选中」为合法状态，思维流暂停由状态栏提示（输入界面.js）。 */
       if (typeof anchorSelfHeal === 'function')
-        anchorSelfHeal(liveKey);
+        anchorSelfHeal(liveKey);   /* 2.266：已退役空壳，调用点保留防报错 */
       /* 2.206（投递不准覆盖）：先记下上一拍排队条与归属，供下方合并。 */
       const _prevPend = (S.snap && Array.isArray(S.snap.pend)) ? S.snap.pend.slice() : [];
       const _prevPendSid = String((S.snap && S.snap.pend_sid) || '');
@@ -416,26 +418,8 @@ function onEv(kind, v){
       } catch(e){}
       break;
     }
-    case 'profiles': {
-      /* v1.45：分身状态数据（服务端外挂「谷歌分身助手转接器」推送） */
-      S.profiles = v;
-      if (el.profpage.classList.contains('on')) renderProf();
-      return;
-    }
-    case 'profiles_run': {
-      /* v1.45：立刻实测状态（on=true 开始 / on=false 结束）。
-         v1.47：结束带 stopped=true 表示「被停止」，用户可确认停止成功。 */
-      S.prof_run = !!(v && v.on);
-      if (v && !v.on && v.stopped) flash('已停止本次实测', 'var(--orange)');
-      if (el.profpage.classList.contains('on')) renderProf();
-      return;
-    }
-    case 'profiles_login': {
-      /* 2.18：补登录结果回投（v={name,ok,msg}）。 */
-      if (v && v.msg) flash((v.ok ? '✓ ' : '✗ ') + v.msg,
-                            v.ok ? 'var(--green)' : 'var(--red)');
-      return;
-    }
+    /* 2.285（老板 2026-11-25 11:54 令）：profiles / profiles_run / profiles_login
+       三个分身事件随「分身状态」整块拆除，不再接收（事件到达直接忽略）。 */
     case 'switch_migrate': {
       /* 2.19：一键换号迁移进度（v={stage,msg,ok,done,target,log:[...]}）。
          阶段+逐行日志写进分身页的 #prof_swlog；末条 done 定成败。 */
@@ -548,7 +532,8 @@ function onEv(kind, v){
       const pk = (v && v[0]) || 'send';
       const pt = (v && v[1]) || '';
       if (pk === 'switch'){
-        pendSwitchSet(pt, (v && v[2]) || '');   /* v2.32：第 3 位=稳定 ID */
+        /* 2.261：只接受字符串完整 sid；索引下标（数字）一律不存、不补发 */
+        pendSwitchSet(pt, (v && typeof v[2] === 'string') ? v[2] : '');
         renderAll();
         break;
       }
@@ -573,8 +558,15 @@ function onEv(kind, v){
       break;
     }
     case 'points':
-      if (v && v !== '读取失败') S.points = v;
-      el.points.textContent = '积分 ' + v;
+      /* 2.269（老板 2026-11-24 21:29 令·积分固态化）：读到坏值/空值绝不清屏——
+         有旧值就保持旧值，只有拿到有效积分才覆盖（除非新版本传来，否则一直
+         显示旧的）。仅当本机从没有效值时，才原样显示这次的值（含读取失败）。 */
+      if (v && v !== '读取失败' && v !== '—'){
+        S.points = v;
+        el.points.textContent = '积分 ' + v;
+      } else if (!S.points || S.points === '—' || S.points === '读取失败'){
+        el.points.textContent = '积分 ' + v;
+      }
       break;
     case 'points_warn':                    /* 1.27：积分不足预警 */
       warnFlash('⚠ 积分不足：' + (v.points || v)
@@ -653,6 +645,8 @@ function onEv(kind, v){
           S.switch_pend.phase = 'switching';
           S.switch_pend.ts = Date.now();
           clearTimeout(S.switch_pend._resendT);   /* 2.81：不再每 10s 补发 */
+          /* 2.261（老板令·状态时序③）：收到 switch_ack → 横幅「服务器执行中」 */
+          if (typeof setBanner === 'function') setBanner('服务器执行中');
           renderAll();
         }
       }

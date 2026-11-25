@@ -136,13 +136,22 @@ function switchSrv(nm){
      （convs 行第 3 位选中标志）即被 adoptSnap 自动吸附并打开＝一过去就有对话。 */
   S.anchorSid = ''; S.anchorTitle = ''; S.anchorFull = ''; S.anchor_gone = '';
   anchorReport();              /* 2.74：T16——锚定被清空（换服务端）→ 上报 sid:''（=取消） */
-  S.histConv = ''; S.histMsgs = null; S.histRaw = []; S.histPrevRaw = [];
+  S.histConv = ''; S.histRaw = []; S.histPrevRaw = [];
   S.histVer = 0; S.histHave = 0; S.histLoadingPrev = false;
   S.histEnd = false; S.histPullFrom = 0;
   S.livePend = ''; S.liveGot = false; S.liveFrame = null; S.livePrefetch = false;
   S.pinBottom = true;              /* 新会话自动上屏那次钉底（看最新） */
   S.busy = false; S.model_busy = false;
+  /* 2.269（老板 2026-11-24 21:29 令·积分固态化）：切服不把积分清成「积分 —」——
+     先按目标服务器的固态包还原它上次的积分，hello/points 到达再覆盖。 */
   S.points = '—'; el.points.textContent = '积分 —';
+  try {
+    const _pk = _srvPacksRead()[srvPackKey(nm, (S.servers[nm] || {}).port)];
+    const _pt = _pk && _pk.solid && _pk.solid.points;
+    if (_pt && _pt !== '—' && _pt !== '读取失败'){
+      S.points = String(_pt); el.points.textContent = '积分 ' + S.points;
+    }
+  } catch(e){}
   S.alive = new Set(); S.boxes = [];
   el.model.innerHTML = ''; S.model_map = {};
   el.box.innerHTML = '';

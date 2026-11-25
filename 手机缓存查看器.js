@@ -1,5 +1,8 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.228  日期 2026-11-20
+/* 手机缓存查看器.js（网页端）  版本 2.249  日期 2026-11-21
+   2.249（老板 2026-11-21 11:37）：①「N 条」只算人类＋AI 终极，思维流单列 thN；
+     ② 带终答的 AI 行即使后端标 th 也认回 AI 终极；③ 详情不再折叠丢弃旧思维流；
+     ④ AI 正文只在 index7 时兜底取出。
    2.234（老板 2026-11-20 23:42）：③ 调控页原 2.227 的「强核对」独立分组整段删除
      （四契机清单／最近一次／计数／「立即强核对」按钮全部清空，不留壳）；核对状态
      只保留两处轻提示——顶部横幅「核对中 · 会话名」＋顶栏「操控:」旁圆球变橙。
@@ -328,12 +331,19 @@
           var c = rq.result;
           if (c){
             var v = c.value || {};
+            var _msAll = (v.frame && v.frame.msgs) || [];
+            /* 2.249（老板 2026-11-21 11:37）：「N 条」只算人类发言＋AI 终极回复，
+               思维流单独计数（thN），不再混进总条数导致「10 条里混了思维流」。 */
+            var _nVis = 0, _nTh = 0;
+            _msAll.forEach(function(mm){
+              if (kindOf(mm) === 'think') _nTh++; else _nVis++;
+            });
             out.push({sk: v.sk || c.key, key: v.key || '', title: v.title || '', sid: v.sid || '',
                       uid: v.uid || '',
                       srv: v.srv || '', srvName: v.srvName || '', srvFox: v.srvFox || '',
                       port: v.port, ts: v.ts || 0,
-                      n: (v.frame && v.frame.msgs || []).length,
-                      msgs: (v.frame && v.frame.msgs) || [],
+                      n: _nVis, thN: _nTh,
+                      msgs: _msAll,
                       _raw: v});
             c.continue();
           }
@@ -381,7 +391,15 @@
   }
   function rowText(m){
     /* 2.209：不读记录里的 tm（账本已不存时间）；显示只用 mid 现算。 */
-    if (Array.isArray(m)) return {role: m[0], text: m[1] || '', mid: m[6] || ''};
+    if (Array.isArray(m)){
+      var _tx = m[1] || '';
+      /* 2.249：AI 行正文若只在 index7（终答），此处兜底取出，避免「有记录却空白看不见」。 */
+      if (!_tx && m[0] === 'a'){
+        var _fn = String(m[7] || '').trim();
+        if (_fn && _fn !== '补记' && _fn !== '提前终极') _tx = _fn;
+      }
+      return {role: m[0], text: _tx, mid: m[6] || ''};
+    }
     return {role: (m && (m.role || m.r)) || '', text: (m && (m.text || m.t)) || '', mid: ''};
   }
   /* ===== 2.208（老板 2026-11-19 23:50 令）=====
@@ -403,8 +421,16 @@
     /* 2.213（前端零拦截）：类型只认后端下发——行 index8（u/a/th）或对象 kind/type；
        缺字段一律 ''，显示「类型未知」；前端不再按角色/完成卡自己推断。 */
     if (!m || typeof m !== 'object') return '';
-    if (Array.isArray(m)) return _kindNorm(m[8]);
-    return _kindNorm(m.kind != null ? m.kind : m.type);
+    var k = Array.isArray(m) ? _kindNorm(m[8])
+                             : _kindNorm(m.kind != null ? m.kind : m.type);
+    /* 2.249（老板 2026-11-21 11:37）：TRAE 思维流与终极回复同号，后端有时把
+       「带终答的 AI 行」也标成 th —— 只要该行有真终答（index7 非空且非来源标记），
+       一律按 AI 终极回复认，不让它被当成思维流折叠吞掉。 */
+    if (k === 'think' && Array.isArray(m) && m[0] === 'a'){
+      var fin = String(m[7] || '').trim();
+      if (fin && fin !== '补记' && fin !== '提前终极') return 'final';
+    }
+    return k;
   }
   function kindText(m){
     var k = kindOf(m);
@@ -520,6 +546,18 @@
       var gmap = {}, gorder = [];
       list.forEach(function(it){
         var k = String(it.srv || '').trim();
+        /* 2.264（老板 2026-11-24「刷新后又看不到」）：服务器归属改「双认」——
+           2.263 及更早写下的记录，srv 可能是「默认」/机器名/空（那时本服标识会漂），
+           只要 srvFox 命中本服 FOX 号、或 srvName 命中本服名，就当本服务器的账本，
+           绝不把自家账本算成「其它服务器」。别的服务器（号与名都不同）照旧单列。 */
+        try {
+          if (cur && k !== cur){
+            var _fx = String(it.srvFox || '').trim();
+            var _sn = String(it.srvName || '').trim();
+            var _my = String((typeof lbSrvName === 'function') ? (lbSrvName() || '') : '').trim();
+            if (_fx === cur || (_sn && _my && _sn === _my)) k = cur;
+          }
+        } catch(e){}
         if (!gmap[k]){ gmap[k] = []; gorder.push(k); }
         gmap[k].push(it);
       });
@@ -587,6 +625,12 @@
         var _sn = String(it.srvName || '').trim();
         var _fx = String(it.srvFox || '').trim();
         if (!_fx && /^\d+$/.test(String(it.srv || ''))) _fx = String(it.srv);
+        /* 2.264：FOX 号命中本服而记录没存下名字时，用本服当前名补上——
+           免得本服卡片显示成「未知服务器 · 1309107889」。 */
+        if (!_sn && _fx){
+          try { if (typeof lbSrvFox === 'function' && _fx === String(lbSrvFox() || ''))
+                  _sn = String((typeof lbSrvName === 'function' ? lbSrvName() : '') || '').trim(); } catch(e){}
+        }
         /* 2.228：跨服务器展示时不再拿本机服务器名兜底——没有归属就照实写「服务器未知」。 */
         var srvTxt = (_sn || _fx) ? ((_sn || '未知服务器') + (_fx ? (' · ' + _fx) : '')) : '服务器未知';
         /* 2.215（老板 2026-11-20 09:11）：第二行显示口径——
@@ -692,22 +736,17 @@
     var s = document.createElement('div');
     s.className = 'cv_sec';
     /* 2.206：详情头不再显示缓存落盘时间（时间只看每条 mid）。 */
-    s.innerHTML = '<h3>预备画面 · ' + esc(it.n + ' 条') + '</h3>';
+    /* 2.249：N 条＝人类＋AI 终极；思维流单列另注，口径透明。 */
+    s.innerHTML = '<h3>预备画面 · ' + esc(it.n + ' 条')
+      + (it.thN ? esc('（另有 ' + it.thN + ' 条思维流）') : '') + '</h3>';
     var box = document.createElement('div');
     box.style.padding = '4px 10px 12px';
     if (!it.msgs.length){
       box.appendChild(Object.assign(document.createElement('div'), {className:'cv_empty', textContent:'（这份预备画面是空的）'}));
     } else {
-      /* 2.214（老板 2026-11-20 08:08）：思维流只留最新一条、固定排在最后一屏最底部；
-         旧版思维流不再逐条堆在正文中间（其余行原样保留、顺序不动）。 */
-      var _ms = [], _th = null;
+      /* 2.249（老板 2026-11-21 11:37）：账本有什么就显示什么——不再把旧思维流
+         折叠丢弃（曾导致「条数算进去、详情看不见」）；思维流也逐条显示并带类型。 */
       it.msgs.forEach(function(m){
-        var _k = kindOf(m);
-        if (_k === 'think'){ _th = m; return; }
-        _ms.push(m);
-      });
-      if (_th) _ms.push(_th);
-      _ms.forEach(function(m){
         var x = rowText(m);
         /* 2.208：类型以服务端下发为准（index8/kind）；缺则按角色＋终答推导；不得空白。 */
         var _k = kindOf(m);
@@ -818,26 +857,10 @@
                   var head;
                   /* 2.183 修4a：ledger_conv 记录行改展示名（三级解析＋缀 #sid 尾 4 位
                      防重名）——其它列（读取体/大小）原样不动，样式零改动（§十）。 */
-                  if (sn === 'ledger_conv' && x.value && typeof x.value === 'object'){
-                    var nm = lbTitleOf(x.value);
-                    var sid = String(x.value.sid || '');
-                    var tail = sid ? sid.slice(-4) : jsonText(x.key).slice(-4);
-                    if (!nm) nm = '未命名会话';
-                    /* 2.202（老板令·手机端不设限）：诊断账本（缺名/缺 sid 照建）
-                       在原记录行显式标「诊断」，一眼可见毛病来源。 */
-                    head = '#' + (i+1) + ' ' + esc(nm)
-                         + (x.value.diag ? ' <span class="cv_meta">·诊断</span>' : '')
-                         + ' <span class="cv_meta">·#' + esc(tail)
-                         + '（' + fmtSize(t.length) + '）</span>'
-                         /* 2.208：列表行给类型小前缀（人类 n · 终极 n · 思维流 n） */
-                         + ' <span class="cv_meta">·' + esc(kindStatText(x.value)) + '</span>';
-                  } else {
-                    head = '#' + (i+1) + ' 键=' + esc(jsonText(x.key).slice(0,60)) + '（' + fmtSize(t.length) + '）';
-                  }
+                  /* 2026-11-24：ledger_conv 已物理删除，格式化展示分支一并删除。 */
+                  head = '#' + (i+1) + ' 键=' + esc(jsonText(x.key).slice(0,60)) + '（' + fmtSize(t.length) + '）';
                   /* 2.208：展开即先列「每条记录的类型」（中文短标签），再给原始 JSON。 */
                   dd.innerHTML = '<summary>' + head + '</summary>'
-                    + ((sn === 'ledger_conv' && x.value && typeof x.value === 'object')
-                        ? kindsDigestHtml(x.value) : '')
                     + '<div class="cv_v">' + esc(t) + '</div>';
                   wrap.appendChild(dd);
                 });
@@ -890,7 +913,7 @@
      改值后立即 ① 按新 N 批量裁本地账本存量；② 发一次 timer 核对，把
      mods.lb_rounds 上报服务端（服务端 _采纳lb轮数 立即调整下发轮数）。 */
   function lbRoundsApplied(){
-    try { if (typeof lbTrimAllRounds === 'function') lbTrimAllRounds(true); } catch(e){}
+    try { if (typeof lbTrimAllSnaps === 'function') lbTrimAllSnaps(true); } catch(e){}
     /* 2.220：预备画面（snap_conv）与本地账本同一把尺子——改值当拍即按新 N 裁。 */
     try { if (typeof lbTrimAllSnaps === 'function') lbTrimAllSnaps(true); } catch(e){}
     try {
@@ -963,7 +986,7 @@
     q('lb_in_period').value = (typeof CFG !== 'undefined' && parseInt(CFG.lb_period)) || 90;
     q('lb_in_rounds').value = (typeof lbRounds === 'function') ? lbRounds() : 5;
     q('lb_in_think').value = (typeof CFG !== 'undefined' && CFG.lb_think !== undefined) ? CFG.lb_think : 5;
-    q('lb_ck_clean').onchange = function(){ CFG.lb_autoclean = this.checked ? 1 : 0; save(); try { if (typeof lbCleanStale === 'function') lbCleanStale(); } catch(e){} };
+    q('lb_ck_clean').onchange = function(){ CFG.lb_autoclean = this.checked ? 1 : 0; save(); };
     q('lb_ck_hud').onchange = function(){
       CFG.lb_hud = this.checked ? 1 : 0; save();
       try { if (typeof lbHud === 'function') lbHud(); } catch(e){}   /* 开→立刻建条走字；关→立刻撤 */

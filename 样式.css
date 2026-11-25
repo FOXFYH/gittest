@@ -541,33 +541,8 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
 #bfoot{flex:none; padding:6px 12px;
   color:var(--gray); font-size:11px; background:#fff;
   border-top:1px solid var(--bd);}
-/* ── 1.45：谷歌分身状态页（全屏覆盖）——服务端外挂
-   「谷歌分身助手转接器」推送：历史积分+登录状态，立刻实测=真实访问 ── */
-#page_prof{position:fixed; inset:0; z-index:40; background:#f2f4f7;
-  display:none; flex-direction:column;}
-#page_prof.on{display:flex;}
-.profhint{flex:none; padding:6px 12px; font-size:12px; color:var(--blue);
-  background:#eef4fb; border-bottom:1px solid var(--bd);}
-#prof_list{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:8px; overscroll-behavior:contain;}
-.prof_card{border:1px solid var(--bd); border-radius:8px; background:#fff;
-  margin-bottom:8px; padding:8px 10px;}
-.prof_row1{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
-.prof_name{font-weight:bold; color:var(--blue);}
-.prof_st{font-size:12px; padding:0 6px; border-radius:10px;
-  background:#ecf5ec; color:var(--green);}
-.prof_st.down{background:#fdecea; color:var(--red);}
-.prof_st.unk{background:#f1f1f1; color:var(--gray);}
-.prof_acc{font-size:12px; color:#555;}
-.prof_test{margin-left:auto; font-size:12px; padding:2px 8px;
-  min-height:24px; color:var(--blue); border-color:var(--bd);}
-.prof_test:disabled{color:#bbb; background:#f5f5f5;}
-.prof_login{margin-left:6px; font-size:12px; padding:2px 8px;
-  min-height:24px; color:var(--green); border-color:var(--bd);}
-.prof_login:disabled{color:#bbb; background:#f5f5f5;}
-.prof_row2{display:flex; flex-wrap:wrap; margin-top:4px; font-size:12px;
-  color:#333; gap:2px 10px;}
-.prof_pts{color:#7c4dff; font-weight:bold;}
+/* 2.285（老板 2026-11-25 11:54 令）：「分身状态」页整块拆除，
+   #page_prof / .profhint / #prof_list / .prof_* 样式一并删除。 */
 /* ── 1.15：模型收藏管理页（全屏覆盖）── */
 #page_fav{position:fixed; inset:0; z-index:40; background:#f2f4f7;
   display:none; flex-direction:column;}
