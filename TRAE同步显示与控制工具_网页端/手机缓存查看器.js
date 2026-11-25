@@ -1,5 +1,10 @@
 'use strict';
-/* 手机缓存查看器.js（网页端）  版本 2.252  日期 2026-11-25
+/* 手机缓存查看器.js（网页端）  版本 2.253  日期 2026-11-25
+   2.253（老板 2026-11-25 17:34 令·小账本显字符数）：小账本详情每条「人类发言／
+     AI 终极回复」的顶部信息行追加「· N 字」——N＝该条正文（index1/text）按码点
+     计数的字符数，与对账用的 lbCharN 同一口径（Array.from）。老板原话：AI 终极
+     回复可能先后认定多个版本，靠 MID＋字符数一起做版本校验；字符数必须在小账本
+     里看得见。思维流不显示（不落盘、不参与计数）。2.252→2.253（整页 2.296）。
    2.252（老板 2026-11-25 12:47 令·补漏）：新增 `_pureThinkText`——没带 th: 前缀的
      历史脏行（正文以 TraeWork/思考过程 打头）同样先判 think，不再被 2.249 的
      「带完成卡摘要就认终极」翻案冒充终极回复。2.251→2.252。
@@ -781,10 +786,17 @@
            不读记录里的 tm（旧值），也不再「沿用上一条」。ID 显示完整 mid。 */
         var tm = String(x.mid || '') ? String((typeof timeFromMid === 'function' ? timeFromMid(x.mid) : '') || '') : '';
         var mid = String(x.mid || '');
+        /* 2.253（老板 17:34 令）：正文码点字符数一并显示，供人工核对版本 */
+        var _cn = 0;
+        try {
+          _cn = (typeof lbCharN === 'function')
+            ? lbCharN(x.text || '') : Array.from(String(x.text || '')).length;
+        } catch(e){ _cn = 0; }
+        var _cnTxt = (_k === 'think') ? '' : (' · ' + _cn + ' 字');
         var d = document.createElement('div');
         d.className = 'cv_msg ' + (user ? 'u' : 'a');
         d.innerHTML = '<div class="who">' + kindTag(m) + esc((user ? '你' : 'AI') +
-          (tm ? ' · ' + tm : '') + (mid && _k !== 'think' ? ' · ' + mid : '')) + '</div>' +
+          (tm ? ' · ' + tm : '') + (mid && _k !== 'think' ? ' · ' + mid : '') + _cnTxt) + '</div>' +
           bodyHtml(x.text, user);
         box.appendChild(d);
       });
