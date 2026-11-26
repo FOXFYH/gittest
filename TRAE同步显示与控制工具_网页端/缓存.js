@@ -1010,6 +1010,15 @@ function _frameCommit(sk, frame, meta, onOk, memNow, force){
   /* 3.01：给存帧盖「当前服务器」归属，供小账本短路按 srv+sid 校验（切服不串显）。 */
   try { if (frame && typeof frame === 'object' && typeof lbSrvTag === 'function')
           frame._srv = String(lbSrvTag()); } catch(e){}
+  /* 2.327（老板 2026-11-26 11:00 令「连续人类中间无 AI」）：存帧再盖**会话身份**
+     （sid/title）。lbScreenMsgs 据此只认本会话的存帧，不再用「mid 比账本旧就丢」
+     的粗闸——那种闸会把本地账本还没收到、但存帧里确实属于本会话的 AI 行误伤掉。 */
+  try {
+    if (frame && typeof frame === 'object'){
+      frame._sid = String((meta && meta.sid) || '');
+      frame._title = String((meta && meta.title) || '');
+    }
+  } catch(e){}
   /* 2.220：新帧先按 N 裁再参与「只进不退」比较与落盘——否则已存 12 轮旧帧
      会以「条数更多」把裁后的 5 轮新帧判成旧帧拒收。 */
   if (frame && Array.isArray(frame.msgs)) frame.msgs = _frameTrimN(frame.msgs, sk, false);
