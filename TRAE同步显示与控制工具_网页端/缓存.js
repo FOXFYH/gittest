@@ -35,19 +35,21 @@ function checkVerBump(){
      本专项 B1：换代同时清 IndexedDB 快照表，并清掉 LS 里明确属快照类的键
      （快照绝不进 localStorage；LS_HIST 属账本历史，上面已按需清）。 */
   const k = cacheKeyNow();
-  const bumped = cacheKey !== null && cacheKey !== k;
+  /* 2.334（老板 16:24 令「经常大批量清空小账本，查是不是清空测试留下的代码」）：
+     原判据 cacheKeyNow()=网页VER|服务端srvVer —— 服务端版本一变（频道上另一台
+     4.09/4.17 交替、服务端重启换版本）就当成「换代」，把**全部会话的内存存帧、
+     历史页全清**，手机小账本成批变 0。改为只在**网页版本号**换代时清列表骨架；
+     服务器版本变化不再清存帧/历史/账本，交给逐会话身份与尾部判据自愈。 */
+  const _oldMain = String(cacheKey || '').split('|')[0];
+  const _newMain = String(k || '').split('|')[0];
+  const bumped = cacheKey !== null && _oldMain !== _newMain;
   if (bumped){
     try { localStorage.removeItem(LS_SKEL);
           localStorage.removeItem('trae_webm_hist');   /* 2026-11-24：LS_HIST 常量已删，仍清旧键 */ } catch(e){}
     try { snapIdbClearList(); } catch(e){}   /* 2.17：只清列表骨架，预备画面保留 */
     _lsPurgeSnapKeys();
-    S.histConv = ''; S.histRaw = []; S.histPrevRaw = [];
-    /* 2.130：换代 → 内存存帧一并作废，再按新键重新全量预读 */
-    try {
-      Object.keys(_frameMem).forEach(x => { delete _frameMem[x]; });
-      Object.keys(_frameMemByTitle).forEach(x => { delete _frameMemByTitle[x]; });
-      _prewarmKey = '';
-    } catch(e){}
+    /* 2.334：不再清 S.histRaw / S.histPrevRaw / _frameMem —— 历史只是看，
+       存帧是小账本地基，换代也不能把用户的小账本成批抹掉。 */
   }
   cacheKey = k;
   /* 2.130：缓存键定了（首次 hello 带 srvVer）→ 全部会话存帧预读进内存 */
