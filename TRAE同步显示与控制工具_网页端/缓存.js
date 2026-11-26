@@ -644,7 +644,20 @@ function curMsgs(){
     ? lbScreenMsgs((typeof curSid === 'function' ? curSid() : ''),
                    (typeof curTitle === 'function' ? curTitle() : ''))
     : [];
-  const prevRaw = (S.histPrevRaw && S.histPrevRaw.length) ? S.histPrevRaw : [];
+  /* 1.064（老板 2026-11-26 09:54 令「小账本没有的东西要撤下来」）：翻页历史必须
+     属于当前会话。切换在途 ensureHist 还没跑到，上一会话的 histPrevRaw 若照旧
+     并进来，就会把 A 会话的记录渲染到 B 会话主界面（B 小账本里当然没有它）。
+     现只在「翻页历史所属会话 == 当前锚定会话」时才并入，否则一律不并。 */
+  let prevRaw = [];
+  try{
+    const _ck = S.anchorSid
+      || ((typeof 稳定键 === 'function')
+          ? 稳定键((typeof curSid === 'function' ? curSid() : ''),
+                  (typeof curTitle === 'function' ? curTitle() : ''))
+          : '');
+    if (_ck && String(S.histConv || '') === String(_ck)
+        && S.histPrevRaw && S.histPrevRaw.length) prevRaw = S.histPrevRaw;
+  }catch(e){ prevRaw = []; }
   if (!prevRaw.length) return orderMsgs(snapMsgs);
   const prevArr = prevRaw.map(ledToArr);
   _midCollect(snapMsgs); _midCollect(prevArr);
