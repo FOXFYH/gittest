@@ -1,5 +1,11 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.065  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.066  日期 2026-11-26
+   【1.066 修 1.065 的 title 别名误杀（老板 2026-11-26 11:38 令「最新两条总是
+     连续人类」）】1.065 用「存帧 _sid 且 _title 都必须等于当前会话」做身份闸，
+     但存帧 title 常是内部会话名（'0047'），这里 t 是显示名（'WB+TR整改专员 ST'）
+     ⇒ 本会话存帧被整份丢掉，账本里没有的 AI 行又不见。现改为：有 `_sid` 时只比
+     sid（含稳定键折算），**不再比 title**；没有 `_sid` 的老存帧才用 title 兜底。
+     1.065→1.066（整页版本 2.328）。
    【1.065 存帧按会话身份过滤，修 1.064 误伤（老板 2026-11-26 11:00 令
      「连续人类中间无 AI」）】后勤部长 0019 在 10:52:20 有一条 737 字 AI 回复
      （存在 finish 的 params.summary 里），Py 版有、手机没有。根因：1.064 用
@@ -318,9 +324,13 @@ function lbScreenMsgs(sid, title){
               _same = (String(稳定键(_fsid, '') || '')
                        === String(稳定键(String(sid || ''), '') || ''));
             if (!_same) _fr = null;
+            /* 有 sid 时**不再比 title**：存帧的 title 常是内部会话名（如 '0047'），
+               而这里 t 是显示名（如 'WB+TR整改专员 ST'），比 title 会误杀本会话帧
+               （2.327 实测：0047 存帧被整份丢掉，AI 行又不见）。 */
+          } else {
+            const _ftitle = String(_fr._title || '');
+            if (_ftitle && t && _ftitle !== t) _fr = null;
           }
-          const _ftitle = String((_fr && _fr._title) || '');
-          if (_fr && _ftitle && t && _ftitle !== t) _fr = null;
         }catch(e){}
         if (_fr && !(_tag && _fs && _tag !== _fs)){
           const _rows = [];
