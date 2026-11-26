@@ -1,5 +1,11 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.063  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.064  日期 2026-11-26
+   【1.064 主界面＝小账本：账本没有的旧存帧行不再上屏（老板 2026-11-26 09:54
+     令「小账本没有的东西要撤下来」）】`lbScreenMsgs` 先量当前会话账本（LB.rows）
+     的 mid 集合与最新 mid 时刻；内存存帧（_frameMem）只允许补「账本已有的同一
+     条」（留给同号版本比较）与「比账本最新一条更新的行」（新到未落账）。账本
+     里没有、又比账本旧的存帧行一律不并——A 会话的残留/别的会话的记录不可能
+     再靠存帧占住 B 的主界面。1.063→1.064（整页版本 2.325）。
    【1.063 终答可撤销/可覆盖：服务端权威行一改就落地（老板 2026-11-26 09:14 令，
      0001 第 10 条手机显示假终极、电脑已「尚在思维流」，刷新/切换都纠不过来）】
      根因：服务端 `_ledger需补` 能凭 fin/n 判出同号不同版，但 `_lb足额同步` 的
@@ -259,6 +265,25 @@ function lbScreenMsgs(sid, title){
     const keys = [];
     if (u) keys.push(_lbRowsKey(u, ''));
     if (t) keys.push(_lbRowsKey('', t));
+    /* 1.064（老板 2026-11-26 09:54 令「小账本没有的东西要撤下来」）：先量出
+       当前会话账本的 mid 集合与最新 mid 时刻——存帧（_frameMem）只允许补
+       ① 账本里已有的同一条（让下面的同号版本比较挑新），② 比账本最新一条
+       更新的行（新到的消息还没落账）。账本里没有、又比账本旧的存帧行一律
+       不并——那是别的会话/历史残留，绝不能让它占着主界面。 */
+    const _ledFlat = [];
+    for (const k of keys){
+      const rs = LB.rows[k];
+      if (!Array.isArray(rs)) continue;
+      rs.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) _ledFlat.push(m); }));
+    }
+    const _ledMids = new Set();
+    let _ledMaxSec = 0;
+    _ledFlat.forEach(m => {
+      const id = String(m[6] || '');
+      if (id) _ledMids.add(id);
+      const s = /^[0-9a-fA-F]{8}/.test(id) ? (parseInt(id.slice(0, 8), 16) || 0) : 0;
+      if (s > _ledMaxSec) _ledMaxSec = s;
+    });
     /* 2.274（老板 2026-11-25 01:28 实测：主界面只剩人类发言、小账本却正常）：
        只选一份必然丢——新来的人类消息常常只写进其中一处键的副本，那份
        「更新但还没有 AI 终答」，选中它就只剩人类行（2.273 取最新也踩这个坑）。
@@ -295,7 +320,16 @@ function lbScreenMsgs(sid, title){
           const _rows = [];
           _fr.msgs.forEach(m => {
             const k = (typeof _lbKeepRow === 'function') ? _lbKeepRow(m) : m;
-            if (k) _rows.push([k]);
+            if (!k) return;
+            const _mid = String((k.length > 6 && k[6]) || '');
+            if (_mid && !_ledMids.has(_mid)){
+              if (_ledMaxSec){
+                const _sec = /^[0-9a-fA-F]{8}/.test(_mid)
+                  ? (parseInt(_mid.slice(0, 8), 16) || 0) : 0;
+                if (!_sec || _sec <= _ledMaxSec) return;   /* 账本没有的旧行不收 */
+              }
+            }
+            _rows.push([k]);
           });
           if (_rows.length) groups.push(_rows);
         }
