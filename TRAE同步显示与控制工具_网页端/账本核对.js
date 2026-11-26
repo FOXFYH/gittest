@@ -1,5 +1,11 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.066  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.067  日期 2026-11-26
+   【1.067 逐轮 AI 保留，修「最新回复闪一下就没了」（老板 2026-11-26 11:44 令）】
+     2.280 的 `_hasAI(rounds)` 只判整帧有没有 AI：新帧里只要别的轮带了一条 AI
+     就不拦，于是「新帧有旧 AI、本轮人类却没有本轮 AI」会把旧账本本轮的 AI 行
+     整轮覆盖掉——屏幕上先出现又瞬间消失。`lbRowsPut` 增逐轮保留：同一条人类行
+     的旧轮有 AI、新轮没有 AI ⇒ 本轮用旧轮；新轮自己带 AI 才听新帧。
+     1.066→1.067（整页版本 2.329）。
    【1.066 修 1.065 的 title 别名误杀（老板 2026-11-26 11:38 令「最新两条总是
      连续人类」）】1.065 用「存帧 _sid 且 _title 都必须等于当前会话」做身份闸，
      但存帧 title 常是内部会话名（'0047'），这里 t 是显示名（'WB+TR整改专员 ST'）
@@ -234,16 +240,43 @@ function lbRowsPut(uid, title, rounds){
         try { diagLog('账本拒覆盖|键=' + k + '|新帧无AI|旧轮=' + old.length, 'warn'); } catch(e){}
         return;
       }
+      /* 2.329（老板 2026-11-26 11:44 令「最新回复闪一下就没了」）：上面那道
+         `_hasAI(rounds)` 只看**整帧有没有 AI**——新帧里只要别的轮带了一条 AI，
+         它就不拦。于是「新帧有旧 AI + 本轮人类却没有本轮 AI」会把本轮旧账里的
+         AI 行整轮覆盖掉，屏幕上就是闪一下消失。这里加**逐轮保留**：同一条人类
+         行的旧轮有 AI、新轮没有 AI ⇒ 本轮改用旧轮；新轮自己带 AI 才听新帧。 */
+      let rounds2 = rounds;
+      try{
+        if (Array.isArray(old) && old.length){
+          const _oldByU = {};
+          old.forEach(r => {
+            const rr = Array.isArray(r) ? r : [];
+            const h = rr.find(m => Array.isArray(m) && String(m[0]) === 'u');
+            const hk = h && String(h[6] || '');
+            if (hk) _oldByU[hk] = rr;
+          });
+          rounds2 = rounds.map(r => {
+            const rr = Array.isArray(r) ? r : [];
+            const h = rr.find(m => Array.isArray(m) && String(m[0]) === 'u');
+            const hk = h && String(h[6] || '');
+            const oldR = hk && _oldByU[hk];
+            if (!oldR) return r;
+            const _newAI = rr.some(m => Array.isArray(m) && String(m[0]) !== 'u');
+            const _oldAI = oldR.some(m => Array.isArray(m) && String(m[0]) !== 'u');
+            return (!_newAI && _oldAI) ? oldR : r;
+          });
+        }
+      }catch(e){ rounds2 = rounds; }
       /* 1.060：整份替换前先把「本地更新、服务器这拍还没抓到」的轮留在尾部。
          判据：新帧里一条都没有它的 mid，且它的 mid 时间不早于新帧最新一条
          （无 mid 的未认证行按最新处理——它只可能是刚发还没认证的）。 */
-      let merged = rounds;
+      let merged = rounds2;
       if (Array.isArray(old) && old.length){
         const inNew = new Set();
-        rounds.forEach(r => (r || []).forEach(m => {
+        rounds2.forEach(r => (r || []).forEach(m => {
           if (Array.isArray(m) && m[6]) inNew.add(String(m[6]));
         }));
-        const top = _roundSec(rounds);
+        const top = _roundSec(rounds2);
         const tail = [];
         old.forEach(r => {
           const rs2 = Array.isArray(r) ? r : [];
@@ -257,9 +290,9 @@ function lbRowsPut(uid, title, rounds){
         if (tail.length){
           tail.sort((a, b) => _roundSec(a) - _roundSec(b));
           while (tail.length > 6) tail.shift();
-          merged = rounds.concat(tail);
+          merged = rounds2.concat(tail);
           try { diagLog('账本保留更新行|键=' + k + '|保留轮=' + tail.length
-            + '|新帧轮=' + rounds.length, 'warn'); } catch(e){}
+            + '|新帧轮=' + rounds2.length, 'warn'); } catch(e){}
         }
       }
       LB.rows[k] = merged;
