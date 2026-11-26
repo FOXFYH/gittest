@@ -1,5 +1,13 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.064  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.065  日期 2026-11-26
+   【1.065 存帧按会话身份过滤，修 1.064 误伤（老板 2026-11-26 11:00 令
+     「连续人类中间无 AI」）】后勤部长 0019 在 10:52:20 有一条 737 字 AI 回复
+     （存在 finish 的 params.summary 里），Py 版有、手机没有。根因：1.064 用
+     「存帧 mid 比账本最新还旧就丢」当跨会话闸——本地账本还没收到这条 AI 时，
+     存帧里本来属于本会话的它就按旧行被丢掉。现改为：`_frameCommit` 给每份存帧
+     盖 `_sid/_title`，`lbScreenMsgs` 只校验存帧是不是本会话；是本会话就整帧并，
+     不再按 mid 新旧裁。老存帧无身份字段的放行，下次落盘自动补。
+     1.064→1.065（整页版本 2.327）。
    【1.064 主界面＝小账本：账本没有的旧存帧行不再上屏（老板 2026-11-26 09:54
      令「小账本没有的东西要撤下来」）】`lbScreenMsgs` 先量当前会话账本（LB.rows）
      的 mid 集合与最新 mid 时刻；内存存帧（_frameMem）只允许补「账本已有的同一
@@ -265,25 +273,6 @@ function lbScreenMsgs(sid, title){
     const keys = [];
     if (u) keys.push(_lbRowsKey(u, ''));
     if (t) keys.push(_lbRowsKey('', t));
-    /* 1.064（老板 2026-11-26 09:54 令「小账本没有的东西要撤下来」）：先量出
-       当前会话账本的 mid 集合与最新 mid 时刻——存帧（_frameMem）只允许补
-       ① 账本里已有的同一条（让下面的同号版本比较挑新），② 比账本最新一条
-       更新的行（新到的消息还没落账）。账本里没有、又比账本旧的存帧行一律
-       不并——那是别的会话/历史残留，绝不能让它占着主界面。 */
-    const _ledFlat = [];
-    for (const k of keys){
-      const rs = LB.rows[k];
-      if (!Array.isArray(rs)) continue;
-      rs.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) _ledFlat.push(m); }));
-    }
-    const _ledMids = new Set();
-    let _ledMaxSec = 0;
-    _ledFlat.forEach(m => {
-      const id = String(m[6] || '');
-      if (id) _ledMids.add(id);
-      const s = /^[0-9a-fA-F]{8}/.test(id) ? (parseInt(id.slice(0, 8), 16) || 0) : 0;
-      if (s > _ledMaxSec) _ledMaxSec = s;
-    });
     /* 2.274（老板 2026-11-25 01:28 实测：主界面只剩人类发言、小账本却正常）：
        只选一份必然丢——新来的人类消息常常只写进其中一处键的副本，那份
        「更新但还没有 AI 终答」，选中它就只剩人类行（2.273 取最新也踩这个坑）。
@@ -316,20 +305,28 @@ function lbScreenMsgs(sid, title){
       }
       if (_fr && Array.isArray(_fr.msgs) && _fr.msgs.length){
         const _fs = String(_fr._srv || '');
-        if (!(_tag && _fs && _tag !== _fs)){
+        /* 2.327（老板 11:00 令「连续人类中间无 AI」）：存帧只认**本会话身份**。
+           2.325 的「mid 比账本旧就丢」会把本地账本还没收到、但存帧里确实属于
+           本会话的 AI 行误伤掉（后勤部长 10:52 那条 737 字 AI 回复即此）。
+           现在改为校验存帧自带的 sid/title：不是本会话的整帧不要；老存帧没有
+           身份字段的放行（下次落盘自动补）。 */
+        try{
+          const _fsid = String(_fr._sid || '');
+          if (_fsid){
+            let _same = (_fsid === String(sid || ''));
+            if (!_same && typeof 稳定键 === 'function')
+              _same = (String(稳定键(_fsid, '') || '')
+                       === String(稳定键(String(sid || ''), '') || ''));
+            if (!_same) _fr = null;
+          }
+          const _ftitle = String((_fr && _fr._title) || '');
+          if (_fr && _ftitle && t && _ftitle !== t) _fr = null;
+        }catch(e){}
+        if (_fr && !(_tag && _fs && _tag !== _fs)){
           const _rows = [];
           _fr.msgs.forEach(m => {
             const k = (typeof _lbKeepRow === 'function') ? _lbKeepRow(m) : m;
-            if (!k) return;
-            const _mid = String((k.length > 6 && k[6]) || '');
-            if (_mid && !_ledMids.has(_mid)){
-              if (_ledMaxSec){
-                const _sec = /^[0-9a-fA-F]{8}/.test(_mid)
-                  ? (parseInt(_mid.slice(0, 8), 16) || 0) : 0;
-                if (!_sec || _sec <= _ledMaxSec) return;   /* 账本没有的旧行不收 */
-              }
-            }
-            _rows.push([k]);
+            if (k) _rows.push([k]);
           });
           if (_rows.length) groups.push(_rows);
         }
