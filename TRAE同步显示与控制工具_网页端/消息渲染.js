@@ -264,22 +264,16 @@ function renderMsgs(msgs, finish, opts, ask, pend){
      这套判定整块删除，网页端不再参与任何选中一致性认定；气泡只按本会话
      思维灯与已到内容显示。 */
   let _think = (typeof thinkCardNow === 'function') ? thinkCardNow(msgs) : null;
-  if (!_think && !_lbLastRoundFinal(msgs)){
-    try{
-      const _light = (typeof _curConvLight === 'function') ? _curConvLight() : '';
-      let _hasCard = null;
-      try{
-        _hasCard = (typeof thinkCardGet === 'function')
-          ? thinkCardGet(String((typeof curSid === 'function' ? curSid() : '') || ''),
-                         String((typeof curTitle === 'function' ? curTitle() : '') || ''))
-          : null;
-      }catch(e){ _hasCard = null; }
-      if (_light === 'busy' || _hasCard){
-        _think = {placeholder: true, thinkId: '', time: '', thinkVer: 0,
-                  title: String((typeof curTitle === 'function' ? curTitle() : '') || ''),
-                  text: '正在获取思维流'};
-      }
-    }catch(e){}
+  /* 2.338（老板 18:45 令·极大误判）：会话灯已是「待看/空闲/完成」时，网页端
+     绝不许再摆「正在获取思维流」——灯不在 busy 就等于电脑那边已经不在生成，
+     残留的思维流卡只能撤下，等核对把最新回复补上。
+     旧写法的 `_hasCard` 是「本地缓存里还有一张旧卡」，它只代表看过，不代表
+     还在生成；灯一翻成待看，旧卡就必须让位。 */
+  const _lightNow = (typeof _curConvLight === 'function') ? _curConvLight() : '';
+  if (!_think && _lightNow === 'busy' && !_lbLastRoundFinal(msgs)){
+    _think = {placeholder: true, thinkId: '', time: '', thinkVer: 0,
+              title: String((typeof curTitle === 'function' ? curTitle() : '') || ''),
+              text: '正在获取思维流'};
   }
   key += '#tc:' + (_think
     ? (_think.thinkId + '\u0001' + String(_think.text || '').slice(-40)) : '0');
