@@ -1,5 +1,14 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.062  日期 2026-11-25
+/* 账本核对.js（网页端）  版本 1.063  日期 2026-11-26
+   【1.063 终答可撤销/可覆盖：服务端权威行一改就落地（老板 2026-11-26 09:14 令，
+     0001 第 10 条手机显示假终极、电脑已「尚在思维流」，刷新/切换都纠不过来）】
+     根因：服务端 `_ledger需补` 能凭 fin/n 判出同号不同版，但 `_lb足额同步` 的
+     add 只补缺号与 th→a 升级——同号旧版（35 字过程句）永远送不下新版。配合
+     服务端 WS桥 0.122：① `lbsync` 新增 `unfin:[mid]`（服务器明确撤销的终答）——
+     `lbSyncApply` 重建 order 时跳过、也不让 1.059 的「本地更新行保留」粘住，
+     假终答直接消失；② `add` 行落地前同样过 `_lbKeepRow`，服务器把行退回 th
+     时本地不留假终极；③ 同 mid 新正文（n 不同）由服务端整行进 add，本端按
+     2.293 的「add 优先覆盖本地」自然纠正。1.062→1.063（整页版本 2.323）。
    【1.062 主动核对成唯一心跳：内容没变也发最小存活帧（老板 2026-11-25 23:05 令，
      整页版本 2.315）】删除网页端 60 秒 hb 第二路心跳后，主动核对（timer）成为全端
      唯一心跳。而 1.052 的「指纹没变就不发」会让长时间无变化的端彻底静默、被服务端
@@ -1461,6 +1470,11 @@ function lbSyncApply(d){
         if (mid && Array.isArray(it.row)) addMap.set(mid, it.row);
       }catch(e){}
     });
+    /* 1.063（老板 2026-11-26 09:14 令·终答必须如实纠正）：服务器明确说这些
+       mid 已不是终答（退回思维流/未定稿）——本地若还留着假终答，必须删掉，
+       绝不能因「本地这条比服务器最新还新」被 1.059 的保留护栏粘住。 */
+    const unfin = new Set((Array.isArray(d.unfin) ? d.unfin : [])
+      .map(x => String(x || '')).filter(Boolean));
     _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
       const puts = [];
       (rows || []).forEach(rec => {
@@ -1484,7 +1498,15 @@ function lbSyncApply(d){
             /* 2.293（老板 2026-11-25 15:12 令「核对成功也补不进来」）：服务器
                下发的 add 行优先覆盖本地旧行——旧版本地优先，导致服务器已把
                该行从思维流半成品升成「AI 终极回复」时，本地旧 th 永远粘住。 */
-            if (addMap.has(mid)){ kept.push(addMap.get(mid)); 补++; return; }
+            if (unfin.has(mid)) return;      /* 1.063：服务器撤销终答 ⇒ 删行 */
+            if (addMap.has(mid)){
+              /* 1.063：add 行也过落盘过滤器——若服务器把某行退回 th，
+                 `_lbKeepRow` 返回 null ⇒ 该行自然消失，不留假终答。 */
+              const _rr = (typeof _lbKeepRow === 'function')
+                ? _lbKeepRow(addMap.get(mid)) : addMap.get(mid);
+              if (_rr){ kept.push(_rr); 补++; }
+              return;
+            }
             if (localMap.has(mid)){ kept.push(localMap.get(mid)); return; }
           });
           /* 1.059（老板 2026-11-25 17:30 复现「刷新出现、过一会又消失」）：
@@ -1500,6 +1522,7 @@ function lbSyncApply(d){
           const _extraNew = [];
           localMap.forEach((v, k) => {
             if (orderSet.has(k)) return;
+            if (unfin.has(k)) return;        /* 1.063：撤销终答的行不留尾 */
             const sec = parseInt(String(k).slice(0, 8), 16) || 0;
             if (_ordSec && sec > _ordSec) _extraNew.push(v);
           });
@@ -1560,7 +1583,7 @@ function lbSyncApply(d){
           puts.push(_idbReq('snap_conv', 'readwrite',
             st => st.put(nr)).catch(() => {}));
           try { diagLog('lbsync 足额|sid=' + 键 + '|order=' + order.length
-            + '|留=' + 留 + '|补=' + 补 + '|删=' + 删
+            + '|留=' + 留 + '|补=' + 补 + '|删=' + 删 + '|撤销=' + unfin.size
             + '|rounds=' + (parseInt(d.rounds) || 0), 'ok'); } catch(e){}
         }catch(e){}
       });
