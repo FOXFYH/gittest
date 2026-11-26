@@ -1,270 +1,21 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.075  日期 2026-11-26
-   【1.075 灯不在 busy 绝不许再挂「正在获取思维流」（老板 18:45 令「有一个对话
-     显示待看，却还摆着正在获取思维流，这是极大的误判；灯都那么明显了，这张卡
-     就应该撤下，核对后显示最新回复」）】
-     · `消息渲染.js` 的占位条件删掉 `_hasCard`（本地残留旧卡不代表还在生成），
-       只有会话灯明确 busy 且本轮无终答时才占位；
-     · `thinkCardPaint` 在灯明确非 busy 时先移除屏上 `.thinklive` 卡并停止补画，
-       该位置留给核对补来的最新回复。取不到灯（''）时不误伤。
-     1.074→1.075（整页版本 2.338）。
-   【1.074 手机端零判断·电脑 10+2 刚性镜像（老板 17:46 令「手机网页版需要什么
-     判断能力？是电脑版在这边建立一个镜像。小账本就是刚性的，不得有任何操作。
-     电脑什么样，核对完以后这边就什么样」）】
-     ① 新增 `_lbMirrorKeepRow` / `lbMirrorRounds`：镜像模式下只归一角色 u/a，
-        不判纯思维块、不按 th 丢弃、不改正文、不丢任何一条；
-     ② `lbScreenMsgs` 镜像分支、`lbSyncApply`/`lbKeepApply` 的 add 行与分组
-        全部改用上述口径——服务端给什么，小账本就存什么、屏幕就画什么；
-     ③ 销账的 DOM 检查不再跳过 `data-think`（10+2 里的思维流卡也带 mid，同样
-        算「到位」），否则 +2 永远判缺。
-     1.073→1.074（整页版本 2.337）。
-   【1.073 核对必须按服务端回执清单逐项销账（老板 17:13 令「显示核对成功，
-     你是怎么确认补发来的清单里的内容都收到手了？没到手可不要给我显示核对
-     成功」）】1.072 的成功闸只校验「屏幕源每条都在 DOM」——屏幕源自己就缺
-     那条时，等于自己证明自己，仍会假成功。本版：
-     ① `ledgerVack` stage2 保存服务端回执 `items`（本轮实际补发的模块/条）与
-        `srv_order`（服务端该会话权威 mid 全序）；
-     ② `ledgerScreenComplete` 新增两道硬闸：srv_order 每一条必须已进小账本、
-        items 每一项必须到位（ledger 条查 mid、模块项查版本）；缺一项即
-        false，并落诊断「核对销账缺项」；空屏幕也不再提前放行。
-     ③ **真凶**：`lbPureThink` 只要正文首行是「思考过程」就判纯思维块——
-        TRAE 真终答常以「思考过程」开头，于是 `lbRoundsFromMsgs` 直接把该
-        AI 行丢弃、`lbIsFinalRow` 不认终答，服务端补多少条都进不了账本，
-        核对却照样成功。改为：服务端权威类型 index8='a'/'final'/'patched'
-        或完成卡摘要 index7 已明确终答时，绝不再按正文首行改判。
-     1.072→1.073（整页版本 2.336）。
-   【1.072 核对成功必须很慎重＋存帧范围缺口补齐（老板 17:05 实测「电脑上已有
-     上一轮 AI 终答、手机核对成功却没拉出来」）】两处：
-     ① `lbScreenMsgs` 镜像分支原只补「mid 比存帧末条更新」的账本行；本轮 AI
-        终答 mid 恰好在存帧首尾之间、采集那拍还没带进存帧时永远不显示。改为
-        补「mid ≥ 存帧首条」的全部缺口，更早历史仍不补。
-     ② `ledgerVack` 宣告成功前新增 `ledgerScreenComplete`：当前会话屏幕源每
-        一条都必须真的画到 DOM；8 秒到点也不盲成功，先强制重绘再复核，缺消息
-        就提示「核对未完成」，绝不亮「核对成功」。
-     1.071→1.072（整页版本 2.335）。
-   【1.071 账本比存帧新的差额行必须上屏（老板 14:11 令「小账本的东西都有显示到
-     主界面来吗」真 Chrome 实测发现）】1.069 存帧优先后，账本模块先推来、存帧
-     还没跟上时，账本已 12 条而屏幕只 10 条。修法：镜像分支在存帧之后，把账本
-     里**mid 比存帧末条更新**的行补到尾部（更旧的历史一条不补，防 15/22 条），
-     再按账本条数截尾。真 Chrome 实测：增量推 1 轮 → 账本/屏幕/DOM 全部 12。
-     1.070→1.071（整页版本 2.333）。
-   【1.070 治小账本「满→0→满」闪烁（老板 2026-11-26 13:53 令）】根因两路：
-     ① 2.264 的 `lbHistToLedger` 会把上顶翻出来的历史**写进小账本/存帧**，
-       翻一页历史就把整本账替换成那一页（老板新口径：拉历史只是看看，绝不
-       影响小账本）；② 1.068 起 `lbRowsPut` 在镜像模式整份替换，账本模块
-       只推一轮/单条时也会把 10 条缩成 1 条，下一拍 lbsync 又补回 10 条 ⇒
-       满→0→满。修法：① 镜像模式下 `lbHistToLedger` 直接返回，历史只走
-       `histPrevRaw` 显示；② `lbRowsPut` 增 `full` 形参——只有权威全量窗口
-       （开机/lbkeep 裁剪/lbsync/补终答）才允许缩；账本模块等增量来源只
-       合并（同人类行更新、新轮追加、按 mid 排序），条数只增不减。
-     1.069→1.070（整页版本 2.332）。
-   【1.069 手机屏幕＝采集拆分器「会话拆分·③消息卡片」整份镜像（老板 2026-11-26
-     12:06 令「我说的镜像就是把整个模块 3 镜像到手机网页版；只有电脑能维护这个
-     小账本，抓历史只是看看，不影响小账本」）】全量镜像下 `lbScreenMsgs` 改为
-     **存帧优先**：本会话存帧（＝服务端按 N/CDP 合成后下发的模块 3）有几条就
-     显示几条；没有存帧才退回本地账本。之前「账本打底＋存帧补差额」在两边窗口
-     错位时仍会拼出非模块 3 的组合，本版按老板口径彻底以模块 3 为准。
-     1.068→1.069（整页版本 2.331）。
-   【1.068 镜像模式条数必须与电脑一致，屏幕不再拼出 15/22 条（老板 2026-11-26
-     12:03 令「镜像＝电脑上几条手机上就几条；拉历史不用落盘到小账本」）】
-     根因两条：① `lbScreenMsgs` 把「终身号键账本＋会话名键账本＋内存存帧」
-     三份窗口无条件并集，窗口错位时 10 条能拼成 15～22 条；② `lbRowsPut` 的
-     「本地更新行尾部保留」最多再粘 6 轮旧行，账本自身也能涨到 22 条。修法
-     （仅全量镜像模式）：屏幕只认**一份账本**（终身号键优先、无则名称键），
-     存帧只补「比账本末条更新」的差额行；`lbRowsPut` 不再保留尾部旧轮，给
-     几条就落几条。拉历史（histPrevRaw）只走显示、不写账本/存帧，本次不动。
-     1.067→1.068（整页版本 2.330）。
-   【1.067 逐轮 AI 保留，修「最新回复闪一下就没了」（老板 2026-11-26 11:44 令）】
-     2.280 的 `_hasAI(rounds)` 只判整帧有没有 AI：新帧里只要别的轮带了一条 AI
-     就不拦，于是「新帧有旧 AI、本轮人类却没有本轮 AI」会把旧账本本轮的 AI 行
-     整轮覆盖掉——屏幕上先出现又瞬间消失。`lbRowsPut` 增逐轮保留：同一条人类行
-     的旧轮有 AI、新轮没有 AI ⇒ 本轮用旧轮；新轮自己带 AI 才听新帧。
-     1.066→1.067（整页版本 2.329）。
-   【1.066 修 1.065 的 title 别名误杀（老板 2026-11-26 11:38 令「最新两条总是
-     连续人类」）】1.065 用「存帧 _sid 且 _title 都必须等于当前会话」做身份闸，
-     但存帧 title 常是内部会话名（'0047'），这里 t 是显示名（'WB+TR整改专员 ST'）
-     ⇒ 本会话存帧被整份丢掉，账本里没有的 AI 行又不见。现改为：有 `_sid` 时只比
-     sid（含稳定键折算），**不再比 title**；没有 `_sid` 的老存帧才用 title 兜底。
-     1.065→1.066（整页版本 2.328）。
-   【1.065 存帧按会话身份过滤，修 1.064 误伤（老板 2026-11-26 11:00 令
-     「连续人类中间无 AI」）】后勤部长 0019 在 10:52:20 有一条 737 字 AI 回复
-     （存在 finish 的 params.summary 里），Py 版有、手机没有。根因：1.064 用
-     「存帧 mid 比账本最新还旧就丢」当跨会话闸——本地账本还没收到这条 AI 时，
-     存帧里本来属于本会话的它就按旧行被丢掉。现改为：`_frameCommit` 给每份存帧
-     盖 `_sid/_title`，`lbScreenMsgs` 只校验存帧是不是本会话；是本会话就整帧并，
-     不再按 mid 新旧裁。老存帧无身份字段的放行，下次落盘自动补。
-     1.064→1.065（整页版本 2.327）。
-   【1.064 主界面＝小账本：账本没有的旧存帧行不再上屏（老板 2026-11-26 09:54
-     令「小账本没有的东西要撤下来」）】`lbScreenMsgs` 先量当前会话账本（LB.rows）
-     的 mid 集合与最新 mid 时刻；内存存帧（_frameMem）只允许补「账本已有的同一
-     条」（留给同号版本比较）与「比账本最新一条更新的行」（新到未落账）。账本
-     里没有、又比账本旧的存帧行一律不并——A 会话的残留/别的会话的记录不可能
-     再靠存帧占住 B 的主界面。1.063→1.064（整页版本 2.325）。
-   【1.063 终答可撤销/可覆盖：服务端权威行一改就落地（老板 2026-11-26 09:14 令，
-     0001 第 10 条手机显示假终极、电脑已「尚在思维流」，刷新/切换都纠不过来）】
-     根因：服务端 `_ledger需补` 能凭 fin/n 判出同号不同版，但 `_lb足额同步` 的
-     add 只补缺号与 th→a 升级——同号旧版（35 字过程句）永远送不下新版。配合
-     服务端 WS桥 0.122：① `lbsync` 新增 `unfin:[mid]`（服务器明确撤销的终答）——
-     `lbSyncApply` 重建 order 时跳过、也不让 1.059 的「本地更新行保留」粘住，
-     假终答直接消失；② `add` 行落地前同样过 `_lbKeepRow`，服务器把行退回 th
-     时本地不留假终极；③ 同 mid 新正文（n 不同）由服务端整行进 add，本端按
-     2.293 的「add 优先覆盖本地」自然纠正。1.062→1.063（整页版本 2.323）。
-   【1.062 主动核对成唯一心跳：内容没变也发最小存活帧（老板 2026-11-25 23:05 令，
-     整页版本 2.315）】删除网页端 60 秒 hb 第二路心跳后，主动核对（timer）成为全端
-     唯一心跳。而 1.052 的「指纹没变就不发」会让长时间无变化的端彻底静默、被服务端
-     判下线。故 ledgerVcheckSend 的 timer 分支在指纹相同、没什么可核对时不再裸
-     return，改发 `{t:'vcheck', act:'beat', sid}` 最小存活帧；服务端（WS桥 0.116）
-     只登记在线时刻，不对账、不回 vack、不补模块。1.061→1.062。
-   【1.061 小账本思维流：不落盘只抓内存、抓到就核对、灯灭即无思维（老板 19:03 令，
-     0005 转达）】thinkCardsReport 对「当前会话且本地思维灯没开」的卡不再上报
-     （不参与核对、差异也不收）；小账本专属位置改从 thinkCardGet 内存活卡取数，
-     灯灭直接显示「无思维」。差异由服务端判定并立即补发，客户端只保证如实上报。
-     1.060→1.061（整页版本 2.302）。
-   【1.060 主界面「出现一下立刻消失」第三处真凶：lbRowsPut 整份替换（老板 2026-11-25 18:15 令）】
-     现象：发出一句话→主界面出现→立刻消失；小账本里确实有；点「📒 读取小账本」显示
-     约一秒又消失，再点一次才留下。
-     根因：`lbRowsPut` 是**整份替换** `LB.rows[k]=rounds`。服务端某一拍下发的窗口还不含
-     刚发的那句（抓取抖动/落盘滞后），整份替换就把本地已有该句的账抹掉；而 snap_conv
-     (小账本)里该句还在 ⇒ 屏幕没了、小账本有。点拉取从 snap_conv 装回来能显示，下一拍
-     旧窗口又整份替换 ⇒ 再次消失；等服务器真抓到那一拍才稳定。
-     修法：写入前做「更新行保留」——新帧里没有、但旧账本里 mid 时间戳不早于新帧最新
-     一条的行（无 mid 的未认证新行按更新处理），按时间顺序追加到末尾保留；只保留尾部
-     最多 6 行防堆积，被服务器正式抓到后自然归位。2.280 的「新帧无 AI 拒写」保持原样。
-     1.059→1.060（整页版本 2.297）。
-   【1.059 最新回复不再被对账删掉 / 不再被自检清屏（老板 2026-11-25 17:30 令）】
-     现象：打开会话看不到最新回复；刷新后出现，过一会又消失；小账本里还有；
-     「读取小账本」也拉不回主界面。两处修：
-     ① `lbSyncApply`：服务器这一拍会话模块还没抓到最新一条时（写盘滞后/窗口截断），
-        order 里没有它，原逻辑「不在 order 就删」把网页手里更晚的行一起删了，
-        主界面与 snap_conv 同时丢。现改为本地比 order 最新一条更晚的行保留尾部、
-        不参与删除，只删确实不比服务器最新更晚的多余行（order 空仍走原拒删）。
-     ② `lbGuardTick`：原无参调 `lbScreenMsgs()` 恒为空表，屏幕有行就每 2.5 秒判
-        「不一致」强制重画；当前会话账本为空时重画＝清屏。现按当前会话取账本，
-        账本为空直接返回，绝不清屏。1.058→1.059（整页版本 2.295）。
-   【1.058 落盘只收 u/a，清掉历史「类型未知」（老板 2026-11-25 17:03 令）】
-     小账本落盘只许两种：人类发言(u)、AI 终极回复(a)；思维流（index8=th/think/
-     snap、mid 带 th: 前缀、纯思维块）与官方排队条一律不落盘（它们的临时显示仍走
-     内存 _frameMem/虚线框，不动）。新增唯一过滤器 `_lbKeepRow`（保留行把 index8
-     归一写死 u/a，杜绝「类型未知」），`ledgerStorePut` 的 _rs0 与 `lbRoundsFromMsgs`
-     统一经它过滤；开机 `lbHaveLoad` 从 snap_conv 重建 rounds 时同样过滤，并把清理
-     后的 msgs 回写同一张 snap_conv（老用户打开一次即清掉 th/未知行，u/a 一条不少）。
-     服务端/协议不动。1.057→1.058（整页版本 2.294 不变）。
-   【1.057 对账加字符数 n，修手机停在旧版本（老板 2026-11-25 15:42 令）】
-     AI 终极回复可能先后认定出多个版本，电脑端最新版盖旧版；但手机端只按 MID
-     判「我已有了」，同号旧版本永不更新。故：① 新增 `lbCharN`（Array.from 码点
-     计数，与服务端 WS桥 0.113 的 len() 对齐）；② `lbSumOf` 上报的每条 codes
-     在 mid/fin/hash 外再加 `n`＝该 MID **正文（index1）**的字符数（服务端同取
-     row[1]/text；补发路径 index7 是「账本定稿」来源标记，不参与计数；hash 仍
-     取 `a[7]||a[1]`）。
-     ③ 同 mid 且字符数不同时以新到者为准覆盖旧版（`lbScreenMsgs`/`_lbLedgerTop`/
-     `_lbMergeRows`/`ledgerStorePut._apply`），思维流(th)↔终极(a) 类型升级规则
-     保持原样。1.056→1.057（整页版本 2.294）。
-   【1.056 lbsync 的 add 行优先覆盖本地（老板 2026-11-25 15:12 令「核对成功也补
-     不进来」）】`lbSyncApply` 的 order 重建改为「addMap 命中即用服务器整行」——旧版
-     本地优先，服务器把该行从思维流半成品升成「AI 终极回复」后本地旧 th 永远粘住。
-     配套服务端 WS桥 0.110：keep 里类型升级为 a 的 mid 会进 add 整行下发。
-     1.055→1.056。
-   【1.055 通用模块清单补全（老板 2026-11-24 21:11 令）】`ledgerVcheckBuild` 上报
-     模块数组由 sig/snote/macct/convs/didp/think 扩为再加 srv（服务器身份）/input
-     （输入框镜像）——只在 LB.mods 有值时才报，旧帧/无值不报，绝不因「没报过」让
-     服务端判缺。LB.mods 来源不变：mod 帧（含 input）写 `LB.mods[m]=v`，hello/vack
-     的 mods 整体经 `lbModsSet` 覆盖（含 srv/input）。官方排队条自服务端 0.92 起
-     不再单列通用模块（只属会话模块 12 条子行）。1.054→1.055。
-   【1.054 账本足额同步（老板 2026-11-24 20:53 令）】新增服务端对账帧 t:'lbsync'
-     处理函数 lbSyncApply（仿 lbKeepApply）：按 d.order（服务器完整全序 mid）重建
-     本会话账本 msgs——本地有该 mid 用本地行、否则用 d.add 给的行（缺条只补内容，
-     不盲发全部）、都不存在跳过不造假；不在 order 里的多余行丢弃；重建后
-     lbSumSet/lbRowsPut/_frameMem/snap_conv 一并同步，最终两边条数/ID/顺序/内容
-     一致。对应服务端「足额补发」默认模式；「智能补发」仍走原 12 条逐条比对。d.think/
-     d.pend 服务端另推，不在本函数处理。1.053→1.054。
-   【4.10 核对模块化重设计（老板 2026-11-24 20:24 令）】① vcheck 上报升级：
-     mods.conv＝当前选中会话「12 条 ID 清单」（最近 10 条对话 mid＋思维流 1 条
-     ＋官方排队条 1 条；会话模块无版本号；lbConv12Report 新函数），服务端逐条
-     比对、差异条单条粒度补发（一条一帧 ledger 帧，照旧并入小账本）；旧服务端
-     忽略该键不破坏兼容。② timer 静默指纹自动含 12 条 ID（mods 整体入指纹，
-     逻辑不动）。③ 服务端版本号体系升级为「前缀英文+14位时间戳」（SIG/SNOTE/
-     MACCT/CONVS/DIDP/THINK/PEND＋YYYYMMDDHHMMSS；思维流双版本＝绝对＋简短
-     think_v），网页端只存底/回传不解释，天然兼容。
-   【1.052 timer 静默令（老板 2026-11-24 19:35）】思维流变化大、经常推属正常
-     高频；其余模块不该有周期性反复核对/上报。故 timer 主动核对降为**变化触发**：
-     每 90s 到点先在本地按同口径构建一帧并取内容指纹（mods 全模块＋ledger 摘要
-     ＋thinks＋锚定 sid），与上一条已发 timer 一致 ⇒ 不发不查（LB.lastTimerSig），
-     内容变了才发。90s 周期只剩本地指纹计算的零流量开销；协议帧结构不动。
-   【1.051 lbkeep 连续链裁剪】服务端 vcheck 模块化对账后下发 t:'lbkeep'
-     {sid,keep:[…],del:[…]}：只删本地唯一账（snap_conv）该会话 del 里的 mid
-     （keep 保留），删完重建 lbSum 与 snap_conv 记录；无该会话/空指令静默。
-   【2.244 单账本（老板令·对齐 WB）】本地只留一套正文账＝snap_conv：
-     ledger_conv 停写、历史轮次一次性并入 snap_conv 后清空（lbLedgerMigrateOnce →
-     purgeLedgerStore，IDB_VER=3）。真存集/摘要表（vcheck 上报口径）改由 snap_conv
-     的 frame.msgs 还原；落账只走 lbWriteBackSnap 写同一张表；思维流只留内存展示。
-     登录/首屏 vcheck 照旧按 LB.lbSum 上报（空表也开口→服务端按 need 补缺），
-     90 秒主动核对、直播帧缺正文用小账本顶上的口径全部保留。
-   【2.220 预备画面同尺子】上一轮只裁本地账本（ledger_conv），① 会话预备画面
-     （snap_conv）仍只增不减，老板看到卡片「N 条」超过 10 条。本版把 snap_conv
-     的 frame.msgs 也按同一 N（lbRounds 默认 5）裁：lbTrimFrameMsgs 复用
-     lbLedgerTrimRounds 判定（lbRoundKey 去重 + slice(-N)），写快照/合并/迁移/
-     开机统一走它，卡片条数与实际留存一致。屏幕上的消息照旧显示（零拦截不变）。
-   【2.219 保留轮数真正生效】老板 2026-11-20 16:21「保留最近 5 轮这个参数没起作用」：
-     本地账本落账/归并/迁移/开机清理统一按 N（CFG.lb_rounds）裁 rounds——
-     lbRoundKey 去重后 slice(-N)，只裁 rounds 数组，整条记录其余字段不动；
-     被裁轮次记一条 `账本裁剪|键=…|裁前=n|裁后=N`（不记正文）。前端零拦截不变：
-     屏幕上的消息照旧显示，裁的只是本地账本存量。
-   【2.215 终身号唯一算法】标准＝24hex sid 前 4 位数字；提取失败＝会话名原样兜底；
-     新增 lbUidName/lbUidAny；lbUidPick 无号时回落到会话名；桶键只用「号」或「名称」。
-   【2.200 补 m=u/input 路由】
-   【依据】《手机网页端账本系统V1.0总规范.md》三/六/九/十章 +
-           《账本系统V1.0_TRAE协议定稿.md》（含第十一章统筹批复：
-           上行 vcheck 单帧多字段、think 兼带正文、macct 按 boxes）。
-   【职责】客户端侧账本核对层，一个文件装下六件事：
-     ① vcheck 构造（四场景同一函数双入口：login/switch/svr/timer，
-        单帧多模块版本编码上报，I2 单入口代码审查依据）；
-     ② vack 两阶段回执：stage:1 → 悬浮提示「已变更选中会话，等待账本
-        核对中」（复用顶部横幅，经 S.switch_pend.phase）；stage:2 →
-        正式成功关提示 + 版本底账刷新 + 智能避让 20s 叠加（I3）；
-     ③ mod 单模块实体帧分流（snote/sig/macct/convs/didp/ledger/think）
-        ＋ set_think_int 回执 lbThinkIntAck（WS桥 0.27）；
-     ④ 主动核对：默认 1 分钟周期（可配）+ 倒计时文本 lbHudText()（缓存查看器
-        「③ 账本调控」区常显）＋ #lbhud 悬浮条（追加单 2026-11-18 改开关式：
-        CFG.lb_hud 默认关，开关在账本调控区，开才悬浮走字）；
-        智能避让（追加单修订）＝switch 发出即冻结、终态（stage:2 或 90s 失败）
-        解冻重置；login/svr 完成直接按完整周期重置；旧 20s 叠加已删；
-     ⑤ 本地离线倒计时：默认 120s 可配，任意用户操作重置，走完发下线
-        信号（logout）；保留现有主动下线场景并新增开关（切后台下线）；
-     ⑥ 本地账本（IDB ledger_conv 表，按服务端隔离）：只留最新 N 轮
-        （默认 5 可配）；改名/删除会话自动清理；「自动清理无用小账本」
-        开关默认勾选、14 天未查看自动删；历史按轮补发仅人类发言+终极回复
-        （2.183 修2 按 V1.0 §十二-2：TRAE 无思维流补发概念，ledger_req-think
-        通路已撤；按轮补发面板仅 WorkBuddy 章节适用，规范§七-3）。
-     调控界面已并入 手机缓存查看器.js「③ 账本调控」tab（规范§十：
-     小账本＝现成缓存查看器，禁止新造页面；原 小账本页.js 已撤销）。
-   【零依赖降级】服务端未升级（无 vack/mod 帧）时：vcheck 发出无人应答
-     ⇒ 走既有 switch 90s 超时兜底；本层绝不妨碍现有 snap 通路（旧协议
-     全量保留，新旧并行，联调期互为兜底）。 */
+ /* 账本核对.js（网页端）  版本 1.077  日期 2026-11-26 */
 const LS_LBVER = 'trae_webm_lbver';          /* 版本底账落盘（按服务端隔离） */
 let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
-          lastTimerSig: '',                  /* 1.052（老板 2026-11-24 19:35 令·静默令）：上一条 timer 帧内容指纹——没变就不发 */
-          frozen: false, frozenT: null,      /* frozen＝切换期间核对冻结（追加单 2026-11-18，取代 20s 叠加） */
+          lastTimerSig: '',
+          frozen: false, frozenT: null,
           lbHave: new Set(),                 /* V2 验收 Y11：本地【真存】会话集合——ledger 上报只认它，收帧记下的版本不算存 */
-          lbSum: {},                         /* 2.184 改4（规范§七 :194）：本地账本摘要表——键＝终身号，
+          lbSum: {},                         /* 改4（规范§七 :194）：本地账本摘要表——键＝终身号，
                                                 值＝{rounds, codes:[{mid, fin, hash}]}，put 成功后才记；
                                                 vcheck 按它上报编码集合＋完成态＋正文指纹 */
-          rows: {},                          /* 2026-11-24（老板令·只认小账本）：屏幕唯一正文源——
+          rows: {},                          /* 屏幕唯一正文源（只认小账本）——
                                                 键＝服务器|终身号（名称作兜底别名），值＝账本 rounds */
-          /* 2.234（老板 2026-11-20 23:42）：原 2.227「强核对」可见反馈字段
-             （vchkLog/vchkCnt）随大面板一并清除，核对状态只走横幅＋圆球。 */
           chkUntil: 0};                      /* 圆球指示窗截止时刻（四契机通用，10s） */
-/* 2026-11-24（老板 10:23「网页版只需要一份小账本」）：屏幕正文只认账本 rounds。
-   rows 内存表按「服务器|终身号」存、名称作兜底别名；存帧/标题兜底/预取一律不再上屏。 */
 function _lbRowsKey(uid, title){
   /* 只用「终身号｜会话名」做键（不带服务器标签）：开机时服务器名可能还没到，
      带标签会导致账本装进去却查不到。单服务器日常使用下不存在串服问题。 */
   return '|' + (String(uid || '').trim() || String(title || '').trim());
 }
-/* 2.275（老板 2026-11-25 通宵实测复现：LB.rows 里 5 轮 u+a 齐全、
-   lbScreenMsgs 返回 10 条，主界面 #msgs 却一条不渲染；手动 renderAll()
-   立刻 10 条全出）：账本变了不等于屏幕重画——账本落地/补发/裁剪都在
-   异步回调里改 LB.rows，没有任何一处触发重绘。凡是账本变动一律走本函数，
-   节流 250ms 统一重画。 */
 let _lbRepaintT = null, _lbRepaintAt = 0;
 function lbRepaint(delay){
   try{
@@ -287,14 +38,8 @@ function lbRowsPut(uid, title, rounds, full){
   try{
     if (!Array.isArray(rounds) || !rounds.length) return;
     const u = String(uid || '').trim(), t = String(title || '').trim();
-    /* 2.280（老板 2026-11-25 08:37 实测：最新回复在主界面闪一下又消失、小账本
-       也没了）：新回复先随完整帧上屏，紧接着又一帧「只有人类、没有 AI」的轮次
-       把整份账本覆盖掉 ⇒ 屏幕与账本一起丢。凡新帧一条 AI 行都没有、旧账本里
-       却有 AI 行 ⇒ 拒写保留旧账本，等下一拍齐了再落；新会话首条人类消息
-       （旧账本也没有 AI）不受影响。 */
     const _hasAI = arr => (arr || []).some(r => Array.isArray(r)
       && r.some(m => Array.isArray(m) && String(m[0] || '') !== 'u'));
-    /* 1.060（老板 18:15 令）：mid 前 8 位 hex＝秒级时间戳，用来判断「谁更新」 */
     const _secOf = id => {
       const v = parseInt(String(id || '').slice(0, 8), 16);
       return isNaN(v) ? 0 : v;
@@ -314,11 +59,6 @@ function lbRowsPut(uid, title, rounds, full){
         try { diagLog('账本拒覆盖|键=' + k + '|新帧无AI|旧轮=' + old.length, 'warn'); } catch(e){}
         return;
       }
-      /* 2.329（老板 2026-11-26 11:44 令「最新回复闪一下就没了」）：上面那道
-         `_hasAI(rounds)` 只看**整帧有没有 AI**——新帧里只要别的轮带了一条 AI，
-         它就不拦。于是「新帧有旧 AI + 本轮人类却没有本轮 AI」会把本轮旧账里的
-         AI 行整轮覆盖掉，屏幕上就是闪一下消失。这里加**逐轮保留**：同一条人类
-         行的旧轮有 AI、新轮没有 AI ⇒ 本轮改用旧轮；新轮自己带 AI 才听新帧。 */
       let rounds2 = rounds;
       try{
         if (Array.isArray(old) && old.length){
@@ -341,13 +81,7 @@ function lbRowsPut(uid, title, rounds, full){
           });
         }
       }catch(e){ rounds2 = rounds; }
-      /* 1.060：整份替换前先把「本地更新、服务器这拍还没抓到」的轮留在尾部。
-         判据：新帧里一条都没有它的 mid，且它的 mid 时间不早于新帧最新一条
-         （无 mid 的未认证行按最新处理——它只可能是刚发还没认证的）。 */
       let merged = rounds2;
-      /* 1.070（老板 13:53 令·满→0→满）：镜像下只有权威全量窗口（full=true：
-         开机/lbkeep/lbsync/补终答）才允许整份替换、允许缩；账本模块这类
-         增量来源只合并——同人类行更新、新轮追加、按 mid 排序，条数只增不减。 */
       if (lbMirrorMode() && !full && Array.isArray(old) && old.length){
         const _uk = rr => {
           let h = '';
@@ -384,8 +118,6 @@ function lbRowsPut(uid, title, rounds, full){
           + '|新轮=' + rounds2.length + '|合=' + _incr.length, 'ok'); } catch(e){}
         return;
       }
-      /* 1.068（老板 12:03 令·镜像）：全量镜像下账本条数必须等于服务器给的口径——
-         不再把「本地更新行」粘在尾部（最多 6 轮，10 条能被它涨到 22 条）。 */
       if (!lbMirrorMode() && Array.isArray(old) && old.length){
         const inNew = new Set();
         rounds2.forEach(r => (r || []).forEach(m => {
@@ -414,8 +146,6 @@ function lbRowsPut(uid, title, rounds, full){
     };
     if (u) put(_lbRowsKey(u, ''));
     if (t) put(_lbRowsKey('', t));
-    /* 2.276：屏幕唯一源一改就重画（lbRepaint 自带 250ms 节流）。
-       放在这里＝所有写口（落地/开机/裁剪/补发/快照还原）一个都不漏。 */
     if (typeof lbRepaint === 'function') lbRepaint();
   }catch(e){}
 }
@@ -427,25 +157,11 @@ function lbScreenMsgs(sid, title){
     const keys = [];
     if (u) keys.push(_lbRowsKey(u, ''));
     if (t) keys.push(_lbRowsKey('', t));
-    /* 2.274（老板 2026-11-25 01:28 实测：主界面只剩人类发言、小账本却正常）：
-       只选一份必然丢——新来的人类消息常常只写进其中一处键的副本，那份
-       「更新但还没有 AI 终答」，选中它就只剩人类行（2.273 取最新也踩这个坑）。
-       改为并集合并：两处账本的每一条都收进来，按 _msgKey 去重，同一条
-       只升不降（'a' 终极行覆盖 'th' 思维流行、正文取更长），一条不丢。
-       这样主界面恒等于小账本，新消息先入账本再上屏，绝不会只剩人类。 */
-    /* 2.308（老板 2026-11-25 20:31 令「让小账本短路显示到主界面」）：
-       主界面原只吃账本帧（LB.rows）。账本帧由服务端按「末 N 轮 + 缺 mid 整轮剔除」
-       下发（运行日志 20:05:50-53 实锤：无ID不发 mid=sid 0047…），而小账本
-       （snap_conv 存帧）走快照通路，最新轮常常先到——于是「小账本有 20 点、
-       主界面只到 19 点」。此处把内存存帧（_frameMem，小账本同源）里当前会话的
-       u/a 行一并并入主界面：账本落后/漏轮时直接由存帧补齐，主界面恒等于小账本。
-       切服不串显：两边都有服务器归属且不同时整份跳过（3.01 口径）。 */
     const groups = [];
-    let _fr = null;                  /* 1.068：镜像分支在 try 外也要用，声明提到外面 */
+    let _fr = null;                  /* 镜像分支在 try 外也要用，声明提到外面 */
     try{
       const _tag = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : '';
       if (typeof _frameMem !== 'undefined'){
-        /* 2.319：内存存帧键同落盘口径（终身号优先），旧名称键兜底。 */
         const _mk = (typeof snapKeyOf === 'function') ? snapKeyOf(sid, t)
           : ((typeof _frameMemKey === 'function') ? _frameMemKey(sid) : '');
         if (_mk && _frameMem[_mk]) _fr = _frameMem[_mk];
@@ -459,11 +175,6 @@ function lbScreenMsgs(sid, title){
       }
       if (_fr && Array.isArray(_fr.msgs) && _fr.msgs.length){
         const _fs = String(_fr._srv || '');
-        /* 2.327（老板 11:00 令「连续人类中间无 AI」）：存帧只认**本会话身份**。
-           2.325 的「mid 比账本旧就丢」会把本地账本还没收到、但存帧里确实属于
-           本会话的 AI 行误伤掉（后勤部长 10:52 那条 737 字 AI 回复即此）。
-           现在改为校验存帧自带的 sid/title：不是本会话的整帧不要；老存帧没有
-           身份字段的放行（下次落盘自动补）。 */
         try{
           const _fsid = String(_fr._sid || '');
           if (_fsid){
@@ -490,10 +201,6 @@ function lbScreenMsgs(sid, title){
         }
       }
     }catch(e){}
-    /* 1.069（老板 12:06 令·模块3整体镜像）：全量镜像下屏幕＝本会话存帧——
-       服务端已按「消息卡片最多 N / CDP 最多 C」合成（采集拆分器 ③ 消息卡片），
-       存帧有几条就显示几条；没有存帧才退回本地账本。抓历史只走 curMsgs 叠加，
-       不写存帧/账本，永远不影响小账本。 */
     if (lbMirrorMode()){
       let _tag2 = '';
       try { _tag2 = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : ''; } catch(e){ _tag2 = ''; }
@@ -503,17 +210,11 @@ function lbScreenMsgs(sid, title){
         const _m3 = [];
         _fr.msgs.forEach(m => {
           if (!Array.isArray(m)) return;
-          /* 1.074（老板 17:46 令·刚性镜像）：存帧原样上屏——不判 th、不判纯
-             思维块、不改正文，电脑有几条手机就几条。 */
           const k = (typeof _lbMirrorKeepRow === 'function')
             ? _lbMirrorKeepRow(m) : m;
           if (k) _m3.push(k.slice());
         });
         if (_m3.length){
-          /* 1.070：存帧为主，但账本里**比存帧更新**的差额行必须补到尾部——
-             账本已收到、存帧还没跟上时，主界面不能少了这几条；更旧的历史
-             一条不补（防 15/22 条）。存帧比账本多（历史膨胀遗留）时按账本
-             条数截尾。账本太少（<3）时不截，防误伤。 */
           let _led9 = [], _ledN = 0;
           try{
             const _kU9 = u ? _lbRowsKey(u, '') : '';
@@ -532,11 +233,6 @@ function lbScreenMsgs(sid, title){
               if (!_fmMin || d < _fmMin) _fmMin = d;
               if (!_fmMax || d > _fmMax) _fmMax = d;
             });
-            /* 1.072（老板 17:05 实测「核对成功但上一轮 AI 终答没出来」）：
-               不只补「比存帧更新」的行——存帧范围内（mid ≥ 存帧首条）的缺口
-               也必须用账本补齐。典型：本轮 AI 终答的 mid 介于存帧首尾之间，
-               采集那一拍还没把它带进存帧，旧逻辑只补 > 末条 的新行 ⇒ 永远
-               不显示；而核对只看存帧/账本 ID，又会宣告成功。更早历史仍不补。 */
             if (_fmMin){
               const _extra9 = [];
               (_led9 || []).forEach(r => (r || []).forEach(m => {
@@ -592,8 +288,6 @@ function lbScreenMsgs(sid, title){
         const ot = String(out[i][1] || ''), nt = String(m[1] || '');
         const ok = String((out[i].length > 8 && out[i][8]) || '').toLowerCase();
         const nk = String((m.length > 8 && m[8]) || '').toLowerCase();
-        /* 1.057（老板 15:42 令）：类型升级（th→a）规则不动。同为终极行时，
-           正文（index1）字符数不同即以新到者为准覆盖旧版——旧版即便更长也不许留。 */
         if (nk === 'a' && ok !== 'a'){ out[i] = m.slice(); return; }
         if (ok === 'a' && nk === 'a'){
           if (lbCharN(m[1] || '') !== lbCharN(out[i][1] || '')) out[i] = m.slice();
@@ -605,16 +299,6 @@ function lbScreenMsgs(sid, title){
     return out;
   }catch(e){ return []; }
 }
-/* 2.310（老板 2026-11-25 21:25 令「点读取小账本必须立刻生效、主界面恒等于小账本」）：
-   原按钮只走 lbHaveLoad→lbRowsPut，有三处会让它「点了没反应」：
-     ① 键对不上（rec.uid/rec.title 与当前会话的终身号/会话名不同）→ 写进查不到的别名键；
-     ② 2.280 拒覆盖 + 1.060 尾部保留 → 小账本内容被旧账本挡住，写不进屏幕唯一源；
-     ③ IDB 被占用时 lbHaveLoad 静默 catch，按钮却照报成功。
-   本函数把 snap_conv（小账本唯一真源）里当前会话的存帧【整体覆盖】回屏幕：
-   按 sid/会话名（兜底终身号）圈定记录 → 各记录按轮去重合并（一条不多一条不少）
-   → 清掉当前会话全部别名键 → 直接写 LB.rows（不合并、不拒覆盖）
-   → 同步替换 _frameMem（防旧存帧并集把账本内容冲掉）→ 立刻重画。
-   返回 Promise<{ok,n,rounds,recs,err}>；3 秒无回音如实报失败，绝不假装成功。 */
 function lbForceReload(sid, title){
   const s = String(sid || ''), t = String(title || '').trim();
   const u = (typeof lbUidPick === 'function')
@@ -724,21 +408,12 @@ function lbForceReload(sid, title){
   }).catch(err => ({ok: false,
     err: String((err && err.message) || err || '读取失败')}));
 }
-/* 2.279（老板 2026-11-25 08:04 令）：账本→主界面「3 秒兜底自检」。
-   正常链路：新消息先进小账本落盘 → lbRowsPut 立刻 lbRepaint 重画主界面。
-   万一某一拍回调漏了重绘，这里每 3 秒按**ID 序列**比对小账本(lbScreenMsgs)
-   与主界面(#msgs 里带 data-mid 的正式行)——条数或顺序只要不一致就强制重画。
-   思维流活卡(data-think)不算正式行，跳过。 */
 let _lbGuardAt = 0;
 function lbGuardTick(){
   try{
     if (Date.now() - _lbGuardAt < 2500) return;
     const box = document.getElementById('msgs');
     if (!box) return;
-    /* 1.059（老板 2026-11-25 17:30）：原来无参调 lbScreenMsgs() ⇒ 一律拿到空表，
-       屏幕只要还有行就每 2.5 秒判一次「不一致」并强制重画；当前会话账本恰好为空
-       （行被坏帧删掉/键没对上）时，重画就把屏幕清空 ＝「过一会又不见了」。
-       现在按当前会话取，账本空就什么都不做。 */
     const _sid = (typeof curSid === 'function') ? String(curSid() || '') : '';
     const _ttl = (typeof curTitle === 'function') ? String(curTitle() || '') : '';
     const want = (typeof lbScreenMsgs === 'function')
@@ -785,20 +460,15 @@ function _lbTailNewer(a, b){
   return x > y;
 }
 let lbLastAct = Date.now();                  /* 离线倒计时锚点（任意操作重置） */
-let _lbHudEl = null, _lbSnapAt = 0;          /* #lbhud 悬浮条（开关式默认关，追加单 2026-11-18） */
+let _lbHudEl = null, _lbSnapAt = 0;
 
 /* ================= 配置读取（调控界面在缓存查看器「③ 账本调控」区） ================= */
-function lbPeriodMs(){ const v = parseInt(CFG.lb_period) || 90; return Math.max(15, v) * 1000; }   /* 2.241：兜底 60→90 */
+function lbPeriodMs(){ const v = parseInt(CFG.lb_period) || 90; return Math.max(15, v) * 1000; }   /* 兜底 60→90 */
 function lbOfflineSecs(){ return Math.max(15, parseInt(CFG.lb_offline) || 120); }
 function lbRounds(){ return Math.min(50, Math.max(1, parseInt(CFG.lb_rounds) || 5)); }
-/* 2.306（老板 2026-11-25 20:05 令）：服务器小账本维护方式＝全量镜像时，
-   保留什么、删什么完全由服务器决定——网页端关闭一切本地裁剪与条数上限，
-   不再自行 slice/去重/按 N 截尾。 */
 function lbMirrorMode(){
   try {
     const v = String((S && S.snap && S.snap.lbmode) || '');
-    /* 2.306：字段为空＝老服务端（尚未带 lbmode）。现行服务端只有「全量镜像」
-       一种模式，故按全量镜像处理；将来新增模式时服务端必带该字段，此处不参与。 */
     if (!v) return true;
     return v.indexOf('全量镜像') >= 0;
   } catch(e){ return true; }
@@ -815,30 +485,15 @@ function lbVerLoad(){
   LB.lbHave = new Set();                     /* 换服务端/重登：真存集按当前服务端重算 */
   lbHaveLoad();
 }
-/* V2 验收 Y11（2026-11-18）：开机异步预载 IDB ledger_conv → LB.lbHave。
-   「版本底账（LB.mods.ledger，服务端下发过什么）」与「本地真存（IDB 里
-   实际留着谁）」是两本账：mod ledger 收帧只记版本、可能没落盘成功；清理
-   （lbCleanGone/14 天过期）删了盘但版本底账还在。上报若只看版本底账，
-   就会替已经不存在的本地账本申报版本（only1 判定被污染）。
-   2.184 改4：同步重建 LB.lbSum（摘要表，键＝终身号）——vcheck 上报取它。 */
 function lbHaveLoad(){
-  /* 2.244（老板令·一套账）：真存集（LB.lbHave）与摘要表（LB.lbSum，vcheck 上报
-     口径）的唯一数据源改为 snap_conv——第二本账 ledger_conv 已停写清空。
-     每条存帧按「u 起一轮」还原 rounds，编码/完成态/正文指纹照旧由 lbSumOf 现算。 */
   try {
     return _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
-      /* 2026-11-24：同一会话可能残留多条存帧（旧 sid/同名）——按「最新一条消息的
-         mid 时间」升序装，后写覆盖前写 ⇒ 内存账本永远是最新的那一份。 */
       (rows || []).slice().sort((a, b) => _lbMaxSec(a) - _lbMaxSec(b)).forEach(rec => {
         try {
           const fr = rec && rec.frame;
           if (!fr || !Array.isArray(fr.msgs) || !fr.msgs.length) return;
           const t = String(rec.title || '').trim();
           if (!t) return;
-          /* 1.058（老板 17:03 令·历史脏行清理）：开机重建 rounds 前先过落盘唯一
-             过滤器——th/排队条/未知类型剔掉、u/a 的 index8 归一；有变化就把干净
-             的 msgs 回写同一张 snap_conv（复用原记录 sk，不另造存储）。全脏的一本
-             直接删记录（没有 u/a 可留）。 */
           const _clean = _lbCleanMsgs(fr.msgs);
           if (_clean.changed){
             if (!_clean.msgs.length){
@@ -858,36 +513,25 @@ function lbHaveLoad(){
             || (typeof lbUidPick === 'function' ? String(lbUidPick(null, rec.sid, t) || '') : '');
           if (u) LB.lbHave.add(u);
           lbSumSet(u || String(rec.sid || ''), t, rounds);
-          lbRowsPut(u, t, rounds, true);      /* 2026-11-24：开机把账本 rounds 装进屏幕唯一源 */
+          lbRowsPut(u, t, rounds, true);
         } catch(e){}
       });
-      /* 2.275：开机把账装进 LB.rows 后立刻重画——冷启动不再只停在
-         「暂无消息」的空屏，等用户手点一下才出内容。 */
       try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
       return Object.keys(LB.lbSum || {}).length;
     }).catch(() => 0);
   } catch(e){ return Promise.resolve(0); }
 }
-/* 2.244（老板令·一套账，对齐 WB 2.49/2.50）：ledger_conv 历史轮次一次性并入
-   唯一正文账 snap_conv，随后清表并置 LS 标记（一生只跑一次，幂等可重跑）。
-   「只进不退」由 lbWriteBackSnap/_frameCommit 既有闸把关，绝不覆盖更新的真快照。 */
 const LS_LB_MIG_244 = 'trae_webm_lb_mig_244';
 let _lbMig244P = null;
-/* 2.209（老板口径「时间只从消息ID里算，不准再传时间」）：账本/画面缓存清理——
-   把每行 m[2] 一律清成空串（历史遗留的抓屏/接口时间也清掉），账本不存任何时间。
-   显示/排序一律在读取时按该行 mid 现算（timeFromMid）。幂等，写回只在真改过时发生。 */
 let _lbTimeFixAt = 0;
 function lbTimeBackfill(days){
   try {
     if (Date.now() - _lbTimeFixAt < 5 * 60 * 1000) return Promise.resolve(0);
     _lbTimeFixAt = Date.now();
     const cut = Date.now() - Math.max(1, Number(days) || 2) * 24 * 3600 * 1000;
-    /* 2026-11-24（老板令·只留一本账）：ledger_conv 已退役，这里只清 snap_conv。 */
     return Promise.resolve([]).then(rows => {
       let n = 0;
       const tasks = [];
-      /* 2.209：画面缓存 snap_conv 同步清理——把每行 m[2] 清空，
-         不碰 sk/frame 其它字段，幂等可重复。 */
       const _snapTask = _idbReq('snap_conv', 'readonly', st => st.getAll()).then(srows => {
         const puts = [];
         (srows || []).forEach(rec => {
@@ -896,7 +540,7 @@ function lbTimeBackfill(days){
           let ch = false;
           fr.msgs.forEach(m => {
             if (!Array.isArray(m)) return;
-            if (m[2] !== ''){ m[2] = ''; ch = true; }   /* 2.209：不存时间 */
+            if (m[2] !== ''){ m[2] = ''; ch = true; }   /* 不存时间 */
           });
           if (ch) puts.push(_idbReq('snap_conv', 'readwrite', st => st.put(rec)).catch(() => {}));
         });
@@ -909,9 +553,6 @@ function lbTimeBackfill(days){
     }).catch(() => 0);
   } catch(e){ return Promise.resolve(0); }
 }
-/* 2.184 改4（规范§七 :194 同号不同态）：本地账本摘要——每会话算
-   {rounds, codes:[{mid, fin, hash}]}（编码＋完成态指纹＋正文指纹），
-   供 vcheck 上报；键＝终身号（lbKey 同口径）。FNV-1a 32 位，够区分不追求密码学。 */
 function lbHash(s){
   try {
     let h = 0x811c9dc5;
@@ -920,19 +561,12 @@ function lbHash(s){
     return ('0000000' + h.toString(16)).slice(-8);
   } catch(e){ return ''; }
 }
-/* 1.057（老板 2026-11-25 15:42 令·根因修正）：字符数 n——按码点（Array.from）
-   计数，与服务端 WS桥 0.113 的 Python len() 对齐；异常时退回 UTF-16 长度。
-   n 固定取**正文 a[1]**（服务端同口径 row[1]/text），专为识别「同号不同版」；
-   补发路径 a[7] 是来源标记「账本定稿」，不能拿来数字符。hash 仍取 a[7]||a[1]。 */
 function lbCharN(s){
   try{
     const t = String(s == null ? '' : s);
     return Array.from(t).length;
   }catch(e){ return String(s == null ? '' : s).length; }
 }
-/* 1.057：判断两轮是否「同一个消息号的不同版本」——正式 mid 有交集，且同一 mid 的
-   正文（index1）字符数不一致（不取 index7：补发路径它是来源标记）。用于同号时让
-   服务端这一版覆盖旧版，不再因旧版本更长而留住旧版。 */
 function _lbSameMidDiffN(a, b){
   try{
     const cnt = {};
@@ -954,26 +588,16 @@ function _lbSameMidDiffN(a, b){
   }catch(e){ return false; }
 }
 function lbSumOf(rounds){
-  /* 2.184 契约（2026-11-19 统筹/S1 定死·上行 mods.ledger.codes 唯一形态）：
-     {mid:<hex>, fin:0|1, hash:<8位hex FNV>}——fin 必须是 0/1 整数（完成卡摘要
-     非空=1，空=0），不许传字符串（服务端 int() 会抛 → 整会话恒判缺）；
-     hash 对「完成卡正文，没有则回退当前正文」（a[7] || a[1]）计算。 */
   const rs = Array.isArray(rounds) ? rounds : [];
   const codes = [];
-  /* 2.185（老板 2026-11-19 令·四类标识）：上报集合只收 m[0]==='a' 的已认证
-     终极轮；th/snap（思维流，含与终极同号的 TRAE 快照）永不进上报——否则
-     服务端看号已存在误判不缺，终极永远补不下来。rounds 计数＝已认证轮数。 */
   rs.forEach(r => {
     const a = (r && r.length) ? r[r.length - 1] : null;
     if (!a) return;
     if (String(a[0] || '').toLowerCase() !== 'a') return;
-    /* 2.287：思维流（th: 专属 ID / 纯思维块）永不进上报与轮次计数。 */
     if (/^th:/i.test(String(a[6] || '')) || lbPureThink(a)) return;
     codes.push({mid: String(a[6] || ''),
                 fin: (String(a[7] || '').trim() ? 1 : 0),
                 hash: lbHash(a[7] || a[1] || ''),
-                /* 1.057（老板 15:42 令）：n＝该 MID **正文 a[1]** 的字符数（服务端
-                   同口径 row[1]/text）；补发路径 index7 是来源标记，不计入。 */
                 n: lbCharN(a[1] || '')});
   });
   return {rounds: codes.length, codes: codes};
@@ -982,9 +606,6 @@ function lbSumSet(sid, title, rounds){
   try {
     const s = String(sid || '');
     const t = String(title || '').trim();
-    /* 2.184 改7（老板终版口径·锚定双轨）：名称必有、sid 可缺——没有名称的
-       一概不记账（摘要表是上报口径，宁缺不猜）；sid 缺就按名称键记。
-       2.214：键与服务端可解析口径对齐——有权威终身号用终身号，否则用会话名。 */
     if (!t) return;
     let u = '';
     try { u = (typeof lbUidPick === 'function') ? lbUidPick(null, s, t) : ''; } catch(e){ u = ''; }
@@ -1000,18 +621,7 @@ function lbVerSave(){
   } catch(e){}
 }
 function lbSrvKey(){ return String(S.cur || '默认'); }
-/* 2.184 改8（老板令·服务器隔离过滤）：本服标识＝FOX 号优先（登录应答/帧内
-   srv_sid 自报，S.curSid），拿不到才退回服务器名。小账本键一律
-   「L<本服标识>:<终身号或t:名称>」；同一终身号在别的服务器上是另一本账，
-   绝不合并。旧格式键（'lb|名|…'，无 L 前缀）＝未知服务器：保留只读、
-   不再并入、不再清理、不再上报。 */
 function lbSrvTag(){
-  /* 2.264（老板 2026-11-24「刷新后又看不到、读旧存新」真因）：本服标识必须**稳定**。
-     旧写法 S.curSid||S.cur||'默认'——一刷新/等 hello 时 S.curSid、S.cur 都会短暂为空，
-     同一本账当场被算成「默认」或别的服务器，列表里就看不见了。
-     新口径：① 有 FOX 号→用号，并按服务器名记下「名→号」（同一台机反复进出不再漂移）；
-             ② 只有服务器名→用该名记过的号，退而用名；
-             ③ 身份都还没到→用上次记下的号；实在没有才「默认」。 */
   var nm = '', fox = '';
   try { nm = String((typeof S !== 'undefined' && S && S.cur) || '').trim(); } catch(e){}
   try { fox = String((typeof S !== 'undefined' && S && S.curSid) || '').trim(); } catch(e){}
@@ -1028,29 +638,18 @@ function lbSrvTag(){
   } catch(e){}
   return '默认';
 }
-/* 2.189（老板令·小账本卡片显示服务器归属）：落盘与展示共用同一对取值函数——
-   srvFox＝本服 FOX 号（hello 自报，S.curSid），srvName＝服务器名（S.cur，
-   与 lbSrvKey 同源）。读写必须走同一函数同一值，绝不「读 A 存 B」。 */
 function lbSrvFox(){ return String(S.curSid || '').trim(); }
 function lbSrvName(){ return String(S.cur || '').trim(); }
 function lbIsLegacyRec(r){
   return !(r && typeof r.sk === 'string' && r.sk.indexOf('L') === 0
            && String(r.srv || '') === lbSrvTag());
 }
-/* 2.215（老板 2026-11-20 09:11 终身号唯一算法·与 WS桥 0.57 逐字同口径）：
-     ① 标准终身号＝sid 恰 24 位小写十六进制且前 4 位全数字 → 前 4 位（如 0047）；
-     ② 提取失败（非 24hex / 前 4 位含字母 / 10 位实例号）→ **会话名称原样**兜底；
-     ③ 两者都没有 → 显示「终身号未登记」（只显示，不拦截）。
-   账本桶键只有两种：标准号 → 'L<本服>:<号>'；名称兜底 → 'L<本服>:t:<名称>'。
-   禁止拿完整 sid / 实例号 / 名字哈希派生键，也禁止「重复/(2)/_2」后缀造新桶。 */
 function lbUidAuth(v){
   const u = String(v == null ? '' : v).trim();
   if (!/^\d{4}$/.test(u)) return '';          /* 非 4 位数字（含名称兜底）不认 */
   if (_lbIsSrvAcctLike(u)) return '';         /* 实例号/1632 不是终身号 */
   return u;
 }
-/* 2.215：服务端下发/本地标题里的**名称兜底终身号**——不是标准 4 位号，也不是
-   完整 sid / 实例号；去掉「（临时）/（按名称）」显示后缀后原样返回。 */
 function lbUidName(v){
   let s = String(v == null ? '' : v).trim();
   if (!s) return '';
@@ -1071,29 +670,6 @@ function lbStoreKey(uidOrSid, title){
   const n = lbUidName(uidOrSid) || t;
   return 'L' + lbSrvTag() + ':t:' + n;
 }
-/* ============ 2.213（老板 2026-11-20「最终合并版」·前端零拦截）============
-   前端只是显示器：后端发什么就原样显示、原样落盘——不判断、不筛选、不拦截、
-   不丢弃、不改名、不推断。凡是「收不收／删不删／算不算」的判断一律归后端
-   （后端已有 ID 校验）。本文件已撤的闸门：
-     · 假会话 ID / 缺 mid 不入账（lbSidValid／lbRowHasId 及三处入口调用）；
-     · 按轮过滤缺 ID 的行（lbRoundIdFilter）；
-     · 按 index8/index7 推断终极/思维流（lbMsgKind／lbTagKind）；
-     · 前端升格提前终极（lbPromoteEarlyFinals，改以后端 early_final/index11 显示）；
-     · 开机清理/迁移临时账本（lbCleanupTempLedgers 不再自动触发，见文件尾）；
-     · 按保留轮数裁剪（落账不再 slice(-lbRounds)）。
-   注（2.219）：上一条「不按轮裁」指的是**不拒收、不丢当前屏内容**；老板
-   2026-11-20 16:21 令「保留最近 N 轮必须真正生效」——本地账本存量改由
-   lbLedgerTrimRounds 按 N 裁（只裁 rounds 数组），屏幕消息一律照旧显示。
-   保留（属「显示/正确性」而非拦截）：换行/转义等最小格式化；排版规则
-   （思维流画虚线框、终极回复不进虚线框）；去重/幂等（同 mid 重复帧不重复插入）；
-   无合法 mid 不显示时间（只空该字段，其余内容照常）。 */
-/* 2.210（老板 2026-11-20 07:08 令·彻底消灭 1632 假终身号）：
-   服务端实例号＝hello 自报的 srv_sid（本机 1632115233），它和它的任何截断
-   （如 1632）都**不是**会话编号/终身号。会话编号只认：
-     ① 原始会话 sid（≥8 位，如 24 位 hex）的前 4 位数字（真终身号）；
-     ② 服务端下发、来自共享库的 4 位真终身号（且不是实例号截断）；
-     ③ 24 位十六进制会话 sid。
-   命中实例号或其截断 ⇒ 返回空并记 `假终身号 拒建账|来源=<帧型>|原值=<值>`。 */
 function _lbSrvAcctId(){
   try { return String((typeof S !== 'undefined' && S && S.curSid) || '').trim(); }
   catch(e){ return ''; }
@@ -1105,7 +681,6 @@ function _lbIsSrvAcctLike(v){
   if (acct && s === acct) return true;
   /* 实例号的任何截断：4~10 位纯数字且确为该实例号前缀 */
   if (acct && /^\d{4,10}$/.test(s) && acct.indexOf(s) === 0) return true;
-  /* 老板点名的假号 1632（即使当前实例号尚未自报也拒） */
   return s === '1632';
 }
 let _lbFakeIdT = 0, _lbFakeIdV = '';
@@ -1116,7 +691,6 @@ function _lbFakeIdLog(src, val){
   try { diagLog('假终身号 拒建账|来源=' + String(src || '未知')
     + '|原值=' + v, 'bad'); } catch(e){}
 }
-/* 2.210/2.211：假账本判据——服务端实例号派生的账本/预备画面一律视为假桶。 */
 function _lbFakeLedgerRec(rec){
   if (!rec || typeof rec !== 'object') return false;
   const uid = String(rec.uid || '').trim();
@@ -1130,19 +704,8 @@ function _lbFakeLedgerRec(rec){
   if (_lbIsSrvAcctLike(sid)) return true;
   return false;
 }
-/* 2.213：lbSidValid／_lbNoIdLog／lbRoundIdFilter 已撤——不再按「假会话 ID」
-   「缺 mid」拒收或过滤，收不收由后端判断，前端只显示/落盘。 */
-/* 2.287（老板 2026-11-25 12:47 令）：纯思维块——正文第一行（可先有 TraeWork）
-   就是「思考过程／思考中」的行。TRAE 把思考折叠区单独渲染成一条带 ID 的 AI 行，
-   它只配待在虚线思维流框里，永远不能当终极回复、也不能进对账集合。 */
 function lbPureThink(m){
   if (!Array.isArray(m)) return false;
-  /* 1.073（老板 17:13 实测「17:06 的 AI 终答电脑上有、手机怎么刷都没有」）：
-     TRAE 的真终答正文常常以「思考过程」打头（后面接完整结论），旧判据只看
-     首行就把它判成纯思维块 ⇒ `lbRoundsFromMsgs` 直接丢弃、`lbIsFinalRow`
-     不认终答，服务端补多少条都进不了小账本，核对却照样成功。
-     服务端权威类型（index8='a'/'final'/'patched'）或完成卡摘要（index7）
-     已明确是终答时，一律不再按正文首行改判。 */
   const _k = String((m.length > 8 && m[8]) || '').toLowerCase();
   if (_k === 'a' || _k === 'final' || _k === 'patched') return false;
   if (String((m.length > 7 && m[7]) || '').trim()
@@ -1155,16 +718,9 @@ function lbPureThink(m){
   if (i >= lines.length) return false;
   return /^(?:思考过程|思考中|正在思考|已深度思考)(?:$|[\s:：])/.test(lines[i]);
 }
-/* 2.212（老板 2026-11-20 07:28 bug①）：终极回复的**唯一判据**——命中即 final，
-   任何地方（尤其虚线思维流框）绝不再把它当 think。命中任一：
-     · 完成卡摘要 index7 非空（标准 fin/rounds 终态都会写它）；
-     · 行级补记标记（index8='patched' / index10=1）；
-     · 服务端已下发 index8='a'/'final'（权威类型）。 */
 function lbIsFinalRow(m){
   if (!Array.isArray(m)) return false;
   if (String(m[0] || '').toLowerCase() !== 'a') return false;
-  /* 2.287（老板 2026-11-25 12:47 令）：思维流专属 ID（th: 前缀）或纯思维块，
-     即使历史数据里 fin/index8 标错，也永远不算终极回复。 */
   if (/^th:/i.test(String(m[6] || ''))) return false;
   if (lbPureThink(m)) return false;
   const k = String((m.length > 8 && m[8]) || '').toLowerCase();
@@ -1172,11 +728,6 @@ function lbIsFinalRow(m){
   if (lbPatchMarked(m)) return true;
   return String((m.length > 7 && m[7]) || '').trim() !== '';
 }
-/* 1.076（老板 2026-11-26 20:49 令·灯没灭不许撤虚线气泡）：「硬终极」判定——
-   只有后端类型明确（index8=a/final/patched）或带补记标记的行才算终极到位；
-   仅靠 index7 fin 非空的「模糊终极」不算硬终极。灯 busy（电脑还在生成）时
-   收到的生成中半成品行绝不据此撤虚线气泡、也不许压占位——终极回复一到才
-   让位。灯灭（非 busy）后 thinkCardNow 本就 return null，语义不受影响。 */
 function lbFinalHard(m){
   if (!Array.isArray(m)) return false;
   if (String(m[0] || '').toLowerCase() !== 'a') return false;
@@ -1187,17 +738,6 @@ function lbFinalHard(m){
   if (lbPatchMarked(m)) return true;
   return false;                       /* 模糊 fin：不算硬终极 */
 }
-/* 2.213：lbMsgKind 已撤——类型一律以后端 index8 为准，前端不再按
-   index7／index8 推断「终极 or 思维流」；缺类型显示「类型未知」。 */
-/* ============ 2.204（C·老板 22:42 令）：本轮终极（补记） ============
-   AI 还在思维流、终极回复未产生时人类又问新问题，残缺血思维流页不会再生长——
-   服务端把它判为「本轮终极（补记）」下发。客户端识别标记后：把这段残缺思维流
-   与人类那句凑成一轮入账，**不再把不完整轮掐掉**（2.202 已撤半轮丢弃，此处不回归）。
-   兼容服务端可能的多种承载形态（任一命中即视为补记）：
-     · 轮级/条目级布尔：patched / fin_patch / final_patch / interrupt_final /
-       terminal_patch / recovered / 补记（值为 1/'1'/true）
-     · 行级：m[8]==='patched' 或 m[10]===1
-   标记只影响「是否按终极落账」，不改正文、不造名、不新增拒收闸门。 */
 const LB_PATCH_KEYS = ['patched', 'fin_patch', 'final_patch', 'interrupt_final',
                        'terminal_patch', 'recovered', '补记'];
 function lbPatchFlag(v){
@@ -1213,21 +753,13 @@ function lbPatchMarked(m){
   if (String(m[8] || '').toLowerCase() === 'patched') return true;
   return (m.length > 10 && (m[10] === 1 || m[10] === '1' || m[10] === true));
 }
-/* 2.213：lbPromoteEarlyFinals／lbTagKind 已撤——「提前终极回复」不再由前端
-   升格：后端已落 index8=a 且带 early_final=1（list 行 index11=1），前端只据此显示
-   「AI 终极回复（提前）」（见 手机缓存查看器.js）；行类型也不再回写 index8。 */
 /* 四字段之一：uid＝终身号（只认权威来源，取不到即空＝未登记）；sid＝对话ID
    （原始会话 id，锚定路只有终身号时从会话列表反查）。title＝会话名（必有）。
-   2.211（老板 2026-11-20 07:08）：**禁止任何字符串切片推导终身号**——
-   本函数只做「无权威字段即返回空」，绝不再从 sid 截前 4 位。 */
+   禁止任何字符串切片推导终身号——本函数只做「无权威字段即返回空」，
+   绝不从 sid 截前 4 位。 */
 function lbUidOf(sid){
-  /* 2.214：终身号只认后端权威 uid——本函数只回落到会话列表/别名里的权威值，
-     绝不切片、不推导、不判真假。 */
   try { return lbUidFromConvs(sid, '') || ''; } catch(e){ return ''; }
 }
-/* 2.204（B3·名字→编号别名映射）：只做映射，不改历史记录。同一本服的「会话名→终身号」
-   持久化到 localStorage；后续只带名字（无号/假号）的帧按别名回锚，0023 与
-   人事部长ST 落同一本账。与服务端「改名」口径一致：同名最新号覆盖旧号。 */
 const LS_LB_ALIAS = 'trae_webm_lb_alias';
 function lbAliasLoad(){
   try { return JSON.parse(localStorage.getItem(LS_LB_ALIAS) || '{}') || {}; }
@@ -1241,12 +773,10 @@ function lbAliasGet(title){
   if (!t) return '';
   const o = lbAliasLoad(), m = o[lbSrvKey()] || {};
   const u = String(m[t] || '');
-  /* 2.210：历史别名里可能存过假号 1632/实例号截断，读到也一律不认 */
   return (/^\d{4}$/.test(u) && !_lbIsSrvAcctLike(u)) ? u : '';
 }
 function lbAliasSet(uid, title){
   const u = String(uid || '').trim(), t = String(title || '').trim();
-  /* 2.210：假号/实例号截断绝不写进别名映射 */
   if (!/^\d{4}$/.test(u) || !t || _lbIsSrvAcctLike(u)) return;
   const o = lbAliasLoad();
   const k = lbSrvKey();
@@ -1255,8 +785,6 @@ function lbAliasSet(uid, title){
   m[t] = u;
   lbAliasSave(o);
 }
-/* 2.215：从服务端会话列表（convs_full / convs 行 / sig 帧）取权威 uid——
-   标准 4 位终身号与名称兜底都收；完整 sid / 实例号不认。 */
 function lbUidFromConvs(sid, title){
   const s = String(sid || '').trim(), t = String(title || '').trim();
   try {
@@ -1286,9 +814,6 @@ function lbUidFromConvs(sid, title){
   } catch(e){}
   return '';
 }
-/* 2.215（老板 2026-11-20 09:11·唯一算法）：优先消费服务端下发 uid——
-   标准 4 位号原样；非 4 位的名称兜底也收（按名称同一桶）；都没有才用会话名。
-   完整 sid / 10 位实例号 / 「1632」绝不进身份键。 */
 function lbUidPick(serverUid, sid, title){
   const u = lbUidAuth(serverUid);
   if (u) return u;
@@ -1320,11 +845,6 @@ function lbModsSet(m){
 }
 
 /* ================= ① vcheck 构造（单函数双入口，四场景共用） ================= */
-/* 4.10（老板 2026-11-24 20:24 令·第四节）：会话模块无版本号，上报的就是
-   「12 条 ID 清单」＝最近 10 条对话记录（5 轮＝人类+AI；最后一组还没有
-   AI 终极回复时自然是 9 条）＋思维流 1 条＋官方排队条 1 条；有多少给多少，
-   不凑数。数据源＝LB.rows 小账本（屏幕唯一正文源）＋思维流展示卡编号＋
-   S.snap.pend 排队条 14 位 DID。异常返回 null（该拍不上报该键）。 */
 function lbConv12Report(sid, title){
   try{
     const s = String(sid || ''), t = String(title || '').trim();
@@ -1336,8 +856,6 @@ function lbConv12Report(sid, title){
       if (!Array.isArray(m)) return;
       const r = String(m[0] || '').toLowerCase();
       if (r !== 'u' && r !== 'a') return;
-      /* 2.289（老板 12:47 令）：思维流（th: 专属 ID / 纯思维块）绝不算对决 ID——
-         否则核对会拿思维流号去比对、反复判缺并补发，等于让它冒充终极回复。 */
       if (r === 'a' && (/^th:/i.test(String(m[6] || '')) || lbPureThink(m))) return;
       const mid = String(m[6] || '');
       if (mid) chat.push(mid);
@@ -1368,11 +886,6 @@ function ledgerVcheckBuild(act, sid){
   ['sig', 'snote', 'macct', 'convs', 'didp', 'think', 'srv', 'input', 'points'].forEach(k => {
     if (b[k]) mods[k] = b[k];
   });
-  /* 2.184 改4（规范§七 :194 同号不同态＋「客户端上报参数」三条）：ledger 改为
-     按会话上报对象 {ver, rounds, codes:[{mid,fin,hash}]}——编码集合＋完成态指纹
-     ＋正文指纹全带上，服务端判缺不再只看「这个号码见过没有」（2.184 契约：
-     键名必须 ver，S1 服务端同口径）。数据源＝LB.lbSum（IDB put 成功后才有＝真存），
-     版本底账里记了但盘上没有的会话绝不代报（V2 验收 Y11 口径保留）。 */
   const led = {};
   const _sum = (LB.lbSum && typeof LB.lbSum === 'object') ? LB.lbSum : {};
   Object.keys(_sum).forEach(k => {
@@ -1386,9 +899,6 @@ function ledgerVcheckBuild(act, sid){
   /* 规范§七：目标缓存轮数参数（统一按轮）。2.306：全量镜像下不再上报
      lb_rounds——保留几轮由服务器决定，网页端无权让服务器缩水。 */
   if (!lbMirrorMode()) mods.lb_rounds = lbRounds();
-  /* 4.10（老板 2026-11-24 20:24 令·第四节）：当前选中会话的 12 条 ID 清单
-     （mods.conv＝{sid,key,ids}）——会话模块无版本号，核对走逐条 ID 比对、
-     差异条单条粒度补发。旧服务端不认识该键自动忽略，向后兼容。 */
   try{
     const _c12 = lbConv12Report(sid,
       (typeof curTitle === 'function' ? curTitle() : ''));
@@ -1396,9 +906,6 @@ function ledgerVcheckBuild(act, sid){
   }catch(e){}
   const d = {t: 'vcheck', act: act, mods: mods, req_seq: ++LB.reqSeq};
   if (sid) d.sid = String(sid);
-  /* 2.207（V1.0 §五-6）：对账上报本端掌握的全部消息编号——**其中包含思维流编号
-     （含版本）**；服务端缺号或版本落后即补发当前最新版。卡片本身绝不进 ledger
-     口径（不进 need、不参与轮次统计）。 */
   const _th = (typeof thinkCardsReport === 'function') ? thinkCardsReport() : null;
   if (_th && Object.keys(_th).length) d.thinks = _th;
   return d;
@@ -1411,29 +918,16 @@ function ledgerVcheckSend(act, sid){
     if (!S.onLine || !ws || ws.readyState !== 1) return false;
     if (act === 'login' || act === 'svr') lbVerLoad();   /* 换服务端/重登：按当前服务端重载底账，绝不串用旧服务端版本 */
     const _fr = ledgerVcheckBuild(act, sid);
-    /* 1.052（老板 2026-11-24 19:35 令·静默令）：timer 主动核对降为变化触发——
-       本轮帧内容（mods 全模块＋ledger 摘要＋thinks＋锚定 sid）与上一条已发
-       timer 完全一致 ⇒ 本地指纹没变就不发不查（纯本地构建开销，零网络流量），
-       倒计时照常起算、下轮再比；内容变了（收到新帧落账/服务端底账刷新/
-       思维流推进）才捎带上报。login/switch/svr 本就是变化契机不比对；
-       协议帧结构一字不动，只调节奏；思维流实时推不受影响。 */
     if (act === 'timer'){
       const _sig = JSON.stringify({m: _fr.mods, th: _fr.thinks || null,
                                    sid: String(sid || '')});
       if (_sig === LB.lastTimerSig){
-        /* 2.315（老板令）：主动核对＝全端唯一心跳。内容没变只发最小存活帧，
-           服务端仅登记在线时刻，不对账、不回帧、不补模块。 */
         try { sendJson({t: 'vcheck', act: 'beat', sid: String(sid || '')}); } catch(e){}
         return false;
       }
       LB.lastTimerSig = _sig;
     }
     sendJson(_fr);
-    /* 2.234（老板 2026-11-20 23:42）：核对一律不再弹框/闪条——
-       用户可见的只有两处轻提示：① 顶部横幅「核对中 · 会话名」（仅用户主动
-       触发的 login/switch/svr 才占用，timer 主动核对不打扰横幅）；② 顶栏
-       「操控:」旁圆球变橙色闪烁（四契机全亮）。原「强核对」大面板与
-       ftoast 闪条代码已整段删除，不留壳。 */
     try {
       LB.chkUntil = Date.now() + 10000;      /* 圆球指示窗（四契机通用） */
       if (act !== 'timer'){
@@ -1444,12 +938,6 @@ function ledgerVcheckSend(act, sid){
       }
     } catch(e){}
     if (act === 'timer') LB.checking = true;
-    /* 追加单 2026-11-18（规范§三「切换期间的核对冻结」）：switch 一经发出，
-       主动核对倒计时立即重置并冻结，期间绝不发 timer 帧；直到本轮切换出
-       终态（vack stage:2 正式成功，或 90 秒未收终态宣布失败）才解冻并按
-       完整周期重新起算。90 秒＝全链路唯一口径（待办卡.js SWITCH_TIMEOUT_MS）。
-       V2 第三轮 Y22：冻结改走 lbFreezeOnSwitch（幂等）——WS 未连早退路径
-       不会漏冻结（pendSwitchSet 已先冻结，这里再冻结是幂等空转）。 */
     if (act === 'switch') lbFreezeOnSwitch();
     return true;
   } catch(e){ return false; }
@@ -1463,11 +951,6 @@ function lbUnfreeze(){
     LB.timerAt = Date.now() + lbPeriodMs();
   } catch(e){ LB.frozen = false; }
 }
-/* V2 第三轮 Y22（2026-11-19）：冻结与「vcheck 是否真发出」解耦——ST 复测
-   20s 断链切换场景里 LB.frozen 全程 false（ledgerVcheckSend('switch') 因
-   !S.onLine 早退，冻结块从未执行），60.76s 窗内漏进 1 条 timer。现在
-   pendSwitchSet 一落笔就调本函数冻结；终态（vack stage:2 / 90s 兜底 /
-   switchClear）才解冻。幂等：已在冻结中不重启兜底定时（防 90s 被拖长）。 */
 function lbFreezeOnSwitch(){
   if (LB.frozen) return;
   LB.frozen = true;
@@ -1478,27 +961,16 @@ function lbFreezeOnSwitch(){
 }
 
 /* ================= ② vack 两阶段回执 ================= */
-/* 2.336（老板 17:05 令·核对成功必须很慎重）：宣告成功前，先确认当前会话
-   屏幕源（存帧+账本差额）里的每一条都已经真的画到主界面 DOM 上。
-   账本有、DOM 没画出来 ⇒ 不算成功，等兜底重绘/下一拍再判；空账不拦，防误伤。 */
 function ledgerScreenComplete(sid, title){
   try{
     const s = String(sid || (typeof curSid === 'function' ? curSid() : '') || '');
     const t = String(title || (typeof curTitle === 'function' ? curTitle() : '') || '');
     const want = (typeof lbScreenMsgs === 'function') ? (lbScreenMsgs(s, t) || []) : [];
-    /* 1.074：th 是思维流卡（10+2 里的 +1），不占对话条、不参与 DOM 销账；
-       账本里仍原样保留，屏幕上它走思维流框。 */
     const wm = want.filter(m => !(Array.isArray(m) && String(m[8] || '')
       .toLowerCase() === 'th'))
       .map(m => String((Array.isArray(m) && m[6]) || '')).filter(Boolean);
     const cs = (typeof curSid === 'function') ? String(curSid() || '') : '';
     if (cs && s && cs !== s) return true;      /* 非当前会话：DOM 上不是它，不拦 */
-    /* 1.073（老板 17:13 令「显示核对成功，你是怎么确认清单里的内容都收到手了」）：
-       屏幕源可能自己就缺条（存帧/账本窗口错位时它不包含那条），只校验
-       「屏幕源都在 DOM」等于自己证明自己。此处追加两道硬闸：
-       ① srv_order＝服务端权威 mid 全序，每一条都必须已进小账本；
-       ② items＝本轮服务端实际补发的模块/会话条，每一项都必须到位。
-       任一缺项 ⇒ 返回 false，绝不宣告核对成功。 */
     if (String(LB.vackSid || '') === s){
       const _u2 = (typeof lbUidPick === 'function')
         ? String(lbUidPick(null, s, t) || '') : '';
@@ -1540,8 +1012,6 @@ function ledgerScreenComplete(sid, title){
     if (!box) return true;
     const dm = [];
     box.querySelectorAll('.msg').forEach(el => {
-      /* 1.074（老板 17:46 令·刚性镜像）：思维流框/占位卡也带 data-mid，同样是
-         「已经到了并画出来了」，销账时不能跳过，否则 10+2 里的 +2 永远算缺。 */
       const id = el.getAttribute('data-mid') || '';
       if (id) dm.push(id);
     });
@@ -1565,35 +1035,33 @@ function ledgerVack(d){
   }
   /* stage:2 —— 正式成功终态：版本一致（same）或差额补发清单（need） */
   LB.checking = false;
-  /* 1.073（老板 17:13 令）：保存本轮回执清单——服务端权威 mid 全序
-     srv_order 与本次实际补发的 items。成功判定由 ledgerScreenComplete
-     逐项销账：权威窗口每条必须已进小账本、补发项必须到位，缺一项不许成功。 */
   LB.vackSid = String(d.sid || '');
   LB.vackOrder = Array.isArray(d.srv_order) ? d.srv_order : [];
   LB.vackItems = Array.isArray(d.items) ? d.items : [];
-  /* 2.261（老板令·状态时序⑤）：核对结束 → 置「核对成功」pending，
-     等补发消息全部渲染完（静默 600ms / 60 秒兜底）再由 renderState 落横幅。 */
   if ((d.act === 'switch' || S.switch_pend) && typeof bannerPendSuccess === 'function'){
-    /* 2.336（老板 17:05 令）：先确认屏幕源每一条都已落到 DOM，才允许亮
-       「核对成功」；账本有、屏幕没画出来时先强制重绘，再等一拍复核。 */
+    /* 轮询式复查：刷新/登录时本地账本为空、补发帧随后才到，
+       旧写法只等 900ms 一次就永久放弃 ⇒ 改 300ms 一次、最多 8 秒 */
     if (ledgerScreenComplete(d.sid || '',
         (typeof curTitle === 'function' ? curTitle() : ''))){
       bannerPendSuccess();
     } else {
       try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
-      setTimeout(function(){
-        if (ledgerScreenComplete(d.sid || '',
-            (typeof curTitle === 'function' ? curTitle() : ''))
-            && typeof bannerPendSuccess === 'function') bannerPendSuccess();
-      }, 900);
+      (function(){
+        var _t0 = Date.now();
+        var _sid = d.sid || '';
+        var _tk = setInterval(function(){
+          var _ok = ledgerScreenComplete(_sid,
+            (typeof curTitle === 'function' ? curTitle() : ''));
+          if (_ok || Date.now() - _t0 >= 8000){
+            clearInterval(_tk);
+            if (_ok && typeof bannerPendSuccess === 'function') bannerPendSuccess();
+          }
+        }, 300);
+      })();
     }
   }
-  /* 2.234：核对出终态 → 关横幅窗、灭圆球，让位给切换成功/四态 */
   LB.vchkOpen = 0; LB.vchkEndAt = 0; LB.chkUntil = 0;
   if (d.mods && typeof d.mods === 'object') lbModsSet(d.mods);   /* 存底，供下轮比对 */
-  /* 智能避让（I3 修订版·追加单 2026-11-18）：切换成功＝终态 → 解冻并按完整
-     周期重新起算；login/svr 强核对完成 → 倒计时直接重置为完整周期。
-     旧「20 秒叠加」口径已作废删除（规范§三／协议定稿§五）。 */
   if (d.act === 'switch') lbUnfreeze();
   else if (d.act === 'login' || d.act === 'svr'){
     LB.timerAt = Date.now() + lbPeriodMs();
@@ -1601,7 +1069,6 @@ function ledgerVack(d){
   const sp = S.switch_pend;
   if (sp && (!d.sid || !sp.sid || String(d.sid) === String(sp.sid))){
     if (d.same){
-      /* 2.336：版本一致也要屏幕源全部落到 DOM 才算成功 */
       if (ledgerScreenComplete(d.sid || '',
           (typeof curTitle === 'function' ? curTitle() : ''))){
         ledgerSwitchDone();
@@ -1619,7 +1086,6 @@ function ledgerVack(d){
       clearTimeout(sp._needT);
       sp._needT = setTimeout(() => {
         if (S.switch_pend !== sp || !sp.need) return;
-        /* 2.336：8 秒到点也不许盲宣告成功——先复核屏幕源是否全部落到 DOM */
         if (ledgerScreenComplete(sp.sid || d.sid || '',
             (typeof curTitle === 'function' ? curTitle() : ''))){
           delete sp.need; ledgerSwitchDone();
@@ -1647,8 +1113,6 @@ function ledgerSwitchDone(){
 }
 
 /* ================= ③ mod 单模块实体帧分流（下行唯一实体形态） ================= */
-/* 2.200：m='u' 人类记录帧与 t:'ev' 的 u/human 双路到同一函数，按 did 3 秒去重
-   （同一条消息两路并发只入账一次；无 did 的帧不在此去重，由 lbMsgsAppend 按身份兜底） */
 const _lbHumanSeen = new Map();
 function ledgerMod(d){
   if (!d || typeof d !== 'object') return;
@@ -1662,7 +1126,6 @@ function ledgerMod(d){
     lbVerSave();
   }
   switch (m){
-    /* 2.200 补 m=u/input 路由 */
     case 'u':
     case 'human': {                        /* 人类记录即发帧（服务端 t:'mod' m:'u'）——收到即入账并按发送编号销卡 */
       if (typeof ledgerHumanFrame === 'function'){
@@ -1701,7 +1164,6 @@ function ledgerMod(d){
     }
     case 'sig': {                          /* 信号灯（独立高频） */
       const arr = (body && body.convs) || [];
-      /* 2.215：收下服务端下发的权威终身号（标准 4 位或名称兜底；无则未登记）。 */
       try {
         if (!S.convUids) S.convUids = {};
         arr.forEach(o => { if (o && o.sid && lbUidAny(o.uid)) S.convUids[String(o.sid)] = lbUidAny(o.uid); });
@@ -1746,11 +1208,9 @@ function ledgerMod(d){
     }
     case 'convs': {                        /* 会话列表（改名/删除触发本地账本清理 H2） */
       if (body && S.snap && typeof S.snap === 'object'){
-        /* 2.306：服务器小账本维护方式随会话帧下发（全量镜像）。 */
         if (body.lbmode !== undefined) S.snap.lbmode = String(body.lbmode || '');
         if (Array.isArray(body.convs)) S.snap.convs = body.convs;
         if (Array.isArray(body.convs_full)) S.snap.convs_full = body.convs_full;
-        /* 2.215：收下服务端下发的权威终身号（标准 4 位或名称兜底；uid/uids 都认）。 */
         try {
           if (!S.convUids) S.convUids = {};
           if (body.uids && typeof body.uids === 'object'){
@@ -1787,17 +1247,9 @@ function ledgerMod(d){
       break;
     }
     case 'ledger':                         /* 聊天主账本（按轮补发，G1） */
-      /* 2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口不设限）：撤「缺 title
-         弃收」闸门——不合格帧照收照建诊断账本，缺名由 ledgerStorePut 兜底命名并
-         打 diag 标记，便于老板一眼发现毛病。
-         2.205（人事部长ST 0023 转达老板新令）：只对「缺消息 ID / 缺会话 ID」两类
-         做丢弃；缺名但 sid 有效的仍按诊断口口径照建（不扩大化）。 */
       ledgerStoreApply(d.sid || (body && body.sid) || '', body, v);
       break;
     case 'think':                          /* 思维流快照＋排队条（TRAE 专属，E2/N1） */
-      /* V2 验收 Y9（2026-11-18）：think 帧归属按 d.sel 优先——服务端 think
-         模块按「桌面当前选中」下发并在 sel 带归属 sid，d.sid 只是收帧通道
-         语义；优先 sel 才不会把别会话的思维流错挂到当前锚定。 */
       ledgerThinkApply(d.sel || d.sid, body);
       break;
   }
@@ -1845,33 +1297,25 @@ function lbKeepApply(d){
             if (_frameMem && _frameMem[rec.sk] && Array.isArray(_frameMem[rec.sk].msgs))
               _frameMem[rec.sk].msgs = kept.map(m => m.slice());
           } catch(e){}
-          /* 1.074：镜像模式用专用分组——u 起轮、a 追加，一条不丢不改，绝不再
-             经过 `_lbKeepRow` 的 th/纯思维块判断（手机端零判断）。 */
           const rounds = lbMirrorMode()
             ? lbMirrorRounds(kept) : lbRoundsFromMsgs(kept);
           const u = String(rec.uid || '').trim()
             || (typeof lbUidPick === 'function'
                 ? String(lbUidPick(null, rec.sid, rt) || '') : '');
           try { lbSumSet(u || String(rec.sid || ''), rt, rounds); } catch(e){}
-          try { lbRowsPut(u, rt, rounds, true); } catch(e){}   /* 2026-11-24：屏幕唯一源同步裁剪 */
+          try { lbRowsPut(u, rt, rounds, true); } catch(e){}
           puts.push(_idbReq('snap_conv', 'readwrite',
             st => st.put(nr)).catch(() => {}));
           try { diagLog('lbkeep 裁剪|sid=' + sid + '|删=' + hit
             + '|留=' + kept.length, 'ok'); } catch(e){}
         }catch(e){}
       });
-      /* 2.275：裁剪也改了 LB.rows —— 落盘完成后按账本重画 */
       return Promise.all(puts).then(() => { try { lbRepaint(); } catch(e){} });
     }).catch(() => {});
   }catch(e){}
 }
 /* ============ 1.054：服务端对账帧 lbsync（账本足额同步：重排+补齐+删多余） ============ */
 function lbSyncApply(d){
-  /* 0.90 服务端「足额补发」配套：按 d.order（服务器完整全序 mid）重建本会话
-     账本 msgs——本地有该 mid 用本地行、否则用 d.add 给的行（缺条只补内容）、
-     都不存在跳过不造假；不在 order 里的多余行丢弃；重建后 lbSum/rows/snap_conv
-     一并同步，最终两边条数/ID/顺序/内容一致。d.think/d.pend 服务端另推，不在
-     本函数处理。无 order/无命中记录一律静默；不新增页面、不改布局。 */
   try{
     if (!d || typeof d !== 'object') return;
     const order = Array.isArray(d.order)
@@ -1889,9 +1333,6 @@ function lbSyncApply(d){
         if (mid && Array.isArray(it.row)) addMap.set(mid, it.row);
       }catch(e){}
     });
-    /* 1.063（老板 2026-11-26 09:14 令·终答必须如实纠正）：服务器明确说这些
-       mid 已不是终答（退回思维流/未定稿）——本地若还留着假终答，必须删掉，
-       绝不能因「本地这条比服务器最新还新」被 1.059 的保留护栏粘住。 */
     const unfin = new Set((Array.isArray(d.unfin) ? d.unfin : [])
       .map(x => String(x || '')).filter(Boolean));
     _idbReq('snap_conv', 'readonly', st => st.getAll()).then(rows => {
@@ -1914,15 +1355,8 @@ function lbSyncApply(d){
           let 补 = 0;
           const kept = [];
           order.forEach(mid => {
-            /* 2.293（老板 2026-11-25 15:12 令「核对成功也补不进来」）：服务器
-               下发的 add 行优先覆盖本地旧行——旧版本地优先，导致服务器已把
-               该行从思维流半成品升成「AI 终极回复」时，本地旧 th 永远粘住。 */
-            if (unfin.has(mid)) return;      /* 1.063：服务器撤销终答 ⇒ 删行 */
+            if (unfin.has(mid)) return;      /* 服务器撤销终答 ⇒ 删行 */
             if (addMap.has(mid)){
-              /* 1.063：add 行也过落盘过滤器——若服务器把某行退回 th，
-                 `_lbKeepRow` 返回 null ⇒ 该行自然消失，不留假终答。
-                 1.074（老板 17:46 令·刚性镜像）：镜像模式下服务端给什么就存
-                 什么，手机端不做任何判断（不判 th/纯思维块/正文），原样落账。 */
               const _raw = addMap.get(mid);
               const _rr = lbMirrorMode()
                 ? _raw
@@ -1932,12 +1366,6 @@ function lbSyncApply(d){
             }
             if (localMap.has(mid)){ kept.push(localMap.get(mid)); return; }
           });
-          /* 1.059（老板 2026-11-25 17:30 复现「刷新出现、过一会又消失」）：
-             服务器这一拍会话模块可能还没抓到最新一条（账本库写盘滞后/窗口截断），
-             order 里没有它 ⇒ 原逻辑「不在 order 就删」把网页手里的最新回复也删了，
-             主界面与 snap_conv 一起丢，之后「读取小账本」自然拉不回来。现改为：
-             本地比 order 最新一条更晚的行一律保留在尾部、不参与删除；只删确实
-             不比服务器最新更晚的多余行。order 为空时不动（走上面的拒删）。 */
           const _ordSec = order.reduce((m, id) => {
             const v = parseInt(String(id).slice(0, 8), 16) || 0;
             return v > m ? v : m;
@@ -1945,7 +1373,7 @@ function lbSyncApply(d){
           const _extraNew = [];
           localMap.forEach((v, k) => {
             if (orderSet.has(k)) return;
-            if (unfin.has(k)) return;        /* 1.063：撤销终答的行不留尾 */
+            if (unfin.has(k)) return;        /* 撤销终答的行不留尾 */
             const sec = parseInt(String(k).slice(0, 8), 16) || 0;
             if (_ordSec && sec > _ordSec) _extraNew.push(v);
           });
@@ -1960,20 +1388,12 @@ function lbSyncApply(d){
           }
           const 留 = kept.length - 补;
           const 键 = sid || wantUid || wantTitle;
-          /* 2.277（老板 2026-11-25 07:45 令「明明有 10 条，突然只剩 1 条」）：
-             只拦精准异常——服务端这一拍只给 1 条、本地已有 ≥3 条，才是被砍成
-             一条的现场，保留本地等下一拍；其余（含正常滚动变少）照常重建，
-             绝不因护栏本身把新消息卡住（07:49 实测回归修正）。 */
           if (kept.length === 1 && localMap.size >= 3){
             try { diagLog('lbsync 拒删|sid=' + 键 + '|order=' + order.length
               + '|local=' + localMap.size + '|单条全序保留不动', 'warn'); } catch(e){}
             return;
           }
           if (!kept.length){
-            /* 2.271（老板 2026-11-24 21:29 令·网页固化）：绝不删光——
-               order 为空（服务器这拍没给全序/读不到账本），或服务器没给任何可补
-               内容（add 空）而本地明明有货，一律拒删、原样保留并留痕。宁可让手机
-               显示旧账，也不能被一张坏帧把本地账本清成 0。 */
             const _localN = localMap.size;
             if (!order.length || (_localN > 0 && addMap.size === 0)){
               try { diagLog('lbsync 拒删|sid=' + 键 + '|order=' + order.length
@@ -1997,8 +1417,6 @@ function lbSyncApply(d){
             if (_frameMem && _frameMem[rec.sk] && Array.isArray(_frameMem[rec.sk].msgs))
               _frameMem[rec.sk].msgs = kept.map(m => m.slice());
           } catch(e){}
-          /* 1.074：镜像模式用专用分组——u 起轮、a 追加，一条不丢不改，绝不再
-             经过 `_lbKeepRow` 的 th/纯思维块判断（手机端零判断）。 */
           const rounds = lbMirrorMode()
             ? lbMirrorRounds(kept) : lbRoundsFromMsgs(kept);
           const u = String(rec.uid || '').trim()
@@ -2013,8 +1431,6 @@ function lbSyncApply(d){
             + '|rounds=' + (parseInt(d.rounds) || 0), 'ok'); } catch(e){}
         }catch(e){}
       });
-      /* 2.275：服务端足额补发落地后立刻重画（缺额补上却不上屏＝老板说的
-         「怎么刷新思维流都不来」） */
       return Promise.all(puts).then(() => { try { lbRepaint(); } catch(e){} });
     }).catch(() => {});
   }catch(e){}
@@ -2032,29 +1448,13 @@ function ledgerThinkApply(sid, body){
   /* 排队条随 think 包（N1，不独立收发）：项级 sid 过滤（N4 根治串显），
      text 服务端已剥净（N2）、id 仅底层携带（N3，渲染层绝不展示）。 */
   if (Array.isArray(b.pend)){
-    /* V2 第三轮 Y4+Y18（2026-11-19）：入 S.snap.pend 前统一收口——
-       Y4 剥词（§十二-5）：stripPendTail 从「你的会话名/【全局记忆】」等锚点起
-       整段吞尾，只留原话；剥后全空（整条都是注入）⇒ 丢弃不画空卡。
-       Y18 幂等去重：按 id（缺 id 退回文本）Map 去重，服务端双路推送/重复合并
-       也只落一条。 */
     const mine = [];
     const _seen = new Set();
-    /* 2.187（老板 2026-11-19 实测：消息进排队条后手机端半天不挂条、卡也不销）：
-       服务端 `_pend条目`（WS桥 0.26 起）下发的新格式是 {id,text,sid,canEdit}
-       ——正文在 **text**，旧格式才在 t。2.177 的剥词/去重收口只认 it.t，
-       新格式逐条判空被丢弃 ⇒ S.snap.pend 恒空 ⇒ ①排队条不上屏 ②pendLandingScan
-       拿不到条目、渠道③销卡整条失效。此处两形态都收（text 优先）。
-       归属：项级 sid 命中本会话，或该项 id（14 位 DID）命中本人待销卡
-       ——「我发的这条明明进了队、可桌面选中/锚定还没对齐」时也认领并销卡。 */
     b.pend.filter(it => {
       if (!it || typeof it !== 'object') return false;
       const _m = pendItemMine(it);
       if (_m === true) return true;
       if (typeof pendDidOwn === 'function' && pendDidOwn(it)) return true;
-      /* 2.234（老板 2026-11-20 23:09）：旧写法「只留 true / DID 认领」，项级 sid
-         缺失或本端拿不到 sid（null）时整条被丢——AI 之间走总管命令发的消息不带
-         DID，于是排队条两条只剩一条。回退到 11-18 旧版口径：只有**明确**属于
-         别的会话（false）才丢，无从判定（null）一律显示。 */
       return _m !== false;
     }).forEach(it => {
       const _raw = (it.text != null) ? String(it.text)
@@ -2062,21 +1462,11 @@ function ledgerThinkApply(sid, body){
       if (it.text != null) it.text = stripPendTail(it.text);
       if (it.t != null) it.t = stripPendTail(it.t);
       let _tx = (it.text != null) ? it.text : it.t;
-      /* 2.236（老板 2026-11-20 23:09「照原来的做法，别只认 DID」）：剥尾后
-         整条被剥空时，旧写法直接 return（条被吞）。回退原始正文（剥掉首行
-         DID 后）继续显示——宁可多显示一条，也不让队列里的消息凭空消失。 */
       if (!String(_tx || '').trim()){
         _tx = (typeof stripHeadDid === 'function') ? stripHeadDid(_raw) : _raw;
         if (it.text != null) it.text = _tx; else it.t = _tx;
       }
       if (!String(_tx || '').trim()) return;
-      /* 2.225（老板 2026-11-20 19:15 排队条翻倍）：按跨形态统一键去重——
-         旧格式 {t:'<DID> 正文'} 与新格式 {id:'<DID>',text} 同一句必须算一条；
-         旧写法「有 id 用 id、没 id 用原文」会让两种形态各留一份。 */
-      /* 2.234（老板 2026-11-20 23:09）：去重键**绝不允许为空就丢条**——旧写法
-         无 pendTxtKey 时退回 `String(it.id)`，AI 间总管命令 id 为空串 ⇒ 键空
-         ⇒ `if (!k ...) return` 整条被吞（又一处在「只认 DID」）。现：键空＝无从
-         判重，直接放行；有键才参与去重。 */
       const k = (typeof pendTxtKey === 'function') ? pendTxtKey(it)
               : String((it.id != null && String(it.id).trim()) ? it.id : _tx);
       if (k && _seen.has(k)) return;
@@ -2084,10 +1474,6 @@ function ledgerThinkApply(sid, body){
       mine.push(it);
     });
     if (!S.snap || typeof S.snap !== 'object') S.snap = {};
-    /* 2.188（老板 2026-11-19「排队条一变就要主动推送、这边才能销卡」）：
-       排队条内容指纹——id+正文逐项拼，前后不同即「变了」，必须立刻重画。
-       livePend（生成中）锁态下旧写法一律跳过 renderAll ⇒ 条上新/条撤下
-       都要等下一次非锁态重画，实测空帧后条在 DOM 上一直挂着不撤。 */
     const _sigOf = a => (a || []).map(x => String(x && x.id != null ? x.id : '')
                  + '\u0001' + String(x && x.text != null ? x.text : ((x && x.t) || ''))).join('\u0002');
     const _sigPrev = _sigOf(S.snap && S.snap.pend);
@@ -2095,46 +1481,31 @@ function ledgerThinkApply(sid, body){
     S.snap.pend = mine;
     S.snap.pend_sid = String(b.pend_sid || sid || '');
     S.convs_key = null;
-    /* Y5：排队条到达即扫销卡（渠道③）——消息一进官方队列就算已发出 */
     let _cleared = false;
     if (typeof pendLandingScan === 'function') _cleared = !!pendLandingScan(null, mine);
-    /* 2.187：销卡成功必须立刻重画——旧写法只在「非切换锁态」renderAll，
-       锁态下卡虽已从 S.pending 摘掉、DOM 上那张卡还挂着（老板看到的现象）。
-       2.188：排队条有增减（含撤到空）也一并即时重画，不受锁态约束。 */
     if (_cleared || _sigPrev !== _sigNext
         || typeof _liveLockOn !== 'function' || !_liveLockOn()) renderAll();
   }
-  /* 整屏快照上屏判定（S1 裁定·2026-11-18）：模块化模式下服务端【不再有】
-     k='snap_pane' 帧（仅 mod_push_on=False 回退时才存在）——上屏唯一驱动＝
-     本函数收到的 mod(m='think') 帧且 frame.msgs 存在，经 onEv('snap_pane',…)
-     既有通道上屏（锚定会话上屏 / 非锚定存为该会话内存存帧，零打扰）。
-     字符串形态（纯画面文本）暂不上屏——TRAE 网页端思维流画面本就随正文行
-     呈现，不做卡片化改造（E2）。 */
-  /* 2.207（V1.0 §五-2/12）：先落「本会话最新一版」思维流卡——新版覆盖旧版、
-     按服务端隔离，只作展示绝不入账；非 1 号也照存（显示侧再拦）。 */
   const f = b.frame;
   const _hasMsgs = !!(f && typeof f === 'object' && Array.isArray(f.msgs)
-                      && f.msgs.length);   /* 2.263：空 msgs 视同瘦帧，绝不清屏 */
+                      && f.msgs.length);   /* 空 msgs 视同瘦帧，绝不清屏 */
   if (b.thinkId || b.anchorMid){
+    if (b.done){                       /* 1.076：服务端让位薄帧——思维灯灭，撤卡停报 */
+      thinkCardDrop(sid, b);
+      renderAll();
+      return;                          /* 让位帧无正文，不往下走 */
+    }
     if (_hasMsgs){
       if (thinkCardSet(b, sid)) renderAll();
     } else {
-      /* 2.263（瘦帧兼容）：本帧不带整屏 msgs——只更新 THINK_CARDS 一版，
-         绝不碰正文、不清屏、不触发 onEv('snap_pane')。 */
       if (thinkCardThinSet(b, sid)){
         /* 只就地刷新思维流卡，不调 renderAll、不重建正文。 */
         thinkCardPaint(thinkCardGet(sid, b.title || ''));
       }
     }
-    /* 2.214：把最新一版思维流挂到该会话账本最底部（只留一条，不进轮次）。 */
     try { lbThinkPut(sid, b.title || '', thinkCardGet(sid, b.title || '')); } catch(e){}
   }
-  /* 2.266（老板 2026-11-24 20:38 令）：「思维流只为 1 号网页用户提供、非 1 号
-     不消费本帧画面」的限制随「1 号」概念废除整块拆除——思维流推送本就广播
-     全员且按会话携带，各端按「卡片所属会话 == 本端选中会话」自行匹配显示。 */
   if (_hasMsgs){
-    /* 2.213：类型只认服务端 index8（u/a/th），前端不再就地推导/补写；
-       缺 index8 的行走「类型未知」，原样上屏不丢。 */
     onEv('snap_pane', {sid: String(sid || ''), title: b.title || '',
                        msgs: f.msgs, finish: f.finish || null});
     S.lb_foldRounds = 0;                   /* 真画面到手 → 归零（2.183 修2：补发面板已撤§十二-2，状态位保留防渲染 key 漂移） */
@@ -2163,6 +1534,23 @@ function _thinkTitleEq(a, b){
   return String(a == null ? '' : a).trim() === String(b == null ? '' : b).trim();
 }
 /* 收帧落「最新一版」：版本旧的迟到帧不回退；返回 true＝有变化（需要重画）。 */
+/* 1.076 让位：服务端报「本轮终极已定稿、思维灯灭」⇒ 撤该会话展示卡与
+   账本底部思维流条（每会话只一条卡，按 sid 反查删除最稳，防同名漂移）。 */
+function thinkCardDrop(sid, b){
+  try{
+    const _s = String(sid || '');
+    Object.keys(THINK_CARDS).forEach(k => {
+      const c = THINK_CARDS[k];
+      if (c && String(c.sid || '') === _s) delete THINK_CARDS[k];
+    });
+    const t = String((b && b.title) || '').trim();
+    if (t && typeof LB === 'object' && LB){
+      const u = (typeof lbUidPick === 'function') ? lbUidPick(null, _s, t) : '';
+      if (u) delete (LB.thinkBySk || {})[lbStoreKey(u, t)];
+    }
+  }catch(e){}
+}
+
 function thinkCardSet(body, sidHint){
   const b = body || {};
   const sid = String(b.sel || sidHint || '');
@@ -2176,11 +1564,6 @@ function thinkCardSet(body, sidHint){
       && old.anchorMid === anchor) return false;   /* 迟到旧版：不回退 */
   const f = (b.frame && typeof b.frame === 'object') ? b.frame : {};
   const arr = Array.isArray(f.msgs) ? f.msgs : [];
-  /* 2.212（老板 2026-11-20 07:28 bug①）：虚线框只准放思维流。
-     ①先收集本轮「终极回复」的 mid 集合（唯一判据 lbIsFinalRow）；
-     ②只取锚定人类消息**之后**的 AI 行（绝不拿上一轮终极回复冒充本版思维流）；
-     ③final 行、以及同一 mid 已有 final 的 think 版，一律跳过；
-     ④锚定人类之后一旦出现 final ⇒ 本轮 think 版作废，卡片直接移出虚线框。 */
   const finalMids = new Set();
   arr.forEach(m => {
     if (Array.isArray(m) && lbIsFinalRow(m)){
@@ -2214,9 +1597,6 @@ function thinkCardSet(body, sidHint){
     const m = arr[i];
     if (!Array.isArray(m) || m[0] !== 'a' || !m[1]) continue;
     if (lbIsFinalRow(m)) continue;              /* 终极回复绝不进虚线框 */
-    /* 2.222（老板 2026-11-20 17:10 令）：虚线框只收思维流（index8='th'）。
-       服务端已带类型时，非 th 一律跳过（a/终极/人类绝不进框）；缺类型的老帧
-       仍按原口径（非 final 即可），不凭空丢内容。 */
     const _k8 = (m.length > 8 ? String(m[8] || '').trim().toLowerCase() : '');
     if (_k8 && _k8 !== 'th') continue;
     const _id = String((m.length > 6 && m[6]) || '').trim();
@@ -2224,7 +1604,6 @@ function thinkCardSet(body, sidHint){
     txt = String(m[1]); textMid = _id; break;
   }
   if (!txt) txt = String(f.tail || '');
-  /* 2.209：不读服务端 time 字段——展示时间只由锚定消息 ID 现算 */
   const tm = (typeof timeFromMid === 'function') ? timeFromMid(anchor) : '';
   if (old && old.thinkId === tid && old.text === txt
       && old.textMid === textMid) return false;   /* 同版重发 */
@@ -2237,8 +1616,6 @@ function thinkCardSet(body, sidHint){
   };
   return true;
 }
-/* 2.263（瘦帧）：服务端 think 帧不再带整屏 msgs，只带 thinkId/thinkVer/
-   anchorMid/text。这里只落「本会话最新一版」卡，绝不读/改正文 msgs。 */
 function thinkCardThinSet(body, sidHint){
   const b = body || {};
   const sid = String(b.sel || sidHint || '');
@@ -2264,14 +1641,9 @@ function thinkCardThinSet(body, sidHint){
   };
   return true;
 }
-/* 2.263（瘦帧）：只就地重画已在屏的思维流卡（同 thinkId），
-   不重建正文区、不触发 renderMsgs。 */
 function thinkCardPaint(c){
   try {
     if (!c || !c.thinkId) return;
-    /* 2.338（老板 18:45 令·极大误判）：会话灯明确不是 busy（待看/空闲/完成）
-       时，残留思维流卡必须撤下、也不许再补画——灯已说明电脑那边不在生成，
-       该位置应留给核对补来的最新回复。取不到灯（''）时不误伤。 */
     try{
       const _lt = (typeof _curConvLight === 'function') ? _curConvLight() : '';
       if (_lt && _lt !== 'busy'){
@@ -2294,10 +1666,6 @@ function thinkCardPaint(c){
         if (bd && typeof _mdBody === 'function') bd.innerHTML = _mdBody(String(c.text || ''));
       }
     }
-    /* 2.301（老板 2026-11-25 19:03 令）：主界面原先是「正在获取思维流」占位气泡
-       （data-think 为空），首帧真实思维流走瘦帧只调本函数——同 thinkId 节点不存在
-       时把占位气泡就地换成真实卡片，免得字幕一直停在「正在获取」。只换本端当前
-       选中会话的卡，别家会话的思维流绝不串显。 */
     if (!_hit && typeof _thinkCardHtml === 'function'){
       const ph = box.querySelector('.thinklive.thinkph');
       if (ph){
@@ -2320,9 +1688,6 @@ function thinkCardGet(sid, title){
    本轮终极（fin=1 的 a 行）一到立即让位。任一条件不满足返回 null。 */
 function thinkCardNow(msgs){
   try {
-    /* 2.266（老板 2026-11-24 20:38 令）：原「非 1 号 return null」随「1 号」
-       废除拆除——新口径＝谁把本端选中会话与卡片所属会话对上谁就能看；
-       下面 ②③ 会话名/会话 ID 匹配正是新规则的「按会话自匹配」。 */
     if ((typeof _curConvLight === 'function' ? _curConvLight() : '') !== 'busy') return null;
     const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
     const ct = String((typeof curTitle === 'function' ? curTitle() : '') || '');
@@ -2340,10 +1705,6 @@ function thinkCardNow(msgs){
     }
     if (hi < 0) return null;
     const hmid = String((arr[hi].length > 6 && arr[hi][6]) || '').trim();
-    /* 2.223（老板 2026-11-20 17:20 令·中间夹思维流）：官方偶发把活思维流夹在
-       两条人类发言之间，服务端 anchor 仍指向旧人类。此时**不撤卡**（撤了思维流
-       就没地方显示）——只要锚定那条人类仍在本屏，就把卡贴到最新人类下方。
-       锚定人类已不在本屏（被裁/换轮）才不展示，防旧卡死挂。 */
     if (hmid !== c.anchorMid){
       let _anchInView = false;
       for (let i = 0; i < arr.length; i++){
@@ -2355,11 +1716,6 @@ function thinkCardNow(msgs){
       }
       if (!_anchInView) return null;
     }
-    /* 2.212（bug① 渲染层双保险）：卡片正文对应的 mid 一旦已有终极回复，
-       think 版立即作废，虚线框绝不显示终极回复。
-       1.076（老板 2026-11-26 20:49 令·灯没灭不许撤虚线气泡）：让位只认
-       硬终极——灯 busy 时收到的模糊 fin 行（生成中半成品）不算终极到位，
-       绝不据此撤气泡。 */
     if (c.textMid){
       for (let i = 0; i < arr.length; i++){
         const m = arr[i];
@@ -2371,13 +1727,9 @@ function thinkCardNow(msgs){
     for (let i = hi + 1; i < arr.length; i++){
       const m = arr[i];
       if (!Array.isArray(m) || m[0] !== 'a') continue;
-      /* 1.076（老板 2026-11-26 20:49 令·灯没灭不许撤虚线气泡）：终极让位
-         只认硬终极（index8 明确 a/final/patched 或补记）——灯 busy 时生成中
-         半成品的模糊 fin 行绝不把虚线气泡顶掉、更不许占终极回复位。 */
       if ((typeof lbFinalHard === 'function' ? lbFinalHard(m) : lbIsFinalRow(m)))
         return null;   /* ⑩终极回复优先（含提前终极）：立刻撤卡 */
     }
-    /* 2.263：卡片正文优先 card.text；为空才回退本屏 frame.msgs 里锚定后的 th 行。 */
     if (!String(c.text || '').trim()){
       let _ai = -1;
       for (let i = arr.length - 1; i >= 0; i--){
@@ -2404,9 +1756,6 @@ function thinkCardNow(msgs){
 function thinkCardsReport(){
   const out = {};
   const srv = String((typeof lbSrvKey === 'function' ? lbSrvKey() : ''));
-  /* 2.302（老板 2026-11-25 19:03 令）：思维流「抓到什么都参与核对」，
-     但本地思维灯没开的会话例外——直接不核对、不等差异补发，界面显示「无思维」
-     （就算服务端那边有差异也不收，见 手机缓存查看器.js renderDetail 恒卡）。 */
   const _cs = String((typeof curSid === 'function' ? curSid() : '') || '');
   const _light = (typeof _curConvLight === 'function' ? _curConvLight() : '');
   Object.keys(THINK_CARDS).forEach(k => {
@@ -2419,6 +1768,9 @@ function thinkCardsReport(){
             && 稳定键(c.sid, '') === 稳定键(_cs, ''));
       if (_same) return;                                /* 思维灯没开：本会话不参与核对 */
     }
+    if (Date.now() - (c.ts || 0) > 10 * 60 * 1000) return;
+    /* 1.076 兜底：10 分钟无新版＝早已让位（活思维流几秒一版），防让位
+       薄帧丢失/服务端重启后的存量残卡造成「左0右1」假差异 */
     out[String(c.sid)] = c.thinkId;
   });
   return out;
@@ -2428,29 +1780,14 @@ function thinkCardsReport(){
 /* 项级归属判定：true=本会话 / false=别会话 / null=无项级 sid（交回顶层判定） */
 function pendItemMine(it){
   if (!it || typeof it !== 'object') return null;
-  /* 2.236（老板 2026-11-20 23:09 再核）：空串 sid 与「无 sid」同口径。
-     旧写法只拦 null/undefined，`sid:''` 会走到下面与 cs 比对 ⇒ 空串≠cs
-     ⇒ 返回 false（被判「确凿是别人的」）⇒ AI 之间走总管命令的排队项整条被丢，
-     只剩带 DID 的人类发言（老板看到的「两条只显示一条」）。 */
   if (it.sid == null || String(it.sid).trim() === '') return null;
   const cs = String((typeof curSid === 'function' ? curSid() : '') || '');
-  /* 2.234（老板 2026-11-20 23:09「只认带 DID 的、AI 间总管命令不显示，倒退」）：
-     本端还没锚定/拿不到当前 sid 时，旧写法返回 false＝「确凿是别人的」，
-     调用方据此丢掉条目；而「认领」只有 DID 一条路（pendDidOwn），
-     于是无 DID 的 AI 间总管命令全被吞，只剩带 DID 的人类发言。
-     拿不到 sid ＝ **无从判定**，返回 null（与项级 sid 缺失同口径），
-     由调用方按「宁可显示、不误杀」处理；只有 sid 明确对不上才 false。 */
   if (!cs) return null;
   const s = String(it.sid);
   if (s === cs) return true;
   return !!(typeof 稳定键 === 'function' && 稳定键(s, '') === 稳定键(cs, ''));
 }
 
-/* 2.188：本人排队项 DID 认领（含记忆）——消息刚进队那一下，项级 sid 可能还
-   指着别处（桌面选中/锚定未对齐），靠占位卡上的 14 位 DID 认领；但销卡与
-   重画同一拍完成，卡一销「证据」就没了，下一帧又会被判成别会话 ⇒ 条闪一下
-   就没。故认领过的 DID 记 10 分钟（排队项存活远短于此），期间一律算本人的。
-   反向：没发过的 DID 永远不认领 ⇒ 别人的条目绝不串显（跨会话红线）。 */
 function pendDidOwn(it){
   if (!it || it.id == null) return false;
   const k = String(it.id);
@@ -2467,18 +1804,12 @@ function pendDidOwn(it){
    格式，渲染零换算）。同一会话无论从哪条链路进来（锚定快照/账本补发/核对）
    键必须落到同一条终身上，绝不写一条读另一条。 */
 function lbKey(sid, title){
-  /* 2.184 改2（规范§十 :268 键＝终身号）：账本一律按终身号建档——锚定路
-     （S.anchorSid＝稳定键）与账本帧路（d.sid＝完整 id）归一；非 4 位数字
-     sid 按 稳定键 口径退回会话名，名也取不到才用原 sid 兜底。 */
   const s = String(sid || '');
   let k = '';
   try { k = (typeof 稳定键 === 'function') ? String(稳定键(s, String(title || '')) || '') : ''; } catch(e){ k = ''; }
   return 'lb|' + lbSrvKey() + '|' + (k || s);
 }
 function lbRoundKey(r){
-  /* 2.184 改3（规范§七 :194 同号不同态）：轮身份＝正式 mid 优先；无正式 mid
-     退回「角色|正文前24字|完成卡前12字」（旧账本兼容）。旧实现只按正文，
-     同一句话的两轮会互吞，新轮永远进不去（A1 实锤）。 */
   return (r || []).map(m => {
     const id = String((m && m[6]) || '').trim();
     if (/^[0-9a-fA-F]{8}/.test(id)) return 'M\u0001' + id;
@@ -2487,15 +1818,6 @@ function lbRoundKey(r){
       + String((m && m[7]) || '').replace(/\s+/g, '').slice(0, 12);
   }).join('#');
 }
-/* 1.058（老板 2026-11-25 17:03 令）：落盘唯一过滤器——小账本只收人类发言(u)与
-   AI 终极回复(a) 两种：
-     · 非数组/长度<2、角色不是 u/a（含官方排队条等）⇒ 丢；
-     · mid（index6）带 th: 前缀、index8 归一为 th/think/snap/q/queue ⇒ 丢；
-     · a 行正文是纯思维块（TraeWork/思考过程…，与查看器同规则 lbPureThink）⇒ 丢；
-     · a 行 index8 为空的历史行：只有 m[7] 非空且不是来源标记（补记/提前终极/
-       账本定稿）才当终答保留，否则按思维流丢；
-     · 保留行 index8 归一写死：u→'u'、a→'a'（消除「类型未知」）。
-   思维流/排队条的临时显示走内存 _frameMem，不经过这里、也不受此过滤影响。 */
 function _lbKeepRow(m){
   if (!Array.isArray(m) || m.length < 2) return null;
   const role = String(m[0] == null ? '' : m[0]).toLowerCase();
@@ -2507,9 +1829,6 @@ function _lbKeepRow(m){
   const _真终答 = !!_fin7 && _fin7 !== '补记'
     && _fin7 !== '提前终极' && _fin7 !== '账本定稿';
   if (k === 'th' || k === 'think' || k === 'snap'){
-    /* 1.058（对齐 2.249）：th 默认是思维流、不落盘；但实测后端会把「带真终答
-       的 AI 行」误标成 th——这种本质是终极回复，保留并归一为 'a'，否则手机
-       会把真答案一起丢掉。th: 前缀 mid 已在上面直接丢，不走这里。 */
     if (!(role === 'a' && _真终答)) return null;
   }
   if (role === 'a'){
@@ -2521,10 +1840,6 @@ function _lbKeepRow(m){
   row[8] = (role === 'u') ? 'u' : 'a'; /* 类型归一，消除「类型未知」 */
   return row;
 }
-/* 1.074（老板 17:46 令「手机网页版不需要判断能力，电脑 10+2 长什么样就刚性镜像到
-   小账本，不得有任何操作」）：镜像模式专用落盘口径——只把角色归一为 u/a，
-   **不判纯思维块、不按 th 丢弃、不改正文、不丢任何一条 u/a 行**。
-   服务端给什么就存什么，手机端零判断。 */
 function _lbMirrorKeepRow(m){
   if (!Array.isArray(m) || m.length < 2) return null;
   const role = String(m[0] == null ? '' : m[0]).toLowerCase();
@@ -2533,7 +1848,6 @@ function _lbMirrorKeepRow(m){
   row[0] = role;
   return row;
 }
-/* 1.074：镜像模式专用分组——u 起一轮、a 追加到当前轮，一条不丢、一条不改。 */
 function lbMirrorRounds(msgs){
   const rounds = [];
   let cur = null;
@@ -2551,8 +1865,6 @@ function lbMirrorRounds(msgs){
   if (cur && cur.length) rounds.push(cur);
   return rounds;
 }
-/* 1.058：按 `_lbKeepRow` 清洗一组平铺 msgs；changed=true 表示确有行被丢或被归一
-   （供开机清理时决定是否把干净结果回写 snap_conv）。 */
 function _lbCleanMsgs(msgs){
   const src = Array.isArray(msgs) ? msgs : [];
   const out = [];
@@ -2566,10 +1878,6 @@ function _lbCleanMsgs(msgs){
   return {msgs: out, changed: changed};
 }
 function lbRoundsFromMsgs(msgs){
-  /* 1.058（老板 17:03 令）：2.213「不筛不弃」改为先过落盘唯一过滤器 `_lbKeepRow`
-     ——th/排队条/纯思维块/未知类型一律不进账本轮次，u/a 行类型归一。
-     过滤后仍按「u 起一轮」分组；'a' 行 index7「补记/提前终极/账本定稿」是来源
-     标记不是正文，显示正文回退 m[1]。 */
   const rounds = [];
   let cur = null;
   (msgs || []).forEach(m0 => {
@@ -2579,10 +1887,7 @@ function lbRoundsFromMsgs(msgs){
       if (cur && cur.length) rounds.push(cur);       /* 半轮也落 */
       cur = [m.slice()];
     } else if (m[0] === 'a'){
-      /* 3.02（老板 12:21 令）：思维流永远只有一条、挂账本最底部、不占保留轮数
-         ——轮次里只收 AI 终极回复('a')，th 一律不进轮次。 */
       if (String((m.length > 8 && m[8]) || '').toLowerCase() === 'th') return;
-      /* 2.287（老板 12:47 令）：思维流专属 ID / 纯思维块永不进轮次（哪怕标错 fin）。 */
       if (/^th:/i.test(String(m[6] || '')) || lbPureThink(m)) return;
       const fin = String((m.length > 7 && m[7]) || '').trim();
       const patch = lbPatchMarked(m);
@@ -2594,21 +1899,16 @@ function lbRoundsFromMsgs(msgs){
         ? fin : (m[1] || '');
       const row = [m[0], _disp, '', 0, 0, '', m[6] || '',
                    fin || (patch ? '补记' : ''),
-                   String(m[8] || ''),          /* 2.213：类型照抄后端 index8，不推断 */
-                   m[9] || ''];                 /* 2.209：账本行不存时间（index2 恒空） */
+                   String(m[8] || ''),          /* 类型照抄后端 index8，不推断 */
+                   m[9] || ''];                 /* 账本行不存时间（index2 恒空） */
       if (cur) cur.push(row);
-      else rounds.push([row]);                      /* 2.213：无人类行的 AI 行原位保留 */
+      else rounds.push([row]);                      /* 无人类行的 AI 行原位保留 */
     }
   });
   if (cur && cur.length) rounds.push(cur);
   return rounds;
 }
-/* 2.219（保留轮数真正生效）：本地账本唯一裁剪入口——lbRoundKey 去重后截尾
-   最新 N 轮（N＝lbRounds()）。**只裁 rounds 数组**，整条记录的 ts/lastTs/
-   lastView/pend/diag/think 一律保留；屏幕上的消息不受影响（零拦截不变）。
-   quiet=true 时不逐本记日志（开机批量只记一条汇总）。 */
 function lbLedgerTrimRounds(rounds, key, quiet){
-  /* 2.306：全量镜像＝原样返回，不裁剪、不去重（该留该删全听服务器）。 */
   if (lbMirrorMode()) return Array.isArray(rounds) ? rounds : [];
   const n = lbRounds();
   const arr = Array.isArray(rounds) ? rounds : [];
@@ -2627,13 +1927,8 @@ function lbLedgerTrimRounds(rounds, key, quiet){
   }
   return out;
 }
-/* 2.220（预备画面同一把尺子）：把 snap_conv 的 msgs 按「u 起一轮」分组（AI/思维流
-   等其它行随当前轮，思维流不单独计轮），复用 lbLedgerTrimRounds 判定（lbRoundKey
-   去重 + slice(-N)）后平铺回行数组。只裁预备画面存量；当前屏 S.snap 不走此路，
-   前端零拦截不变。 */
 function lbTrimFrameMsgs(msgs, key, quiet){
   const arr = Array.isArray(msgs) ? msgs : [];
-  /* 2.306：全量镜像＝预备画面原样镜像服务器，一行不动。 */
   if (lbMirrorMode()) return arr;
   if (!arr.length) return arr;
   const groups = [];
@@ -2659,10 +1954,6 @@ function lbTrimFrameMsgs(msgs, key, quiet){
   kept.forEach(g => g.forEach(m => out.push(m.slice())));
   return out;
 }
-/* 2.183 修4b（老板实测：小账本以纯数字命名·落盘层兜底）：title 为空或纯数字
-   （/^\d+$/，服务端 TRAE本地账本.py 键常为 4 位序号，显示名在服务端 _名 映射
-   未随帧下发）→ 先按 sid 从本地会话列表解析显示名（只读，不发帧）；解析不到
-   保持原值。函数内单点做，ledgerStoreApply/ledgerOnSnap 两条调用路自动受益。 */
 function lbResolveTitle(sid, title){
   const t = String(title || '').trim();
   if (t && !/^\d+$/.test(t)) return t;
@@ -2679,20 +1970,12 @@ function lbResolveTitle(sid, title){
   } catch(e){}
   return title || '';
 }
-/* 2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口，不设拒收闸门）：
-   数据不合格（缺名/缺 sid）也照建账本，名称要能一眼定位毛病——
-   有 sid 无名 → 「（无名）<sid 后 6 位>」；无名无 sid → 「（无名）无sid」。
-   返回 {title, diag}，diag=1 时调用方在账本记录打诊断标记（列表可见）。 */
 function lbDiagTitle(sid, title){
   const t = String(title || '').trim();
   if (t) return {title: t, diag: 0};
   const s = String(sid || '').trim();
   return {title: s ? ('（无名）' + s.slice(-6)) : '（无名）无sid', diag: 1};
 }
-/* 2.264（老板 2026-11-24「读 A 写 B」）：账本落盘键唯一入口——**终身号优先**：
-   有权威 4 位终身号就用号，改名不换本（旧写法取 稳定键＝名称，会话一改名就另起
-   一本，读旧的、存新的）。名称只在拿不到号时兜底；键形仍沿用 _frameMemKey 口径，
-   保证秒显/回写/列表读的是同一条记录。 */
 function lbLedgerSnapKey(sid, title){
   const s = String(sid || ''), t = String(title || '').trim();
   let u = '';
@@ -2701,34 +1984,24 @@ function lbLedgerSnapKey(sid, title){
     : ((typeof 稳定键 === 'function') ? (String(稳定键(s, t) || '') || s || t) : (s || t));
   return (typeof _frameMemKey === 'function') ? String(_frameMemKey(k) || '') : ('frame|' + k);
 }
-/* 2.184 改1（规范§三 :54 秒显源＝账本本体）：最新账本（对账补发/主动核对/
-   强制核对拉到）落盘成功后，立刻把同一份 rounds 平铺成画面写回 snap_conv——
-   键走 lbLedgerSnapKey（终身号优先，2.264）＋走 _frameCommit「只进不退」
-   闸（旧账本不覆盖更新的真快照，内存槽同步更新 ⇒ 切回 0ms 命中）。 */
 function lbWriteBackSnap(sid, title, rounds){
   try {
     if (!Array.isArray(rounds) || !rounds.length) return;
     if (typeof _frameCommit !== 'function' || typeof _frameMemKey !== 'function') return;
     const s = String(sid || '');
     const t = String(title || '').trim();
-    if (!t) return;                       /* 2.184 改7：名称必有——无标题不写秒显 */
+    if (!t) return;                       /* 改7：名称必有——无标题不写秒显 */
     const sk = lbLedgerSnapKey(s, t);
     if (!sk) return;
-    /* 2.211：画面记录另存**真实 sid** 与**权威 uid**；键仍走稳定键（无名回退完整 sid），
-       绝不在记录里塞切片假号。 */
     const _uidAuth = (typeof lbUidPick === 'function') ? lbUidPick(null, s, t) : '';
     const rows = [];
     rounds.forEach(r => (r || []).forEach(m => { if (Array.isArray(m)) rows.push(m.slice()); }));
     if (!rows.length) return;
-    /* 2.220：写回预备画面也走同一把尺子（只留最新 N 轮），与账本存量同源。 */
     const _rows = lbTrimFrameMsgs(rows, sk, true);
     if (!_rows.length) return;
     const frame = {msgs: _rows, finish: null, tail: '', sendIdle: true,
                    inputText: '', opts: [], ask: null, pend: [],
                    model: ''};
-    /* 2.243（老板 2026-11-21 08:25「预备画面与小账本合为一个」）：旧闸只看末条
-       mid——画面里还有思维流（mid 更大）时，账本终极回复（mid 较小）永远进不去。
-       改按轮数放行：账本轮数不更少即可覆盖。 */
     const _oldMsgs = (typeof _frameMem === 'object' && _frameMem[sk]
       && Array.isArray(_frameMem[sk].msgs)) ? _frameMem[sk].msgs
       : (S.liveFrame && Array.isArray(S.liveFrame.msgs)
@@ -2743,18 +2016,6 @@ function lbWriteBackSnap(sid, title, rounds){
       undefined, undefined, (_oldN > 0 && _newN >= _oldN));
   } catch(e){}
 }
-/* 2.264（老板 2026-11-24 新口径原文：「反正拉来的历史记录，只要进得了前 N 条，那就写到
-   小账本，小账本有前 N 条保留机制……够进这个范围，当然就给它记录了。它的地位等同于核对
-   账本。」）——hist / hist_prev 回包并入唯一账 snap_conv：
-     · 行结构照抄服务端（ledToArr，index5/6/7/8/9 一律不动，尤其 fin 终答不许冲空）；
-     · 按 mid 只并「本地账本里还没有的」，已有轮原位不动；
-     · 先经 lbTrimFrameMsgs（＝lbRoundsFromMsgs + lbLedgerTrimRounds，N 取 lbRounds()
-       默认 5）裁到前 N 轮再写——够进前 N 轮才落盘，更老的翻页不写（写也白写）；
-     · 写入只走 _frameCommit：与核对账本同一条通道、同一个键、同一套 srv 标签，
-       不另开表、不另起键。
-   older=true 表示「更早一页」（hist_prev），合并时排在本账前面。 */
-/* 2.264：hist 回包只带 S.histConv（锚定键），本节话的 sid/名称要从锚定或会话列表
-   反查——绝不能拿 curTitle() 的「当前会话」兜底名去建账（那会另起一本）。 */
 function _lbHistCtx(){
   try {
     const key = String(S.histConv || '').trim();
@@ -2780,8 +2041,6 @@ function _lbHistCtx(){
 }
 function lbHistToLedger(older){
   try{
-    /* 1.070（老板 13:53 令·拉历史只是看看）：全量镜像下历史绝不写小账本/存帧——
-       否则翻一页历史会把整本账替换成那一页，出现「满→0→满」和退出重进变 0。 */
     if (typeof lbMirrorMode === 'function' && lbMirrorMode()) return;
     const raw = Array.isArray(S.histRaw) ? S.histRaw : [];
     if (!raw.length) return;
@@ -2791,8 +2050,8 @@ function lbHistToLedger(older){
     if (!ctx) return;                 /* 认不出这会话：宁可不写，绝不拿「当前会话」另起一本 */
     const sid = String(ctx.sid || '');
     const title = String(ctx.title || '').trim();
-    if (!title) return;                       /* 2.184 改7：名称必有 */
-    const sk = lbLedgerSnapKey(sid, title);   /* 2.264：与核对账本同一个键（终身号优先） */
+    if (!title) return;                       /* 改7：名称必有 */
+    const sk = lbLedgerSnapKey(sid, title);   /* 与核对账本同一个键（终身号优先） */
     if (!sk) return;
     const rows = [];
     raw.forEach(function(x){
@@ -2810,8 +2069,6 @@ function lbHistToLedger(older){
         try { k = (typeof lbRoundKey === 'function') ? lbRoundKey([m]) : ''; } catch(e){ k = ''; }
         if (!k) k = String(m[0] || '') + '|' + String(m[1] || '').slice(0, 24);
         if (seen.has(k)){
-          /* 2.264：同一 mid 已存在时，绝不让「没终答的那版」把「有终答的」盖掉
-             ——hist 回包经 ledToArr 不带 index7，用它顶掉账本会丢终极回复。 */
           const i = idx[k];
           if (i != null && out[i] && !String(out[i][7] || '').trim()
               && String(m[7] || '').trim()) out[i] = m.slice();
@@ -2836,8 +2093,6 @@ function lbHistToLedger(older){
       if (rounds.length && typeof lbRowsPut === 'function') lbRowsPut(_uid, title, rounds);
     } catch(e){}
     };
-    /* 2.264：合并基准必需——内存里没有该会话（刚刷新/没点过）时必须先读盘上那份，
-       否则 hist 那版（ledToArr 不带 index7）会把已存的终答整轮冲空（实测 [1,2,0,""]）。 */
     let memOld = null;
     try {
       if (typeof _frameMem === 'object' && _frameMem[sk] && Array.isArray(_frameMem[sk].msgs))
@@ -2855,14 +2110,7 @@ function lbHistToLedger(older){
     _write(null);
   } catch(e){}
 }
-/* 2.245（老板 2026-11-21 10:25「切会话跳动、连续三个人类都没有 AI 回复，小账本里却有」）：
-   一句话根因——屏幕吃的是服务端快照，唯一账 snap_conv 里的 AI 终极只在几处窄条件下
-   顶屏；快照一拍回来就把带 AI 的那版盖掉。治法＝在快照入口先把本地唯一账里「同一轮
-   人类发言、屏上却缺 AI 行」的终极补回屏上：补进去的行就地插入该轮末尾（思维流之后），
-   不改顺序、不动别的轮；找不到同 mid 的轮一律不碰，防串会话。此后 render/snapIdbTick/
-   ledgerOnSnap 拿到的都是补全版，前台与小账本天然同一份。 */
 function _lbMergeFinals(local, msgs){
-  /* 2.246：合并核心——只按人类 mid 对齐补 AI 行，不改顺序、不碰对不上的轮。 */
   try{
     if (!Array.isArray(msgs) || !msgs.length) return msgs;
     if (!Array.isArray(local) || !local.length) return msgs;
@@ -2911,7 +2159,6 @@ function lbFillFinals(sid, title, msgs){
     try {
       const _leg = (typeof 稳定键 === 'function')
         ? (String(稳定键(s, t) || '') || s || t) : (s || t);
-      /* 2.319：内存存帧键与落盘同口径（终身号优先），旧名称键照样兜底读。 */
       const sk = (typeof snapKeyOf === 'function') ? snapKeyOf(s, t)
         : ((typeof _frameMemKey === 'function') ? _frameMemKey(_leg) : '');
       const _legSk = (typeof _frameMemKey === 'function') ? _frameMemKey(_leg) : '';
@@ -2933,12 +2180,6 @@ function lbFillFinals(sid, title, msgs){
     return out;
   }catch(e){ return msgs; }
 }
-/* 2.248（老板 2026-11-21 11:31 令·一套规则）：主界面就是小账本的显示器——
-   小账本（唯一账 snap_conv）有什么，主界面就显示什么。每次快照到达后异步读回本会话
-   账本记录，以账本为底（一条不丢、不重排），只把屏上「账本没有且更新」的行补到尾部，
-   然后把这一份先写回唯一账（_frameCommit，只进不退）、再顶屏（renderAll）——
-   先落盘、后显示，二者永远同一份。同会话 0.6 秒最多读一次盘；读回时锚定已换
-   只回填内存槽、绝不动屏幕，绝不串会话。 */
 const _lbFillAsyncAt = {};
 function lbFillFinalsAsync(sid, title){
   try{
@@ -2946,7 +2187,6 @@ function lbFillFinalsAsync(sid, title){
     const s = String(sid || ''), t = String(title || '').trim();
     const key = (typeof 稳定键 === 'function') ? (String(稳定键(s, t) || '') || s || t) : (s || t);
     if (!key) return;
-    /* 2.319：读/写/内存槽统一用唯一键（终身号优先）；旧名称键只作读兜底。 */
     const _legSk = _frameMemKey(key);
     const sk = (typeof snapKeyOf === 'function') ? snapKeyOf(s, t) : _legSk;
     const now = Date.now();
@@ -2977,10 +2217,6 @@ function lbFillFinalsAsync(sid, title){
         _frameMem[sk] = f;
         if (t) _frameMemByTitle[_frameTitleKey(t)] = f;
       } catch(e){}
-      /* 2.286（老板 2026-11-25 12:09 实测：小账本里「两句人类＋各自 AI」都在，
-         主界面却只剩人类）：本函数以前只补盘上账本与 S.snap，不补内存账本
-         LB.rows，而主界面只认 LB.rows ⇒ 被补回来的 AI 终答永远上不了屏。
-         现在把同一份 out 同步进内存账本，屏幕＝小账本。 */
       try {
         if (typeof lbRowsPut === 'function' && typeof lbRoundsFromMsgs === 'function')
           lbRowsPut((typeof lbUidPick === 'function' ? (lbUidPick(null, s, t) || '') : ''),
@@ -3003,8 +2239,6 @@ function lbFillFinalsAsync(sid, title){
     }).catch(() => {});
   }catch(e){}
 }
-/* 2.248：以账本帧为底、只补屏上「账本没有且更新」的行（同 mid 取正文更长）。
-   账本行一条不丢、不重排、不裁——主界面直接反映小账本。 */
 function _lbLedgerTop(loc, target){
   try{
     const out = [], seen = {};
@@ -3028,10 +2262,7 @@ function _lbLedgerTop(loc, target){
         const ot = String(out[at][1] || ''), nt = String(m[1] || '');
         const _ok = String((out[at].length > 8 && out[at][8]) || '').toLowerCase();
         const _nk = String((m.length > 8 && m[8]) || '').toLowerCase();
-        /* 3.02（老板 12:21 令）：只升不降——新帧已判终极('a')时，必须覆盖旧帧
-           存下的思维流类型('th')，否则旧类型会被唯一账一直沿用、终答永远被藏。 */
         if (_nk === 'a' && _ok !== 'a'){ out[at] = m; return; }
-        /* 1.057（老板 15:42 令）：同为终极行、正文（index1）字符数不同 ⇒ 新到者胜，覆盖旧版。 */
         if (_ok === 'a' && _nk === 'a'){
           if (lbCharN(m[1] || '') !== lbCharN(out[at][1] || '')) out[at] = m;
           return;
@@ -3046,16 +2277,12 @@ function _lbLedgerTop(loc, target){
     return out;
   }catch(e){ return loc; }
 }
-/* 2.248（老板 2026-11-21 11:31 令）：冷启动首屏同样「主界面＝小账本」——
-   读唯一账 snap_conv 本会话记录（旧实现在读已清空的 ledger_conv，永远读不到），
-   以账本为底、补屏上更新行，先落账再顶屏。 */
 function lbBootMerge(sid, title){
   try{
     const s = String(sid || '');
     const t = String(title || '').trim();
     if (!s && !t) return;
     if (typeof renderAll !== 'function') return;
-    /* 2026-11-24 单账本：只用账本 rounds 顶屏，不再读存帧。 */
     const _rows = (typeof lbScreenMsgs === 'function') ? lbScreenMsgs(s, t) : [];
     if (!_rows.length) return;
     if (S.anchorSid){
@@ -3067,36 +2294,19 @@ function lbBootMerge(sid, title){
     return;
   }catch(e){}
 }
-/* 2.184 改2（残留清理）：新键已存在、但同会话还挂着旧 raw 键记录（2.183 及
-   以前按原始 sid 建过档，或迁移中断）→ 删旧留新，保证「同一会话绝不出现两条
-   账本」。按 sk 记账一生只扫一次全表（账本条数很小，代价可忽略）。 */
 const _lbPurgedSk = {};
-/* 2.184 改7（老板 2026-11-19 终版口径·锚定双轨：终身号优先、名称兜底、后续归并）：
-   终身号（sid）存在共享数据库里、有时创建不及时抓不到，但每个对话一定有名称。
-   所以「没有 sid」时先用名称当临时键照常建账本（记录带 pend:1 待补号）；等同一
-   会话后续帧带上 sid 时，把名称键下的账本整体迁到终身号键：
-     · 轮次按 mid 去重合并（lbRoundKey 同口径，绝不重复）；
-     · ts / lastTs / lastView 各取较大；
-     · 删掉临时键（同一会话只留一条账本）；
-     · 秒显（snap_conv + 内存槽）同步迁到终身号键，并删掉名称键那份，防秒显双份。
-   非 4 位数字 sid（临时/hex id）本来就以名称为键，无「临时→正式」可迁，直接返回。 */
 function lbMigrateTitle(sid, title){
   return new Promise(res => {
     try {
       const s = String(sid || '').trim(), t = String(title || '').trim();
       if (!s || !t) return res(false);
-      /* 2.211：正式键只由权威 uid 决定；无权威 uid ⇒ 本来就落名称键，无「临时→正式」可迁。 */
       const _mu = (typeof lbUidPick === 'function') ? lbUidPick(null, s, t) : '';
       const skTmp = lbStoreKey('', t);               /* 临时键＝L<本服>:t:<名称> */
-      const skSid = lbStoreKey(_mu || '', t);        /* 2.196：与落账同键（权威 uid 优先） */
+      const skSid = lbStoreKey(_mu || '', t);        /* 与落账同键（权威 uid 优先） */
       if (skSid === skTmp) return res(false);
       Promise.resolve([]).then(all => {
         const rows = all || [];
         const cur = rows.find(r => !lbIsLegacyRec(r) && r.sk === skSid);
-        /* 2.214（重复桶根因修复）：要并的临时账本＝**同名且无权威终身号**的桶，
-           不再要求「sid 必须为空」——旧实现只并 sid 空的记录，而名称键桶落账时
-           带的是真实 sid，于是永远并不过来 ⇒ 同名两本（一本 uid 键、一本名称键）。
-           同名、无 4 位权威 uid 的桶一律并入正式键（只迁不删内容）。 */
         const tmps = rows.filter(r => !lbIsLegacyRec(r) && r.sk !== skSid
           && (r.sk === skTmp
               || (String(r.title || '').trim() === t && !lbUidAuth(r.uid))));
@@ -3107,15 +2317,14 @@ function lbMigrateTitle(sid, title){
           const rk = lbRoundKey(r);
           if (!seen.has(rk)){ seen.add(rk); base.push(r); }
         }));
-        const out = base.slice();          /* 2.213：归并也不按保留轮数裁剪 */
+        const out = base.slice();          /* 归并也不按保留轮数裁剪 */
         const maxNum = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
-        /* 2.214：思维流只留最新一条（随账本一起迁移，不参与轮次） */
         let _think = (cur && cur.think) || null;
         tmps.forEach(tmp => { if (tmp.think && (!_think || (tmp.ts || 0) > (Number(cur && cur.ts) || 0))) _think = tmp.think; });
         const rec = {
           sk: skSid, srv: lbSrvTag(), srvName: lbSrvName(), srvFox: lbSrvFox(),
-          uid: _mu || '', sid: s,                 /* 2.196 四字段：uid 终身号 / sid 对话ID */
-          title: t,                                  /* 2.184 改8：改名归并——以现名为准 */
+          uid: _mu || '', sid: s,                 /* 四字段：uid 终身号 / sid 对话ID */
+          title: t,                                  /* 改8：改名归并——以现名为准 */
           ts: maxNum(cur && cur.ts, tmps.reduce((m, x) => Math.max(m, x.ts || 0), 0)) || Date.now(),
           lastTs: maxNum(cur && cur.lastTs, tmps.reduce((m, x) => Math.max(m, x.lastTs || 0), 0)),
           lastView: maxNum(cur && cur.lastView, tmps.reduce((m, x) => maxNum(m, x.lastView || 0), 0)),
@@ -3124,8 +2333,6 @@ function lbMigrateTitle(sid, title){
         if (_think) rec.think = _think;
         const sks = tmps.map(x => x.sk);
         const tmpTitles = tmps.map(x => String(x.title || '').trim()).filter(Boolean);
-        /* 2026-11-24（老板令·只留一本账）：不再写 ledger_conv（第二本账已退役）。
-           合并结果只由下面 lbWriteBackSnap 写进 snap_conv；旧临时行直接删除。 */
         return Promise.resolve()
           .then(() => {
             /* 临时键摘要全部撤掉（含历史遗留的旧名），换终身号键 */
@@ -3155,29 +2362,18 @@ function lbMigrateTitle(sid, title){
     } catch(e){ res(false); }
   });
 }
-/* 2.214：会话名归一——「XXX 重复」「XXX（2）」「XXX 副本」「XXX_2」都算同一本
-   「XXX」。只用于归并身份与合并落名，绝不因此改写服务端下发的真实会话名。 */
 function lbNormTitle(t){
   let s = String(t == null ? '' : t).trim();
   if (!s) return '';
-  /* 2.215：旧「（临时）」「（按名称）」都是显示后缀，不是名字本身——归一到同一桶 */
   s = s.replace(/\s*（临时）\s*$/, '').replace(/\s*（按名称）\s*$/, '');
   s = s.replace(/\s*[·・]?\s*(重复|副本|duplicate)\s*$/i, '');
   s = s.replace(/\s*[（(]\s*\d+\s*[）)]\s*$/, '');
   s = s.replace(/\s*_\d+\s*$/, '');
   return s.trim() || String(t || '').trim();
 }
-/* 2.214（重名必须合并、绝不新建第二个同名桶）：把本服**同一会话**（同 sid 或
-   同名，含旧「重复」后缀）的账本合并成唯一一本。只并内容不删内容：轮次按
-   lbRoundKey 去重，思维流只留最新一条。 */
 function lbMergeForConv(sid, title){
-  /* 2.244（老板令·一套账）：同名/同 sid 去重改由唯一正文账 snap_conv 承担
-     （lbMergeDuplicateBuckets 开机按 srv+uid/名称分组合并），这里不再读写第二本账。 */
   return Promise.resolve(false);
 }
-/* 2.214（老板 2026-11-20 08:08 令·落账三类）：账本只记 u 人类发言 / a AI 终极回复
-   （含 early_final 提前终极）/ th 思维流。思维流**只留最新一条、固定在最底部**，
-   不入 rounds、不参与轮次统计。 */
 function lbThinkRowOf(c){
   if (!c) return null;
   const txt = String(c.text || '').trim();
@@ -3185,8 +2381,6 @@ function lbThinkRowOf(c){
   return ['th', txt, '', 0, 0, '', String(c.textMid || c.anchorMid || ''), '', 'th', ''];
 }
 function lbThinkPut(sid, title, c){
-  /* 2.244（老板令·一套账）：思维流只作展示——挂内存，不再写 ledger_conv。
-     重进会话时由服务端 think 帧重发最新一版（与 2.207 口径一致）。 */
   try {
     const row = lbThinkRowOf(c);
     const t = String(title || '').trim();
@@ -3210,7 +2404,6 @@ function lbLedgerDisplayRows(rec){
   if (rec && Array.isArray(rec.think)) out.push(rec.think);
   return out;
 }
-/* 2.185（老板 2026-11-19 令·未认证终极弃收日志）：10 秒节流一条，防思维流高频帧刷屏 */
 let _lbUnextT = 0;
 function _lbUnextLog(a){
   const now = Date.now();
@@ -3218,9 +2411,6 @@ function _lbUnextLog(a){
   _lbUnextT = now;
   try { diagLog('未认证终极 弃收 mid=' + String((a && a[6]) || ''), 'bad'); } catch(e){}
 }
-/* 2.244（老板令·一套账）：旧态一律从唯一正文账 snap_conv 还原（不再读 ledger_conv）。
-   认同一条：uid 相同或标题相同；取 ts 最新的一条，按其 frame.msgs 还原 rounds。
-   找不到返回 null（调用方按空账处理）。 */
 function lbOldFromSnaps(uid, title){
   const u = String(uid || '').trim();
   const t = String(title || '').trim();
@@ -3248,46 +2438,30 @@ function lbOldFromSnaps(uid, title){
 function ledgerStorePut(sid, title, rounds, opt){
   try {
     opt = opt || {};
-    /* 2.183 修4b：纯数字/空名先解析显示名再落库（解析不到保持原值）。
-       2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口不设限）：撤「缺 title
-       弃收（不建无名账本）」闸门——缺名照建诊断账本，命名 lbDiagTitle 兜底
-       （（无名）尾6位／（无名）无sid），并打 diag 标记。 */
     title = lbResolveTitle(sid, title);
     const _dt = lbDiagTitle(sid, title);
     title = _dt.title;
     const _diag = _dt.diag;
     const _t = String(title || '').trim();
-    /* 2.213（前端零拦截）：撤「会话 ID 无效不建账」「只收 human/final」「缺 mid 不收」
-       三道闸——不按会话号/名字拒收。
-       1.058（老板 17:03 令）：但「收哪些行」重新收口——落盘只收 u/a，见下面 `_rs0`
-       的 `_lbKeepRow`（th/排队条/纯思维块/未知类型一律不落盘）。 */
     if (_diag){
       try { diagLog('收到无名条目（诊断口不设限）→ 已建诊断账本 title='
         + _t + ' sid=' + String(sid || ''), 'bad'); } catch(e){}
     }
     const _rs0 = (rounds || []).map(r => {
       const rows = (r || []).map(_lbKeepRow).filter(Boolean);
-      /* 1.058：整轮没有可落行（整轮都是 th/排队条/未认证）⇒ 空轮不落 */
       return rows.length ? rows : null;
     }).filter(Boolean);
     if (!_rs0.length) return;
-    /* 2.196 四字段：srv＝服务端（srv/srvName/srvFox 同源）、uid＝终身号（可空）、
-       title＝会话名（必有）、sid＝对话ID（原始会话 id，缺则反查会话列表）。 */
     const _rawSid = String(sid || '').trim();
-    /* 2.204（B5）：10 位纯数字＝假账号号源（1623/1632），一律不当会话编号/终身号。 */
     const _fakeSid = /^\d{10}$/.test(_rawSid);
     if (!_rawSid){
-      /* 2.196：缺 sid（对话ID）属异常，记调试日志；按名称临时账本兜底，绝不丢内容 */
       try { diagLog('缺 sid（对话ID）账本登记 · ' + _t, 'bad'); } catch(e){}
     } else if (_fakeSid){
       try { diagLog('10 位纯数字不当会话编号/终身号（B5）sid=' + _rawSid + ' · ' + _t, 'bad'); } catch(e){}
     }
-    /* 2.197：优先消费服务端下发 uid（body.uid），缺失才按 sid / 名字别名回锚。 */
     const _uid = _fakeSid ? '' : lbUidPick(opt.uid, _rawSid, _t);
-    if (_uid) lbAliasSet(_uid, _t);                       /* 2.204（B3）：写名字→编号映射 */
+    if (_uid) lbAliasSet(_uid, _t);                       /* （B3）：写名字→编号映射 */
     const _dialogSid = _fakeSid ? '' : (_rawSid || lbRawSidOf(_uid, _t));
-    /* 2.209（老板口径「不准再传时间」）：写账本前把每行 m[2] 一律置空——
-       账本不存任何时间；显示/排序一律在读取时按该行 mid 现算（timeFromMid）。 */
     _rs0.forEach(rows => rows.forEach(row => {
       if (!Array.isArray(row)) return;
       row[2] = '';
@@ -3295,22 +2469,15 @@ function ledgerStorePut(sid, title, rounds, opt){
     const _run = (_effSid) => {
     const _uidEff = String(_effSid || '').trim();          /* 登记主键＝终身号 */
     const sk = lbStoreKey(_uidEff, _t), now = Date.now();
-    const rs = _rs0.slice();                               /* 2.213：落账不再按保留轮数裁剪 */
+    const rs = _rs0.slice();                               /* 落账不再按保留轮数裁剪 */
     /* put 成功之后的统一收口（2.184 改4：真存记账必须晚于落盘成功，
        原实现 put 前就 add＝落盘失败也假报「有账」）：真存集 + 摘要表 + 秒显回写。 */
     const _after = (out) => {
-      /* 2.184 改7：无 sid 的临时账本不进「真存集」——集合按 sid 认，空串会污染 */
       if (_uidEff) LB.lbHave.add(_uidEff);
       lbSumSet(_uidEff, _t, out);
-      lbRowsPut(_uidEff, _t, out);            /* 2026-11-24：账本更新即刷屏幕唯一源 */
-      /* 2.276（探针实测：S.anchorSid 里存的竟是会话名「WB+TR整改专员 ST」
-         而不是 sid，lbUidPick 认不出 → 2.275 的两道条件全不成立，一次都不重绘；
-         renderTick 停在 11、LB 已 10 条而 DOM 仍是 0（手动 lbRepaint 立刻 10 条）。
-         ⇒ 不再猜「这本账是不是当前显示的」，账本一变就统一重画：
-         renderAll 幂等 + renderMsgs 有指纹早退 + 本函数 250ms 节流，代价可忽略。 */
+      lbRowsPut(_uidEff, _t, out);
       try { lbRepaint(); } catch(e){}
       lbWriteBackSnap(_uidEff, _t, out);                   /* 改1：最新账本立刻回写秒显源 */
-      /* 2.214：同一会话（同 sid 或同名，含旧「重复」后缀）只留一本账 */
       try { lbMergeForConv(_dialogSid, _t); } catch(e){}
       /* 改6（2.17 查看器）：落盘成功即通知「📒 我的小账本」卡片列表重排
          （仅 ③ 页可见时由查看器自己刷，未开页时是个空钩子，零开销） */
@@ -3319,9 +2486,6 @@ function ledgerStorePut(sid, title, rounds, opt){
     };
     const _apply = (old) => {
       let out = rs;
-      /* 2.198（u 帧先落 [u]、终极帧后到）：按人类行编号（index6）认同一轮，
-         更厚者胜——旧半轮让位给新全轮，绝不出现「[u] 与 [u,a]」两轮并存；
-         反向（旧全轮比新半轮厚）保留旧轮、丢掉新半轮。 */
       const _incU = new Map();
       rs.forEach(r => {
         const k = String((Array.isArray(r) && r[0] && r[0][6]) || '');
@@ -3336,9 +2500,6 @@ function ledgerStorePut(sid, title, rounds, opt){
           const inc = k ? _incU.get(k) : null;
           if (!inc){ _keepOld.push(r); return; }
           if (inc.length >= r.length) return;    /* 新轮更厚：旧半轮让位 */
-          /* 1.057（老板 15:42 令）：旧轮更长不代表更新——同号（正式 mid 有交集）
-             而字符数不同时，服务端这版才是权威新版，旧轮让位；否则旧版本会因
-             「更长」把同号新版本挡在门外。 */
           if (_lbSameMidDiffN(r, inc)) return;
           _incU.delete(k);                       /* 旧轮更厚：新半轮不并入 */
           _keepOld.push(r);
@@ -3355,8 +2516,6 @@ function ledgerStorePut(sid, title, rounds, opt){
         } else {
           out = _keepOld.length ? _keepOld.slice() : rs.slice();
         }
-        /* 2.198：同一人类行（index6）已有一轮（更厚/等厚）在 out 里 ⇒ 新的
-           半轮不再追加；只有全新的人类行才并入。 */
         const seen = new Set(out.map(lbRoundKey));
         const _uSeen = new Set(out.map(r =>
           String((Array.isArray(r) && r[0] && r[0][6]) || '')).filter(Boolean));
@@ -3369,11 +2528,6 @@ function ledgerStorePut(sid, title, rounds, opt){
           out.push(r);
         });
       }
-      /* 2.264（老板 2026-11-24 17:43 令「小账本层必须按轮 ID 排好序」）：合并
-         去重完成后按 mid 升序稳定排序再落库——mid 前 8 位 hex 即 Unix 秒，
-         同长 hex 直接字符串比较即时间序；轮 mid＝首行 m[6]（lbRoundKey 同口径）。
-         两轮都有 mid 比 mid；任一轮无 mid（0.51 起不该有，保底）按原始 index，
-         后到的旧轮绝不沉底。主界面直通小账本原样显示，渲染层零改动。 */
       out = out.map((r, i) => [r, i,
         /^[0-9a-fA-F]{8}/.test(String((Array.isArray(r) && r[0] && r[0][6]) || '').trim())
           ? String(r[0][6]).toLowerCase() : ''])
@@ -3381,34 +2535,17 @@ function ledgerStorePut(sid, title, rounds, opt){
           if (a[2] && b[2] && a[2] !== b[2]) return a[2] < b[2] ? -1 : 1;
           return a[1] - b[1];
         }).map(x => x[0]);
-      /* 2.219（保留轮数真正生效）：落账统一按 N 裁——lbRoundKey 去重后只留
-         最新 N 轮（只裁 rounds，记录其余字段不动）。 */
       out = lbLedgerTrimRounds(out, sk);
-      /* 2.184 改6（老板 2026-11-19 09:58 / 规范§十 :271）：ts＝「最后更新时间」，
-         只随真实内容变化走——仅查看（opt.touch）且轮身份全同 ⇒ 保留原 ts，
-         小账本卡片按 ts 倒序就不会因为「点开看一眼」而跳位。 */
       const _same = !!opt.touch && Array.isArray(old.rounds)
         && old.rounds.length === out.length
         && old.rounds.map(lbRoundKey).join('|') === out.map(lbRoundKey).join('|');
       const _ts = _same ? (Number(old.ts) || now) : now;
-      /* 2.196 登记规则②：uid 相同而 title 变了＝改名，键不变、就地更新 title，
-         历史轮次与待补号标记全保留，绝不新建。 */
-      /* 2.244（老板令·一套账）：不再写 ledger_conv——唯一正文账由
-         _after → lbWriteBackSnap 落 snap_conv；ts/think 等元数据不再另存第二本。 */
       return Promise.resolve().then(() => _after(out));
     };
-    /* 2.244（老板令·一套账）：旧态只从唯一正文账 snap_conv 还原；找不到按空账合并。
-       第二本账 ledger_conv 已停写清空，绝不在此再读/再写。 */
     lbOldFromSnaps(_uidEff, _t).then(rec => _apply(rec || {}));
     };
-    /* 2.196 登记顺序（老板原话，顺序不可乱）：
-       ① 有终身号 → 以 uid 为账本主键登记（同名临时代号账本先归并进 uid 键）；
-       ② 同 uid 改名 → 在 _apply 里就地更新 title（键未变即不新建）；
-       ③ 无 uid 但有 title → 先找同服同名账本，有就归并进他那本；
-       ④ 同名也没有（sid 独有且无号）→ 才以名称键新建临时账本（pend:1）。 */
     const _dispatch = () => {
       if (_uid){ _run(_uid); return; }
-      /* 2.244（老板令·一套账）：同名归并只在唯一正文账 snap_conv 里找旧账 */
       lbOldFromSnaps('', _t).then(hit => {
         _run(hit ? lbUidPick(hit.uid, hit.sid, hit.title || _t) : '');
       }).catch(() => _run(''));
@@ -3417,16 +2554,7 @@ function ledgerStorePut(sid, title, rounds, opt){
     else _dispatch();
   } catch(e){}
 }
-/* ============ 2.198（WB+TR 整改 ST·老板令）：人类记录帧（u）即时应答 ============
-   服务端新增「人类记录帧」类型标识 u（会话号 sid、会话名 title、消息编号 mid、
-   正文 text、可选发送编号 did）。收到即做三件事，全程不等快照/对账/生成结束：
-     ① 渲染：按当前会话 sid 归并——追加到已在屏正文（旧消息一条不藏、不跳账本）；
-     ② 销卡：按发送编号（did）当场销占位卡（≤3 秒目标；15 秒灰态只作异常兜底）；
-     ③ 入账：uid 优先为账本主键，缺 uid 用名称临时键并标 pend:1 待补号；
-     2.202 缺名也照建诊断账本（手机网页端＝诊断口，不设拒收闸门）。 */
 function lbHumanRecNorm(rec){
-  /* 2.206：人类帧不再读取 rec.time/rec.tm 或 14 位 DID 作为时间——
-     时间一律由消息 ID（mid）前 8 位十六进制推导。 */
   const o = {text: '', mid: '', did: ''};
   if (Array.isArray(rec)){
     o.text = String(rec[1] == null ? '' : rec[1]);
@@ -3441,7 +2569,6 @@ function lbHumanRecNorm(rec){
                     : (rec.sendId != null ? rec.sendId : ''));
   }
   const _d = o.did || firstLineDid(o.text) || pendDidOf(o.text);
-  /* 2.209：不再携带/存储 tm——账本行时间只由 mid 在显示时现算 */
   return {text: o.text, mid: o.mid, did: _d};
 }
 /* 消息身份键：mid 优先，缺则发送编号，再缺则角色＋正文（只用于去重，不生成新号） */
@@ -3488,10 +2615,8 @@ function ledgerHumanApply(sid, title, rec, opt){
   const _r = lbHumanRecNorm(rec);
   if (!String(_r.text || '').trim()) return false;
   const _sid = String(sid || '').trim();
-  /* 2.213（前端零拦截）：撤「会话 ID 无效不收」「mid 非 24 位 hex 不收」——
-     缺 ID 照收照显（无合法 mid 只是不显示时间），收不收由后端判断。 */
   const _t = String(title || '').trim();
-  const row = ['u', _r.text, '', 0, 0, '', _r.mid || '', '', 'u'];  /* 2.213：类型照后端口径 u；index2 不存时间 */
+  const row = ['u', _r.text, '', 0, 0, '', _r.mid || '', '', 'u'];  /* 类型照后端口径 u；index2 不存时间 */
   if (_r.did) row[9] = _r.did;
   /* ② 按发送编号当场销卡（u 帧到达＝已进流，不等下一帧、不等 15 秒灰态） */
   let cleared = false;
@@ -3499,13 +2624,6 @@ function ledgerHumanApply(sid, title, rec, opt){
     if (_r.did && typeof pendClearByDid === 'function')
       cleared = !!pendClearByDid(_r.did, _t);
   } catch(e){}
-  /* ① 2.265（老板 2026-11-24 铁令·只认小账本）：直推人类行不再直写
-     S.liveFrame/S.snap 上屏——新会话二者本为空，直写后只剩这一条，
-     renderAll 的回落/兜底分支一读就是「主界面只剩最新一条」（实测旁路根因）。
-     现改为：行先经 ledgerStorePut 并入小账本（去重+按 mid 排序+裁剪），
-     再由 renderAll→curMsgs 从小账本取出渲染（ledgerStorePut 落账收口
-     _after 内含「账本一变立刻重画」），「立即显示」语义不破坏。
-     shown＝渲染权（是当前会话且未被切换拦截），供返回值口径不变。 */
   let shown = false;
   try {
     ledgerStorePut(_sid, _t, [[row]], {touch: true, uid: opt.uid, humanOnly: true});
@@ -3522,9 +2640,6 @@ function ledgerHumanFrame(v){
   const rec = (v.rec && typeof v.rec === 'object') ? v.rec : v;
   return ledgerHumanApply(sid, title, rec, {uid: v.uid || (rec && rec.uid)});
 }
-/* 2.204（C）：把服务端「本轮终极（补记）」标记落到具体轮次上——
-   残缺思维流（AI 行）直接按终极收；只有人类行、文本另带的，补一条补记终极，
-   与人类发言凑成一轮。不做任何拒收/过滤，只补标记。 */
 function lbPatchRounds(rounds, body){
   const g = lbPatchFlag(body);
   const idxs = (body && Array.isArray(body.patched_rounds))
@@ -3547,17 +2662,9 @@ function lbPatchRounds(rounds, body){
   });
 }
 function ledgerStoreApply(sid, body, ver){
-  /* 2.202（老板 2026-11-19 21:51 令·手机网页端＝诊断口不设限）：撤「缺 title
-     整帧弃收」闸门——缺名/缺 sid 照建诊断账本（ledgerStorePut 内 lbDiagTitle
-     兜底命名并打 diag 标记）；think 不入账的入账范围不动。 */
   if (!body || !Array.isArray(body.rounds)) return;
   const _sid = String(sid || '').trim();
-  /* 2.213（前端零拦截）：撤「缺会话 ID 整帧不收」「按轮过滤缺 ID 行」「前端升格
-     提前终极」——收到什么就落什么；提前终极由后端 index8=a+early_final 驱动显示。
-     仅保留补记标记识别（lbPatchRounds，只补标记不拒收）。 */
   const _rounds = lbPatchRounds(body.rounds, body);
-  /* 2.198：只含人类行、没有 AI 行的轮次＝人类记录帧（u）——立即渲染入账；
-     其余轮次照旧走 ledgerStorePut。 */
   let _hasFinal = false;
   _rounds.forEach(r => {
     const _rows = Array.isArray(r) ? r : [];
@@ -3566,24 +2673,13 @@ function ledgerStoreApply(sid, body, ver){
     if (_u && !_hasA && _rows.length === 1) ledgerHumanApply(_sid, body.title || '', _u, {uid: body.uid});
     else if (_rows.length) _hasFinal = true;
   });
-  /* 2.197：把服务端下发的终身号 body.uid 一并带入落账（缺失时 ledgerStorePut 回退自算）。 */
   if (_hasFinal)
     ledgerStorePut(_sid, body.title || '', _rounds, {touch: true, uid: body.uid});
-  /* G1：锚定会话且屏幕无内容 ⇒ 用补发轮次顶屏（人类+终极+折叠按钮）。
-     V2 第三轮 Y19（2026-11-19）：liveFrame 锁定期收到【更厚】账本也解锁顶屏——
-     ST 实抓：liveFrame 停旧 8 条（≈4 轮），桌面真消息+AI 回复已出，页面 3 分钟
-     不动；根因＝旧条件在锁定期间永不顶屏，而 think 快照又滞后（仍是旧 8 条）。
-     判据＝账本轮数 > liveFrame 现有轮数（本地账本只增不减，更厚即更新）；
-     等厚/更薄不动（防回退旧帧）。 */
   if (_sid && typeof _paneIsAnchor === 'function'
       && _paneIsAnchor(_sid, body.title || '')){
     const _liveN = (S.liveFrame && Array.isArray(S.liveFrame.msgs))
       ? lbRoundsFromMsgs(S.liveFrame.msgs).length : 0;
     const _newN = _rounds.length;
-    /* 2.237（老板 2026-11-20 23:21「等很久正文不来，切到小账本回复已到，刷新才出现」）：
-       旧判据只比「轮数」——AI 回复补进**同一轮**（人类半轮早到过）时轮数不变
-       （_newN == _liveN）⇒ 永不顶屏；而账本侧照常落库 ⇒ 小账本有、正文不动。
-       现改：轮数更多，或「账本行并入屏后比屏上更多」，都顶屏；等厚/更薄不动（防回退旧帧）。 */
     const _curArr = (S.snap && Array.isArray(S.snap.msgs)) ? S.snap.msgs : [];
     const _liveArr = (S.liveFrame && Array.isArray(S.liveFrame.msgs))
       ? S.liveFrame.msgs : [];
@@ -3607,15 +2703,10 @@ function ledgerStoreApply(sid, body, ver){
       S.liveFrame = {msgs: _merged, finish: null, tail: '', sendIdle: true,
                      inputText: '', opts: [], ask: null, pend: [],
                      model: ''};
-      /* 2.183 修2：S.lb_foldRounds 赋值行撤——补发面板已撤（§十二-2），
-         状态位只在真画面到手时由 :328 处归零防 key 漂移 */
       renderAll();
     }
   }
 }
-/* 2.183 修2（老板定性·V1.0 §十二-2）：ledgerReqThink（ledger_req-think 通路）
-   整函数撤除——TRAE 无「按轮补发思维流」概念（§十二-2），前端已无调用方
-   （消息渲染.js 补发面板同轮撤除）；服务端 ledger_req handler 不动＝死路无害。 */
 /* 快照到达（事件总线.js snap 分支转调）：账本落盘 + 触碰 lastView + 真画面退场折叠面板 */
 function ledgerOnSnap(){
   const s = S.snap || {};
@@ -3631,7 +2722,6 @@ function ledgerOnSnap(){
 }
 
 /* ================= 失效账本清理（H2/H3） ================= */
-/* 2.184 改4：清盘必须同步删摘要表——否则 vcheck 还替已死账本上报编码集合 */
 function lbSumDrop(sid, title){
   try {
     const s = String(sid || ''), t = String(title || '').trim();
@@ -3654,7 +2744,6 @@ let _lbTrimAllAt = 0;
    重写、不记日志；幂等，裁到的每条记 `预备画面裁剪|键=…|裁前=n|裁后=N`。 */
 let _lbTrimSnapAt = 0;
 function lbTrimAllSnaps(force){
-  /* 2.306：全量镜像下不做任何批量裁剪（服务器下发即为准）。 */
   if (lbMirrorMode()) return Promise.resolve(0);
   try {
     const now = Date.now();
@@ -3683,21 +2772,18 @@ function lbTrimAllSnaps(force){
   } catch(e){ return Promise.resolve(0); }
 }
 
-/* ============ 2.205/2.211：历史账本一次性清理（假桶只迁不删） ============
-   背景：21:51 诊断口口径曾允许「无 sid 也按名称建临时账本（键 t:名称、标待补号）」；
-   23:29 新令后这类账本一律不再产生。2.211（老板 2026-11-20 07:08 令）：
+/* ============ 历史账本一次性清理（假桶只迁不删） ============
+   背景：早期诊断口口径曾允许「无 sid 也按名称建临时账本（键 t:名称、标待补号）」；
+   后已废止，这类账本一律不再产生。现行口径：
      · 假桶（uid/sid 为实例号或其截断 1632 的账本/预备画面）**合并/迁移**到正确键
        （本服名称键 `L<本服>:t:<会话名>`），迁移前后条数打印对比，**不许直接删数据**；
        无会话名/空轮次无法迁移的，原样保留并留痕，绝不静默丢弃。
-     · uid 与 sid 都为空的按名称临时账本，沿用 2.205 口径删除（与假桶无关）。
+     · uid 与 sid 都为空的按名称临时账本，沿用上述口径删除（与假桶无关）。
    幂等、可重复跑：判据只看记录本身，迁过即无；结果 diagLog 留痕。 */
 let _lbTempCleanAt = 0;
-/* 2.213（前端零拦截）：开机不再自动清理/迁移临时账本——上面 lbCleanupTempLedgers
-   保留定义但**无任何调用方**（等于默认关闭，只记录不清理）；「删不删」归后端。
-   若将来确需一次性迁移，须另加显式开关且默认关，不得再开机自动跑。 */
 
-/* ============ 2.214：存量重复桶一次性合并（只合并不删除内容） ============
-   老板 2026-11-20 08:08：同名/带「重复」字样/伪编号的桶必须合并成唯一一本。
+/* ============ 存量重复桶一次性合并（只合并不删除内容） ============
+   同名/带「重复」字样/伪编号的桶必须合并成唯一一本。
    规则与落账同一口径：有 4 位权威终身号进终身号桶，否则按会话名归并。
    合并前后条数全部 diagLog 打印（总条数不变；仅「完全相同的副本」折叠时
    单独记一条副本数），并在页面提示一次。 */
@@ -3713,7 +2799,6 @@ function lbMergeKeyOf(rec){
     } catch(e){ u = ''; }
   }
   if (u) return lbStoreKey(u, lbNormTitle(r.title));
-  /* 2.215：名称兜底——服务端 uid 名称优先，其次会话名；同名一律同一桶 */
   const n = lbUidName(r.uid) || lbNormTitle(r.title);
   if (n) return lbStoreKey('', n);
   return String(r.sk || '');
@@ -3741,8 +2826,6 @@ function _lbMergeRows(a, b){
       const _old = A[i] || [];
       const _oT = String((_old.length > 8 && _old[8]) || '').toLowerCase();
       const _nT = String((m.length > 8 && m[8]) || '').toLowerCase();
-      /* 1.057（老板 15:42 令）：类型升级（th→a）照旧；同为终极行时，正文（index1）
-         字符数不同即以新到者为准，不再因「旧行数组更长」把同号旧版本留住。 */
       if (_nT === 'a' && _oT !== 'a'){ A[i] = m.slice(); return; }
       if (_oT === 'a' && _nT === 'a'){
         if (lbCharN(m[1] || '') !== lbCharN(_old[1] || '')) A[i] = m.slice();
@@ -3761,15 +2844,12 @@ function _lbMergeRows(a, b){
 setInterval(() => {
   try {
     lbHud();                               /* 悬浮条开关式：关则即撤、开则走字（含冻结态） */
-    if (LB.frozen) return;                 /* 追加单 2026-11-18：切换期间核对冻结，绝不发 timer */
+    if (LB.frozen) return;
     if (LB.checking || !S.onLine || !loggedIn || document.hidden) return;
     const now = Date.now();
     if (!LB.timerAt) LB.timerAt = now + lbPeriodMs();
     if (now >= LB.timerAt){
       LB.timerAt = now + lbPeriodMs();
-      /* V2 验收 Y9（2026-11-18）：timer 核对也带锚定 sid——服务端按 sid
-         定位「网页端正在看哪个会话」，缺 sid 时服务端只能猜（拿桌面当前
-         选中顶上），锚定≠桌面选中时会核错对象。 */
       ledgerVcheckSend('timer', S.anchorFull
         || (typeof curSid === 'function' ? curSid() : '') || '');
       setTimeout(() => { LB.checking = false; }, 5000);   /* 防旧服务端无回帧卡旗标 */
@@ -3800,9 +2880,6 @@ document.addEventListener('visibilitychange', () => {
   } catch(e){}
 });
 
-/* ================= 倒计时文本（整改单 2026-11-18：撤销 #lbhud 悬浮条） =================
-   只出数不做界面：缓存查看器「③ 账本调控」区每秒调 window.lbHudText() 刷新展示。
-   规范§九-4：任意操作重置 → 人操作时数字不降属正常设计，静置观察才逐秒下降。 */
 function lbHudText(){
   try {
     const now = Date.now();
@@ -3816,10 +2893,6 @@ function lbHudText(){
 }
 if (typeof window !== 'undefined') window.lbHudText = lbHudText;
 
-/* 2.234（老板 2026-11-20 23:42）：核对状态改用顶栏「操控:」旁圆球——
-   核对在途（四契机任一）圆球变橙闪烁，终态/10 秒兜底自动恢复原绿/灰。
-   只改 class，不碰圆球文本与连接态语义；每 500ms 自愈一次（renderTop 重建
-   innerHTML 后 <1 秒内必然重新点亮，不依赖渲染时机）。 */
 function lbChkBall(){
   try {
     const b = document.querySelector('#lbl_srv .srvdot');
@@ -3830,8 +2903,6 @@ function lbChkBall(){
 }
 setInterval(lbChkBall, 500);
 
-/* 悬浮倒计时条（追加单 2026-11-18 改开关式：规范§九-4 修订——默认关不悬浮，
-   开关在缓存查看器「③ 账本调控」区 CFG.lb_hud；开才创建并走字，关即撤）。 */
 function lbHud(){
   try {
     if (!CFG.lb_hud){
@@ -3871,15 +2942,9 @@ function lbThinkIntAck(d){
 
 /* ================= 启动 ================= */
 lbVerLoad();
-/* 2.214（老板 2026-11-20 08:08）：开机把存量重复桶合并成唯一一本（只合并内容，
-   不删聊天）。刷新/重启凭 localStorage 标记不重复跑；换服务器会重新跑一次。
-   2.219（老板 16:21「保留最近 N 轮没起作用」）：合并完成后紧接按 N 批量裁本地
-   账本存量（幂等、只裁 rounds、一条汇总日志；屏幕消息不受影响）。 */
 try { setTimeout(() => {
   try {
-    /* 2026-11-24（老板令·只留小账本）：只按 N 裁 snap_conv（唯一正文账）。 */
     try { lbTrimAllSnaps(); } catch(e){}
   } catch(e){}
 }, 2500); } catch(e){}
-/* 2.204（B4）：开机静默回补最近 2 天坏时间（幂等，5 分钟节流） */
 try { setTimeout(() => { try { lbTimeBackfill(2); } catch(e){} }, 4000); } catch(e){}
