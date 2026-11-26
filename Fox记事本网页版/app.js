@@ -467,20 +467,15 @@
     }, 1000);
   }
 
-  // v1.68 考试次数存在文件本身（题库信息里）；这里只做本机镜像，供文件列表那个方形格子显示
+  // v1.75 考试次数的唯一真源是文件本身；这里只做「本次会话内存缓存」供列表渲染，
+  // 不写 localStorage、不参与跨会话记忆，避免设备上的旧次数冒充真值。
+  const 次数表 = {};
   function 考试次数(id) {
-    try {
-      const m = JSON.parse(cacheGet('exam_count', '{}')) || {};
-      return Number(m[String(id || '')]) || 0;
-    } catch (e) { return 0; }
+    return Number(次数表[String(id || '')]) || 0;
   }
   function 记考试次数镜像(id, n) {
     if (!id) return;
-    try {
-      const m = JSON.parse(cacheGet('exam_count', '{}')) || {};
-      m[String(id)] = Number(n) || 0;
-      cacheSet('exam_count', JSON.stringify(m));
-    } catch (e) { /* 忽略 */ }
+    次数表[String(id)] = Number(n) || 0;
   }
 
   // foxrich 文件正文是单行 JSON，判类型前先取出其中的 text（纯文本）；普通文本原样返回
