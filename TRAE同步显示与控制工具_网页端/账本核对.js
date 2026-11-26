@@ -1,5 +1,14 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.071  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.072  日期 2026-11-26
+   【1.072 核对成功必须很慎重＋存帧范围缺口补齐（老板 17:05 实测「电脑上已有
+     上一轮 AI 终答、手机核对成功却没拉出来」）】两处：
+     ① `lbScreenMsgs` 镜像分支原只补「mid 比存帧末条更新」的账本行；本轮 AI
+        终答 mid 恰好在存帧首尾之间、采集那拍还没带进存帧时永远不显示。改为
+        补「mid ≥ 存帧首条」的全部缺口，更早历史仍不补。
+     ② `ledgerVack` 宣告成功前新增 `ledgerScreenComplete`：当前会话屏幕源每
+        一条都必须真的画到 DOM；8 秒到点也不盲成功，先强制重绘再复核，缺消息
+        就提示「核对未完成」，绝不亮「核对成功」。
+     1.071→1.072（整页版本 2.335）。
    【1.071 账本比存帧新的差额行必须上屏（老板 14:11 令「小账本的东西都有显示到
      主界面来吗」真 Chrome 实测发现）】1.069 存帧优先后，账本模块先推来、存帧
      还没跟上时，账本已 12 条而屏幕只 10 条。修法：镜像分支在存帧之后，把账本
@@ -478,25 +487,38 @@ function lbScreenMsgs(sid, title){
             (_led9 || []).forEach(r => { _ledN += (r || []).length; });
           }catch(e){ _led9 = []; _ledN = 0; }
           try{
-            let _fmMax = '';
+            let _fmMin = '', _fmMax = '';
             const _have9 = {};
             _m3.forEach(m => {
               const d = String(m[6] || '');
-              if (d){ _have9[d] = 1; if (!_fmMax || d > _fmMax) _fmMax = d; }
+              if (!d) return;
+              _have9[d] = 1;
+              if (!_fmMin || d < _fmMin) _fmMin = d;
+              if (!_fmMax || d > _fmMax) _fmMax = d;
             });
-            const _extra9 = [];
-            (_led9 || []).forEach(r => (r || []).forEach(m => {
-              if (!Array.isArray(m)) return;
-              const d = String(m[6] || '');
-              if (!d || _have9[d]) return;
-              if (!_fmMax || d > _fmMax){ _have9[d] = 1; _extra9.push(m.slice()); }
-            }));
-            if (_extra9.length){
-              _extra9.sort((a, b) => {
-                const x = String(a[6] || ''), y = String(b[6] || '');
-                return x < y ? -1 : (x > y ? 1 : 0);
-              });
-              _extra9.forEach(m => _m3.push(m));
+            /* 1.072（老板 17:05 实测「核对成功但上一轮 AI 终答没出来」）：
+               不只补「比存帧更新」的行——存帧范围内（mid ≥ 存帧首条）的缺口
+               也必须用账本补齐。典型：本轮 AI 终答的 mid 介于存帧首尾之间，
+               采集那一拍还没把它带进存帧，旧逻辑只补 > 末条 的新行 ⇒ 永远
+               不显示；而核对只看存帧/账本 ID，又会宣告成功。更早历史仍不补。 */
+            if (_fmMin){
+              const _extra9 = [];
+              (_led9 || []).forEach(r => (r || []).forEach(m => {
+                if (!Array.isArray(m)) return;
+                const d = String(m[6] || '');
+                if (!d || _have9[d]) return;
+                if (d >= _fmMin){ _have9[d] = 1; _extra9.push(m.slice()); }
+              }));
+              if (_extra9.length){
+                _extra9.forEach(m => _m3.push(m));
+                _m3.sort((a, b) => {
+                  const x = String(a[6] || ''), y = String(b[6] || '');
+                  if (!x && !y) return 0;
+                  if (!x) return 1;
+                  if (!y) return -1;
+                  return x < y ? -1 : (x > y ? 1 : 0);
+                });
+              }
             }
           }catch(e){}
           if (_ledN >= 3 && _m3.length > _ledN) return _m3.slice(-_ledN);
@@ -1394,6 +1416,30 @@ function lbFreezeOnSwitch(){
 }
 
 /* ================= ② vack 两阶段回执 ================= */
+/* 2.336（老板 17:05 令·核对成功必须很慎重）：宣告成功前，先确认当前会话
+   屏幕源（存帧+账本差额）里的每一条都已经真的画到主界面 DOM 上。
+   账本有、DOM 没画出来 ⇒ 不算成功，等兜底重绘/下一拍再判；空账不拦，防误伤。 */
+function ledgerScreenComplete(sid, title){
+  try{
+    const s = String(sid || (typeof curSid === 'function' ? curSid() : '') || '');
+    const t = String(title || (typeof curTitle === 'function' ? curTitle() : '') || '');
+    const want = (typeof lbScreenMsgs === 'function') ? (lbScreenMsgs(s, t) || []) : [];
+    if (!want.length) return true;
+    const wm = want.map(m => String((Array.isArray(m) && m[6]) || '')).filter(Boolean);
+    if (!wm.length) return true;
+    const cs = (typeof curSid === 'function') ? String(curSid() || '') : '';
+    if (cs && s && cs !== s) return true;      /* 非当前会话：DOM 上不是它，不拦 */
+    const box = document.getElementById('msgs');
+    if (!box) return true;
+    const dm = [];
+    box.querySelectorAll('.msg').forEach(el => {
+      if (el.getAttribute('data-think')) return;
+      const id = el.getAttribute('data-mid') || '';
+      if (id) dm.push(id);
+    });
+    return wm.every(id => dm.indexOf(id) >= 0);
+  }catch(e){ return true; }
+}
 function ledgerVack(d){
   if (!d || typeof d !== 'object') return;
   /* stage:1 —— 服务端已变更选中会话，账本核对中（悬浮提示，切换未完成） */
@@ -1413,8 +1459,21 @@ function ledgerVack(d){
   LB.checking = false;
   /* 2.261（老板令·状态时序⑤）：核对结束 → 置「核对成功」pending，
      等补发消息全部渲染完（静默 600ms / 60 秒兜底）再由 renderState 落横幅。 */
-  if ((d.act === 'switch' || S.switch_pend) && typeof bannerPendSuccess === 'function')
-    bannerPendSuccess();
+  if ((d.act === 'switch' || S.switch_pend) && typeof bannerPendSuccess === 'function'){
+    /* 2.336（老板 17:05 令）：先确认屏幕源每一条都已落到 DOM，才允许亮
+       「核对成功」；账本有、屏幕没画出来时先强制重绘，再等一拍复核。 */
+    if (ledgerScreenComplete(d.sid || '',
+        (typeof curTitle === 'function' ? curTitle() : ''))){
+      bannerPendSuccess();
+    } else {
+      try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
+      setTimeout(function(){
+        if (ledgerScreenComplete(d.sid || '',
+            (typeof curTitle === 'function' ? curTitle() : ''))
+            && typeof bannerPendSuccess === 'function') bannerPendSuccess();
+      }, 900);
+    }
+  }
   /* 2.234：核对出终态 → 关横幅窗、灭圆球，让位给切换成功/四态 */
   LB.vchkOpen = 0; LB.vchkEndAt = 0; LB.chkUntil = 0;
   if (d.mods && typeof d.mods === 'object') lbModsSet(d.mods);   /* 存底，供下轮比对 */
@@ -1428,13 +1487,39 @@ function ledgerVack(d){
   const sp = S.switch_pend;
   if (sp && (!d.sid || !sp.sid || String(d.sid) === String(sp.sid))){
     if (d.same){
-      ledgerSwitchDone();                  /* 版本一致零实体帧 ⇒ 正式成功关提示 */
+      /* 2.336：版本一致也要屏幕源全部落到 DOM 才算成功 */
+      if (ledgerScreenComplete(d.sid || '',
+          (typeof curTitle === 'function' ? curTitle() : ''))){
+        ledgerSwitchDone();
+      } else {
+        try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
+        setTimeout(function(){
+          if (S.switch_pend === sp && ledgerScreenComplete(d.sid || '',
+              (typeof curTitle === 'function' ? curTitle() : '')))
+            ledgerSwitchDone();
+        }, 900);
+      }
     } else {
       /* need 差额补发中：8 秒兜底收口（实体帧陆续到达时会刷新画面） */
       sp.need = Array.isArray(d.need) ? d.need : [];
       clearTimeout(sp._needT);
       sp._needT = setTimeout(() => {
-        if (S.switch_pend === sp && sp.need){ delete sp.need; ledgerSwitchDone(); }
+        if (S.switch_pend !== sp || !sp.need) return;
+        /* 2.336：8 秒到点也不许盲宣告成功——先复核屏幕源是否全部落到 DOM */
+        if (ledgerScreenComplete(sp.sid || d.sid || '',
+            (typeof curTitle === 'function' ? curTitle() : ''))){
+          delete sp.need; ledgerSwitchDone();
+        } else {
+          try { if (typeof lbRepaint === 'function') lbRepaint(0); } catch(e){}
+          try { flash('核对未完成：屏幕仍缺消息，已请求重绘', 'var(--orange)'); } catch(e){}
+          sp._needT = setTimeout(() => {
+            if (S.switch_pend === sp && sp.need
+                && ledgerScreenComplete(sp.sid || d.sid || '',
+                   (typeof curTitle === 'function' ? curTitle() : ''))){
+              delete sp.need; ledgerSwitchDone();
+            }
+          }, 2000);
+        }
       }, 8000);
     }
   }
