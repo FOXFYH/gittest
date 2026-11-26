@@ -1,5 +1,13 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.074  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.075  日期 2026-11-26
+   【1.075 灯不在 busy 绝不许再挂「正在获取思维流」（老板 18:45 令「有一个对话
+     显示待看，却还摆着正在获取思维流，这是极大的误判；灯都那么明显了，这张卡
+     就应该撤下，核对后显示最新回复」）】
+     · `消息渲染.js` 的占位条件删掉 `_hasCard`（本地残留旧卡不代表还在生成），
+       只有会话灯明确 busy 且本轮无终答时才占位；
+     · `thinkCardPaint` 在灯明确非 busy 时先移除屏上 `.thinklive` 卡并停止补画，
+       该位置留给核对补来的最新回复。取不到灯（''）时不误伤。
+     1.074→1.075（整页版本 2.338）。
    【1.074 手机端零判断·电脑 10+2 刚性镜像（老板 17:46 令「手机网页版需要什么
      判断能力？是电脑版在这边建立一个镜像。小账本就是刚性的，不得有任何操作。
      电脑什么样，核对完以后这边就什么样」）】
@@ -2246,6 +2254,17 @@ function thinkCardThinSet(body, sidHint){
 function thinkCardPaint(c){
   try {
     if (!c || !c.thinkId) return;
+    /* 2.338（老板 18:45 令·极大误判）：会话灯明确不是 busy（待看/空闲/完成）
+       时，残留思维流卡必须撤下、也不许再补画——灯已说明电脑那边不在生成，
+       该位置应留给核对补来的最新回复。取不到灯（''）时不误伤。 */
+    try{
+      const _lt = (typeof _curConvLight === 'function') ? _curConvLight() : '';
+      if (_lt && _lt !== 'busy'){
+        const _m = document.getElementById('msgs');
+        if (_m) _m.querySelectorAll('.thinklive').forEach(n => n.remove());
+        return;
+      }
+    }catch(e){}
     const box = document.getElementById('msgs');
     if (!box) return;
     const nodes = box.querySelectorAll('.thinklive');
