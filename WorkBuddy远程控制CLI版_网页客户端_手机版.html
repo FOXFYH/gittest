@@ -622,9 +622,9 @@ td.num,th.num{text-align:right; font-family:Consolas,monospace;}
     <div class="dmi" id="btn_new" title="新建任务" data-page-node-id="jIsMnCXXnoUYDyiU585j6b">✚ 新任务</div>
     <div class="dmi" id="btn_launch" title="拉起（重启当前目标）" data-page-node-id="DMMJjgd3wnV8S9V5aiU3R5">🚀 拉起</div>
     <div class="dmi" id="btn_refresh_pts" title="刷新积分" data-page-node-id="Sz3V2mmPyDap9kZXPfjyQr">🔄 刷新积分</div>
-    <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔可调，默认 5 秒）">✍ 批量签到</div>
-    <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
     <div class="dmi" id="btn_turnview" title="手机上的小账本＝快照账（切会话先顶用的那份）">🗂 小账本（快照账）</div>
+    <div class="dmi" id="btn_net" title="设置页" data-page-node-id="HJC4zliYorTfYVMZ7LdUCH">⚙️ 设置页</div>
+    <div class="dmi" id="btn_checkin_all" title="批量签到（全部账号，本地后台执行，间隔可调，默认 5 秒）">✍ 批量签到</div>
   </div>
   <div class="dsec">登录账号：<span id="lbl_acct" style="color:var(--blue);font-weight:bold;">—</span><span style="color:#bbb;">（刷新积分后显示）</span></div>
 </aside>
@@ -6442,8 +6442,10 @@ const APP_NAME = 'wb远程';
       输入框已删除，_snapN() 整块删除，改由 _snapSlice() 按轮裁。
    ★2.77（2026-11-21 老板）：调控页「离线倒计时/离线倒计时启用/切后台自动下线」三项合并成
       「自动下线」（默认 120 秒，0＝不下线）；「主动核对周期」（即强制核对）默认 90 秒。 */
+/* 2.80（2026-11-26 老板令）：操作菜单「🗂 小账本」与「✍ 批量签到」两个按钮互换位置
+   ——小账本提到第 4 格（右上），批量签到落到第 6 格（右下）；「⚙️ 设置页」原位不动。 */
 /* 2.79（2026-11-25 老板令）：批量签到间隔可调（默认 5 秒）、批量刷新积分独立参数（1 秒）。 */
-const VER = '2.79';
+const VER = '2.80';
                       /* 2.65（2026-11-17 老板原话：「只要我在会话列表实行切换，就直接去读
                          这些缓存的对应的会话列表……客户端这边要做足工作，只要这边一切换，
                          聊天记录立刻有的就显示出来。服务器那边最后网络有没有通、有没有完成
