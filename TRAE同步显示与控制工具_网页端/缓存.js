@@ -991,6 +991,9 @@ function _frameNewerOrEqual(a, b){
   if (!a || !Array.isArray(a.msgs) || !a.msgs.length) return false;   /* 空帧绝不上位 */
   const A = _frameTailOrder(a.msgs), B = _frameTailOrder(b.msgs);
   if (A.mid && B.mid && A.mid !== B.mid) return A.mid > B.mid;   /* ID 时间（前 8 位 hex）序 */
+  /* 1.069（老板 12:06 令·模块3整体镜像）：全量镜像下条数由服务器说了算——
+     同一条尾 mid 也允许用服务器合成的新份数覆盖，才能从 22 条缩回模块 3 的 N 条。 */
+  try { if (typeof lbMirrorMode === 'function' && lbMirrorMode()) return true; } catch(e){}
   return A.n >= B.n;                       /* 同一条 ID：条数不得更少 */
 }
 /* 2.220（预备画面同一把尺子）：落盘前按 N 裁 frame.msgs，复用 账本核对.js
@@ -1026,8 +1029,12 @@ function _frameCommit(sk, frame, meta, onOk, memNow, force){
     /* 2.286（老板 2026-11-25 12:10 实测：账本 10 条→7 条→3 条，越切越少）：
        片段帧（pane/ledger 只带最后 1~3 轮）尾 mid 更新就把整本覆盖掉。落笔前
        先把旧帧里比新帧更早的行补回（_framePrefixFill），force 强制覆盖除外。 */
-    try {
-      if (!force && Array.isArray(frame && frame.msgs)){
+    try{
+      /* 1.069（老板 12:06 令·模块3整体镜像）：全量镜像下存帧就是模块 3 的整份，
+         绝不把旧帧的历史前缀补回来（否则存帧自己会长到 15/22 条）。 */
+      let _mir69 = false;
+      try { _mir69 = (typeof lbMirrorMode === 'function') && lbMirrorMode(); } catch(e){ _mir69 = false; }
+      if (!force && !_mir69 && Array.isArray(frame && frame.msgs)){
         const _base = (_prevMem && _prevMem !== frame) ? _prevMem
                     : ((_frameMem[sk] && _frameMem[sk] !== frame) ? _frameMem[sk] : null);
         if (_base && Array.isArray(_base.msgs))
