@@ -499,8 +499,13 @@ function pendSwitchSet(title, sid, ref, opt){
      swHold 只在「目标落地快照已上屏之后」由 renderAll 置真（防中间态闪回）。 */
   if (S.switch_pend.lockTarget){
     S.swHold = false; S.liveFrame = null;            /* 2.106：不再起持屏阻止清屏 */
-    S.swPPainted = false; S.swFrameReady = false;    /* 目标落地快照读取在途 → 清屏留白 */
   }
+  /* 1.064（老板 2026-11-26 09:54 令「小账本没有的东西要撤下来」）：**任何切换**
+     （含被动跟随电脑端）一开场就作废上一会话的「已上屏」标记与重放底稿——
+     旧逻辑只在本端锁目标时清，被动切换时会把上一会话 A 的整屏重放到 B，
+     B 的小账本里当然查不到。清掉后只允许「目标会话自己的账本/快照」上屏。 */
+  S.swPPainted = false; S.swFrameReady = false;
+  S.msgs_last = null;
   fullsCheckRearm(title);               /* 1.xx：切换即起 15s 判空定时 */
   switchReArm();                        /* v2.67：起补发/超时 */
   /* 2.130（老板 2026-10-24）：本端点击切换带 deferRender ⇒ 这里不再先渲染一版
