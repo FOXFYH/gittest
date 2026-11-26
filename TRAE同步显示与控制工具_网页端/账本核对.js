@@ -1,5 +1,15 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.073  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.074  日期 2026-11-26
+   【1.074 手机端零判断·电脑 10+2 刚性镜像（老板 17:46 令「手机网页版需要什么
+     判断能力？是电脑版在这边建立一个镜像。小账本就是刚性的，不得有任何操作。
+     电脑什么样，核对完以后这边就什么样」）】
+     ① 新增 `_lbMirrorKeepRow` / `lbMirrorRounds`：镜像模式下只归一角色 u/a，
+        不判纯思维块、不按 th 丢弃、不改正文、不丢任何一条；
+     ② `lbScreenMsgs` 镜像分支、`lbSyncApply`/`lbKeepApply` 的 add 行与分组
+        全部改用上述口径——服务端给什么，小账本就存什么、屏幕就画什么；
+     ③ 销账的 DOM 检查不再跳过 `data-think`（10+2 里的思维流卡也带 mid，同样
+        算「到位」），否则 +2 永远判缺。
+     1.073→1.074（整页版本 2.337）。
    【1.073 核对必须按服务端回执清单逐项销账（老板 17:13 令「显示核对成功，
      你是怎么确认补发来的清单里的内容都收到手了？没到手可不要给我显示核对
      成功」）】1.072 的成功闸只校验「屏幕源每条都在 DOM」——屏幕源自己就缺
@@ -485,7 +495,10 @@ function lbScreenMsgs(sid, title){
         const _m3 = [];
         _fr.msgs.forEach(m => {
           if (!Array.isArray(m)) return;
-          const k = (typeof _lbKeepRow === 'function') ? _lbKeepRow(m) : m;
+          /* 1.074（老板 17:46 令·刚性镜像）：存帧原样上屏——不判 th、不判纯
+             思维块、不改正文，电脑有几条手机就几条。 */
+          const k = (typeof _lbMirrorKeepRow === 'function')
+            ? _lbMirrorKeepRow(m) : m;
           if (k) _m3.push(k.slice());
         });
         if (_m3.length){
@@ -1450,7 +1463,11 @@ function ledgerScreenComplete(sid, title){
     const s = String(sid || (typeof curSid === 'function' ? curSid() : '') || '');
     const t = String(title || (typeof curTitle === 'function' ? curTitle() : '') || '');
     const want = (typeof lbScreenMsgs === 'function') ? (lbScreenMsgs(s, t) || []) : [];
-    const wm = want.map(m => String((Array.isArray(m) && m[6]) || '')).filter(Boolean);
+    /* 1.074：th 是思维流卡（10+2 里的 +1），不占对话条、不参与 DOM 销账；
+       账本里仍原样保留，屏幕上它走思维流框。 */
+    const wm = want.filter(m => !(Array.isArray(m) && String(m[8] || '')
+      .toLowerCase() === 'th'))
+      .map(m => String((Array.isArray(m) && m[6]) || '')).filter(Boolean);
     const cs = (typeof curSid === 'function') ? String(curSid() || '') : '';
     if (cs && s && cs !== s) return true;      /* 非当前会话：DOM 上不是它，不拦 */
     /* 1.073（老板 17:13 令「显示核对成功，你是怎么确认清单里的内容都收到手了」）：
@@ -1500,7 +1517,8 @@ function ledgerScreenComplete(sid, title){
     if (!box) return true;
     const dm = [];
     box.querySelectorAll('.msg').forEach(el => {
-      if (el.getAttribute('data-think')) return;
+      /* 1.074（老板 17:46 令·刚性镜像）：思维流框/占位卡也带 data-mid，同样是
+         「已经到了并画出来了」，销账时不能跳过，否则 10+2 里的 +2 永远算缺。 */
       const id = el.getAttribute('data-mid') || '';
       if (id) dm.push(id);
     });
@@ -1804,7 +1822,10 @@ function lbKeepApply(d){
             if (_frameMem && _frameMem[rec.sk] && Array.isArray(_frameMem[rec.sk].msgs))
               _frameMem[rec.sk].msgs = kept.map(m => m.slice());
           } catch(e){}
-          const rounds = lbRoundsFromMsgs(kept);
+          /* 1.074：镜像模式用专用分组——u 起轮、a 追加，一条不丢不改，绝不再
+             经过 `_lbKeepRow` 的 th/纯思维块判断（手机端零判断）。 */
+          const rounds = lbMirrorMode()
+            ? lbMirrorRounds(kept) : lbRoundsFromMsgs(kept);
           const u = String(rec.uid || '').trim()
             || (typeof lbUidPick === 'function'
                 ? String(lbUidPick(null, rec.sid, rt) || '') : '');
@@ -1876,9 +1897,13 @@ function lbSyncApply(d){
             if (unfin.has(mid)) return;      /* 1.063：服务器撤销终答 ⇒ 删行 */
             if (addMap.has(mid)){
               /* 1.063：add 行也过落盘过滤器——若服务器把某行退回 th，
-                 `_lbKeepRow` 返回 null ⇒ 该行自然消失，不留假终答。 */
-              const _rr = (typeof _lbKeepRow === 'function')
-                ? _lbKeepRow(addMap.get(mid)) : addMap.get(mid);
+                 `_lbKeepRow` 返回 null ⇒ 该行自然消失，不留假终答。
+                 1.074（老板 17:46 令·刚性镜像）：镜像模式下服务端给什么就存
+                 什么，手机端不做任何判断（不判 th/纯思维块/正文），原样落账。 */
+              const _raw = addMap.get(mid);
+              const _rr = lbMirrorMode()
+                ? _raw
+                : ((typeof _lbKeepRow === 'function') ? _lbKeepRow(_raw) : _raw);
               if (_rr){ kept.push(_rr); 补++; }
               return;
             }
@@ -1949,7 +1974,10 @@ function lbSyncApply(d){
             if (_frameMem && _frameMem[rec.sk] && Array.isArray(_frameMem[rec.sk].msgs))
               _frameMem[rec.sk].msgs = kept.map(m => m.slice());
           } catch(e){}
-          const rounds = lbRoundsFromMsgs(kept);
+          /* 1.074：镜像模式用专用分组——u 起轮、a 追加，一条不丢不改，绝不再
+             经过 `_lbKeepRow` 的 th/纯思维块判断（手机端零判断）。 */
+          const rounds = lbMirrorMode()
+            ? lbMirrorRounds(kept) : lbRoundsFromMsgs(kept);
           const u = String(rec.uid || '').trim()
             || (typeof lbUidPick === 'function'
                 ? String(lbUidPick(null, rec.sid, rt) || '') : '');
@@ -2450,6 +2478,36 @@ function _lbKeepRow(m){
   row[0] = role;                       /* 角色也归一为小写 u/a */
   row[8] = (role === 'u') ? 'u' : 'a'; /* 类型归一，消除「类型未知」 */
   return row;
+}
+/* 1.074（老板 17:46 令「手机网页版不需要判断能力，电脑 10+2 长什么样就刚性镜像到
+   小账本，不得有任何操作」）：镜像模式专用落盘口径——只把角色归一为 u/a，
+   **不判纯思维块、不按 th 丢弃、不改正文、不丢任何一条 u/a 行**。
+   服务端给什么就存什么，手机端零判断。 */
+function _lbMirrorKeepRow(m){
+  if (!Array.isArray(m) || m.length < 2) return null;
+  const role = String(m[0] == null ? '' : m[0]).toLowerCase();
+  if (role !== 'u' && role !== 'a') return null;
+  const row = m.slice();
+  row[0] = role;
+  return row;
+}
+/* 1.074：镜像模式专用分组——u 起一轮、a 追加到当前轮，一条不丢、一条不改。 */
+function lbMirrorRounds(msgs){
+  const rounds = [];
+  let cur = null;
+  (msgs || []).forEach(m0 => {
+    const m = _lbMirrorKeepRow(m0);
+    if (!m) return;
+    if (m[0] === 'u'){
+      if (cur && cur.length) rounds.push(cur);
+      cur = [m];
+    } else {
+      if (cur) cur.push(m);
+      else rounds.push([m]);
+    }
+  });
+  if (cur && cur.length) rounds.push(cur);
+  return rounds;
 }
 /* 1.058：按 `_lbKeepRow` 清洗一组平铺 msgs；changed=true 表示确有行被丢或被归一
    （供开机清理时决定是否把干净结果回写 snap_conv）。 */
