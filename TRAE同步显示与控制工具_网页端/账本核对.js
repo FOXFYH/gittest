@@ -1,5 +1,20 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.072  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.073  日期 2026-11-26
+   【1.073 核对必须按服务端回执清单逐项销账（老板 17:13 令「显示核对成功，
+     你是怎么确认补发来的清单里的内容都收到手了？没到手可不要给我显示核对
+     成功」）】1.072 的成功闸只校验「屏幕源每条都在 DOM」——屏幕源自己就缺
+     那条时，等于自己证明自己，仍会假成功。本版：
+     ① `ledgerVack` stage2 保存服务端回执 `items`（本轮实际补发的模块/条）与
+        `srv_order`（服务端该会话权威 mid 全序）；
+     ② `ledgerScreenComplete` 新增两道硬闸：srv_order 每一条必须已进小账本、
+        items 每一项必须到位（ledger 条查 mid、模块项查版本）；缺一项即
+        false，并落诊断「核对销账缺项」；空屏幕也不再提前放行。
+     ③ **真凶**：`lbPureThink` 只要正文首行是「思考过程」就判纯思维块——
+        TRAE 真终答常以「思考过程」开头，于是 `lbRoundsFromMsgs` 直接把该
+        AI 行丢弃、`lbIsFinalRow` 不认终答，服务端补多少条都进不了账本，
+        核对却照样成功。改为：服务端权威类型 index8='a'/'final'/'patched'
+        或完成卡摘要 index7 已明确终答时，绝不再按正文首行改判。
+     1.072→1.073（整页版本 2.336）。
    【1.072 核对成功必须很慎重＋存帧范围缺口补齐（老板 17:05 实测「电脑上已有
      上一轮 AI 终答、手机核对成功却没拉出来」）】两处：
      ① `lbScreenMsgs` 镜像分支原只补「mid 比存帧末条更新」的账本行；本轮 AI
@@ -1101,6 +1116,17 @@ function _lbFakeLedgerRec(rec){
    它只配待在虚线思维流框里，永远不能当终极回复、也不能进对账集合。 */
 function lbPureThink(m){
   if (!Array.isArray(m)) return false;
+  /* 1.073（老板 17:13 实测「17:06 的 AI 终答电脑上有、手机怎么刷都没有」）：
+     TRAE 的真终答正文常常以「思考过程」打头（后面接完整结论），旧判据只看
+     首行就把它判成纯思维块 ⇒ `lbRoundsFromMsgs` 直接丢弃、`lbIsFinalRow`
+     不认终答，服务端补多少条都进不了小账本，核对却照样成功。
+     服务端权威类型（index8='a'/'final'/'patched'）或完成卡摘要（index7）
+     已明确是终答时，一律不再按正文首行改判。 */
+  const _k = String((m.length > 8 && m[8]) || '').toLowerCase();
+  if (_k === 'a' || _k === 'final' || _k === 'patched') return false;
+  if (String((m.length > 7 && m[7]) || '').trim()
+      && String((m.length > 7 && m[7]) || '').trim() !== '补记'
+      && String((m.length > 7 && m[7]) || '').trim() !== '提前终极') return false;
   const lines = String(m[1] == null ? '' : m[1]).split(/\r?\n/)
     .map(s => s.trim()).filter(s => s);
   if (!lines.length) return false;
@@ -1424,11 +1450,52 @@ function ledgerScreenComplete(sid, title){
     const s = String(sid || (typeof curSid === 'function' ? curSid() : '') || '');
     const t = String(title || (typeof curTitle === 'function' ? curTitle() : '') || '');
     const want = (typeof lbScreenMsgs === 'function') ? (lbScreenMsgs(s, t) || []) : [];
-    if (!want.length) return true;
     const wm = want.map(m => String((Array.isArray(m) && m[6]) || '')).filter(Boolean);
-    if (!wm.length) return true;
     const cs = (typeof curSid === 'function') ? String(curSid() || '') : '';
     if (cs && s && cs !== s) return true;      /* 非当前会话：DOM 上不是它，不拦 */
+    /* 1.073（老板 17:13 令「显示核对成功，你是怎么确认清单里的内容都收到手了」）：
+       屏幕源可能自己就缺条（存帧/账本窗口错位时它不包含那条），只校验
+       「屏幕源都在 DOM」等于自己证明自己。此处追加两道硬闸：
+       ① srv_order＝服务端权威 mid 全序，每一条都必须已进小账本；
+       ② items＝本轮服务端实际补发的模块/会话条，每一项都必须到位。
+       任一缺项 ⇒ 返回 false，绝不宣告核对成功。 */
+    if (String(LB.vackSid || '') === s){
+      const _u2 = (typeof lbUidPick === 'function')
+        ? String(lbUidPick(null, s, t) || '') : '';
+      const _k1 = _u2 ? _lbRowsKey(_u2, '') : '';
+      const _k2 = t ? _lbRowsKey('', t) : '';
+      const _have = {};
+      [_k1, _k2].forEach(k => {
+        const rs = k ? LB.rows[k] : null;
+        if (!Array.isArray(rs)) return;
+        rs.forEach(r => (r || []).forEach(m => {
+          if (Array.isArray(m) && m[6]) _have[String(m[6])] = 1;
+        }));
+      });
+      const _miss = [];
+      (Array.isArray(LB.vackOrder) ? LB.vackOrder : []).forEach(id => {
+        id = String(id || '');
+        if (id && !_have[id]) _miss.push(id);
+      });
+      (Array.isArray(LB.vackItems) ? LB.vackItems : []).forEach(it => {
+        if (!it || typeof it !== 'object') return;
+        if (it.mod === 'ledger'){
+          (it.mids || []).forEach(mid => {
+            mid = String(mid || '');
+            if (mid && !_have[mid]) _miss.push(mid);
+          });
+        } else if (it.mod && it.ver){
+          if (String((LB.mods || {})[it.mod] || '') !== String(it.ver))
+            _miss.push('模块:' + it.mod);
+        }
+      });
+      if (_miss.length){
+        try { diagLog('核对销账缺项|' + _miss.length + '|'
+          + _miss.slice(0, 6).join(','), 'warn'); } catch(e){}
+        return false;
+      }
+    }
+    if (!wm.length) return true;              /* 空账不拦（回执清单已校验） */
     const box = document.getElementById('msgs');
     if (!box) return true;
     const dm = [];
@@ -1457,6 +1524,12 @@ function ledgerVack(d){
   }
   /* stage:2 —— 正式成功终态：版本一致（same）或差额补发清单（need） */
   LB.checking = false;
+  /* 1.073（老板 17:13 令）：保存本轮回执清单——服务端权威 mid 全序
+     srv_order 与本次实际补发的 items。成功判定由 ledgerScreenComplete
+     逐项销账：权威窗口每条必须已进小账本、补发项必须到位，缺一项不许成功。 */
+  LB.vackSid = String(d.sid || '');
+  LB.vackOrder = Array.isArray(d.srv_order) ? d.srv_order : [];
+  LB.vackItems = Array.isArray(d.items) ? d.items : [];
   /* 2.261（老板令·状态时序⑤）：核对结束 → 置「核对成功」pending，
      等补发消息全部渲染完（静默 600ms / 60 秒兜底）再由 renderState 落横幅。 */
   if ((d.act === 'switch' || S.switch_pend) && typeof bannerPendSuccess === 'function'){
