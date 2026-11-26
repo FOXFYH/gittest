@@ -1,5 +1,10 @@
 'use strict';
-/* 提示词库.js（网页端）  版本 2.286  日期 2026-11-25
+/* 提示词库.js（网页端）  版本 2.287  日期 2026-11-26
+   2.287（老板 2026-11-26 10:36 令·0001 实测「plib_get Q0006 90 秒 59 次」）：
+      缺码取全文原先在每次消息重画时都 `cmd('plib_get',[码])`——服务端若取不到
+      该码（旧码/已删），就会随每次重画无限重试。现收口为 `requestCodes()`：
+      同一缺码 60 秒内最多请求一次，收到 plib_text 即清标记；本机已有的码绝不
+      重复要。只改请求节流，缓存/协议/服务端零改动。
    2.286（老板 14:50 令「传聊天记录到网页版时，提示词段落打包成一个代码」）：
       服务端 WS桥 0.109 起，下发正文只夹代码标记 `(@fox-lib1)Q0001,Q0002(@fox-lib2)`；
       本文件新增 `window.plibHintByCodes(codes)`——按代码到本机镜像领全文、拼四段；
@@ -24,6 +29,23 @@
   let L = load();
   let built = false;
   let tried = false;
+  /* 2.287：缺码请求节流表（码→上次请求时刻）。60 秒内同一缺码只发一次，
+     收到 plib_text 即清；治「每次重画都重发 plib_get」的重试风暴。 */
+  const _reqAt = {};
+  function requestCodes(codes){
+    try{
+      if (typeof cmd !== 'function') return;
+      const now = Date.now(), out = [];
+      (codes || []).forEach(function(c){
+        c = String(c == null ? '' : c).trim();
+        if (!c || L.txt[c] != null) return;
+        if (now - Number(_reqAt[c] || 0) < 60000) return;
+        _reqAt[c] = now;
+        out.push(c);
+      });
+      if (out.length) cmd('plib_get', out.slice(0, 20));
+    }catch(e){}
+  }
 
   function load(){
     try {
@@ -130,7 +152,7 @@
     render();
     if (miss.length){
       setStat((v.n || idx.length) + '条·缺' + miss.length + '…');
-      if (typeof cmd === 'function') cmd('plib_get', miss);
+      requestCodes(miss);
     } else {
       setStat((v.n || idx.length) + '条·全缓存✓');
       flash('提示词库已是最新（' + (v.n || idx.length) + ' 条）', 'var(--green)');
@@ -142,6 +164,7 @@
     let n = 0;
     Object.keys(items).forEach(c => {
       L.txt[c] = items[c];
+      delete _reqAt[c];              /* 2.287：已取回，解除节流标记 */
       if (L.idx) L.idx.forEach(e => { if (e.c === c) L.ver[c] = e.v; });
       n++;
     });
@@ -210,7 +233,7 @@
     view.textContent = (t == null)
       ? '（本机还没缓存这条，点「对账」取回）\n' + (e.t || '')
       : t;
-    if (t == null) if (typeof cmd === 'function') cmd('plib_get', [code]);
+    if (t == null) requestCodes([code]);
     view.scrollIntoView({block: 'nearest'});
   }
 
@@ -227,7 +250,7 @@
     view.style.display = ''; row.style.display = '';
     view.textContent = '【' + (c.n || sid) + '】拼贴全文（' + parts.length + ' 段）\n\n'
                      + txts.join('\n\n');
-    if (miss.length) if (typeof cmd === 'function') cmd('plib_get', miss);
+    if (miss.length) requestCodes(miss);
     view.scrollIntoView({block: 'nearest'});
   }
 
@@ -272,7 +295,7 @@
         if (t == null){ miss.push(code); return; }
         hz[k] += String(t);
       });
-      if (miss.length && typeof cmd === 'function') cmd('plib_get', miss.slice(0, 20));
+      if (miss.length) requestCodes(miss.slice(0, 20));
       return (hz.sys || hz.usr || hz.co || hz.ai) ? hz : null;
     }catch(e){ return null; }
   };
@@ -314,7 +337,7 @@
         if (t == null){ miss.push(code); return; }
         if (k) hz[k] += String(t);
       });
-      if (miss.length && typeof cmd === 'function') cmd('plib_get', miss.slice(0, 20));
+      if (miss.length) requestCodes(miss.slice(0, 20));
       return (hz.sys || hz.usr || hz.co || hz.ai) ? hz : null;
     }catch(e){ return null; }
   };
