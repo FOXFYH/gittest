@@ -1074,6 +1074,45 @@ function _frameCommit(sk, frame, meta, onOk, memNow, force){
     /* 2.220：旧内存帧也先按 N 裁再比，避免旧帧「条数更多」压住裁后新帧。 */
     if (_frameMem[sk] && Array.isArray(_frameMem[sk].msgs))
       _frameMem[sk].msgs = _frameTrimN(_frameMem[sk].msgs, sk, true);
+    /* 1.070（老板 13:53 令·满→0→满 / 退出重进变 0）：镜像下片段帧（1~2 条、
+       历史页、账本单轮）不许把整份存帧缩水——旧帧打底按 mid 合并，保留旧条数；
+       要缩到模块 3 的 N 由 lbsync 全量窗口/屏幕按账本条数截尾负责。 */
+    try{
+      if (typeof lbMirrorMode === 'function' && lbMirrorMode()
+          && _frameMem[sk] && Array.isArray(_frameMem[sk].msgs)
+          && Array.isArray(frame && frame.msgs) && frame.msgs.length
+          && frame.msgs.length < _frameMem[sk].msgs.length){
+        const _oldM = _frameMem[sk].msgs;
+        const _seen = {}, _merge = [];
+        const _add = m => {
+          if (!Array.isArray(m)) return;
+          const k = String(m[6] || '')
+            || (String(m[0] || '') + '|' + String(m[1] || '').slice(0, 24));
+          if (_seen[k]) return;
+          _seen[k] = 1; _merge.push(m.slice());
+        };
+        _oldM.forEach(_add);
+        frame.msgs.forEach(_add);
+        const _rk = m => {
+          let d = '';
+          (m || []).forEach(x => {
+            if (Array.isArray(x) && x[6]){
+              const s = String(x[6]);
+              if (!d || s < d) d = s;
+            }
+          });
+          return d;
+        };
+        _merge.sort((a, b) => {
+          const x = _rk(a), y = _rk(b);
+          if (!x && !y) return 0;
+          if (!x) return 1;
+          if (!y) return -1;
+          return x < y ? -1 : (x > y ? 1 : 0);
+        });
+        frame.msgs = _merge.length > _oldM.length ? _merge.slice(-_oldM.length) : _merge;
+      }
+    }catch(e){}
     if (!force && !_frameNewerOrEqual(frame, _frameMem[sk])) return false;
     _put();
     return true;
