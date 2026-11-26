@@ -1,5 +1,11 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.070  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.071  日期 2026-11-26
+   【1.071 账本比存帧新的差额行必须上屏（老板 14:11 令「小账本的东西都有显示到
+     主界面来吗」真 Chrome 实测发现）】1.069 存帧优先后，账本模块先推来、存帧
+     还没跟上时，账本已 12 条而屏幕只 10 条。修法：镜像分支在存帧之后，把账本
+     里**mid 比存帧末条更新**的行补到尾部（更旧的历史一条不补，防 15/22 条），
+     再按账本条数截尾。真 Chrome 实测：增量推 1 轮 → 账本/屏幕/DOM 全部 12。
+     1.070→1.071（整页版本 2.333）。
    【1.070 治小账本「满→0→满」闪烁（老板 2026-11-26 13:53 令）】根因两路：
      ① 2.264 的 `lbHistToLedger` 会把上顶翻出来的历史**写进小账本/存帧**，
        翻一页历史就把整本账替换成那一页（老板新口径：拉历史只是看看，绝不
@@ -459,17 +465,40 @@ function lbScreenMsgs(sid, title){
           if (k) _m3.push(k.slice());
         });
         if (_m3.length){
-          /* 1.070：存帧若比账本还多（历史膨胀遗留），按账本条数截尾上屏，
-             保证屏幕条数与镜像账本一致；账本太少（<3）时不截，防误伤。 */
-          let _ledN = 0;
+          /* 1.070：存帧为主，但账本里**比存帧更新**的差额行必须补到尾部——
+             账本已收到、存帧还没跟上时，主界面不能少了这几条；更旧的历史
+             一条不补（防 15/22 条）。存帧比账本多（历史膨胀遗留）时按账本
+             条数截尾。账本太少（<3）时不截，防误伤。 */
+          let _led9 = [], _ledN = 0;
           try{
             const _kU9 = u ? _lbRowsKey(u, '') : '';
             const _kT9 = t ? _lbRowsKey('', t) : '';
-            let _led9 = [];
             if (_kU9 && Array.isArray(LB.rows[_kU9]) && LB.rows[_kU9].length) _led9 = LB.rows[_kU9];
             else if (_kT9 && Array.isArray(LB.rows[_kT9])) _led9 = LB.rows[_kT9];
             (_led9 || []).forEach(r => { _ledN += (r || []).length; });
-          }catch(e){ _ledN = 0; }
+          }catch(e){ _led9 = []; _ledN = 0; }
+          try{
+            let _fmMax = '';
+            const _have9 = {};
+            _m3.forEach(m => {
+              const d = String(m[6] || '');
+              if (d){ _have9[d] = 1; if (!_fmMax || d > _fmMax) _fmMax = d; }
+            });
+            const _extra9 = [];
+            (_led9 || []).forEach(r => (r || []).forEach(m => {
+              if (!Array.isArray(m)) return;
+              const d = String(m[6] || '');
+              if (!d || _have9[d]) return;
+              if (!_fmMax || d > _fmMax){ _have9[d] = 1; _extra9.push(m.slice()); }
+            }));
+            if (_extra9.length){
+              _extra9.sort((a, b) => {
+                const x = String(a[6] || ''), y = String(b[6] || '');
+                return x < y ? -1 : (x > y ? 1 : 0);
+              });
+              _extra9.forEach(m => _m3.push(m));
+            }
+          }catch(e){}
           if (_ledN >= 3 && _m3.length > _ledN) return _m3.slice(-_ledN);
           return _m3;
         }
