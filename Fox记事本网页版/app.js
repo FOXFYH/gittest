@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.73';
+  const APP_VERSION = 'v1.74';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -2470,6 +2470,9 @@
       mark.textContent = th.dataset.sort === settings.fileSortKey
         ? (settings.fileSortDir === 'asc' ? ' ▲' : ' ▼') : '';
     });
+    // v1.74 排序下拉与表头双向同步（偏好存本机 settings）
+    const sel = $('fileSortSel');
+    if (sel) sel.value = (settings.fileSortKey || 'edit') + ':' + (settings.fileSortDir === 'asc' ? 'asc' : 'desc');
   }
 
   function selectedRows() {
@@ -3702,6 +3705,18 @@
         renderFiles();
       });
     });
+
+    // 排序下拉（v1.74）：时间/名称两档，改完立即保存到本机设置
+    const sortSel = $('fileSortSel');
+    if (sortSel) {
+      sortSel.addEventListener('change', function () {
+        const v = String(sortSel.value || 'edit:desc').split(':');
+        settings.fileSortKey = ['name', 'chars', 'start', 'end', 'edit'].indexOf(v[0]) === -1 ? 'edit' : v[0];
+        settings.fileSortDir = v[1] === 'asc' ? 'asc' : 'desc';
+        saveSettings();
+        renderFiles();
+      });
+    }
 
     $('fileTbody').addEventListener('click', function (e) {
       const btn = e.target.closest('[data-act]');
