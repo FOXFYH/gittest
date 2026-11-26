@@ -125,24 +125,17 @@ el.msgs.addEventListener('scroll', () => {
   const dist = m.scrollHeight - m.scrollTop - m.clientHeight;
   /* 2.49（本专项·本地会话账本移植·阶段五）：接近顶部 → 从账本向前补拉更早历史，
      每次 4 条；服务端回 end / 游标不再前进 → 判到底，不再空转（防死循环）。 */
-  if (m.scrollTop < 60 && !S.histLoadingPrev && S.histConv
-      && S.histRaw && S.histRaw.length){
-    /* 2.129（老板 2026-10-24「上顶加载历史现在不通」）：起点改取「屏幕上已显示的
-       最老一条」的 seq（_histFromSeq），不再用 histRaw[0].seq（首次 rebuild 时那是
-       整段账本的最老行，拿它当游标会让服务端永远回空）。每次仍固定 4 条。 */
-    const fromSeq = _histFromSeq();
-    if (!fromSeq || !(fromSeq > 1)){
+  if (m.scrollTop < 60 && !S.histLoadingPrev && S.histConv){
+    /* 2.321（老板 2026-11-26 08:36 令）：上滑到顶才允许拉历史，且一律按
+       「已掌握的 ID」向服务端要缺额（只回更早缺行，每次 4 条）；不再用
+       seq 游标、不再整段重建。空回/同锚重复＝到底。 */
+    if (S.histEnd){
       histEndFlash();
-    } else if (S.histEnd){
-      histEndFlash();
-    } else if (S.histPullFrom === fromSeq){
+    } else if (!reqOlder(S.histConv, 4)){
       S.histEnd = true;
       histEndFlash();
     } else {
-      S.histPullFrom = fromSeq;
-      S.histLoadingPrev = true;
       flash('\u23f3 正在取回历史记录\u2026', 'var(--blue)', 4000);
-      reqHistPrev(S.histConv, fromSeq, 4);
     }
   }
   /* 1.20：全屏内绝不自动退出——退出只有两个途径：点「↓ 回到

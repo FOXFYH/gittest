@@ -344,6 +344,49 @@ function reqVer(conv){
   sendJson({t: 'req', id: id, c: 'ver', conv: conv || '',
             lt: _ltOf(conv)});
 }
+/* 2.321（老板 2026-11-26 08:36 令）：拉更多历史一律按「已掌握的 ID」要缺额——
+   把屏幕/小账本里已有的全部 mid 发过去，服务端只回更老缺行（每次 4 条）。
+   只有用户上滑到顶才调用；切会话绝不自动拉。 */
+function _knownMids(conv){
+  const out = [], seen = {};
+  function add(rows){
+    (rows || []).forEach(function(m){
+      const id = String((m && m.length > 6 && m[6]) || '');
+      if (!_midIsFormal(id) || seen[id]) return;
+      seen[id] = 1; out.push(id);
+    });
+  }
+  try { add((S.snap && S.snap.msgs) || []); } catch(e){}
+  try { add((S.liveFrame && S.liveFrame.msgs) || []); } catch(e){}
+  try { add(S.histRaw); } catch(e){}
+  try { add(S.histPrevRaw); } catch(e){}
+  try {
+    const key = conv || S.anchorSid || 稳定键(curSid(), curTitle());
+    const f = (key && typeof _frameMem === 'object') ? _frameMem[_frameMemKey(key)] : null;
+    if (f && Array.isArray(f.msgs)) add(f.msgs);
+  } catch(e){}
+  return out;
+}
+function reqOlder(conv, count){
+  const key = conv || S.histConv;
+  if (!key) return false;
+  const mids = _knownMids(key);
+  if (!mids.length) return false;
+  /* 同一个锚（最老/最新 mid 没变）重复拉＝上次没补到，直接判到底，防鬼打墙。 */
+  const sig = mids.length + '|' + mids[0] + '|' + mids[mids.length - 1];
+  if (S.histPullSig === sig) return false;
+  S.histPullSig = sig;
+  const id = ++reqSeq;
+  S_reqs[id] = {conv: key, ts: Date.now()};
+  sendJson({t: 'req', id: id, c: 'hist_ids', conv: key, lt: _ltOf(key),
+            mids: mids, count: count | 0 || 4});
+  S.histLoadingPrev = true;
+  S.histLastReq = id;
+  setTimeout(function(){
+    if (S.histLoadingPrev && S.histLastReq === id) S.histLoadingPrev = false;
+  }, 8000);
+  return true;
+}
 /* 2.318：hist 结果按会话缓存（仅内存，页面重开即失效；最多 12 个会话）。 */
 function _hcacheGet(key){
   const m = S.histCache;
@@ -366,11 +409,20 @@ function onRes(id, k, v){
   if (!v || !v.ok) return;                     /* 账本不可用/未知 c：静默 */
   if (k === 'hist') applyHist(rq ? rq.conv : '', v);
   else if (k === 'hist_prev') prependHist(rq ? rq.conv : '', v.msgs || [], v.end);
+  else if (k === 'hist_ids'){
+    /* 2.321：按 ID 补的缺额回包——只并入更早缺行，回空即到底。 */
+    if (v.ver) S.histVer = v.ver | 0;
+    S.histLoadingPrev = false;
+    prependHist(rq ? rq.conv : '', v.msgs || [], v.end);
+    if (v.end) S.histEnd = true;
+  }
   else if (k === 'ver'){
-    /* 2.318：版本没变＝缓存仍有效，不重建；只有真变了才整段 hist 重建。
-       回包晚到（已切走）一律作废，免得给旧会话白建一份。 */
-    if (rq && rq.conv === S.histConv && (v.ver | 0) !== (S.histVer | 0))
-      reqHist(rq.conv, 0, 0);
+    /* 2.321（老板 2026-11-26 08:36 令）：切会话不再整段重建历史——版本变了
+       也只按「已掌握的 ID」补更早缺额（≤4 条）；回包晚到（已切走）作废。 */
+    if (rq && rq.conv === S.histConv && (v.ver | 0) !== (S.histVer | 0)){
+      S.histVer = v.ver | 0;
+      reqOlder(rq.conv, 4);
+    }
   }
 }
 function applyHist(conv, v){
@@ -452,10 +504,10 @@ function ensureHist(){
   S.histVer = cc ? (cc.ver | 0) : 0;
   S.histHave = cc ? (cc.have | 0) : 0;
   S.histLoadingPrev = false;
-  S.histEnd = cc ? !!cc.end : false;
+  S.histEnd = false;                       /* 2.321：到底与否只认按 ID 补的回包 */
   S.histPullFrom = 0;                      /* 2.49：换会话重置到底标记/游标 */
-  if (cc) reqVer(key);                     /* 2.318：约 150B，代替 39.6KB 重建 */
-  else reqHist(key, 0, 0);
+  S.histPullSig = '';                      /* 2.321：按 ID 拉的防重锚 */
+  reqVer(key);                             /* 2.321：切会话只问版本（约 150B），不拉历史 */
 }
 /* 2.112（X2-2/X2-4）：正式 mid＝十六进制串（前 8 位＝Unix 秒）；`temp-agent-…`
    这类非 hex 一律视为「生成期临时号」，不得当正式身份参与去重/对齐/排序。 */
