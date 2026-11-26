@@ -161,7 +161,9 @@ function _thinkCardHtml(c){
 }
 /* 2.305（老板 2026-11-25 19:42 令）：原 2.301 thinkMismatchNow（当前选中 ≠ 服务器
    选中）整块删除——「选中不一致 ⇒ 思维流不可见」的认定不再由网页端参与。 */
-/* 2.301：本屏最后一轮是否已有 AI 终极回复——有就绝不让占位气泡盖住终答。 */
+/* 2.301：本屏最后一轮是否已有 AI 终极回复——有就绝不让占位气泡盖住终答。
+   1.076（老板 2026-11-26 20:49 令·灯没灭不许撤虚线气泡）：只认硬终极——
+   灯 busy 时生成中半成品的模糊 fin 行不算终极到位，占位/虚线气泡照常在。 */
 function _lbLastRoundFinal(msgs){
   try{
     const arr = Array.isArray(msgs) ? msgs : [];
@@ -171,7 +173,10 @@ function _lbLastRoundFinal(msgs){
     }
     if (lastU < 0) return false;
     for (let i = lastU + 1; i < arr.length; i++){
-      if (typeof lbIsFinalRow === 'function' && lbIsFinalRow(arr[i])) return true;
+      const _hard = (typeof lbFinalHard === 'function')
+        ? lbFinalHard(arr[i])
+        : (typeof lbIsFinalRow === 'function' ? lbIsFinalRow(arr[i]) : false);
+      if (_hard) return true;
     }
     return false;
   }catch(e){ return false; }
