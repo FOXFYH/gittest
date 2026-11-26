@@ -417,12 +417,11 @@ function onRes(id, k, v){
     if (v.end) S.histEnd = true;
   }
   else if (k === 'ver'){
-    /* 2.321（老板 2026-11-26 08:36 令）：切会话不再整段重建历史——版本变了
-       也只按「已掌握的 ID」补更早缺额（≤4 条）；回包晚到（已切走）作废。 */
-    if (rq && rq.conv === S.histConv && (v.ver | 0) !== (S.histVer | 0)){
+    /* 2.322（老板 2026-11-26 08:36 令「拉历史只在上滑到顶时」）：切会话问到的
+       版本号只更新本地版本，**绝不因此自动补历史**——是否补历史只由用户上滑
+       到顶的 reqOlder 决定；回包晚到（已切走）作废。 */
+    if (rq && rq.conv === S.histConv && (v.ver | 0) !== (S.histVer | 0))
       S.histVer = v.ver | 0;
-      reqOlder(rq.conv, 4);
-    }
   }
 }
 function applyHist(conv, v){
