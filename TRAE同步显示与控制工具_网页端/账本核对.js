@@ -1,5 +1,12 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.068  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.069  日期 2026-11-26
+   【1.069 手机屏幕＝采集拆分器「会话拆分·③消息卡片」整份镜像（老板 2026-11-26
+     12:06 令「我说的镜像就是把整个模块 3 镜像到手机网页版；只有电脑能维护这个
+     小账本，抓历史只是看看，不影响小账本」）】全量镜像下 `lbScreenMsgs` 改为
+     **存帧优先**：本会话存帧（＝服务端按 N/CDP 合成后下发的模块 3）有几条就
+     显示几条；没有存帧才退回本地账本。之前「账本打底＋存帧补差额」在两边窗口
+     错位时仍会拼出非模块 3 的组合，本版按老板口径彻底以模块 3 为准。
+     1.068→1.069（整页版本 2.331）。
    【1.068 镜像模式条数必须与电脑一致，屏幕不再拼出 15/22 条（老板 2026-11-26
      12:03 令「镜像＝电脑上几条手机上就几条；拉历史不用落盘到小账本」）】
      根因两条：① `lbScreenMsgs` 把「终身号键账本＋会话名键账本＋内存存帧」
@@ -386,56 +393,37 @@ function lbScreenMsgs(sid, title){
         }
       }
     }catch(e){}
-    /* 1.068（老板 12:03 令·镜像＝电脑几条手机几条）：全量镜像下屏幕只认**一份
-       账本**（终身号键优先、无则名称键），存帧只补「比账本末条更新」的差额行；
-       绝不再把号键/名键/存帧三份窗口并集（错位时会拼出 15、22 条）。
-       拉历史（histPrevRaw）只在 curMsgs 里叠加显示，不写账本、不进这里。 */
+    /* 1.069（老板 12:06 令·模块3整体镜像）：全量镜像下屏幕＝本会话存帧——
+       服务端已按「消息卡片最多 N / CDP 最多 C」合成（采集拆分器 ③ 消息卡片），
+       存帧有几条就显示几条；没有存帧才退回本地账本。抓历史只走 curMsgs 叠加，
+       不写存帧/账本，永远不影响小账本。 */
     if (lbMirrorMode()){
-      const _kU = u ? _lbRowsKey(u, '') : '';
-      const _kT = t ? _lbRowsKey('', t) : '';
-      let _src = [];
-      if (_kU && Array.isArray(LB.rows[_kU]) && LB.rows[_kU].length) _src = LB.rows[_kU];
-      else if (_kT && Array.isArray(LB.rows[_kT])) _src = LB.rows[_kT];
-      const _out = [], _seen = {}, _ledMids = {};
-      let _maxMid = '';
-      const _formal = id => (typeof _midIsFormal === 'function')
-        ? !!_midIsFormal(id) : /^[0-9a-f]{24}$/i.test(String(id || ''));
-      _src.forEach(r => (r || []).forEach(m => {
-        if (!Array.isArray(m)) return;
-        const mk = _msgKey(m);
-        if (_seen[mk]) return;
-        _seen[mk] = 1; _out.push(m.slice());
-        const d = String(m[6] || '');
-        if (_formal(d)) _ledMids[d] = 1;
-        if (_formal(d) && d > _maxMid) _maxMid = d;
-      }));
       let _tag2 = '';
       try { _tag2 = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : ''; } catch(e){ _tag2 = ''; }
       const _fs2 = String((_fr && _fr._srv) || '');
       if (_fr && Array.isArray(_fr.msgs) && _fr.msgs.length
           && !(_tag2 && _fs2 && _tag2 !== _fs2)){
-        /* 存帧只做两件事（差额）：补账本某一轮缺的 AI 行、补账本末条之后的新行；
-           比账本更早、账本又没记的历史行一律不并（治 15/22 条）。 */
-        let _keepRound = (_out.length === 0);
+        const _m3 = [];
         _fr.msgs.forEach(m => {
           if (!Array.isArray(m)) return;
           const k = (typeof _lbKeepRow === 'function') ? _lbKeepRow(m) : m;
-          if (!k) return;
-          const d = String(m[6] || '');
-          const isU = String(m[0] || '').toLowerCase() === 'u';
-          const mk = _msgKey(k);
-          if (_seen[mk]){
-            /* 账本已有这条人类行 ⇒ 它后面的 AI 行是本轮缺的那条，允许补 */
-            if (isU) _keepRound = !!_ledMids[d];
-            return;
-          }
-          if (isU){
-            _keepRound = (_out.length === 0) || (_formal(d) && d > _maxMid);
-          }
-          if (!_keepRound) return;
-          _seen[mk] = 1; _out.push(k.slice());
+          if (k) _m3.push(k.slice());
         });
+        if (_m3.length) return _m3;
       }
+      /* 没存帧（刚开机/还没收到模块 3）→ 退回账本里的一份，绝不留白。 */
+      const _kU = u ? _lbRowsKey(u, '') : '';
+      const _kT = t ? _lbRowsKey('', t) : '';
+      let _src = [];
+      if (_kU && Array.isArray(LB.rows[_kU]) && LB.rows[_kU].length) _src = LB.rows[_kU];
+      else if (_kT && Array.isArray(LB.rows[_kT])) _src = LB.rows[_kT];
+      const _out = [], _seen = {};
+      _src.forEach(r => (r || []).forEach(m => {
+        if (!Array.isArray(m)) return;
+        const mk = _msgKey(m);
+        if (_seen[mk]) return;
+        _seen[mk] = 1; _out.push(m.slice());
+      }));
       return _out;
     }
     /* 账本帧（LB.rows）放后面并：同一 mid 以账本（服务端定稿）为准，存帧只补账本没有的轮。 */
