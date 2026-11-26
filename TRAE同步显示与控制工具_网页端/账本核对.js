@@ -1,5 +1,15 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.069  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.070  日期 2026-11-26
+   【1.070 治小账本「满→0→满」闪烁（老板 2026-11-26 13:53 令）】根因两路：
+     ① 2.264 的 `lbHistToLedger` 会把上顶翻出来的历史**写进小账本/存帧**，
+       翻一页历史就把整本账替换成那一页（老板新口径：拉历史只是看看，绝不
+       影响小账本）；② 1.068 起 `lbRowsPut` 在镜像模式整份替换，账本模块
+       只推一轮/单条时也会把 10 条缩成 1 条，下一拍 lbsync 又补回 10 条 ⇒
+       满→0→满。修法：① 镜像模式下 `lbHistToLedger` 直接返回，历史只走
+       `histPrevRaw` 显示；② `lbRowsPut` 增 `full` 形参——只有权威全量窗口
+       （开机/lbkeep 裁剪/lbsync/补终答）才允许缩；账本模块等增量来源只
+       合并（同人类行更新、新轮追加、按 mid 排序），条数只增不减。
+     1.069→1.070（整页版本 2.332）。
    【1.069 手机屏幕＝采集拆分器「会话拆分·③消息卡片」整份镜像（老板 2026-11-26
      12:06 令「我说的镜像就是把整个模块 3 镜像到手机网页版；只有电脑能维护这个
      小账本，抓历史只是看看，不影响小账本」）】全量镜像下 `lbScreenMsgs` 改为
@@ -225,7 +235,7 @@ function lbRepaint(delay){
     }, d);
   }catch(e){}
 }
-function lbRowsPut(uid, title, rounds){
+function lbRowsPut(uid, title, rounds, full){
   try{
     if (!Array.isArray(rounds) || !rounds.length) return;
     const u = String(uid || '').trim(), t = String(title || '').trim();
@@ -287,6 +297,45 @@ function lbRowsPut(uid, title, rounds){
          判据：新帧里一条都没有它的 mid，且它的 mid 时间不早于新帧最新一条
          （无 mid 的未认证行按最新处理——它只可能是刚发还没认证的）。 */
       let merged = rounds2;
+      /* 1.070（老板 13:53 令·满→0→满）：镜像下只有权威全量窗口（full=true：
+         开机/lbkeep/lbsync/补终答）才允许整份替换、允许缩；账本模块这类
+         增量来源只合并——同人类行更新、新轮追加、按 mid 排序，条数只增不减。 */
+      if (lbMirrorMode() && !full && Array.isArray(old) && old.length){
+        const _uk = rr => {
+          let h = '';
+          (rr || []).forEach(m => {
+            if (Array.isArray(m) && String(m[0]) === 'u' && m[6]) h = String(m[6]);
+          });
+          return h;
+        };
+        const _rk = rr => {
+          let d = '';
+          (rr || []).forEach(m => {
+            if (Array.isArray(m) && m[6]){
+              const s = String(m[6]);
+              if (!d || s < d) d = s;
+            }
+          });
+          return d;
+        };
+        const _newKeys = new Set(rounds2.map(_uk).filter(Boolean));
+        const _incr = old.filter(r => {
+          const h = _uk(r);
+          return !(h && _newKeys.has(h));
+        }).map(r => r);
+        rounds2.forEach(r => _incr.push(r));
+        _incr.sort((a, b) => {
+          const da = _rk(a), db = _rk(b);
+          if (!da && !db) return 0;
+          if (!da) return 1;
+          if (!db) return -1;
+          return da < db ? -1 : (da > db ? 1 : 0);
+        });
+        LB.rows[k] = _incr;
+        try { diagLog('镜像增量合并|键=' + k + '|旧轮=' + old.length
+          + '|新轮=' + rounds2.length + '|合=' + _incr.length, 'ok'); } catch(e){}
+        return;
+      }
       /* 1.068（老板 12:03 令·镜像）：全量镜像下账本条数必须等于服务器给的口径——
          不再把「本地更新行」粘在尾部（最多 6 轮，10 条能被它涨到 22 条）。 */
       if (!lbMirrorMode() && Array.isArray(old) && old.length){
@@ -409,7 +458,21 @@ function lbScreenMsgs(sid, title){
           const k = (typeof _lbKeepRow === 'function') ? _lbKeepRow(m) : m;
           if (k) _m3.push(k.slice());
         });
-        if (_m3.length) return _m3;
+        if (_m3.length){
+          /* 1.070：存帧若比账本还多（历史膨胀遗留），按账本条数截尾上屏，
+             保证屏幕条数与镜像账本一致；账本太少（<3）时不截，防误伤。 */
+          let _ledN = 0;
+          try{
+            const _kU9 = u ? _lbRowsKey(u, '') : '';
+            const _kT9 = t ? _lbRowsKey('', t) : '';
+            let _led9 = [];
+            if (_kU9 && Array.isArray(LB.rows[_kU9]) && LB.rows[_kU9].length) _led9 = LB.rows[_kU9];
+            else if (_kT9 && Array.isArray(LB.rows[_kT9])) _led9 = LB.rows[_kT9];
+            (_led9 || []).forEach(r => { _ledN += (r || []).length; });
+          }catch(e){ _ledN = 0; }
+          if (_ledN >= 3 && _m3.length > _ledN) return _m3.slice(-_ledN);
+          return _m3;
+        }
       }
       /* 没存帧（刚开机/还没收到模块 3）→ 退回账本里的一份，绝不留白。 */
       const _kU = u ? _lbRowsKey(u, '') : '';
@@ -708,7 +771,7 @@ function lbHaveLoad(){
             || (typeof lbUidPick === 'function' ? String(lbUidPick(null, rec.sid, t) || '') : '');
           if (u) LB.lbHave.add(u);
           lbSumSet(u || String(rec.sid || ''), t, rounds);
-          lbRowsPut(u, t, rounds);            /* 2026-11-24：开机把账本 rounds 装进屏幕唯一源 */
+          lbRowsPut(u, t, rounds, true);      /* 2026-11-24：开机把账本 rounds 装进屏幕唯一源 */
         } catch(e){}
       });
       /* 2.275：开机把账装进 LB.rows 后立刻重画——冷启动不再只停在
@@ -1559,7 +1622,7 @@ function lbKeepApply(d){
             || (typeof lbUidPick === 'function'
                 ? String(lbUidPick(null, rec.sid, rt) || '') : '');
           try { lbSumSet(u || String(rec.sid || ''), rt, rounds); } catch(e){}
-          try { lbRowsPut(u, rt, rounds); } catch(e){}   /* 2026-11-24：屏幕唯一源同步裁剪 */
+          try { lbRowsPut(u, rt, rounds, true); } catch(e){}   /* 2026-11-24：屏幕唯一源同步裁剪 */
           puts.push(_idbReq('snap_conv', 'readwrite',
             st => st.put(nr)).catch(() => {}));
           try { diagLog('lbkeep 裁剪|sid=' + sid + '|删=' + hit
@@ -1704,7 +1767,7 @@ function lbSyncApply(d){
             || (typeof lbUidPick === 'function'
                 ? String(lbUidPick(null, rec.sid, rt) || '') : '');
           try { lbSumSet(u || String(rec.sid || ''), rt, rounds); } catch(e){}
-          try { lbRowsPut(u, rt, rounds); } catch(e){}
+          try { lbRowsPut(u, rt, rounds, true); } catch(e){}
           puts.push(_idbReq('snap_conv', 'readwrite',
             st => st.put(nr)).catch(() => {}));
           try { diagLog('lbsync 足额|sid=' + 键 + '|order=' + order.length
@@ -2430,6 +2493,9 @@ function _lbHistCtx(){
 }
 function lbHistToLedger(older){
   try{
+    /* 1.070（老板 13:53 令·拉历史只是看看）：全量镜像下历史绝不写小账本/存帧——
+       否则翻一页历史会把整本账替换成那一页，出现「满→0→满」和退出重进变 0。 */
+    if (typeof lbMirrorMode === 'function' && lbMirrorMode()) return;
     const raw = Array.isArray(S.histRaw) ? S.histRaw : [];
     if (!raw.length) return;
     if (typeof ledToArr !== 'function' || typeof _frameCommit !== 'function') return;
@@ -2631,7 +2697,7 @@ function lbFillFinalsAsync(sid, title){
       try {
         if (typeof lbRowsPut === 'function' && typeof lbRoundsFromMsgs === 'function')
           lbRowsPut((typeof lbUidPick === 'function' ? (lbUidPick(null, s, t) || '') : ''),
-                    t, lbRoundsFromMsgs(out));
+                    t, lbRoundsFromMsgs(out), true);
       } catch(e){}
       /* 先落盘：同一份写回唯一账（只进不退；内容未变时闸门自然拒收，无副作用） */
       try {
