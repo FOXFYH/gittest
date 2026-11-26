@@ -1172,6 +1172,21 @@ function lbIsFinalRow(m){
   if (lbPatchMarked(m)) return true;
   return String((m.length > 7 && m[7]) || '').trim() !== '';
 }
+/* 1.076（老板 2026-11-26 20:49 令·灯没灭不许撤虚线气泡）：「硬终极」判定——
+   只有后端类型明确（index8=a/final/patched）或带补记标记的行才算终极到位；
+   仅靠 index7 fin 非空的「模糊终极」不算硬终极。灯 busy（电脑还在生成）时
+   收到的生成中半成品行绝不据此撤虚线气泡、也不许压占位——终极回复一到才
+   让位。灯灭（非 busy）后 thinkCardNow 本就 return null，语义不受影响。 */
+function lbFinalHard(m){
+  if (!Array.isArray(m)) return false;
+  if (String(m[0] || '').toLowerCase() !== 'a') return false;
+  if (/^th:/i.test(String(m[6] || ''))) return false;
+  if (lbPureThink(m)) return false;
+  const k = String((m.length > 8 && m[8]) || '').toLowerCase();
+  if (k === 'a' || k === 'final' || k === 'patched') return true;
+  if (lbPatchMarked(m)) return true;
+  return false;                       /* 模糊 fin：不算硬终极 */
+}
 /* 2.213：lbMsgKind 已撤——类型一律以后端 index8 为准，前端不再按
    index7／index8 推断「终极 or 思维流」；缺类型显示「类型未知」。 */
 /* ============ 2.204（C·老板 22:42 令）：本轮终极（补记） ============
@@ -2341,18 +2356,26 @@ function thinkCardNow(msgs){
       if (!_anchInView) return null;
     }
     /* 2.212（bug① 渲染层双保险）：卡片正文对应的 mid 一旦已有终极回复，
-       think 版立即作废，虚线框绝不显示终极回复。 */
+       think 版立即作废，虚线框绝不显示终极回复。
+       1.076（老板 2026-11-26 20:49 令·灯没灭不许撤虚线气泡）：让位只认
+       硬终极——灯 busy 时收到的模糊 fin 行（生成中半成品）不算终极到位，
+       绝不据此撤气泡。 */
     if (c.textMid){
       for (let i = 0; i < arr.length; i++){
         const m = arr[i];
-        if (Array.isArray(m) && lbIsFinalRow(m)
+        if (Array.isArray(m) && (typeof lbFinalHard === 'function'
+            ? lbFinalHard(m) : lbIsFinalRow(m))
             && String((m.length > 6 && m[6]) || '') === c.textMid) return null;
       }
     }
     for (let i = hi + 1; i < arr.length; i++){
       const m = arr[i];
       if (!Array.isArray(m) || m[0] !== 'a') continue;
-      if (lbIsFinalRow(m)) return null;   /* ⑩终极回复优先（含提前终极）：立刻撤卡 */
+      /* 1.076（老板 2026-11-26 20:49 令·灯没灭不许撤虚线气泡）：终极让位
+         只认硬终极（index8 明确 a/final/patched 或补记）——灯 busy 时生成中
+         半成品的模糊 fin 行绝不把虚线气泡顶掉、更不许占终极回复位。 */
+      if ((typeof lbFinalHard === 'function' ? lbFinalHard(m) : lbIsFinalRow(m)))
+        return null;   /* ⑩终极回复优先（含提前终极）：立刻撤卡 */
     }
     /* 2.263：卡片正文优先 card.text；为空才回退本屏 frame.msgs 里锚定后的 th 行。 */
     if (!String(c.text || '').trim()){
