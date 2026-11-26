@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- 机读版本标记：与页面标题、顶栏版本胶囊、设置页版本显示保持一致（规范 3.2.1） -->
-<meta name="app-version" content="v1.73">
+<meta name="app-version" content="v1.74">
 <meta name="app-sheet" content="Fox记事本">
-<title>Fox记事本 v1.73</title>
+<title>Fox记事本 v1.74</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=1.73">
+<link rel="stylesheet" href="style.css?v=1.74">
 </head>
 <body>
 
@@ -90,6 +90,12 @@
         <button class="btn" id="btnImport">导入文件</button>
         <input type="file" id="importFile" accept=".txt,text/plain" hidden>
         <input id="fileSearch" class="search" type="search" placeholder="搜索文件名" autocomplete="off">
+        <select id="fileSortSel" title="排序方式（偏好存本机）" style="height:28px;border:1px solid #cfd8e3;border-radius:6px;background:#fff;padding:0 6px;font-size:12px;color:#333">
+          <option value="edit:desc">时间：新→旧</option>
+          <option value="edit:asc">时间：旧→新</option>
+          <option value="name:asc">名称：A→Z</option>
+          <option value="name:desc">名称：Z→A</option>
+        </select>
       </div>
       <div class="bar-row ph3" id="selBar" hidden>
         <span class="sel-count" id="selCount">已选 0 项</span>
@@ -233,6 +239,6 @@
 <div id="toast" class="toast" hidden></div>
 <div id="modalLayer" class="modal-layer" hidden></div>
 <noscript><div style="padding:20px">本页面需要启用 JavaScript 才能使用。</div></noscript>
-<script src="app.js?v=1.73"></script>
+<script src="app.js?v=1.74"></script>
 </body>
 </html>
