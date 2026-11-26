@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.74';
+  const APP_VERSION = 'v1.75';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -558,7 +558,22 @@
       题库信息 = qb;
       if (doc.id) 记考试次数镜像(doc.id, qb['考试次数']);
       刷新数据行();
-      if (doc.id && !doc.isNew) 同步查看时间();   // 静默写回：正文不动，只把 meta 存进文件
+      if (doc.id && !doc.isNew) 立刻写回考试次数();   // v1.75：公布即写回文件，换设备立刻可见
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // v1.75 考试次数立刻写回云端：不受 dirty/自动同步节流限制；正在同步则 1 秒后重试
+  function 立刻写回考试次数(重试) {
+    try {
+      if (!doc || !doc.id || doc.isNew) return;
+      if (syncBusy) {
+        if ((重试 || 0) < 5) {
+          setTimeout(function () { 立刻写回考试次数((重试 || 0) + 1); }, 1000);
+        }
+        return;
+      }
+      doc.dirty = true;          // 强制推进终点号，保证云端一定收下新「题库信息」
+      saveToCloud(false, true);  // 静默保存：失败只提示，不打断公布
     } catch (e) { /* 忽略 */ }
   }
 
@@ -2499,11 +2514,15 @@
   // v1.70 列表补全：当前文件夹里还没判过类型的文件，后台逐份拉正文判类型并缓存。
   // 题库一律渲染方形次数格（0 也显示 0），方便一眼认出是不是题库；判过的文件不再重复拉。
   let 类型补全中 = false;
+  let 次数已刷 = new Set();   // v1.75：每次刷新索引后，题库文件重拉一次次数，别的设备改了这里也能跟上
   async function 补全文件夹类型(rows) {
     if (类型补全中) return;
     const 待办 = rows.filter(function (f) {
       const id = String(f['ID'] || '');
-      return id && !isFolderId(id) && !文件类型(id);
+      if (!id || isFolderId(id)) return false;
+      const t = 文件类型(id);
+      if (!t) return true;                       // 类型未知：拉正文判类型
+      return t === '题库' && !次数已刷.has(id);    // 已知题库：每轮刷新重拉一次次数
     });
     if (!待办.length) return;
     类型补全中 = true;
@@ -2529,6 +2548,7 @@
           记类型镜像(r.id, r.t);
           const 次 = Number(r.qb['考试次数']);
           if (isFinite(次) && 次 >= 0) 记考试次数镜像(r.id, 次);
+          次数已刷.add(r.id);
           有新增 = true;
         });
       }
@@ -2540,6 +2560,7 @@
     try {
       const r = await cloudCall('读取索引');
       cloudIndex = Array.isArray(r['数据']) ? r['数据'].slice() : [];
+      次数已刷 = new Set();   // 每轮刷新索引：题库次数重新从文件拉一遍
       renderFiles();
       if (!silent) toast('已刷新云端文件列表（' + cloudIndex.length + ' 项）');
     } catch (err) {
