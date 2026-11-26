@@ -6,7 +6,7 @@
   'use strict';
 
   // ===================== 常量与默认值 =====================
-  const APP_VERSION = 'v1.75';
+  const APP_VERSION = 'v1.76';
   const PRE = 'foxpad_';                       // 本地缓存键名前缀
   const CLOUD_PROXY = 'https://1408347752-dxgsap4qrj.ap-guangzhou.tencentscf.com';
   const CLOUD_WEBHOOK = 'https://www.kdocs.cn/api/v3/ide/file/cbDG0BYEda3W/script/V2-6JlKZr50nGpgw7u2HJEIFy/sync_task';
@@ -30,7 +30,8 @@
     password: '1234',
     sheet: 'Fox记事本',
     fileSortKey: 'edit',
-    fileSortDir: 'desc'
+    fileSortDir: 'desc',
+    fileSortByFolder: {}       // v1.76 文件夹单独排序：{文件夹ID:{key,dir}}；没有则逐级继承
   };
 
   // 同步状态四步曲：所有文案与颜色只从这里出（规范 5.2）
@@ -180,6 +181,9 @@
     s.sheet = String(s.sheet || DEFAULT_SETTINGS.sheet);
     s.fileSortKey = ['name', 'chars', 'start', 'end', 'edit'].indexOf(s.fileSortKey) === -1 ? 'edit' : s.fileSortKey;
     s.fileSortDir = s.fileSortDir === 'asc' ? 'asc' : 'desc';
+    if (!s.fileSortByFolder || typeof s.fileSortByFolder !== 'object' || Array.isArray(s.fileSortByFolder)) {
+      s.fileSortByFolder = {};
+    }
     return s;
   }
   function saveSettings() {
@@ -2450,10 +2454,32 @@
     return out;
   }
 
+  // v1.76 当前文件夹的生效排序：自己有就用自己，否则逐级向上继承，最后落根默认
+  function 文件夹父ID(fid) {
+    const f = cloudIndex.find(function (x) { return String(x['ID'] || '') === String(fid || ''); });
+    return f ? String(f['文件夹路径'] || '') : '';
+  }
+  function 当前生效排序() {
+    const map = settings.fileSortByFolder || {};
+    let fid = String(currentFolder || '');
+    const seen = {};
+    while (fid && !seen[fid]) {
+      const o = map[fid];
+      if (o && ['name', 'chars', 'start', 'end', 'edit'].indexOf(o.key) !== -1) {
+        return { key: o.key, dir: o.dir === 'asc' ? 'asc' : 'desc' };
+      }
+      seen[fid] = 1;
+      fid = 文件夹父ID(fid);
+    }
+    return { key: settings.fileSortKey || 'edit',
+             dir: settings.fileSortDir === 'asc' ? 'asc' : 'desc' };
+  }
+
   // 表头排序：文件夹恒在前，组内按所选列升降序（规范 4.3：排序痕迹存设置）
   function sortRows(rows) {
-    const key = settings.fileSortKey || 'edit';
-    const dir = settings.fileSortDir === 'asc' ? 1 : -1;
+    const eff = 当前生效排序();
+    const key = eff.key;
+    const dir = eff.dir === 'asc' ? 1 : -1;
     return rows.sort(function (a, b) {
       const af = isFolderId(a['ID']);
       const bf = isFolderId(b['ID']);
@@ -2474,15 +2500,16 @@
   }
 
   function renderSortMarks() {
+    const eff = 当前生效排序();
     document.querySelectorAll('#fileTable th.sortable').forEach(function (th) {
       const mark = th.querySelector('.sortmark');
       if (!mark) return;
-      mark.textContent = th.dataset.sort === settings.fileSortKey
-        ? (settings.fileSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+      mark.textContent = th.dataset.sort === eff.key
+        ? (eff.dir === 'asc' ? ' ▲' : ' ▼') : '';
     });
     // v1.74 排序下拉与表头双向同步（偏好存本机 settings）
     const sel = $('fileSortSel');
-    if (sel) sel.value = (settings.fileSortKey || 'edit') + ':' + (settings.fileSortDir === 'asc' ? 'asc' : 'desc');
+    if (sel) sel.value = eff.key + ':' + eff.dir;
   }
 
   function selectedRows() {
@@ -3707,17 +3734,28 @@
       renderFiles();
     });
 
+    // v1.76 排序保存：根目录改＝全局默认；进入某文件夹再改＝该夹单独指定（下级继续继承它）
+    function 设置当前排序(key, dir) {
+      if (currentFolder) {
+        const map = settings.fileSortByFolder || {};
+        map[String(currentFolder)] = { key: key, dir: dir };
+        settings.fileSortByFolder = map;
+      } else {
+        settings.fileSortKey = key;
+        settings.fileSortDir = dir;
+      }
+      saveSettings();
+    }
+
     // 表头点击排序（同列再点切换升降序）
     document.querySelectorAll('#fileTable th.sortable').forEach(function (th) {
       th.addEventListener('click', function () {
         const key = th.dataset.sort;
-        if (settings.fileSortKey === key) {
-          settings.fileSortDir = settings.fileSortDir === 'asc' ? 'desc' : 'asc';
-        } else {
-          settings.fileSortKey = key;
-          settings.fileSortDir = key === 'edit' ? 'desc' : 'asc';
-        }
-        saveSettings();
+        const eff = 当前生效排序();
+        const dr = eff.key === key
+          ? (eff.dir === 'asc' ? 'desc' : 'asc')
+          : (key === 'edit' ? 'desc' : 'asc');
+        设置当前排序(key, dr);
         renderFiles();
       });
     });
@@ -3727,9 +3765,8 @@
     if (sortSel) {
       sortSel.addEventListener('change', function () {
         const v = String(sortSel.value || 'edit:desc').split(':');
-        settings.fileSortKey = ['name', 'chars', 'start', 'end', 'edit'].indexOf(v[0]) === -1 ? 'edit' : v[0];
-        settings.fileSortDir = v[1] === 'asc' ? 'asc' : 'desc';
-        saveSettings();
+        const key = ['name', 'chars', 'start', 'end', 'edit'].indexOf(v[0]) === -1 ? 'edit' : v[0];
+        设置当前排序(key, v[1] === 'asc' ? 'asc' : 'desc');
         renderFiles();
       });
     }
