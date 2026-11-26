@@ -1,5 +1,14 @@
 'use strict';
-/* 账本核对.js（网页端）  版本 1.067  日期 2026-11-26
+/* 账本核对.js（网页端）  版本 1.068  日期 2026-11-26
+   【1.068 镜像模式条数必须与电脑一致，屏幕不再拼出 15/22 条（老板 2026-11-26
+     12:03 令「镜像＝电脑上几条手机上就几条；拉历史不用落盘到小账本」）】
+     根因两条：① `lbScreenMsgs` 把「终身号键账本＋会话名键账本＋内存存帧」
+     三份窗口无条件并集，窗口错位时 10 条能拼成 15～22 条；② `lbRowsPut` 的
+     「本地更新行尾部保留」最多再粘 6 轮旧行，账本自身也能涨到 22 条。修法
+     （仅全量镜像模式）：屏幕只认**一份账本**（终身号键优先、无则名称键），
+     存帧只补「比账本末条更新」的差额行；`lbRowsPut` 不再保留尾部旧轮，给
+     几条就落几条。拉历史（histPrevRaw）只走显示、不写账本/存帧，本次不动。
+     1.067→1.068（整页版本 2.330）。
    【1.067 逐轮 AI 保留，修「最新回复闪一下就没了」（老板 2026-11-26 11:44 令）】
      2.280 的 `_hasAI(rounds)` 只判整帧有没有 AI：新帧里只要别的轮带了一条 AI
      就不拦，于是「新帧有旧 AI、本轮人类却没有本轮 AI」会把旧账本本轮的 AI 行
@@ -271,7 +280,9 @@ function lbRowsPut(uid, title, rounds){
          判据：新帧里一条都没有它的 mid，且它的 mid 时间不早于新帧最新一条
          （无 mid 的未认证行按最新处理——它只可能是刚发还没认证的）。 */
       let merged = rounds2;
-      if (Array.isArray(old) && old.length){
+      /* 1.068（老板 12:03 令·镜像）：全量镜像下账本条数必须等于服务器给的口径——
+         不再把「本地更新行」粘在尾部（最多 6 轮，10 条能被它涨到 22 条）。 */
+      if (!lbMirrorMode() && Array.isArray(old) && old.length){
         const inNew = new Set();
         rounds2.forEach(r => (r || []).forEach(m => {
           if (Array.isArray(m) && m[6]) inNew.add(String(m[6]));
@@ -326,9 +337,9 @@ function lbScreenMsgs(sid, title){
        u/a 行一并并入主界面：账本落后/漏轮时直接由存帧补齐，主界面恒等于小账本。
        切服不串显：两边都有服务器归属且不同时整份跳过（3.01 口径）。 */
     const groups = [];
+    let _fr = null;                  /* 1.068：镜像分支在 try 外也要用，声明提到外面 */
     try{
       const _tag = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : '';
-      let _fr = null;
       if (typeof _frameMem !== 'undefined'){
         /* 2.319：内存存帧键同落盘口径（终身号优先），旧名称键兜底。 */
         const _mk = (typeof snapKeyOf === 'function') ? snapKeyOf(sid, t)
@@ -375,6 +386,58 @@ function lbScreenMsgs(sid, title){
         }
       }
     }catch(e){}
+    /* 1.068（老板 12:03 令·镜像＝电脑几条手机几条）：全量镜像下屏幕只认**一份
+       账本**（终身号键优先、无则名称键），存帧只补「比账本末条更新」的差额行；
+       绝不再把号键/名键/存帧三份窗口并集（错位时会拼出 15、22 条）。
+       拉历史（histPrevRaw）只在 curMsgs 里叠加显示，不写账本、不进这里。 */
+    if (lbMirrorMode()){
+      const _kU = u ? _lbRowsKey(u, '') : '';
+      const _kT = t ? _lbRowsKey('', t) : '';
+      let _src = [];
+      if (_kU && Array.isArray(LB.rows[_kU]) && LB.rows[_kU].length) _src = LB.rows[_kU];
+      else if (_kT && Array.isArray(LB.rows[_kT])) _src = LB.rows[_kT];
+      const _out = [], _seen = {}, _ledMids = {};
+      let _maxMid = '';
+      const _formal = id => (typeof _midIsFormal === 'function')
+        ? !!_midIsFormal(id) : /^[0-9a-f]{24}$/i.test(String(id || ''));
+      _src.forEach(r => (r || []).forEach(m => {
+        if (!Array.isArray(m)) return;
+        const mk = _msgKey(m);
+        if (_seen[mk]) return;
+        _seen[mk] = 1; _out.push(m.slice());
+        const d = String(m[6] || '');
+        if (_formal(d)) _ledMids[d] = 1;
+        if (_formal(d) && d > _maxMid) _maxMid = d;
+      }));
+      let _tag2 = '';
+      try { _tag2 = (typeof lbSrvTag === 'function') ? String(lbSrvTag() || '') : ''; } catch(e){ _tag2 = ''; }
+      const _fs2 = String((_fr && _fr._srv) || '');
+      if (_fr && Array.isArray(_fr.msgs) && _fr.msgs.length
+          && !(_tag2 && _fs2 && _tag2 !== _fs2)){
+        /* 存帧只做两件事（差额）：补账本某一轮缺的 AI 行、补账本末条之后的新行；
+           比账本更早、账本又没记的历史行一律不并（治 15/22 条）。 */
+        let _keepRound = (_out.length === 0);
+        _fr.msgs.forEach(m => {
+          if (!Array.isArray(m)) return;
+          const k = (typeof _lbKeepRow === 'function') ? _lbKeepRow(m) : m;
+          if (!k) return;
+          const d = String(m[6] || '');
+          const isU = String(m[0] || '').toLowerCase() === 'u';
+          const mk = _msgKey(k);
+          if (_seen[mk]){
+            /* 账本已有这条人类行 ⇒ 它后面的 AI 行是本轮缺的那条，允许补 */
+            if (isU) _keepRound = !!_ledMids[d];
+            return;
+          }
+          if (isU){
+            _keepRound = (_out.length === 0) || (_formal(d) && d > _maxMid);
+          }
+          if (!_keepRound) return;
+          _seen[mk] = 1; _out.push(k.slice());
+        });
+      }
+      return _out;
+    }
     /* 账本帧（LB.rows）放后面并：同一 mid 以账本（服务端定稿）为准，存帧只补账本没有的轮。 */
     for (const k of keys){
       const rs = LB.rows[k];
