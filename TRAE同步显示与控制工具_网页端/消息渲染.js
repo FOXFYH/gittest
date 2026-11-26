@@ -332,6 +332,13 @@ function renderMsgs(msgs, finish, opts, ask, pend){
     /* 2.287（老板 2026-11-25 12:47 令）：思维流专属 ID（th: 前缀）同样不得进普通
        消息区——终极回复的位置只留给真正的终极回复。 */
     if (/^th:/i.test(String((m.length > 6 && m[6]) || ''))) return;
+    /* 1.077（老板 2026-11-26 20:51 令·思维流唯一去处＝气泡框）：第三类封口——
+       纯思维块（lbPureThink：首行「思考过程/思考中…」、服务端又没标终答类型）
+       绝不进普通消息区。真终极回复（服务端权威类型 index8 明确 a/final/patched
+       或完成卡摘要）lbPureThink 返回 false，不受本闸影响。至此三类思维流
+       （th 类型 / th: 前缀 / 纯思维块）全部封死进对话区的路——唯一去处＝
+       底部虚线气泡框。 */
+    if (m[0] !== 'u' && typeof lbPureThink === 'function' && lbPureThink(m)) return;
     const user = m[0] === 'u';
     let acts = '';
     /* 1.24：一键复制（所有消息）+ 重编（「我」的每条消息——把
