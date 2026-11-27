@@ -22,7 +22,7 @@
  * ========================================================================== */
 (function (global) {
   'use strict';
-  var WSQ = { 版本: '1.3' };
+  var WSQ = { 版本: '1.4' };
 
   /* ---------------- 常量 ---------------- */
   var 前缀 = 'WSRELAY';
@@ -132,16 +132,39 @@
   var 休眠 = false, 最近操作 = Date.now(), 上次心跳 = 0, 已连上 = false;
   var 上次在线端 = [];
   var 最近流水 = [], 流水序 = 0, 流水上限 = 200;
+  var 服务器表 = {};               /* 实例号 → {昵称,设备名,产品,号} */
+  var 集群状态 = {};               /* 集群名 → {状态, 起, 最近} */
+  var 目标号 = LS('lastsrv', '');
+  var 启动收集 = null;             /* 开机握手后 4 秒内收到的服务器；null＝不在收集中 */
 
   WSQ.状态 = function () {
     var 空闲 = (Date.now() - 最近操作) / 1000, 心跳 = Number(配置.hb || 默认心跳);
     return { 状态: 状态, 已连上: 已连上, 休眠: 休眠, 服务端: JSON.parse(JSON.stringify(服务端)),
       允许主动下线: 允许主动下线, 静止秒: 静止秒, 空闲秒: 空闲, 心跳秒: 心跳,
       下次心跳秒: 上次心跳 ? Math.max(0, Math.round(心跳 - (Date.now() - 上次心跳) / 1000)) : 心跳,
-      心跳满足: 配置.smart ? (空闲 < 心跳) : true, 业务集群: 配置.biz, 频道: WSQ.频道() };
+      心跳满足: 配置.smart ? (空闲 < 心跳) : true, 业务集群: 配置.biz, 频道: WSQ.频道(),
+      目标号: 目标号, 服务器: WSQ.服务器() };
   };
   WSQ.在线端 = function () { return JSON.parse(JSON.stringify(上次在线端)); };
   WSQ.流水 = function () { return 最近流水.slice(); };
+  WSQ.服务器 = function () {
+    return Object.keys(服务器表).map(function (k) { return 服务器表[k]; });
+  };
+  WSQ.集群在线 = function () {
+    return Object.keys(集群状态).sort().map(function (k) {
+      var v = 集群状态[k] || {};
+      return { 集群: k, 状态: v.状态 || '未连接',
+        在线秒: (v.状态 === '已连接' && v.起) ? Math.max(0, Math.round((Date.now() - v.起) / 1000)) : 0,
+        最近: v.最近 ? new Date(v.最近).toTimeString().slice(0, 8) : '-' };
+    });
+  };
+  WSQ.目标号 = function () { return 目标号; };
+  WSQ.选服务器 = function (号) {
+    目标号 = String(号 || '');
+    SS('lastsrv', 目标号);
+    通知({类型: '服务器', 列表: WSQ.服务器(), 目标: 目标号});
+    通知状态();
+  };
 
   function 通知状态() { 通知({类型: '状态', 状态: WSQ.状态()}); }
   function 字节数(s) { try { return new TextEncoder().encode(s).length; } catch (e) { return s.length; } }
@@ -175,6 +198,7 @@
     var ws = (账号 === 配置.emg ? 紧急ws : 业务ws);
     if (!ws || ws.readyState !== 1) { 记日志('err', '发送失败：' + 账号 + ' 未连接（' + (对.t || '') + '）'); return false; }
     try {
+      if (目标号) 载荷 = Object.assign({ 目标服务器: 目标号 }, 载荷);
       var 帧 = WSQ.封装(对);
       ws.send(帧);
       if (配置.smart) 上次心跳 = Date.now();
@@ -193,20 +217,61 @@
     try { ws = new WebSocket(url); } catch (e) { 记日志('err', 名 + ' 连接失败：' + e.message); return null; }
     ws.onopen = function () {
       记日志('sys', 名 + ' 已连接');
-      if (是业务) { 业务ws = ws; 已连上 = true; 状态 = '已连接'; 发握手(); }
-      else { 紧急ws = ws; }
+      记集群(名, '已连接');
+      if (是业务) {
+        业务ws = ws; 已连上 = true; 状态 = '已连接';
+        发握手();
+        开始收集();
+      } else { 紧急ws = ws; }
       通知状态();
     };
     ws.onmessage = function (ev) { 收(名, String(ev.data || '')); };
     ws.onclose = function () {
       记日志('sys', 名 + ' 已断开');
+      记集群(名, '已断开');
       if (是业务 && 业务ws === ws) {
         业务ws = null; 已连上 = false; 上次心跳 = 0; 状态 = '重连中'; 通知状态();
         if (!休眠) setTimeout(重连业务, 4000);
       } else if (!是业务 && 紧急ws === ws) { 紧急ws = null; }
     };
-    ws.onerror = function () { 记日志('err', 名 + ' 连接出错'); };
+    ws.onerror = function () { 记日志('err', 名 + ' 连接出错'); 记集群(名, '出错'); };
     return ws;
+  }
+  function 记集群(名, 状态文) {
+    集群状态[名] = 集群状态[名] || {};
+    集群状态[名].状态 = 状态文;
+    集群状态[名].最近 = Date.now();
+    if (状态文 === '已连接') 集群状态[名].起 = Date.now();
+    通知({ 类型: '集群', 列表: WSQ.集群在线() });
+  }
+  /* 开机握手 4 秒收集服务器（与电脑端一致）：上次那台在线就自动连它，只有一台也连 */
+  var 收集定时 = null, 启动重试 = 0;
+  function 开始收集() {
+    启动收集 = {};
+    if (收集定时) clearTimeout(收集定时);
+    收集定时 = setTimeout(收尾收集, 4000);
+  }
+  function 收尾收集() {
+    收集定时 = null;
+    var 收集 = 启动收集 || {};
+    启动收集 = null;
+    var 号们 = Object.keys(收集);
+    if (!号们.length) {
+      if (启动重试 < 4) {
+        启动重试++;
+        记日志('sys', '开机刷新没收到服务器应答，3 秒后重发握手（第 ' + 启动重试 + ' 次）');
+        收集定时 = setTimeout(function () { 发握手(); 开始收集(); }, 3000);
+      } else {
+        记日志('err', '开机刷新完成：未发现服务器');
+      }
+      return;
+    }
+    启动重试 = 0;
+    var 上次 = String(LS('lastsrv', '') || '');
+    if (上次 && 收集[上次]) { WSQ.选服务器(上次); 记日志('sys', '开机自动刷新：上次服务器在线，已自动连接 ' + 上次); }
+    else if (号们.length === 1) { WSQ.选服务器(号们[0]); 记日志('sys', '开机自动刷新：唯一在线服务器，已自动连接 ' + 号们[0]); }
+    else { 记日志('sys', '开机自动刷新：' + 号们.length + ' 台服务器在线，请手动选择'); }
+    通知({ 类型: '服务器', 列表: WSQ.服务器(), 目标: 目标号 });
   }
   function 连接全部() {
     状态 = '连接中'; 通知状态();
@@ -242,7 +307,9 @@
     /* 客户端业务：对服务端问询作答 */
     if (t === '发起握手') {
       var 目标 = String(对.目标客户端 || '');
-      if (目标 && 目标 !== 配置.id && String(对.目标昵称 || '') !== 昵称()) return;
+      /* 没写目标客户端的握手是广播给服务器的，客户端不得抢答 */
+      if (!目标) return;
+      if (目标 !== 配置.id && String(对.目标昵称 || '') !== 昵称()) return;
       WSQ.发(账号, 头发('回应握手', 账号, { 电脑名: 配置.dev, 产品: 配置.prod, 主动下线: true }));
     } else if (t === '谁在') {
       WSQ.发(账号, 头发('在线应答', 账号, { 电脑名: 配置.dev, 产品: 配置.prod }));
@@ -251,6 +318,12 @@
     if (t === '回应握手') {
       服务端.昵称 = 对.昵称 || 对.电脑名 || ''; 服务端.号 = 对.软件号 || '';
       服务端.产品 = 对.产品 || ''; 服务端.设备名 = 对.电脑名 || '';
+      if (对.软件号) {
+        服务器表[String(对.软件号)] = { 号: String(对.软件号), 昵称: 对.昵称 || '',
+          设备名: 对.电脑名 || '', 产品: 对.产品 || '' };
+        if (启动收集) 启动收集[String(对.软件号)] = true;
+        通知({ 类型: '服务器', 列表: WSQ.服务器(), 目标: 目标号 });
+      }
       允许主动下线 = 对.主动下线 !== false;
       静止秒 = Number(对.静止秒 || 静止秒) || 默认静止;
       SS('still', 静止秒);
