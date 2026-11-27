@@ -112,7 +112,7 @@ setInterval(diagRender, 1000);
 /* ========== 1.xx：版本号单源——只改这里，地址栏/标题栏/菜单栏与
    说明行同步更新（APP_NAME / VER） ========== */
 const APP_NAME = 'TRAE远程';
-const VER = '2.345';
+const VER = '2.346';
 try {
   localStorage.setItem('trae_webm_ver_seen', VER);
 } catch(e){}
