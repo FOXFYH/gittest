@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Excel 风格数据管理器 · 手机版</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; font: 14px/1.4 -apple-system, "Microsoft YaHei", sans-serif;
+         background: #f3f4f6; color: #222; }
+  header { position: sticky; top: 0; z-index: 5; background: #217346; color: #fff;
+           padding: 8px 10px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  header h1 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  input, select, button { font-size: 14px; }
+  input[type=text], input[type=password] {
+    padding: 5px 7px; border: 1px solid #cfd6dd; border-radius: 6px; background: #fff;
+    color: #222; min-width: 0; }
+  button { padding: 6px 12px; border: 0; border-radius: 6px; background: #fff;
+           color: #217346; font-weight: 600; }
+  button:active { opacity: .7; }
+  button.ghost { background: rgba(255,255,255,.18); color: #fff; }
+  main { padding: 8px; }
+  .card { background: #fff; border-radius: 8px; padding: 8px; margin-bottom: 8px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .files { list-style: none; margin: 0; padding: 0; }
+  .files li { padding: 10px 8px; border-bottom: 1px solid #eef1f4; display: flex;
+              justify-content: space-between; align-items: center; }
+  .files li:last-child { border-bottom: 0; }
+  .files .nm { font-weight: 600; }
+  .files .sz { color: #8a929a; font-size: 12px; }
+  .tablewrap { overflow: auto; max-height: 62vh; border: 1px solid #dfe3e7;
+               border-radius: 6px; background: #fff; }
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid #e6e9ec; padding: 0; }
+  th { background: #F3F2F1; color: #1F4E33; font-weight: 600; font-size: 12px;
+       position: sticky; top: 0; z-index: 1; min-width: 34px; }
+  th.rowh { left: 0; z-index: 2; }
+  td input { width: 110px; border: 0; padding: 7px 6px; font-size: 14px;
+             background: transparent; }
+  td input:focus { outline: 2px solid #217346; background: #f0fbf4; }
+  .muted { color: #8a929a; font-size: 12px; }
+  .status { position: fixed; left: 0; right: 0; bottom: 0; background: #1f3d2c;
+            color: #d7f5e3; padding: 6px 10px; font-size: 12px; }
+  main { padding-bottom: 40px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Excel 风格数据管理器 · 手机版</h1>
+  <div class="row">
+    <input id="host" type="text" placeholder="服务器地址" style="flex:1 1 120px">
+    <input id="port" type="text" value="47821" style="width:72px">
+    <input id="pwd" type="password" placeholder="口令(可空)" style="flex:0 1 96px">
+    <button id="btnConn" class="ghost">连接</button>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="panelList">
+    <div class="row" style="justify-content:space-between;margin-bottom:6px">
+      <b>云文件</b>
+      <span>
+        <button id="btnNew">新建</button>
+        <button id="btnRefresh">刷新</button>
+      </span>
+    </div>
+    <ul class="files" id="files"><li class="muted">未连接</li></ul>
+  </section>
+
+  <section class="card hidden" id="panelEdit">
+    <div class="row" style="justify-content:space-between;margin-bottom:6px">
+      <b id="curName">—</b>
+      <span>
+        <button id="btnSave">保存到云端</button>
+        <button id="btnBack">返回列表</button>
+      </span>
+    </div>
+    <div class="tablewrap"><div id="grid"></div></div>
+    <div class="muted" style="margin-top:6px">改动只保存在云端；要落到本地，请在电脑端「云文件 → 导出当前云文件到本地」。</div>
+  </section>
+</main>
+
+<div class="status" id="status">未连接</div>
+
+<script>
+(function () {
+  var ws = null, 当前名 = '', 当前文档 = null, 当前页 = 0;
+  var 已改 = {};
+
+  function st(s) { document.getElementById('status').textContent = s; }
+  function $(id) { return document.getElementById(id); }
+
+  function addr() {
+    var h = $('host').value.trim() || location.hostname || '127.0.0.1';
+    var p = $('port').value.trim() || '47821';
+    return 'ws://' + h + ':' + p;
+  }
+
+  function 连接() {
+    try { if (ws) ws.close(); } catch (e) {}
+    var https页 = location.protocol === 'https:';
+    var 主机 = $('host').value.trim() || location.hostname || '127.0.0.1';
+    if (https页 && !/^(localhost|127\.)/.test(主机)) {
+      st('此页经 https 打开，浏览器会拦截到本机的 ws 连接；请在本机局域网用 http://服务器IP:47822/ 打开，或填写 wss 地址');
+    }
+    st('正在连接 ' + addr() + ' …');
+    ws = new WebSocket(addr());
+    ws.onopen = function () {
+      st('已连接');
+      var 口令 = $('pwd').value;
+      ws.send(JSON.stringify({ t: '问候', id: 'WEB-' + Math.floor(Math.random()*1e6), 角色: '网页', 口令: 口令 }));
+      ws.send(JSON.stringify({ t: '云列表', 口令: 口令 }));
+    };
+    ws.onclose = function () { st('已断开'); };
+    ws.onerror = function () { st('连接错误'); };
+    ws.onmessage = function (ev) {
+      var f;
+      try { f = JSON.parse(ev.data); } catch (e) { return; }
+      if (f.t === '云列表') 渲染列表(f.文件们 || []);
+      else if (f.t === '云文件') 打开文档(f.名称, f.文件);
+      else if (f.t === '云保存结果') st(f.成功 ? '已保存到云端' : '保存失败');
+    };
+  }
+
+  function 渲染列表(文件们) {
+    var ul = $('files');
+    ul.innerHTML = '';
+    if (!文件们.length) { ul.innerHTML = '<li class="muted">（没有云文件）</li>'; return; }
+    文件们.forEach(function (f) {
+      var li = document.createElement('li');
+      var sp = document.createElement('span');
+      sp.className = 'nm'; sp.textContent = f.名称;
+      var bt = document.createElement('button');
+      bt.textContent = '打开';
+      bt.onclick = function () { ws.send(JSON.stringify({ t: '云打开', 名称: f.名称 })); };
+      li.appendChild(sp); li.appendChild(bt);
+      ul.appendChild(li);
+    });
+  }
+
+  function 打开文档(名, 文档) {
+    当前名 = 名; 当前文档 = 文档; 当前页 = 0; 已改 = {};
+    $('curName').textContent = '☁ ' + 名;
+    $('panelList').classList.add('hidden');
+    $('panelEdit').classList.remove('hidden');
+    渲染表格();
+  }
+
+  function 渲染表格() {
+    var s = (当前文档.Sheets || [])[当前页] || { 行数: 50, 列数: 11, 单元格: {} };
+    var 行数 = Math.min(s.行数 || 50, 200), 列数 = Math.min(s.列数 || 11, 40);
+    var 格 = s.单元格 || {};
+    var html = '<table><thead><tr><th class="rowh">#</th>';
+    for (var c = 0; c < 列数; c++) html += '<th>' + 列字母(c) + '</th>';
+    html += '</tr></thead><tbody>';
+    for (var r = 0; r < 行数; r++) {
+      html += '<tr><th class="rowh">' + (r + 1) + '</th>';
+      for (var c2 = 0; c2 < 列数; c2++) {
+        var 键 = r + ',' + c2;
+        var v = 格[键] || '';
+        html += '<td data-key="' + 键 + '"><input type="text" value="' +
+          (v + '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') +
+          '"></td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    var g = $('grid'); g.innerHTML = html;
+    g.querySelectorAll('td[data-key]').forEach(function (td) {
+      td.querySelector('input').addEventListener('input', function () {
+        已改[td.dataset.key] = 1;
+      });
+    });
+  }
+
+  function 列字母(n) {
+    var s = '';
+    n = n + 1;
+    while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+    return s;
+  }
+
+  function 保存() {
+    if (!当前名 || !当前文档) return;
+    var s = (当前文档.Sheets || [])[当前页];
+    var 格 = {};
+    document.querySelectorAll('td[data-key]').forEach(function (td) {
+      var v = td.querySelector('input').value;
+      if (v !== '') 格[td.dataset.key] = v;
+    });
+    s.单元格 = 格;
+    if (!s.元) s.元 = {};
+    var now = Math.floor(Date.now() / 1000);
+    Object.keys(已改).forEach(function (k) {
+      var 旧 = s.元[k];
+      if (旧) { 旧[1] = (旧[1] || 0) + 1; 旧[2] = now; }
+      else { s.元[k] = [0, 1, now]; }
+    });
+    已改 = {};
+    当前文档.云端同步 = true;
+    ws.send(JSON.stringify({ t: '云保存', 名称: 当前名, 文件: 当前文档, 口令: $('pwd').value }));
+    st('正在保存到云端…');
+  }
+
+  $('host').value = location.hostname || '127.0.0.1';
+  $('btnConn').onclick = 连接;
+  $('btnRefresh').onclick = function () {
+    if (ws) ws.send(JSON.stringify({ t: '云列表', 口令: $('pwd').value }));
+  };
+  $('btnNew').onclick = function () {
+    var 名 = prompt('新建云文件名：');
+    if (!名) return;
+    ws.send(JSON.stringify({ t: '云新建', 名称: 名, 口令: $('pwd').value }));
+    setTimeout(function () {
+      ws.send(JSON.stringify({ t: '云打开', 名称: 名, 口令: $('pwd').value }));
+    }, 400);
+  };
+  $('btnSave').onclick = 保存;
+  $('btnBack').onclick = function () {
+    $('panelEdit').classList.add('hidden');
+    $('panelList').classList.remove('hidden');
+    if (ws) ws.send(JSON.stringify({ t: '云列表', 口令: $('pwd').value }));
+  };
+})();
+</script>
+</body>
+</html>
