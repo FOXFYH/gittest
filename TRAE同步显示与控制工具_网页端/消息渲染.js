@@ -499,15 +499,15 @@ function renderMsgs(msgs, finish, opts, ask, pend){
          + esc(_txt) + '</div>'
          + (_hasH ? '<div class="qfh">' + foxHintHtml(_hz[0]) + '</div>' : '')
          + '</div>'
-         + (_ghost
-            ? '<div class="qbtns"><button class="go qsend" disabled'
-              + ' title="上一拍遗留，未与官方队列对齐，不可操作">—</button></div>'
-            : '<div class="qbtns">'
-              + '<button class="go qsend" data-qi="' + qi + '" data-qx="' + i + '">⚡发送</button>'
-              + '<div class="qsub">'
-              + '<button data-qi="' + qi + '" data-qx="' + i + '" data-qk="edit">✎</button>'
-              + '<button class="del" data-qi="' + qi + '" data-qx="' + i + '" data-qk="del">🗑</button>'
-              + '</div></div>')
+         + '<div class="qbtns">'
+         + '<button class="go qsend' + (_ghost ? ' dimq' : '') + '" data-qi="' + qi
+         + '" data-qx="' + i + '"' + (_ghost ? ' title="待对齐，稍后可操作"' : '') + '>⚡发送</button>'
+         + '<div class="qsub">'
+         + '<button' + (_ghost ? ' class="dimq" title="待对齐"' : '')
+         + ' data-qi="' + qi + '" data-qx="' + i + '" data-qk="edit">✎</button>'
+         + '<button class="del' + (_ghost ? ' dimq' : '') + '" data-qi="' + qi
+         + '" data-qx="' + i + '" data-qk="del"' + (_ghost ? ' title="待对齐"' : '') + '>🗑</button>'
+         + '</div></div>'
          + '</div>';
     });
     _qLatch.forEach(e => {
