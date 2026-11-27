@@ -59,6 +59,24 @@
     if (srv && d.srv == null) d.srv = srv;
     return d;
   }
+
+  function 帧格式表(){
+    return (T().帧格式) || {};
+  }
+  function 校验(d){
+    if (!d || typeof d !== 'object') return ['t'];
+    var t = String(d.t || '');
+    var tb = 帧格式表()[t];
+    if (!tb) return [];
+    var miss = [];
+    var req = tb.必选 || {};
+    Object.keys(req).forEach(function(k){
+      var v = d[k];
+      if (v == null || (typeof v === 'string' && v === '' && k !== 'sid')) miss.push(k);
+    });
+    return miss;
+  }
   window.WSFMT = {ev帧: ev帧, mod帧: mod帧, vack帧: vack帧,
-                  解析: 解析, 类型: 类型, 取值: 取值, 盖源头戳: 盖源头戳};
+                  解析: 解析, 类型: 类型, 取值: 取值, 盖源头戳: 盖源头戳,
+                  校验: 校验, 帧格式表: 帧格式表};
 })();
