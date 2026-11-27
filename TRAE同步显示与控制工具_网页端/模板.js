@@ -36,5 +36,90 @@ window.MSGTPL = {
   "积分预警": "积分告警：当前积分 {points}，低于阈值 {th}",
   "登录丢失": "登录态丢失：{srv}",
   "未读超时": "会话「{title}」已 {min} 分钟未读完成"
+ },
+ "帧格式": {
+  "ev": {
+   "必选": {
+    "t": "str",
+    "k": "str",
+    "v": "any"
+   },
+   "可选": {
+    "srv": "str",
+    "sid": "str",
+    "srv_sid": "str",
+    "host": "str",
+    "ts": "int"
+   }
+  },
+  "mod": {
+   "必选": {
+    "t": "str",
+    "m": "str",
+    "v": "str",
+    "d": "any"
+   },
+   "可选": {
+    "sid": "str",
+    "ts": "int",
+    "srv": "str"
+   }
+  },
+  "vack": {
+   "必选": {
+    "t": "str",
+    "act": "str",
+    "stage": "int",
+    "sid": "str"
+   },
+   "可选": {
+    "need": "list",
+    "items": "list",
+    "srv_order": "list",
+    "same": "bool",
+    "mods": "dict",
+    "mids": "list"
+   }
+  },
+  "vcheck": {
+   "必选": {
+    "t": "str",
+    "act": "str"
+   },
+   "可选": {
+    "mods": "dict",
+    "req_seq": "int",
+    "sid": "str",
+    "thinks": "dict"
+   }
+  },
+  "ledger_req": {
+   "必选": {
+    "t": "str"
+   },
+   "可选": {
+    "sid": "str",
+    "rounds": "int",
+    "ch": "str"
+   }
+  },
+  "cmd": {
+   "必选": {
+    "t": "str"
+   },
+   "可选": {
+    "arg": "any",
+    "k": "str"
+   }
+  },
+  "login": {
+   "必选": {
+    "t": "str"
+   },
+   "可选": {
+    "nick": "str",
+    "fg": "bool"
+   }
+  }
  }
 };
