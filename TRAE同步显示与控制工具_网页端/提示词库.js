@@ -1,36 +1,10 @@
 'use strict';
-/* 提示词库.js（网页端）  版本 2.287  日期 2026-11-26
-   2.287（老板 2026-11-26 10:36 令·0001 实测「plib_get Q0006 90 秒 59 次」）：
-      缺码取全文原先在每次消息重画时都 `cmd('plib_get',[码])`——服务端若取不到
-      该码（旧码/已删），就会随每次重画无限重试。现收口为 `requestCodes()`：
-      同一缺码 60 秒内最多请求一次，收到 plib_text 即清标记；本机已有的码绝不
-      重复要。只改请求节流，缓存/协议/服务端零改动。
-   2.286（老板 14:50 令「传聊天记录到网页版时，提示词段落打包成一个代码」）：
-      服务端 WS桥 0.109 起，下发正文只夹代码标记 `(@fox-lib1)Q0001,Q0002(@fox-lib2)`；
-      本文件新增 `window.plibHintByCodes(codes)`——按代码到本机镜像领全文、拼四段；
-      全文到齐后自动重画消息区，折叠按钮立即出现。提示词全文仍只存在本机镜像。
-   2.285（老板 14:47 令「按钮还要有，内容到前端领」）：服务端 0.106 起正文不再
-   夹带专属提示词（省流），消息里的「系统▸/自定▸/人定▸/岗位▸」按钮因此消失。
-   本文件新增 `window.plibHintSegs(sid)`：按会话从本机镜像（代码→缓存全文）拼出
-   四段提示词，供消息渲染补画同一张折叠卡；缺码自动 plib_get，只传代码不传正文。
-   老板口径（2026-11-25 09:52）：「提示词仓库模块的风格有点像会话记录模块一样，
-   它占一行，不过这一行里面，它会有一组多个的版本号码，对应每一条提示词绝对差异化的。」
-   ⇒ 本块只占一行：状态 + 一串「代码·版本」小钮（一条提示词一个版本号）+ 对账/清空；
-      点某个版本号才在下方展开全文（平时不占高度）。
-
-   服务端「提示词总库」已按正文去重（系统词拆「私有头+全局段」），每条唯一正文
-   一个代码（Q0001…）+ 一个版本号（sha1 前 8 位）。网页端平时只收「代码+版本」索引，
-   缺码/版本不符才 plib_get 取那几条全文；其余全部吃 localStorage 缓存。
-
-   协议：cmd('plib_idx') → ev/plib_idx {n,idx:[{c,v,k,t,z,u}],conv:[{sid,n,p:[[k,c]…]}]}
-         cmd('plib_get',[码…]) → ev/plib_text {items:{码:全文}}            */
+ /* 提示词库.js（网页端）  版本 2.288  日期 2026-11-26 */
 (function(){
   const KEY = 'plib_cache_v1';
   let L = load();
   let built = false;
   let tried = false;
-  /* 2.287：缺码请求节流表（码→上次请求时刻）。60 秒内同一缺码只发一次，
-     收到 plib_text 即清；治「每次重画都重发 plib_get」的重试风暴。 */
   const _reqAt = {};
   function requestCodes(codes){
     try{
@@ -46,6 +20,19 @@
       if (out.length) cmd('plib_get', out.slice(0, 20));
     }catch(e){}
   }
+  /* 服务端提示词库模块只推差异（add/del/upd 代码）：缺的自动索取、删的本地清掉 */
+  window.plibTakeDiff = function(d){
+    try{
+      const add = (d && Array.isArray(d.add)) ? d.add : [];
+      const upd = (d && Array.isArray(d.upd)) ? d.upd : [];
+      if (add.length || upd.length) requestCodes(add.concat(upd));
+      const del = (d && Array.isArray(d.del)) ? d.del : [];
+      if (del.length){
+        del.forEach(function(c){ try { delete L.txt[c]; delete L.ver[c]; } catch(e){} });
+        save();
+      }
+    }catch(e){}
+  };
 
   function load(){
     try {
@@ -164,13 +151,13 @@
     let n = 0;
     Object.keys(items).forEach(c => {
       L.txt[c] = items[c];
-      delete _reqAt[c];              /* 2.287：已取回，解除节流标记 */
+      delete _reqAt[c];              /* 已取回，解除节流标记 */
       if (L.idx) L.idx.forEach(e => { if (e.c === c) L.ver[c] = e.v; });
       n++;
     });
     save();
     render();
-    if (n) redrawMsgs();          /* 2.286：全文到齐后重画消息，折叠按钮立即出现 */
+    if (n) redrawMsgs();          /* 全文到齐后重画消息，折叠按钮立即出现 */
     const total = (L.idx || []).length;
     const have = (L.idx || []).filter(e => L.txt[e.c] != null).length;
     setStat(total + '条·已缓' + have + (have < total ? '·缺' + (total - have) : '✓'));
@@ -274,9 +261,6 @@
     build();
   window.plibSync = () => sync(true);
 
-  /* 2.285：正文渲染用——按会话取四段提示词（只用本机镜像缓存；缺码只发代码去取）。
-     会话键＝本地库里的「段」（终身号），前端 sid 前 4 位就是终身号，先按它精确匹配，
-     匹配不到再按会话名兜底。返回 {sys,usr,co,ai}（无内容 → null）。 */
   window.plibHintSegs = function(sid, title){
     try{
       const conv = L.conv || [];
@@ -299,7 +283,6 @@
       return (hz.sys || hz.usr || hz.co || hz.ai) ? hz : null;
     }catch(e){ return null; }
   };
-  /* 2.286：全文到齐后重画当前消息区（参数原样取自 S.msgs_last，与 通用工具.js 重放同口径）。 */
   function redrawMsgs(){
     try{
       if (typeof renderMsgs !== 'function') return;
@@ -310,9 +293,6 @@
     }catch(e){}
   }
 
-  /* 2.286（老板 2026-11-25 14:50 令）：服务端下发正文里的提示词段落已打包成
-     代码标记 (@fox-lib1)Q0001,Q0002(@fox-lib2)。本函数按代码到本机提示词仓库
-     镜像领取全文，拼成 {sys,usr,co,ai} 供折叠卡渲染；缺码只发代码去取。 */
   window.plibHintByCodes = function(codes){
     try{
       const MAP = {'私有头': 'sys', '全局': 'sys', '系统': 'sys',
