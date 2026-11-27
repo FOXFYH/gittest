@@ -61,11 +61,14 @@
     + '</header>'
     + '<div id="wsqHome">'
     + '  <div class="card"><h3>当前连接</h3><div class="kv">'
-    + '    <i>服务器</i><b id="wsqSrv">-</b><i>业务集群</i><b id="wsqClus">-</b>'
+    + '    <i>服务器</i><b id="wsqSrv">-</b><i>目标服务器</i><b id="wsqTarget">-</b><i>业务集群</i><b id="wsqClus">-</b>'
     + '    <i>频道</i><b id="wsqChan" class="wide">-</b><i>下次心跳</i><b id="wsqHb">-</b><i>主动下线</i><b id="wsqOff">-</b>'
     + '  </div></div>'
-    + '  <div class="card"><h3>在线端（服务器统计）<button id="wsqBtnWho">刷新谁在</button></h3>'
-    + '    <div class="tw" style="max-height:22vh"><table><thead><tr><th>序号</th><th>昵称</th><th>设备名</th><th>产品</th><th>实例号</th></tr></thead><tbody id="wsqTbSrv"><tr><td colspan="5" style="color:#9aa">尚未刷新</td></tr></tbody></table></div></div>'
+    + '  <div class="card"><h3>自身集群在线</h3>'
+    + '    <div class="tw" style="max-height:16vh"><table><thead><tr><th>序号</th><th>集群</th><th>状态</th><th>在线时长</th><th>最近活动</th></tr></thead><tbody id="wsqTbCluster"></tbody></table></div></div>'
+    + '  <div class="card"><h3>服务器在线<button id="wsqBtnWho">刷新谁在</button></h3>'
+    + '    <div class="tw" style="max-height:22vh"><table><thead><tr><th>序号</th><th>昵称</th><th>设备名</th><th>产品</th><th>实例号</th></tr></thead><tbody id="wsqTbSrv"><tr><td colspan="5" style="color:#9aa">尚未发现服务器</td></tr></tbody></table></div>'
+    + '    <div class="tip">点某一行＝选定目标服务器（下次启动自动连它）。</div></div>'
     + '  <div class="card"><h3>WS 收发流水 <span class="r">最新在第 1 行</span></h3>'
     + '    <div class="tw" style="max-height:30vh"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>集群</th><th>昵称</th><th>实例号</th><th>类型</th><th>大小(KB)</th><th>字数</th><th>摘要</th></tr></thead><tbody id="wsqTbFlow"></tbody></table></div></div>'
     + '  <div class="card"><h3>系统日志 <button id="wsqBtnClearLog">清空</button></h3><div class="logbox" id="wsqSysLog"></div></div>'
@@ -121,11 +124,35 @@
       $('wsqState').textContent = s.状态;
       $('wsqDot').className = 'dot ' + (s.状态 === '已连接' ? 'on' : (s.状态 === '未连接' || s.状态 === '已下线' ? 'off' : 'wait'));
       $('wsqSrv').textContent = (s.服务端.昵称 || '-') + (s.服务端.号 ? ' · ' + s.服务端.号 : '');
+      var 目标 = s.目标号 || '', 服 = null;
+      for (var i = 0; i < (s.服务器 || []).length; i++) if (s.服务器[i].号 === 目标) 服 = s.服务器[i];
+      $('wsqTarget').textContent = 目标 ? ((服 ? 服.昵称 : '?') + ' · ' + 目标) : '（不限制）';
       $('wsqClus').textContent = s.业务集群;
       $('wsqChan').textContent = s.频道;
       $('wsqId').textContent = 核心.读配置().id;
       $('wsqHb').textContent = s.下次心跳秒 + ' 秒（' + (s.心跳满足 ? '满足' : '不满足') + '）';
       $('wsqOff').textContent = !s.允许主动下线 ? '已关闭' : (s.休眠 ? '已下线（动一下即上线）' : Math.max(0, Math.round(s.静止秒 - s.空闲秒)) + ' 秒');
+    }
+
+    function 画集群(列表) {
+      var h = '', i, v;
+      for (i = 0; i < 列表.length; i++) {
+        v = 列表[i] || {};
+        h += '<tr><td>' + (i + 1) + '</td><td>' + (v.集群 || '-') + '</td><td>' + (v.状态 || '-') + '</td><td>' + (v.在线秒 || 0) + ' 秒</td><td>' + (v.最近 || '-') + '</td></tr>';
+      }
+      $('wsqTbCluster').innerHTML = h || '<tr><td colspan="5" style="color:#9aa">未连接</td></tr>';
+    }
+    function 画服务器(列表, 目标) {
+      var h = '', i, v;
+      for (i = 0; i < 列表.length; i++) {
+        v = 列表[i] || {};
+        h += '<tr data-id="' + (v.号 || '') + '" style="cursor:pointer' + (v.号 === 目标 ? ';background:#e8f3ea' : '') + '"><td>' + (i + 1) + '</td><td>' + (v.昵称 || '-') + '</td><td>' + (v.设备名 || '-') + '</td><td>' + (v.产品 || '-') + '</td><td>' + (v.号 || '-') + '</td></tr>';
+      }
+      var tb = $('wsqTbSrv');
+      tb.innerHTML = h || '<tr><td colspan="5" style="color:#9aa">尚未发现服务器</td></tr>';
+      Array.prototype.forEach.call(tb.querySelectorAll('tr[data-id]'), function (tr) {
+        tr.onclick = function () { 核心.选服务器(tr.getAttribute('data-id')); 画状态(核心.状态()); };
+      });
     }
 
     function 画流水(行) {
@@ -138,14 +165,6 @@
       $('wsqTbFlow').innerHTML = '';
       var 列 = 核心.流水();
       for (var i = 0; i < 列.length; i++) 画流水(列[i]);
-    }
-    function 画在线端(列表) {
-      var h = '', i, 端;
-      for (i = 0; i < 列表.length; i++) {
-        端 = 列表[i] || {};
-        h += '<tr><td>' + (i + 1) + '</td><td>' + (端.昵称 || '-') + '</td><td>' + (端.电脑名 || '-') + '</td><td>' + (端.产品 || '-') + '</td><td>' + (端.软件号 || '-') + '</td></tr>';
-      }
-      $('wsqTbSrv').innerHTML = h || '<tr><td colspan="5" style="color:#9aa">没有在线端</td></tr>';
     }
     function 日志(级别, 文本, 时间) {
       var box = $('wsqSysLog'), d = document.createElement('div');
@@ -160,10 +179,12 @@
       if (ev.类型 === '状态') 画状态(ev.状态);
       else if (ev.类型 === '流水') 画流水(ev.行);
       else if (ev.类型 === '日志') 日志(ev.级别, ev.文本, ev.时间);
-      else if (ev.类型 === '在线端') 画在线端(ev.列表);
+      else if (ev.类型 === '集群') 画集群(ev.列表);
+      else if (ev.类型 === '服务器') 画服务器(ev.列表, ev.目标);
       else if (ev.类型 === '集群表' || ev.类型 === '配置') { if (设置在显) 画配置(); }
       else if (ev.类型 === '握手') 画状态(核心.状态());
     });
+    setInterval(function () { 画集群(核心.集群在线()); }, 1000);
 
     $('wsqBtnPage').onclick = function () {
       设置在显 = !设置在显;
@@ -193,7 +214,7 @@
       核心.清缓存(); location.reload();
     };
 
-    画配置(); 画状态(核心.状态()); 画流水全部(); 画在线端(核心.在线端());
+    画配置(); 画状态(核心.状态()); 画流水全部(); 画集群(核心.集群在线()); 画服务器(核心.服务器(), 核心.目标号());
     日志('sys', '界面就绪（内核 v' + 核心.版本 + '）');
   });
 })();
