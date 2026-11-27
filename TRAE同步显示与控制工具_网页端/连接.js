@@ -1,11 +1,5 @@
 'use strict';
-/* 连接.js（网页端）  版本 2.315  日期 2026-11-25
-   【2.315（老板 2026-11-25 23:05 令）：心跳合并为「主动核对」单路】
-     删除本文件的第二路心跳：cliLogin 不再起 60 秒 hb 定时器，cliBeat 整段删除
-     （含「闲置5分钟自动下线」——它与小账本调控页「离线倒计时（默认120秒）」
-     重复且互相争抢）。此后主动核对（账本核对.js / vcheck）是全端唯一心跳，
-     离线由小账本调控页离线倒计时负责；回前台秒续改发最小 vcheck beat 帧。
-*/
+ /* 连接.js（网页端）  版本 2.315  日期 2026-11-25 */
 function renderVer(box){
   try{
     const tag = box ? ' [' + box + ']' : '';
@@ -17,13 +11,6 @@ function renderVer(box){
   }catch(e){ /* 版本渲染绝不影响连接 */ }
 }
 
-/* 1.60：统一「拆旧连接」。
-   原来只摘了 onclose，留下三个后患（用户「频繁掉线」观感的主因之一）：
-     ① 旧连接的 hbTimer 停不掉 → 定时器泄漏，越重连越多个心跳在跑；
-     ② 旧连接的 onerror 还活着 → 关它时把「WS 错误」计数刷高（数字虚高，
-        会误判成中继不稳）；关闭旧连接过程中也会触发 onerror。
-     ③ 若保留旧 onclose，会再排一次重连定时器 → 叠加连接风暴。
-   现在：四个回调全摘 + 定时器全停，再 close。 */
 function teardownWs(){
   try {
     if (ws){
@@ -34,85 +21,61 @@ function teardownWs(){
   clearInterval(hbTimer);  hbTimer = null;
   clearTimeout(helloTimer);
   clearTimeout(reconnectTimer);
-  reconnectTimer = null;   /* 2.182 Y32a：清完置 null——残留旧 id 是真值，会卡死
+  reconnectTimer = null;   /* Y32a：清完置 null——残留旧 id 是真值，会卡死
                             srvWatch「!reconnectTimer」类救援判据（hung-0/已死
                             两档都靠它判定「无重连定时在跑」）。 */
   loggedIn = false;
-  /* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：拆旧就彻底断——
-     S.ws 指针一并置空（配上面的四回调摘除），任何代码都不可能再往旧连接发帧；
-     同时清掉与旧链路绑定的判活痕迹，新连接从零开始，杜绝「新旧两条同时在线」。
-     注：waitT/waitN 不在此清（重连正是由它触发，清了会无限重试）。 */
   S.ws = null;
   S.lastSrv = 0;
   S.srvLost = false;
-  /* 2.260：拆旧连接＝退出旧集群——本服 FOX 号归零，等新集群 hello/首帧自报重落，
-     避免它服 mod/vack/lbkeep 被旧 curSid 的跨服闸门整批误杀。 */
   S.curSid = '';
 }
 
 function connect(){
-  /* 2.184（老板 2026-11-19 令：一次只在一个频道在线）：建新连接前必须先拆旧——
-     teardownWs 会把旧 socket 的 open/message/close/error 四回调全置 null 再
-     close()，并把 S.ws 置空 ⇒ 绝不会「新旧两条同时在线」，旧连接关闭时也不会
-     再排一次重连。切频道（设置页切 main↔backup）、重连、换频道名都走这一条路。 */
   teardownWs();
-  S._wsOpenAt = Date.now();   /* 2.182 Y32a：连接起点时刻——srvWatch 的 hung-0
+  S._wsOpenAt = Date.now();   /* Y32a：连接起点时刻——srvWatch 的 hung-0
                                救援（上线与界面.js）按「readyState===0 超 20s」
                                判假死，以本时刻起算，20s 守卫防风暴。 */
   setOnLine(false);
-  /* 2.216：只有「断过/重试中/手动重连」才亮顶部重连条；首次正常连接不闪橙条 */
   if (S._rcOffline || S._manualRC || S.failStreak > 0 || DIAG.reconn > 0)
     try { reconnUi('↻ 正在重连…', 'var(--orange)'); } catch(e){}
   gotHello = false;
-  helloTries = 0;    // 1.07：重连后重起握手重试（原不重置——10 次用尽
+  helloTries = 0;    // 重连后重起握手重试（原不重置——10 次用尽
                      // 后，重连首条 hello 被中继丢弃就永远失联）
   S.lastSrv = 0;    // 旧连接的服务端活动不再作数
   // ?ws= 参数可临时覆盖服务地址（测试/多环境部署），不改 localStorage
   const qp = new URLSearchParams(location.search).get('ws');
-  const cSel = curSel();                 // v1.50：按当前选中频道连接
+  const cSel = curSel();                 // 按当前选中频道连接
   let ch = chanGet(cSel);
   if (!ch && !qp){
-    channelPrompt();                    // v1.27：首次使用必须先输频道名
+    channelPrompt();                    // 首次使用必须先输频道名
     return;
   }
   ws = new WebSocket(qp || wsUrlOf(ch, cSel));
   S.ws = ws;
-  /* 1.61：本次连接是否真的打开过——没打开就断＝连不上中继（网络/服务商问题） */
   let _openOk = false;
   ws.onopen = () => {
     _openOk = true;
-    /* 2.216：本次连上之前是否处于「断过/重试」——是才提示「已恢复」 */
     const _rcWas = !!(S._rcOffline || S._manualRC || S.failStreak > 0 || DIAG.reconn > 0);
-    S.failStreak = 0;                 // 1.61：连上了就清零
-    DIAG.reconn = 0; DIAG.reconnActive = false;   // 1.66：成功连上=一轮结束，重试计数归零
+    S.failStreak = 0;                 // 连上了就清零
+    DIAG.reconn = 0; DIAG.reconnActive = false;   // 成功连上=一轮结束，重试计数归零
     diagLog('已连上中转服务器', 'ok');
-    /* 2.180 Y32：重连成功即解除失联态——S.srvLost 残留 true 虽因 onLine 优先
-       顶栏回绿，但失联标志挂着语义错（诊断页/后续判定都看它）。connect() 已把
-       lastSrv 清零，srvWatch 不会见陈旧 lastSrv 立刻误置。 */
     if (S.srvLost){ S.srvLost = false; diagLog('重连成功，解除失联', 'ok'); }
     setOnLine(true);
-    /* 2.216：手动重连成功 → 撤掉兜底定时器；仅「断过/重试」才提示「已恢复」（2.5 秒后自动收起） */
     if (S._manualRC){ clearTimeout(S._manualRcT); S._manualRC = 0; }
     S._rcLastDelay = 0;
     S._rcOffline = 0;
     if (_rcWas) { try { reconnUi('✓ 已恢复', 'var(--green)', 2500); } catch(e){} }
-    /* 2.42：删除链路保活 PING（本软件免 PING，由中继自动保持在线） */
-    /* v1.32：登录 → 服务端开始广播；loginWatch 兜底握手首条被中继丢弃 */
     cliRebind();
     cliLogin('上线');
     loginWatch();
-    /* 2.260：切集群时被打断的 FoxOut 长消息，等新线打开后整条重发（绝不半段旧线半段新线）。 */
     try { FoxOut.resumeDeferred(); } catch(e){}
   };
   ws.onmessage = ev => onMsg(ev.data);
   ws.onclose = () => {
-    /* 1.66：重试计数只在「重试这条连接再次失败」时递增；本轮首断不
-       立即编号（顶栏先显示"重试中…"，让这一轮的重试计数从0起算） */
     if (DIAG.reconnActive) DIAG.reconn++;
     DIAG.reconnActive = true;
-    /* 1.57：记下是否「切后台期间被系统掐断」，顶栏文案据此区分 */
     S.dropByHide = !!document.hidden;
-    /* 1.61：压根没连上就断了 → 累加失败次数（连上过则不计） */
     if (!_openOk){
       S.failStreak++;
       if (S.failStreak === FAIL_ALERT){
@@ -120,7 +83,6 @@ function connect(){
                 + '请检查手机网络，或换主/备中继试试', 'bad');
       }
     }
-    /* 2.216：断线日志 10 秒节流（手动重连 12 秒兜底也走这里）——不刷屏 */
     if (!S._rcLastLogAt || Date.now() - S._rcLastLogAt > 10000){
       S._rcLastLogAt = Date.now();
       diagLog((S.dropByHide ? '后台断线（回来自动补）'
@@ -134,22 +96,17 @@ function connect(){
     setOnLine(false);
     clearTimeout(helloTimer);
     loggedIn = false; clearInterval(hbTimer);   // 断线＝退出登录
-    lastBeatOk = 0;                             // 1.57：心跳计时重置
+    lastBeatOk = 0;                             // 心跳计时重置
     scheduleReconnect();
   };
   ws.onerror = () => {
     DIAG.err++;
     diagLog('连接出错 #' + DIAG.err + '（网络或中转问题）', 'bad');
   };
-  /* 2.68：主集群每次（重）连接时同步（重）连 TTS 直连频道（密钥随主集群走） */
   ttsConnect();
-  /* 2.260：文件查看器 INS 收帧频道同样跟随当前集群（切集群即关旧、建新）。 */
   try { if (typeof fvwrPickChanListen === 'function') fvwrPickChanListen(); } catch(e){}
 }
 
-/* 2.216（0047 游客体验·第3件）：连接失败可自救——顶栏「↻ 重连」按钮三态
-   （正在重连…／已恢复／仍失败，N 秒后自动重试）；自动重试退避 10s→20s→30s 封顶。
-   日志只在退避档位变化/首断时写一条，绝不每拍刷屏。 */
 let _rcHold = 0, _rcHideT = 0;
 function reconnUi(label, color, holdMs){
   const b = el && el.reconn; if (!b) return;
@@ -197,7 +154,6 @@ function manualReconnect(){
 if (el && el.reconn) el.reconn.onclick = manualReconnect;
 
 function scheduleReconnect(){
-  /* 2.216：退避 10s→20s→30s 封顶（不再到上限就停摆）；只在档位变化时记一条日志。 */
   S._rcOffline = 1;
   const n = Math.min(Math.max(S.failStreak, 1) - 1, 2);
   const delay = Math.min(10 * Math.pow(2, n), 30);
@@ -213,21 +169,10 @@ function ensureConnect(){
   clearTimeout(reconnectTimer);
   connect();
 }
-/* 2.181 Y32a：系统网络恢复事件 → 立即重连。Y25 时代把它当「在线判据」不可靠，
-   但当【恢复触发】低风险高收益：真恢复立连；假信号最多白连一次，败绩照旧退避重建。
-   顺序讲究：先清 failStreak 再 ensureConnect——否则连败停摆态（streak>=MAX）
-   会被 ensureConnect 的上限卫兵早退，恢复信号白来。 */
 addEventListener('online', function(){
   try { diagLog('系统网络恢复事件 → 立即尝试重连', 'dim'); } catch(e){}
   S.failStreak = 0;                      /* 连败停摆是断网期攒的，恢复信号到达即清；网络仍坏会重新攒 */
   clearTimeout(reconnectTimer); reconnectTimer = null;
-  /* 2.182 Y32a（ST§9.7 复测复盘）：online 事件已触发却零动静——旧 socket 两类
-     「假活」让 ensureConnect（:119）早退或救不活：
-     ① 半开黑洞：readyState===1 但帧全被丢（CDP offline/真半开不拆已建 WS），
-        探针帧发进黑洞永不回；② hung CONNECTING：readyState===0 被当「正在连」。
-     恢复信号到达即拆旧重连：connect() 自带 teardownWs 全套收口。
-     只有「hung-0」或「失联在挂」才动刀；readyState===1 且无失联＝真健康，
-     绝不误拆（2.178「不主动断 WS」口径对健康连接仍然成立）。 */
   if (ws && (ws.readyState === 0 || S.srvLost)){
     try { teardownWs(); } catch(e){}
   }
@@ -256,7 +201,7 @@ function sendHello(){
    效果：手机没在看的时候，服务端一条消息都不发。 */
 let loggedIn = false, hbTimer = null, lastAct = Date.now(),
     actBound = false, _lg_tm = 0,
-    lastBeatOk = 0;            /* 1.57：最后一次成功发出登录心跳的时刻 */
+    lastBeatOk = 0;            /* 最后一次成功发出登录心跳的时刻 */
 
 /* ==== 1.57 下线语义（用户明确要求，v1.32 那套苛刻条件已全部移除）====
    下线条件**只剩一条**：页面在前台 且 超过 IDLE_MS(5 分钟) 没有任何操作。
@@ -268,15 +213,11 @@ function cliLogin(reason){
   if (!ws || ws.readyState !== 1){ loggedIn = false; return; }
   lastAct = Date.now();
   loggedIn = true;
-  /* 2.100（老板 2026-10-20 12:14/12:16）：登录/掉线重连后——
-     ① 首份「完整版快照」到达即落盘一次（不受 10 秒节流；缓存.js snapIdbTick 认此旗标）；
-     ② 若本地有持久化锚定，首拍补发一次 switch（继续锚定当前会话）。 */
   S.idbFirstFull = 1;
   S.anchor_reask = 1;
   sendJson({t: 'login', fg: !document.hidden, nick: nickGet()});
-  /* 账本V1.0（I1/I2）：登录＝强核对场景之一，与 switch/svr/timer 共用
+  /* 账本核对：登录＝强核对场景之一，与 switch/svr/timer 共用
      ledgerVcheckSend 同一构造函数（账本核对.js）。
-     2.273（老板 2026-11-25 00:07 实测：登录核对后不补齐、要手动刷新）：
      login 也必须带上当前锚定 sid（与 timer/switch 同口径），否则服务端
      不知道网页端在看哪个会话 ⇒ 无法按本户 12 条 ID 逐条补缺额。 */
   try {
@@ -284,29 +225,19 @@ function cliLogin(reason){
       || (typeof curSid === 'function' ? curSid() : '') || '');
   } catch(e){}
   lastBeatOk = Date.now();
-  /* 2.315（老板 2026-11-25 23:05 令）：主动核对＝全端唯一心跳——
-     这里不再起 60s hb 定时器（cliBeat 已整段删除），登录只做登记。 */
   clearInterval(hbTimer);
 }
 function cliLogout(reason){
   const was = loggedIn;
   loggedIn = false;
   clearInterval(hbTimer); hbTimer = null;
-  clearTimeout(helloTimer);          /* 2.184：退出后不得再有定时外发（握手重发也停） */
+  clearTimeout(helloTimer);          /* 退出后不得再有定时外发（握手重发也停） */
   if (was){ try { sendJson({t: 'logout', r: reason || ''}); } catch(e){} }
-  /* 2.184（老板 2026-11-19 令：退出后频道零消耗）：把「等回应 / 失联 / 判活」
-     痕迹全部归零。此后除用户主动操作（cliRebind → cliLogin）外，本端不再定时
-     发送任何帧：hb 心跳已停；ctl_hb（电脑名册.js:191）与账本 vcheck
-     （账本核对.js:678）都以 loggedIn 为闸，自然停发；srvWatch 已无任何探针帧。 */
   S.lastSrv = 0;
   S.srvLost = false;
   S.waitT = 0; S.waitN = 0; S.waitLast = 0;
   try { renderLink(); } catch(e){}
 }
-/* 1.57：回前台统一入口——秒续优先，其次重登，最后立即重连
-     · 链路活着且心跳没断太久 → 只补一个 hb（秒续，不重放、省流量）
-     · 心跳已停 >120s（服务端 150s 就会踢掉）或本端已离线 → 重发 login 重放
-     · 链路已断 → 立刻重连（不等 3s 定时器），onopen 里自会 login   */
 function cliResume(reason){
   if (ws && ws.readyState === 1){
     const stale = !lastBeatOk || (Date.now() - lastBeatOk > 120000);
@@ -325,13 +256,8 @@ function cliRebind(){
       lastAct = Date.now();
       if (!loggedIn && ws && ws.readyState === 1) cliLogin('活跃');
     }, {passive: true, capture: true}));
-  /* 1.57：切走什么都不做（不再主动下线）；回来时秒续 / 立即重连。
-     pagehide 的「离开页面即下线」也已移除——关掉网页后由服务端
-     150s 无心跳超时兜底。 */
   document.addEventListener('visibilitychange', () => {
     if (document.hidden){
-      /* 2.163：切后台时定时器被冻，这段时间「没收到回应」不能算服务器没回
-         ——撤销本次等回应，避免回前台瞬间误报「服务器无响应」。 */
       S.waitT = 0; S.waitN = 0; S.waitLast = 0;
       return;                          // 切后台：不再下线
     }
@@ -343,11 +269,6 @@ function cliRebind(){
    只控制「AI 文本快照」的刷新节奏（＝流量开关，0.5~30s）。点击/
    操作信号在服务端由独立的 0.05s 步长巡检即时执行，与本值完全无关，
    所以调到 30s 也不会让按钮变迟钝。 */
-/* 1.35：POLL_FMT 随档位 UI 移除 */
-/* 1.35：抽屉刷新率档位整体移除（renderPoll/setPoll/onPollSet/
-   bindPollBtns 一并删除）——poll_sec 只在服务端 GUI 调整（用户：
-   网页端不浪费空间）。服务端 poll_set 回执/ hello poll 字段客户端
-   忽略即可，无需处理。 */
 
 /* 登录后 4 秒仍无快照 → 重发 login（+hello，兼容未支持 login 的旧
    服务端）。握手首条常被中继丢弃，重发保证服务端确实知道「有人登录」
@@ -407,7 +328,7 @@ function onMsg(msg){
   /* FOX v2.1：控制帧（ACK/QRY/RSN/FAIL）先分流，绝不进正文流 */
   if (msg.startsWith('【FOXACK:') || msg.startsWith('【FOXQRY:')
       || msg.startsWith('【FOXRSN:') || msg.startsWith('【FOXFAIL:')){
-    deliverFox(FoxIn.feedCtrl(msg));  /* 2.50：补发片补齐也可能即刻交付正文 */
+    deliverFox(FoxIn.feedCtrl(msg));  /* 补发片补齐也可能即刻交付正文 */
     return;
   }
   const r = FoxIn.feed(msg);
@@ -422,27 +343,16 @@ function onMsg(msg){
   deliverFox(r);
 }
 
-/* 2.50：FOX 正文交付统一出口（数据帧直收 / RSN 补发片补齐，两条路都经此，
-   避免补发补齐的那份正文被 feedCtrl 的布尔返回值吃掉）。 */
 function deliverFox(r){
   if (!r) return;
   const sender = r[0], body = r[1];
-  if (!sender || sender[0] !== '1') return;   // 1.12：只认服务端（'1'
+  if (!sender || sender[0] !== '1') return;   // 只认服务端（'1'
                                               // 开头），拒客户端回声
-  srvSeen();                                  // 1.07：服务端判活
-  handleBody(body, sender);                   // 2.184：带上 FOX 头发送者 id 供隔离过滤
+  srvSeen();                                  // 服务端判活
+  handleBody(body, sender);                   // 带上 FOX 头发送者 id 供隔离过滤
 }
 
-/* 2.184 追加（服务器隔离过滤·老板令）：帧必须来自本服。身份取帧内 srv_sid
-   优先、无则 FOX 头发送者 id；本服号来源＝hello 自报（onHello 落 S.curSid），
-   否则首个带身份的帧记为本服。不符 → 整帧丢弃并记「跨服帧 弃收」。
-   无身份帧（t:'srv' 名册心跳等）无法判源，不判=放行，不误杀。 */
 function srvIsoPass(d, fromId){
-  /* 2.251（老板 2026-11-21 22:06 令·切 WS2 后胶囊「服务器处理中」永不消失、
-     切换每 15 秒重发）：直接回执（ev / rcpt）不再按 FOX 号隔离——帧前面
-     已按服务端名 S.cur 校验过（不会串服），而 `S.curSid` 在切线路重连后
-     可能残留旧值，会把 ack/回执整批当「跨服帧」丢掉，网页只能一直等。
-     实测：同一 WS2 频道用第三方客户端发 switch，几秒就收到 ack+ok。 */
   const _t0 = String((d && d.t) || '');
   if (_t0 === 'ev' || _t0 === 'rcpt') return true;
   const tag = String((d && (d.srv_sid || fromId)) || '').trim();
@@ -461,12 +371,12 @@ function srvIsoPass(d, fromId){
 
 function handleBody(body, fromId){
   let d;
-  try { d = JSON.parse(body); } catch(e){ return; }
+  /* 入站解码统一走 WS收发格式化.js（坏包/非对象一律 null，口径与电脑版一致） */
+  d = (window.WSFMT && typeof window.WSFMT.解析 === 'function')
+    ? window.WSFMT.解析(body) : null;
+  if (!d) { try { d = JSON.parse(body); } catch(e){ return; }
+            if (!d || typeof d !== 'object') return; }
   if (!d || typeof d !== 'object') return;
-  /* 1.12 多服务端：报文按 'srv' 源头名归册；只渲染当前操控服务端
-     的内容（hello/srv 心跳同时维护名册）。
-     2.48：无 'srv' 字段一律丢弃——不再兜底成「默认服务端」假条目
-     （服务端 2.83 起在 send_json 唯一咽喉盖章，凡发出的报文都带源头名）。 */
   const nm = d.srv || '';
   if (!nm) return;
   regSrv(nm, d);
@@ -476,11 +386,7 @@ function handleBody(body, fromId){
     return;
   }
   if (nm !== S.cur) return;                   // 非当前操控对象：忽略
-  if (!srvIsoPass(d, fromId)) return;         // 2.184：非本服 FOX 号，整帧丢弃
-  /* 2.266（老板 2026-11-24 20:38 令）：「1 号网页用户」概念废除——服务端
-     host 字段已恒空串（旧服务端可能仍下发旧值），网页端不再落地/判定，
-     判定函数 hostIsFirst 已退役恒 true（见 状态与DOM.js）。 */
-  /* 1.13：操控互斥——目标拒绝（正被其他客户端占用） */
+  if (!srvIsoPass(d, fromId)) return;         // 非本服 FOX 号，整帧丢弃
   if (d.t === 'deny'){
     if (d.target === MY_ID)
       flash('🔒 [' + (d.srv || '远方') + '] 正被 '
@@ -489,13 +395,8 @@ function handleBody(body, fromId){
     return;
   }
   if (d.t === 'ev') { onEv(d.k, d.v); return; }
-  /* 2.90：「四步提醒」服务端回执（t:'rcpt'，单通道 + stage）——按 stage 补
-     ③（accepted/running）与 ④（done/fail），配对见 事件总线.js onRcpt。 */
   if (d.t === 'rcpt') { onRcpt(d); return; }
-  /* 2.20 新架构：请求-响应配对（req_id → res） */
   if (d.t === 'res') { onRes(d.id, d.k, d.v); return; }
-  /* 2.69：服务端备用通道回执（TTS 直连走不通时回落本机中转）——复用直连那套
-     交付/回执处理：任一通道先到先交付，后到因 _tts_pend[id] 已清被忽略（天然去重）。 */
   if (d.t === 'tts_ack') { onTtsAck(d); return; }
   if (d.t === 'tts_resp') {
     if (d.err) onTtsErr(d.id, d.err);
@@ -507,16 +408,11 @@ function handleBody(body, fromId){
      旧服务端不下发这两类帧 ⇒ 以下分支永不触发，旧协议通路零影响。 */
   if (d.t === 'vack'){ if (window.ledgerVack) ledgerVack(d); return; }
   if (d.t === 'mod'){ if (window.ledgerMod) ledgerMod(d); return; }
-  /* 0.76：服务端连续链裁剪帧——只处理本地唯一账 snap_conv 的删/留。 */
   if (d.t === 'lbkeep'){ if (window.lbKeepApply) lbKeepApply(d); return; }
-  /* 1.054：服务端「足额补发」帧——按 order 重排+补齐+删多余（账本核对.js lbSyncApply）。 */
   if (d.t === 'lbsync'){ if (window.lbSyncApply) lbSyncApply(d); return; }
   if (d.t === 'think_int_ack'){ if (window.lbThinkIntAck) lbThinkIntAck(d); return; }   /* 账本V1.0：set_think_int 回执（账本核对.js） */
-  if (d.t === 'poll_set') return;                     // 1.35：档位已移除，忽略回执
+  if (d.t === 'poll_set') return;                     // 档位已移除，忽略回执
 }
 
 /* ============ 1.12 多服务端名册（v1.84：落盘 + 只认名称） ============ */
 
-/* v1.84：名册落盘——网页端只认「电脑名称」（随机 ID/sid 只在后台识别用，
-   界面一律不显示）。名称＋最后出现时间存 LS_SRVS，刷新/重开页面立即恢复
-   清单（离线的也留一行 ○）；超 SRV_TTL(7 天) 未再出现的名称自动清理。 */
