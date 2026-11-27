@@ -264,6 +264,21 @@ function cliRebind(){
     cliResume('回前台');              // 回前台：秒续或立即重连
   });
   window.addEventListener('pageshow', () => cliResume('回到页面'));
+  /* 僵尸连接自救：后台冻结后 socket 常「以为还开着」但实际上早断了，
+     靠 readyState 判不出来。改判「多久没收到服务端任何消息」：
+     可见状态下超过 90 秒零收帧 ⇒ 强行关掉重连（不必手动刷新）。 */
+  setInterval(() => {
+    try {
+      if (document.hidden || !S.onLine) return;
+      const last = Number(S.lastSrv || 0);
+      if (last && Date.now() - last > 90000){
+        try { if (ws){ ws.onclose = null; ws.close(); } } catch(e){}
+        loggedIn = false; lastBeatOk = 0; S.lastSrv = 0;
+        try { ensureConnect(); } catch(e){}
+        try { if (typeof flash === 'function') flash('连接已超时，正在自动重连…', 'var(--orange)'); } catch(e){}
+      }
+    } catch(e){}
+  }, 30000);
 }
 /* ========= 1.33：AI 文本刷新间隔（服务端 poll_sec）=========
    只控制「AI 文本快照」的刷新节奏（＝流量开关，0.5~30s）。点击/
