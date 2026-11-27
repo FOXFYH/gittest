@@ -67,7 +67,7 @@
     + '  <div class="card"><h3>在线端（服务器统计）<button id="wsqBtnWho">刷新谁在</button></h3>'
     + '    <div class="tw" style="max-height:22vh"><table><thead><tr><th>序号</th><th>昵称</th><th>设备名</th><th>产品</th><th>实例号</th></tr></thead><tbody id="wsqTbSrv"><tr><td colspan="5" style="color:#9aa">尚未刷新</td></tr></tbody></table></div></div>'
     + '  <div class="card"><h3>WS 收发流水 <span class="r">最新在第 1 行</span></h3>'
-    + '    <div class="tw" style="max-height:30vh"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>集群</th><th>昵称</th><th>实例号</th><th>类型</th><th>大小(KB)</th><th>摘要</th></tr></thead><tbody id="wsqTbFlow"></tbody></table></div></div>'
+    + '    <div class="tw" style="max-height:30vh"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>集群</th><th>昵称</th><th>实例号</th><th>类型</th><th>大小(KB)</th><th>字数</th><th>摘要</th></tr></thead><tbody id="wsqTbFlow"></tbody></table></div></div>'
     + '  <div class="card"><h3>系统日志 <button id="wsqBtnClearLog">清空</button></h3><div class="logbox" id="wsqSysLog"></div></div>'
     + '</div>'
     + '<div class="set" id="wsqSet">'
@@ -130,7 +130,7 @@
 
     function 画流水(行) {
       var tb = $('wsqTbFlow'), tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + 行.i + '</td><td>' + 行.time + '</td><td class="' + (行.dir === '发' ? 'dir-f' : 'dir-s') + '">' + 行.dir + '</td><td>' + 行.acc + '</td><td>' + 行.nic + '</td><td>' + 行.id + '</td><td>' + 行.t + '</td><td>' + (行.kb || '0.00') + '</td><td class="sum">' + 行.sum + '</td>';
+      tr.innerHTML = '<td>' + 行.i + '</td><td>' + 行.time + '</td><td class="' + (行.dir === '发' ? 'dir-f' : 'dir-s') + '">' + 行.dir + '</td><td>' + 行.acc + '</td><td>' + 行.nic + '</td><td>' + 行.id + '</td><td>' + 行.t + '</td><td>' + (行.kb || '0.00') + '</td><td>' + (行.字 || 0) + '</td><td class="sum">' + 行.sum + '</td>';
       tb.insertBefore(tr, tb.firstChild);
       while (tb.children.length > 200) tb.removeChild(tb.lastChild);
     }
