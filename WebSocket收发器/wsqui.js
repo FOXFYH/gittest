@@ -56,7 +56,7 @@
 
   var 模板 = ''
     + '<header>'
-    + '  <div class="h1"><span class="ttl">客户端 · 收发器</span><span class="ver" id="wsqVer"></span><span class="sp"></span><button id="wsqBtnPage">设置</button></div>'
+    + '  <div class="h1"><span class="ttl">客户端 · 收发器</span><span class="ver" id="wsqVer"></span><span class="sp"></span><button id="wsqBtnTpl">模板</button><button id="wsqBtnPage">设置</button></div>'
     + '  <div class="h2"><span class="dot" id="wsqDot"></span><span id="wsqState">未连接</span><span class="badge">客户端</span><span class="badge" id="wsqId"></span></div>'
     + '</header>'
     + '<div id="wsqHome">'
@@ -72,6 +72,15 @@
     + '  <div class="card"><h3>WS 收发流水 <span class="r">最新在第 1 行</span></h3>'
     + '    <div class="tw" style="max-height:30vh"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>集群</th><th>昵称</th><th>实例号</th><th>类型</th><th>大小(KB)</th><th>字数</th><th>摘要</th></tr></thead><tbody id="wsqTbFlow"></tbody></table></div></div>'
     + '  <div class="card"><h3>系统日志 <button id="wsqBtnClearLog">清空</button></h3><div class="logbox" id="wsqSysLog"></div></div>'
+    + '</div>'
+    + '<div class="set" id="wsqTpl">'
+    + '  <div class="grp"><h4>模板（诊断用；通道固定当前业务集群）</h4>'
+    + '    <div class="f"><label>模板</label><select id="wsqTplSel"></select></div>'
+    + '    <div class="f"><label>接收者</label><select id="wsqTplTo"></select></div>'
+    + '    <div id="wsqTplFields"></div>'
+    + '  </div>'
+    + '  <div class="btns"><button class="act" id="wsqTplSend">发送</button></div>'
+    + '  <div class="tip" id="wsqTplTip">缺必填会直接拒发；所有帧都走正式模板。</div>'
     + '</div>'
     + '<div class="set" id="wsqSet">'
     + '  <div class="grp"><h4>本机身份</h4>'
@@ -103,7 +112,7 @@
     容器.classList.add('wsq');
     容器.innerHTML = 模板;
     var $ = function (id) { return document.getElementById(id); };
-    var 设置在显 = false;
+    var 当前页 = '主页';
 
     $('wsqVer').textContent = '网页版 v' + 核心.版本;
     $('wsqSetTip').textContent = '内核版本 v' + 核心.版本 + '（界面可单独懒加载）';
@@ -181,19 +190,58 @@
       else if (ev.类型 === '日志') 日志(ev.级别, ev.文本, ev.时间);
       else if (ev.类型 === '集群') 画集群(ev.列表);
       else if (ev.类型 === '服务器') 画服务器(ev.列表, ev.目标);
-      else if (ev.类型 === '集群表' || ev.类型 === '配置') { if (设置在显) 画配置(); }
+      else if (ev.类型 === '集群表' || ev.类型 === '配置') { if (当前页 === '设置') 画配置(); }
       else if (ev.类型 === '握手') 画状态(核心.状态());
     });
     setInterval(function () { 画集群(核心.集群在线()); }, 1000);
 
-    $('wsqBtnPage').onclick = function () {
-      设置在显 = !设置在显;
-      $('wsqSet').classList.toggle('show', 设置在显);
-      $('wsqHome').classList.toggle('hide', 设置在显);
-      $('wsqBtnPage').textContent = 设置在显 ? '主页' : '设置';
-      if (设置在显) 画配置();
-    };
+    function 切页(页名) {
+      当前页 = (当前页 === 页名) ? '主页' : 页名;
+      $('wsqHome').classList.toggle('hide', 当前页 !== '主页');
+      $('wsqTpl').classList.toggle('show', 当前页 === '模板');
+      $('wsqSet').classList.toggle('show', 当前页 === '设置');
+      if (当前页 === '设置') 画配置();
+      if (当前页 === '模板') 画模板();
+    }
+    $('wsqBtnPage').onclick = function () { 切页('设置'); };
+    $('wsqBtnTpl').onclick = function () { 切页('模板'); };
     $('wsqBtnWho').onclick = function () { 核心.刷新谁在(); };
+
+    function 画模板() {
+      var 名们 = Object.keys(核心.客户端模板);
+      if (!$('wsqTplSel').options.length) {
+        名们.forEach(function (n) {
+          var o = document.createElement('option'); o.value = n; o.textContent = n; $('wsqTplSel').appendChild(o);
+        });
+      }
+      var 服 = 核心.服务器(), 头 = '<option value="">群发（不指定）</option>', i;
+      for (i = 0; i < 服.length; i++) 头 += '<option value="' + 服[i].号 + '">' + (服[i].昵称 || '-') + '（' + 服[i].号 + '）</option>';
+      $('wsqTplTo').innerHTML = 头;
+      画模板字段();
+    }
+    function 画模板字段() {
+      var 名 = $('wsqTplSel').value, 模 = 核心.客户端模板[名] || {}, h = '', i, k;
+      for (i = 0; i < (模.专用 || []).length; i++) {
+        k = 模.专用[i];
+        h += '<div class="f"><label>' + k + (((模.必填 || []).indexOf(k) >= 0) ? ' *' : '') + '</label><input data-k="' + k + '" autocomplete="off"></div>';
+      }
+      $('wsqTplFields').innerHTML = h;
+      $('wsqTplTip').textContent = '模板「' + 名 + '」：' + (模.专用 && 模.专用.length ? '填写专用字段后发送。' : '无专用字段，直接发送。');
+    }
+    $('wsqTplSel').onchange = 画模板字段;
+    $('wsqTplSend').onclick = function () {
+      var 名 = $('wsqTplSel').value, 值 = {};
+      Array.prototype.forEach.call($('wsqTplFields').querySelectorAll('input[data-k]'), function (el) {
+        值[el.getAttribute('data-k')] = el.value;
+      });
+      var 号 = $('wsqTplTo').value, 目标 = null;
+      if (号) {
+        var 服 = 核心.服务器();
+        for (var i = 0; i < 服.length; i++) if (服[i].号 === 号) 目标 = 服[i];
+      }
+      var ok = 核心.发模板(名, 值, { 目标: 目标 });
+      $('wsqTplTip').textContent = ok ? ('已发送「' + 名 + '」' + (目标 ? ' → ' + 目标.昵称 : '（群发）')) : ('未发送：检查必填或连接状态');
+    };
     $('wsqBtnClearLog').onclick = function () { $('wsqSysLog').innerHTML = ''; };
     $('wsqBtnSave').onclick = function () {
       var 表;
@@ -214,7 +262,7 @@
       核心.清缓存(); location.reload();
     };
 
-    画配置(); 画状态(核心.状态()); 画流水全部(); 画集群(核心.集群在线()); 画服务器(核心.服务器(), 核心.目标号());
+    画配置(); 画状态(核心.状态()); 画流水全部(); 画集群(核心.集群在线()); 画服务器(核心.服务器(), 核心.目标号()); 画模板();
     日志('sys', '界面就绪（内核 v' + 核心.版本 + '）');
   });
 })();
