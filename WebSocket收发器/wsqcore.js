@@ -22,7 +22,7 @@
  * ========================================================================== */
 (function (global) {
   'use strict';
-  var WSQ = { 版本: '1.1' };
+  var WSQ = { 版本: '1.2' };
 
   /* ---------------- 常量 ---------------- */
   var 前缀 = 'WSRELAY';
@@ -144,10 +144,11 @@
   WSQ.流水 = function () { return 最近流水.slice(); };
 
   function 通知状态() { 通知({类型: '状态', 状态: WSQ.状态()}); }
-  function 流水加(方向, 账号, 昵称, 号, 类型, 摘要文) {
+  function 字节数(s) { try { return new TextEncoder().encode(s).length; } catch (e) { return s.length; } }
+  function 流水加(方向, 账号, 昵称, 号, 类型, 摘要文, 字节) {
     流水序++;
     最近流水.unshift({ i: 流水序, time: new Date().toTimeString().slice(0, 8), dir: 方向, acc: 账号,
-      nic: 昵称 || '-', id: 号 || '-', t: 类型 || '', sum: (摘要文 || '').slice(0, 160) });
+      nic: 昵称 || '-', id: 号 || '-', t: 类型 || '', kb: ((字节 || 0) / 1024).toFixed(2), sum: (摘要文 || '').slice(0, 160) });
     if (最近流水.length > 流水上限) 最近流水.pop();
     通知({类型: '流水', 行: 最近流水[0]});
   }
@@ -173,10 +174,11 @@
     var ws = (账号 === 配置.emg ? 紧急ws : 业务ws);
     if (!ws || ws.readyState !== 1) { 记日志('err', '发送失败：' + 账号 + ' 未连接（' + (对.t || '') + '）'); return false; }
     try {
-      ws.send(WSQ.封装(对));
+      var 帧 = WSQ.封装(对);
+      ws.send(帧);
       if (配置.smart) 上次心跳 = Date.now();
       流水加('发', 账号, 对.目标昵称 || (账号 === 配置.emg ? '' : 服务端.昵称),
-        对.目标实例号 || (账号 === 配置.emg ? '' : 服务端.号), 对.t, 摘要(对));
+        对.目标实例号 || (账号 === 配置.emg ? '' : 服务端.号), 对.t, 摘要(对), 字节数(帧));
       return true;
     } catch (e) { 记日志('err', '发送异常：' + e.message); return false; }
   };
@@ -234,7 +236,7 @@
     if (!对 || typeof 对 !== 'object') return;
     if (String(对.软件号 || '') === 配置.id && String(对.角色 || '') === '客户端') return;
     var t = String(对.t || '');
-    流水加('收', 账号, 对.昵称, 对.软件号, t, 摘要(对));
+    流水加('收', 账号, 对.昵称, 对.软件号, t, 摘要(对), 字节数(raw));
 
     /* 客户端业务：对服务端问询作答 */
     if (t === '发起握手') {
