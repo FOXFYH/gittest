@@ -1,5 +1,5 @@
 'use strict';
- /* 账本核对.js（网页端）  版本 1.077  日期 2026-11-26 */
+ /* 账本核对.js（网页端）  版本 1.078  日期 2026-11-26 */
 const LS_LBVER = 'trae_webm_lbver';          /* 版本底账落盘（按服务端隔离） */
 let LB = {reqSeq: 0, timerAt: 0, push: 0, checking: false, mods: {},
           lastTimerSig: '',
@@ -883,7 +883,7 @@ function ledgerVcheckBuild(act, sid){
      每模块编码独立可辨、服务端逐模块校验。 */
   const mods = {};
   const b = LB.mods || {};
-  ['sig', 'snote', 'macct', 'convs', 'didp', 'think', 'srv', 'input', 'points'].forEach(k => {
+  ['sig', 'snote', 'macct', 'convs', 'didp', 'think', 'srv', 'input', 'points', 'plib'].forEach(k => {
     if (b[k]) mods[k] = b[k];
   });
   const led = {};
@@ -1126,6 +1126,10 @@ function ledgerMod(d){
     lbVerSave();
   }
   switch (m){
+    case 'plib': {                       /* 提示词库差异：只含新增/删除/变动代码 */
+      try { if (window.plibTakeDiff) window.plibTakeDiff(body || {}); } catch(e){}
+      break;
+    }
     case 'u':
     case 'human': {                        /* 人类记录即发帧（服务端 t:'mod' m:'u'）——收到即入账并按发送编号销卡 */
       if (typeof ledgerHumanFrame === 'function'){
