@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="app-version" content="1.0">
+<title>WebSocket收发器 · 客户端网页版</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{background:#eef3ee;color:#1f2a22;font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:560px;margin:0 auto;min-height:100vh;background:#f7faf7;padding-bottom:16px}
+header{position:sticky;top:0;z-index:9;background:#e3f1e6;border-bottom:1px solid #cfe3d4}
+.h1{display:flex;align-items:center;gap:6px;padding:5px 10px 2px}
+.h1 .ttl{font-size:15px;font-weight:700;color:#1b5e20}
+.h1 .ver{font-size:10px;color:#4a6b50;border:1px solid #b9d6c0;border-radius:999px;padding:0 6px}
+.h1 .sp{flex:1}
+.h1 button{height:26px;padding:0 10px;border:1px solid #9cc3a5;background:#fff;color:#22532a;border-radius:6px;font-size:12px}
+.h2{display:flex;align-items:center;gap:8px;padding:2px 10px 5px;font-size:12px;color:#3d5a44}
+.dot{width:8px;height:8px;border-radius:50%;background:#999;display:inline-block}
+.dot.on{background:#2e7d32}.dot.wait{background:#f9a825}.dot.off{background:#c62828}
+.card{background:#fff;border:1px solid #dbe7dd;border-radius:8px;margin:8px 8px 0;padding:8px 10px}
+.card h3{margin:0 0 6px;font-size:12px;color:#4a6b50;font-weight:600;display:flex;align-items:center}
+.card h3 .r{margin-left:auto;font-weight:400;color:#8aa;font-size:11px}
+.card h3 button{height:24px;padding:0 8px;border:1px solid #9cc3a5;background:#f3f9f4;color:#22532a;border-radius:5px;font-size:12px;margin-left:auto}
+.kv{display:grid;grid-template-columns:74px 1fr;gap:2px 6px;font-size:12px}
+.kv i{font-style:normal;color:#7d8f83}
+.kv b{font-weight:500;word-break:break-all}
+.kv .wide{grid-column:2/3;word-break:break-all}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:3px 4px;border-bottom:1px solid #edf2ee;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+th{background:#eef6f0;color:#4a6b50;font-weight:600;position:sticky;top:0}
+.tw{max-height:34vh;overflow:auto}
+td.sum{white-space:normal;word-break:break-all;color:#556}
+td.dir-f{color:#1565c0}td.dir-s{color:#2e7d32}
+.badge{display:inline-block;font-size:10px;padding:0 5px;border-radius:999px;background:#e8f3ea;color:#2e7d32;border:1px solid #bcdcc3}
+.set{display:none;padding:2px 8px}
+.set.show{display:block}
+#home.hide{display:none}
+.grp{background:#fff;border:1px solid #dbe7dd;border-radius:8px;margin:8px 0 0;padding:8px 10px}
+.grp h4{margin:0 0 6px;font-size:12px;color:#4a6b50}
+.f{margin:0 0 7px}
+.f label{display:block;font-size:11px;color:#7d8f83;margin-bottom:2px}
+.f input,.f select,.f textarea{width:100%;border:1px solid #cfdcd3;border-radius:6px;background:#fbfdfb;color:#1f2a22;font:13px/1.4 inherit;padding:6px 8px}
+.f textarea{height:150px;font:12px/1.45 Consolas,monospace}
+.f input[readonly]{background:#f1f4f2;color:#7d8f83}
+.two{display:flex;gap:8px}.two>*{flex:1}
+.chk{display:flex;align-items:center;gap:6px;font-size:13px;margin:4px 0}
+.chk input{width:16px;height:16px}
+.btns{display:flex;gap:8px;margin:8px 0 4px}
+button.act{height:38px;flex:1;border:0;border-radius:8px;background:#2e7d32;color:#fff;font-size:14px;font-weight:600}
+button.act.gray{background:#e7efe9;color:#3d5a44;border:1px solid #cfdcd3}
+button.act:disabled{opacity:.45}
+.tip{font-size:11px;color:#8a9a8e;margin:4px 0 2px}
+.logbox{height:30vh;overflow:auto;background:#fbfdfb;border:1px solid #e4ece6;border-radius:6px;padding:4px;font:11px/1.5 Consolas,monospace}
+.logbox div{border-bottom:1px dashed #eef2ee;padding:1px 2px;word-break:break-all;white-space:pre-wrap}
+.lg-sys{color:#7d8f83}.lg-up{color:#1565c0}.lg-down{color:#2e7d32}.lg-err{color:#c62828}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="h1">
+    <span class="ttl">客户端 · 收发器</span><span class="ver" id="verTag">网页版 v1.0</span>
+    <span class="sp"></span>
+    <button id="btnPage">设置</button>
+  </div>
+  <div class="h2"><span class="dot" id="dot"></span><span id="stateTxt">未连接</span><span class="badge" id="roleTag">客户端</span><span class="badge" id="idTag"></span></div>
+</header>
+
+<div id="home">
+  <div class="card">
+    <h3>当前连接</h3>
+    <div class="kv">
+      <i>服务器</i><b id="cSrv">-</b>
+      <i>业务集群</i><b id="cClus">-</b>
+      <i>频道</i><b id="cChan" class="wide">-</b>
+      <i>下次心跳</i><b id="cHb">-</b>
+      <i>主动下线</i><b id="cOff">-</b>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>在线端（服务器统计）<button id="btnWho">刷新谁在</button></h3>
+    <div class="tw" style="max-height:22vh">
+      <table><thead><tr><th>序号</th><th>昵称</th><th>设备名</th><th>产品</th><th>实例号</th></tr></thead>
+      <tbody id="tbSrv"><tr><td colspan="5" style="color:#9aa">尚未刷新</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>WS 收发流水 <span class="r">最新在第 1 行</span></h3>
+    <div class="tw" style="max-height:30vh">
+      <table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>集群</th><th>昵称</th><th>实例号</th><th>类型</th><th>摘要</th></tr></thead>
+      <tbody id="tbFlow"></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>系统日志 <button id="btnClearLog">清空</button></h3>
+    <div class="logbox" id="sysLog"></div>
+  </div>
+</div>
+
+<div class="set" id="set">
+  <div class="grp">
+    <h4>本机身份</h4>
+    <div class="f"><label>昵称（空＝设备名）</label><input id="sNic" autocomplete="off"></div>
+    <div class="two">
+      <div class="f"><label>产品名称</label><input id="sProd" autocomplete="off"></div>
+      <div class="f"><label>设备名称</label><input id="sDev" autocomplete="off"></div>
+    </div>
+    <div class="f"><label>实例号（10 位，浏览器本机固定）</label><input id="sId" readonly></div>
+  </div>
+  <div class="grp">
+    <h4>连接</h4>
+    <div class="f"><label>频道口令（前缀 WSRELAY 内置）</label><input id="sPass" autocomplete="off"></div>
+    <div class="two">
+      <div class="f"><label>业务集群</label><select id="sBiz"></select></div>
+      <div class="f"><label>紧急集群</label><select id="sEmg"></select></div>
+    </div>
+    <div class="chk"><input type="checkbox" id="sAutoConn"><label for="sAutoConn">打开页面自动连接</label></div>
+  </div>
+  <div class="grp">
+    <h4>心跳与下线</h4>
+    <div class="two">
+      <div class="f"><label>键鼠活跃心跳(秒)</label><input id="sHb" inputmode="numeric"></div>
+      <div class="f"><label>静止秒（服务器下发，只读）</label><input id="sStill" readonly></div>
+    </div>
+    <div class="chk"><input type="checkbox" id="sSmart"><label for="sSmart">智能发送键鼠活跃（任一 WS 发出即重置；握手后才起算）</label></div>
+  </div>
+  <div class="grp">
+    <h4>集群表（JSON：名称 → cluster / key）</h4>
+    <div class="f"><textarea id="sClusters" spellcheck="false"></textarea></div>
+    <div class="tip">服务端下发集群信息时会自动覆盖这里的表；密钥只存本机浏览器，不进网页源码。</div>
+  </div>
+  <div class="btns">
+    <button class="act" id="btnSave">保存设置</button>
+    <button class="act gray" id="btnReset">清缓存</button>
+  </div>
+  <div class="tip" id="setTip">服务器版本：本机客户端 v1.20（网页版独立版本号）</div>
+</div>
+</div>
+
+<script>
+'use strict';
+/* ================= 常量 ================= */
+var 版本 = '1.0';
+var 前缀 = 'WSRELAY';
+var P = 'wsq_';                        /* 浏览器存储键前缀（已登记避让） */
+var 默认口令 = '31415926fF@';
+var 默认心跳 = 60, 默认静止 = 120;
+
+function _mk(a){var s='',i;for(i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return s;}
+var 默认集群 = {
+  WS1:{cluster:'free.blr2',key:_mk([82,101,68,70,97,118,104,104,48,113,110,79,67,75,85,85,106,81,105,76,75,86,90,57,82,100,120,65,54,101,52,66,71,86,75,120,120,78,117,103])},
+  WS2:{cluster:'s20307.nyc1',key:_mk([73,87,107,102,107,52,51,104,97,51,121,105,108,109,89,71,82,71,76,68,101,65,111,86,87,57,116,117,54,81,113,105,83,118,105,74,109,117,100,76])},
+  WS3:{cluster:'free.blr2',key:_mk([56,87,87,110,68,72,101,112,110,117,54,68,80,110,115,49,86,97,106,90,101,78,83,115,105,71,51,103,98,69,99,50,54,72,122,113,115,68,75,73])},
+  WS4:{cluster:'s21218.nyc1',key:_mk([89,122,118,87,68,88,66,117,66,76,112,103,77,78,56,84,85,117,101,113,51,105,77,66,74,81,76,84,84,101,82,115,54,75,80,106,122,111,79,87])},
+  WS5:{cluster:'free.blr2',key:_mk([68,55,68,86,85,108,89,120,106,83,81,78,111,97,77,107,74,79,56,107,112,115,101,101,100,120,49,115,117,73,55,54,69,54,118,122,72,66,68,101])}
+};
+
+/* ================= 存储 ================= */
+var $=function(id){return document.getElementById(id)};
+function LS(k,d){ try{ var v=localStorage.getItem(P+k); return v===null?d:JSON.parse(v); }catch(e){ return d; } }
+function SS(k,v){ try{ localStorage.setItem(P+k,JSON.stringify(v)); }catch(e){} }
+
+function 默认设备名(){ var p=(navigator.userAgent.match(/Windows|Macintosh|iPhone|iPad|Android|Linux/i)||['浏览器'])[0]; return p; }
+function 新实例号(){ return String(Math.floor(1000000000+Math.random()*9000000000)); }
+
+var 配置 = null, 集群表 = null;
+function 加载配置(){
+  集群表 = LS('clusters', null) || JSON.parse(JSON.stringify(默认集群));
+  配置 = {
+    id: LS('id', '') || (function(){var v=新实例号();SS('id',v);return v;})(),
+    nic: LS('nic', ''),
+    prod: LS('prod', 'WS客户端网页'),
+    dev: LS('dev', 默认设备名()),
+    pass: LS('pass', 默认口令),
+    biz: LS('biz', 'WS1'),
+    emg: LS('emg', 'WS5'),
+    hb: LS('hb', 默认心跳),
+    smart: LS('smart', true),
+    auto: LS('auto', true),
+    still: LS('still', 默认静止)
+  };
+  if(!集群表[配置.biz]) 配置.biz = 'WS1';
+  if(!集群表[配置.emg]) 配置.emg = 'WS5';
+}
+function 存配置(){ SS('clusters',集群表); ['id','nic','prod','dev','pass','biz','emg','hb','smart','auto'].forEach(function(k){SS(k,配置[k]);}); }
+function 清缓存(){ try{ for(var i=localStorage.length-1;i>=0;i--){var k=localStorage.key(i); if(k.indexOf(P)===0) localStorage.removeItem(k);} }catch(e){} }
+
+/* 版本变了就清缓存（保留重要登录信息：实例号/昵称/产品/设备名/频道口令/集群表/业务集群） */
+(function(){
+  var seen=LS('ver','');
+  if(seen && seen!==版本){
+    var keep={};['id','nic','prod','dev','pass','biz','emg','clusters','still'].forEach(function(k){ var v=localStorage.getItem(P+k); if(v!==null) keep[k]=v; });
+    清缓存();
+    Object.keys(keep).forEach(function(k){ try{localStorage.setItem(P+k,keep[k]);}catch(e){} });
+  }
+  SS('ver',版本);
+})();
+
+/* ================= FOX 帧 ================= */
+function 北京时间码(){
+  var d=new Date(),p=function(n,l){n=''+n;while(n.length<(l||2))n='0'+n;return n;};
+  return ''+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());
+}
+function 随机串(n){ var s='',c='abcdefghijklmnopqrstuvwxyz',i; for(i=0;i<n;i++)s+=c.charAt(Math.floor(Math.random()*26)); return s; }
+function 封装(对){
+  var body=JSON.stringify(对);
+  var mid=北京时间码()+随机串(8);
+  return '【FOXID:'+mid+配置.id+'=cut(001/001)】'+body;
+}
+var 拼装={};
+function 解析原始(raw){
+  var m=raw.match(/^【FOXID:(\d{14})([a-z]{8})(\d{10})=cut\((\d{3})\/(\d{3})\)】/);
+  if(!m) return {text:raw};
+  var mid=m[1]+m[2], idx=+m[4], tot=+m[5];
+  var body=raw.slice(raw.indexOf('】')+1);
+  if(tot<=1) return {text:body, sender:m[3]};
+  var 项=拼装[mid]||(拼装[mid]={n:tot,seg:{},t:Date.now()});
+  项.seg[idx]=body;
+  if(Object.keys(项.seg).length>=tot){
+    var out='',i; for(i=1;i<=tot;i++) out+=(项.seg[i]||'');
+    delete 拼装[mid];
+    return {text:out, sender:m[3]};
+  }
+  return null;
+}
+
+/* ================= 状态 ================= */
+var 业务ws=null, 紧急ws=null;
+var 状态='未连接';               /* 未连接 / 连接中 / 已连接 / 已下线 / 重连中 */
+var 服务端={昵称:'',号:'',产品:'',设备名:''};
+var 允许主动下线=true, 静止秒=默认静止, 服务时间=180;
+var 休眠=false, 最近操作=Date.now(), 上次心跳=0, 已连上=false;
+var 流水=[], 流水序=0, 流水上限=200;
+
+function 记状态(s,c){ 状态=s; $('stateTxt').textContent=s; var d=$('dot'); d.className='dot '+(c||'off'); }
+function 日志(kind,txt){
+  var box=$('sysLog'); if(!box) return;
+  var d=document.createElement('div'); d.className='lg-'+kind;
+  d.textContent='['+new Date().toTimeString().slice(0,8)+'] '+txt;
+  box.appendChild(d); while(box.children.length>300) box.removeChild(box.firstChild);
+  box.scrollTop=box.scrollHeight;
+}
+function 流水加(方向,账号,昵称,号,类型,摘要文){
+  流水序++;
+  流水.unshift({i:流水序,time:new Date().toTimeString().slice(0,8),dir:方向,acc:账号,nic:昵称||'-',id:号||'-',t:类型||'',sum:(摘要文||'').slice(0,160)});
+  if(流水.length>流水上限) 流水.pop();
+  画流水();
+}
+function 画流水(){
+  var tb=$('tbFlow'); if(!tb) return;
+  var h='',i,r;
+  for(i=0;i<流水.length;i++){
+    r=流水[i];
+    h+='<tr><td>'+r.i+'</td><td>'+r.time+'</td><td class="'+(r.dir==='发'?'dir-f':'dir-s')+'">'+r.dir+'</td><td>'+r.acc+'</td><td>'+r.nic+'</td><td>'+r.id+'</td><td>'+r.t+'</td><td class="sum">'+r.sum+'</td></tr>';
+  }
+  tb.innerHTML=h||'<tr><td colspan="8" style="color:#9aa">暂无收发</td></tr>';
+}
+function 摘要(对){
+  if(!对) return '';
+  var ks=['内容','原文','说明','原因','昵称','账号'],i;
+  for(i=0;i<ks.length;i++) if(对[ks[i]]) return String(对[ks[i]]);
+  return Object.keys(对).slice(0,6).join(',');
+}
+
+/* ================= 发送 ================= */
+function 昵称(){ return 配置.nic || 配置.dev || '网页客户端'; }
+function 频道(){ return 前缀 + (配置.pass||默认口令); }
+function 头发(t,账号,额外){
+  var 对={t:t,软件号:配置.id,昵称:昵称(),角色:'客户端',账号:账号,频道:频道(),ts:Math.floor(Date.now()/1000)};
+  if(额外) for(var k in 额外) 对[k]=额外[k];
+  return 对;
+}
+function 发(账号,对){
+  var ws = (账号===配置.emg? 紧急ws : 业务ws);
+  if(!ws || ws.readyState!==1){ 日志('err','发送失败：'+账号+' 未连接（'+(对.t||'')+'）'); return false; }
+  try{
+    ws.send(封装(对));
+    if(配置.smart) 上次心跳=Date.now();          /* 智能：任一 WS 发出即重置心跳计时 */
+    流水加('发',账号,对.目标昵称||(账号===配置.emg?'':服务端.昵称),对.目标实例号||(账号===配置.emg?'':服务端.号),对.t,摘要(对));
+    return true;
+  }catch(e){ 日志('err','发送异常：'+e.message); return false; }
+}
+
+/* ================= 连接 ================= */
+function 建ws(名,是业务){
+  var a=集群表[名]; if(!a){ 日志('err','集群表里没有 '+名); return null; }
+  var url='wss://'+a.cluster+'.piesocket.com/v3/'+频道()+'?api_key='+a.key;
+  var ws;
+  try{ ws=new WebSocket(url); }catch(e){ 日志('err',名+' 连接失败：'+e.message); return null; }
+  ws.onopen=function(){
+    日志('sys',名+' 已连接');
+    if(是业务){
+      业务ws=ws; 已连上=true; 记状态('已连接','on'); 发握手();
+    }else{ 紧急ws=ws; }
+    画当前();
+  };
+  ws.onmessage=function(ev){ 收(名, String(ev.data||'')); };
+  ws.onclose=function(){
+    日志('sys',名+' 已断开');
+    if(是业务 && 业务ws===ws){
+      业务ws=null; 已连上=false; 上次心跳=0; 记状态('重连中','wait'); 画当前();
+      if(!休眠) setTimeout(重连业务,4000);
+    }else if(!是业务 && 紧急ws===ws){ 紧急ws=null; }
+  };
+  ws.onerror=function(){ 日志('err',名+' 连接出错'); };
+  return ws;
+}
+function 连接全部(){
+  记状态('连接中','wait');
+  业务ws=建ws(配置.biz,true);
+  紧急ws=建ws(配置.emg,false);
+}
+function 重连业务(){
+  if(业务ws && 业务ws.readyState<=1) return;
+  业务ws=建ws(配置.biz,true);
+}
+function 断开全部(){
+  try{ if(业务ws) 业务ws.close(); }catch(e){}
+  try{ if(紧急ws) 紧急ws.close(); }catch(e){}
+  业务ws=紧急ws=null; 已连上=false; 记状态('未连接','off');
+}
+function 发握手(){
+  发(配置.biz, 头发('发起握手',配置.biz,{电脑名:配置.dev,产品:配置.prod,主动下线:true}));
+}
+
+/* ================= 收 ================= */
+function 收(账号,raw){
+  var r=解析原始(raw);
+  if(!r) return;
+  var 对=null;
+  try{ 对=JSON.parse(r.text); }catch(e){ 对={t:'原文',原文:r.text.slice(0,120)}; }
+  if(!对 || typeof 对!=='object') return;
+  if(String(对.软件号||'')===配置.id && String(对.角色||'')==='客户端') return;   /* 自己的回声不算 */
+  var t=String(对.t||'');
+  流水加('收',账号,对.昵称,对.软件号,t,摘要(对));
+
+  /* —— 客户端业务：对服务端的问询作答 —— */
+  if(t==='发起握手'){
+    var 目标=String(对.目标客户端||'');
+    if(目标 && 目标!==配置.id && String(对.目标昵称||'')!==昵称()) return;
+    发(账号, 头发('回应握手',账号,{电脑名:配置.dev,产品:配置.prod,主动下线:true}));
+  }else if(t==='谁在'){
+    发(账号, 头发('在线应答',账号,{电脑名:配置.dev,产品:配置.prod}));
+  }
+
+  if(t==='回应握手'){
+    服务端.昵称=对.昵称||对.电脑名||''; 服务端.号=对.软件号||''; 服务端.产品=对.产品||''; 服务端.设备名=对.电脑名||'';
+    允许主动下线 = 对.主动下线!==false;
+    静止秒 = Number(对.静止秒||静止秒)||默认静止;
+    服务时间 = Number(对.服务时间||服务时间)||180;
+    SS('still',静止秒);
+    上次心跳 = Date.now();                 /* 握手即起算，第一次心跳要等满一个间隔 */
+    记状态('已连接','on');
+    日志('sys','握手成功（服务器 '+服务端.昵称+' · '+服务端.号+'），主动下线='+(允许主动下线?'开':'关'));
+    if(配置.auto && !休眠) 刷新谁在();
+  }else if(t==='在线应答'){
+    画服务器表(对.在线端||[]);
+    if(!服务端.号 && 对.软件号){ 服务端.昵称=对.昵称||''; 服务端.号=对.软件号; }
+  }else if(t==='下发集群信息'){
+    if(对.账号表 && 对.账号表.length){
+      var 新表={},i,a;
+      for(i=0;i<对.账号表.length;i++){ a=对.账号表[i]; if(a&&a.名称&&a.cluster&&a.key) 新表[a.名称]={cluster:a.cluster,key:a.key}; }
+      if(Object.keys(新表).length){ 集群表=新表; 存配置(); 画设置(); 日志('sys','已更新集群表（'+Object.keys(新表).length+' 个）'); }
+    }
+  }else if(t==='回应切换集群'){
+    日志('sys','服务端回应集群 '+对.账号+'：'+(对.说明||'已就绪'));
+  }else if(t==='拒绝'){
+    日志('err','服务端拒绝：'+(对.原因||'未说明'));
+  }
+  画当前();
+}
+
+function 刷新谁在(){
+  if(!业务ws || 业务ws.readyState!==1){ 日志('err','未连接，不能刷新谁在'); return; }
+  发(配置.biz, 头发('谁在',配置.biz));
+}
+function 画服务器表(列表){
+  var tb=$('tbSrv'), h='', i, 端;
+  for(i=0;i<列表.length;i++){
+    端=列表[i]||{};
+    h+='<tr><td>'+(i+1)+'</td><td>'+(端.昵称||'-')+'</td><td>'+(端.电脑名||'-')+'</td><td>'+(端.产品||'-')+'</td><td>'+(端.软件号||'-')+'</td></tr>';
+  }
+  tb.innerHTML=h||'<tr><td colspan="5" style="color:#9aa">没有在线端</td></tr>';
+}
+function 画当前(){
+  $('cSrv').textContent = (服务端.昵称||'-') + (服务端.号? ' · '+服务端.号 : '');
+  $('cClus').textContent = 配置.biz;
+  $('cChan').textContent = 频道();
+  $('idTag').textContent = 配置.id;
+  var 心跳=Number(配置.hb||默认心跳);
+  var 空闲=(Date.now()-最近操作)/1000;
+  var 剩 = 上次心跳? Math.max(0, Math.round(心跳-(Date.now()-上次心跳)/1000)) : 心跳;
+  var 满足 = (配置.smart? (空闲<心跳) : true) ? '满足':'不满足';
+  $('cHb').textContent = 剩+' 秒（'+满足+'）';
+  if(!允许主动下线) $('cOff').textContent='已关闭';
+  else if(休眠) $('cOff').textContent='已下线（动一下即上线）';
+  else $('cOff').textContent = Math.max(0, Math.round(静止秒-空闲))+' 秒';
+}
+
+/* ================= 看门狗：下线 / 心跳 ================= */
+setInterval(function(){
+  if(状态==='未连接') return;
+  if(!允许主动下线) return;
+  var 现在=Date.now(), 空闲=(现在-最近操作)/1000, 心跳=Number(配置.hb||默认心跳);
+  if(!休眠 && 空闲>=静止秒){
+    休眠=true;
+    发(配置.biz, 头发('主动下线',配置.biz,{原因:'客户端静止超时'}));
+    日志('sys','静止 '+静止秒+' 秒，已发主动下线');
+    setTimeout(function(){ try{ if(业务ws) 业务ws.close(); }catch(e){} 业务ws=null; 已连上=false; 记状态('已下线','off'); }, 300);
+  }else if(休眠 && 空闲<静止秒){
+    休眠=false; 记状态('重连中','wait'); 日志('sys','检测到操作，重新上线');
+    业务ws=建ws(配置.biz,true);
+  }else if(!休眠 && 已连上 && 上次心跳 && (空闲<心跳 || !配置.smart) && (现在-上次心跳)/1000>=心跳){
+    发(配置.biz, 头发('键鼠活跃',配置.biz,{说明:'最近 '+Math.round(心跳)+' 秒有键鼠操作'}));
+  }
+},5000);
+setInterval(画当前,1000);
+
+/* ================= 设置页 ================= */
+function 画设置(){
+  $('sNic').value=配置.nic; $('sProd').value=配置.prod; $('sDev').value=配置.dev;
+  $('sId').value=配置.id; $('sPass').value=配置.pass;
+  $('sHb').value=配置.hb; $('sStill').value=静止秒;
+  $('sSmart').checked=!!配置.smart; $('sAutoConn').checked=!!配置.auto;
+  var 名们=Object.keys(集群表), opt='', i;
+  for(i=0;i<名们.length;i++) opt+='<option value="'+名们[i]+'">'+名们[i]+'</option>';
+  $('sBiz').innerHTML=opt; $('sBiz').value=配置.biz;
+  $('sEmg').innerHTML=opt; $('sEmg').value=配置.emg;
+  $('sClusters').value=JSON.stringify(集群表,null,1);
+}
+function 保存设置(){
+  var 新表;
+  try{ 新表=JSON.parse($('sClusters').value); }catch(e){ $('setTip').textContent='集群表不是合法 JSON：'+e.message; return; }
+  if(!新表 || typeof 新表!=='object' || !Object.keys(新表).length){ $('setTip').textContent='集群表不能为空'; return; }
+  var 旧biz=配置.biz, 旧emg=配置.emg, 旧pass=配置.pass;
+  集群表=新表;
+  配置.nic=$('sNic').value.trim(); 配置.prod=$('sProd').value.trim()||'WS客户端网页';
+  配置.dev=$('sDev').value.trim()||默认设备名(); 配置.pass=$('sPass').value.trim()||默认口令;
+  配置.biz=$('sBiz').value; 配置.emg=$('sEmg').value;
+  配置.hb=Math.max(0, Number($('sHb').value||默认心跳)); 配置.smart=$('sSmart').checked; 配置.auto=$('sAutoConn').checked;
+  if(!集群表[配置.biz]) 配置.biz=Object.keys(集群表)[0];
+  if(!集群表[配置.emg]) 配置.emg=Object.keys(集群表)[Object.keys(集群表).length-1];
+  存配置(); 画设置(); 画当前();
+  $('setTip').textContent='已保存（'+(旧biz!==配置.biz||旧emg!==配置.emg||旧pass!==配置.pass?'连接参数变了，正在重连':'已生效')+'）';
+  if(旧biz!==配置.biz||旧emg!==配置.emg||旧pass!==配置.pass){ 断开全部(); setTimeout(连接全部,400); }
+}
+
+/* ================= 事件绑定 ================= */
+function 绑事件(){
+  $('btnPage').onclick=function(){
+    var 在设置=$('set').classList.contains('show');
+    $('set').classList.toggle('show',!在设置); $('home').classList.toggle('hide',!在设置);
+    $('btnPage').textContent=在设置?'设置':'主页';
+    if(!在设置) 画设置();
+  };
+  $('btnWho').onclick=刷新谁在;
+  $('btnClearLog').onclick=function(){ $('sysLog').innerHTML=''; };
+  $('btnSave').onclick=保存设置;
+  $('btnReset').onclick=function(){ if(confirm('清空本机缓存（含实例号、昵称、集群表）？')){ 清缓存(); location.reload(); } };
+  ['pointerdown','mousemove','keydown','scroll','touchstart'].forEach(function(ev){
+    window.addEventListener(ev,function(){ 最近操作=Date.now(); },{passive:true});
+  });
+  document.addEventListener('visibilitychange',function(){
+    if(!document.hidden){ 最近操作=Date.now(); if(!业务ws && 状态!=='未连接' && !休眠) 重连业务(); }
+  });
+}
+
+/* ================= 启动 ================= */
+加载配置();
+绑事件();
+画设置();
+画当前();
+画流水();
+$('roleTag').textContent='客户端';
+$('idTag').textContent=配置.id;
+$('sStill').value=静止秒;
+日志('sys','就绪：实例号 '+配置.id+'，频道 '+频道());
+if(配置.auto) 连接全部();
+</script>
+</body>
+</html>
