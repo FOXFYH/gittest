@@ -1,10 +1,4 @@
-/* ============================================================================
- * wsqui.js —— WebSocket 收发器「客户端网页版」现成界面（可选、懒加载）
- *
- * 只在宿主调用 WSQ.挂载界面(容器) 时才被 wsqcore.js 动态加载；
- * 不加载本文件，内核逻辑照样完整可用（别的网站当 WS 底座时就不必加载）。
- * 本文件只做 DOM/样式与事件绑定，协议与连接一律由 WSQ 内核负责。
- * ========================================================================== */
+/* wsqui.js —— WebSocket 收发器客户端网页版可选界面（懒加载，仅 DOM/样式） */
 (function () {
   'use strict';
   if (!window.WSQ) return;
@@ -62,12 +56,12 @@
     + '<div id="wsqHome">'
     + '  <div class="card"><h3>当前连接</h3><div class="kv">'
     + '    <i>服务器</i><b id="wsqSrv">-</b><i>目标服务器</i><b id="wsqTarget">-</b><i>业务集群</i><b id="wsqClus">-</b>'
-    + '    <i>频道</i><b id="wsqChan" class="wide">-</b><i>下次心跳</i><b id="wsqHb">-</b><i>主动下线</i><b id="wsqOff">-</b>'
+    + '    <i>临时主</i><b id="wsqTemp">-</b><i>频道</i><b id="wsqChan" class="wide">-</b><i>下次心跳</i><b id="wsqHb">-</b><i>主动下线</i><b id="wsqOff">-</b>'
     + '  </div></div>'
     + '  <div class="card"><h3>自身集群在线</h3>'
-    + '    <div class="tw" style="max-height:16vh"><table><thead><tr><th>序号</th><th>集群</th><th>状态</th><th>在线时长</th><th>最近活动</th></tr></thead><tbody id="wsqTbCluster"></tbody></table></div></div>'
-    + '  <div class="card"><h3>服务器在线<button id="wsqBtnWho">刷新谁在</button></h3>'
-    + '    <div class="tw" style="max-height:22vh"><table><thead><tr><th>序号</th><th>昵称</th><th>设备名</th><th>产品</th><th>实例号</th></tr></thead><tbody id="wsqTbSrv"><tr><td colspan="5" style="color:#9aa">尚未发现服务器</td></tr></tbody></table></div>'
+    + '    <div class="tw" style="max-height:18vh"><table><thead><tr><th>序号</th><th>集群</th><th>类型</th><th>状态</th><th>在线时长</th><th>剩余</th><th>最近活动</th></tr></thead><tbody id="wsqTbCluster"></tbody></table></div></div>'
+    + '  <div class="card"><h3>服务器在线<button id="wsqBtnWho">智能调查服务器在线</button></h3>'
+    + '    <div class="tw" style="max-height:22vh"><table><thead><tr><th>序号</th><th>昵称</th><th>设备名</th><th>产品</th><th>在线集群</th><th>实例号</th></tr></thead><tbody id="wsqTbSrv"><tr><td colspan="6" style="color:#9aa">尚未发现服务器</td></tr></tbody></table></div>'
     + '    <div class="tip">点某一行＝选定目标服务器（下次启动自动连它）。</div></div>'
     + '  <div class="card"><h3>WS 收发流水 <span class="r">最新在第 1 行</span></h3>'
     + '    <div class="tw" style="max-height:30vh"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>集群</th><th>昵称</th><th>实例号</th><th>类型</th><th>大小(KB)</th><th>字数</th><th>摘要</th></tr></thead><tbody id="wsqTbFlow"></tbody></table></div></div>'
@@ -89,11 +83,15 @@
     + '    <div class="f"><label>实例号（10 位，浏览器本机固定）</label><input id="wsqId2" readonly></div></div>'
     + '  <div class="grp"><h4>连接</h4>'
     + '    <div class="f"><label>频道口令（前缀 WSRELAY 内置）</label><input id="wsqPass" autocomplete="off"></div>'
-    + '    <div class="two"><div class="f"><label>业务集群</label><select id="wsqBiz"></select></div><div class="f"><label>紧急集群</label><select id="wsqEmg"></select></div></div>'
-    + '    <div class="chk"><input type="checkbox" id="wsqAuto"><label for="wsqAuto">打开页面自动连接</label></div></div>'
+    + '    <div class="two"><div class="f"><label>业务集群（切换＝临时主）</label><select id="wsqBiz"></select></div><div class="f"><label>紧急集群</label><select id="wsqEmg"></select></div></div>'
+    + '    <div class="chk"><input type="checkbox" id="wsqAuto"><label for="wsqAuto">打开页面自动连接</label></div>'
+    + '    <div class="tip">主集群写死 WS1；切到别的集群算临时主，到点自动回 WS1。</div></div>'
     + '  <div class="grp"><h4>心跳与下线</h4>'
     + '    <div class="two"><div class="f"><label>键鼠活跃心跳(秒)</label><input id="wsqHbin" inputmode="numeric"></div><div class="f"><label>静止秒（服务器下发，只读）</label><input id="wsqStill" readonly></div></div>'
     + '    <div class="chk"><input type="checkbox" id="wsqSmart"><label for="wsqSmart">智能发送键鼠活跃（任一 WS 发出即重置；握手后才起算）</label></div></div>'
+    + '  <div class="grp"><h4>服务端策略（只读，握手同步）</h4>'
+    + '    <div class="chk"><input type="checkbox" id="wsqSmartSurvey" disabled><label for="wsqSmartSurvey">智能调查服务器在线（临时全开各集群再询问）</label></div>'
+    + '    <div class="two"><div class="f"><label>临时主回归(分钟)</label><input id="wsqTempMin" readonly></div><div class="f"><label>临时喊话(秒)</label><input id="wsqShoutSec" readonly></div></div></div>'
     + '  <div class="grp"><h4>集群表（JSON：名称 → cluster / key）</h4>'
     + '    <div class="f"><textarea id="wsqClusters" spellcheck="false"></textarea></div>'
     + '    <div class="tip">服务端下发集群信息时会自动覆盖这里的表；密钥只存本机浏览器，不进网页源码。</div></div>'
@@ -105,6 +103,14 @@
     if (document.getElementById('wsqStyle')) return;
     var st = document.createElement('style'); st.id = 'wsqStyle'; st.textContent = 样式;
     (document.head || document.documentElement).appendChild(st);
+  }
+  function 时长(秒) {
+    秒 = Math.max(0, Math.round(秒 || 0));
+    if (秒 < 60) return 秒 + ' 秒';
+    var 分 = Math.floor(秒 / 60), 剩 = 秒 % 60;
+    if (分 < 60) return 分 + ' 分' + (剩 ? ' ' + 剩 + ' 秒' : '');
+    var 时 = Math.floor(分 / 60);
+    return 时 + ' 时' + (分 % 60 ? ' ' + (分 % 60) + ' 分' : '');
   }
 
   WSQ._注册UI(function (容器, 核心) {
@@ -127,6 +133,9 @@
       $('wsqEmg').innerHTML = opt; $('wsqEmg').value = c.emg;
       $('wsqClusters').value = JSON.stringify(核心.集群表(), null, 1);
       $('wsqStill').value = 核心.状态().静止秒;
+      $('wsqSmartSurvey').checked = !!c.智调;
+      $('wsqTempMin').value = c.临主分;
+      $('wsqShoutSec').value = c.喊话秒;
     }
 
     function 画状态(s) {
@@ -137,6 +146,7 @@
       for (var i = 0; i < (s.服务器 || []).length; i++) if (s.服务器[i].号 === 目标) 服 = s.服务器[i];
       $('wsqTarget').textContent = 目标 ? ((服 ? 服.昵称 : '?') + ' · ' + 目标) : '（不限制）';
       $('wsqClus').textContent = s.业务集群;
+      $('wsqTemp').textContent = s.临时主 ? (s.临时主 + '（剩 ' + 时长(s.临时主剩余秒) + '，到点回 WS1）') : '-';
       $('wsqChan').textContent = s.频道;
       $('wsqId').textContent = 核心.读配置().id;
       $('wsqHb').textContent = s.下次心跳秒 + ' 秒（' + (s.心跳满足 ? '满足' : '不满足') + '）';
@@ -147,18 +157,19 @@
       var h = '', i, v;
       for (i = 0; i < 列表.length; i++) {
         v = 列表[i] || {};
-        h += '<tr><td>' + (i + 1) + '</td><td>' + (v.集群 || '-') + '</td><td>' + (v.状态 || '-') + '</td><td>' + (v.在线秒 || 0) + ' 秒</td><td>' + (v.最近 || '-') + '</td></tr>';
+        h += '<tr><td>' + (i + 1) + '</td><td>' + (v.集群 || '-') + '</td><td>' + (v.类型 || '-') + '</td><td>' + (v.状态 || '-') + '</td><td>' + 时长(v.在线秒) + '</td><td>' + ((v.剩余秒 || 0) < 0 ? '-' : 时长(v.剩余秒)) + '</td><td>' + (v.最近 || '-') + '</td></tr>';
       }
-      $('wsqTbCluster').innerHTML = h || '<tr><td colspan="5" style="color:#9aa">未连接</td></tr>';
+      $('wsqTbCluster').innerHTML = h || '<tr><td colspan="7" style="color:#9aa">未连接</td></tr>';
     }
     function 画服务器(列表, 目标) {
       var h = '', i, v;
       for (i = 0; i < 列表.length; i++) {
         v = 列表[i] || {};
-        h += '<tr data-id="' + (v.号 || '') + '" style="cursor:pointer' + (v.号 === 目标 ? ';background:#e8f3ea' : '') + '"><td>' + (i + 1) + '</td><td>' + (v.昵称 || '-') + '</td><td>' + (v.设备名 || '-') + '</td><td>' + (v.产品 || '-') + '</td><td>' + (v.号 || '-') + '</td></tr>';
+        var 集 = (v.在线集群 && v.在线集群.length) ? v.在线集群.join('、') : '-';
+        h += '<tr data-id="' + (v.号 || '') + '" style="cursor:pointer' + (v.号 === 目标 ? ';background:#e8f3ea' : '') + '"><td>' + (i + 1) + '</td><td>' + (v.昵称 || '-') + '</td><td>' + (v.设备名 || '-') + '</td><td>' + (v.产品 || '-') + '</td><td>' + 集 + '</td><td>' + (v.号 || '-') + '</td></tr>';
       }
       var tb = $('wsqTbSrv');
-      tb.innerHTML = h || '<tr><td colspan="5" style="color:#9aa">尚未发现服务器</td></tr>';
+      tb.innerHTML = h || '<tr><td colspan="6" style="color:#9aa">尚未发现服务器</td></tr>';
       Array.prototype.forEach.call(tb.querySelectorAll('tr[data-id]'), function (tr) {
         tr.onclick = function () { 核心.选服务器(tr.getAttribute('data-id')); 画状态(核心.状态()); };
       });
@@ -205,7 +216,7 @@
     }
     $('wsqBtnPage').onclick = function () { 切页('设置'); };
     $('wsqBtnTpl').onclick = function () { 切页('模板'); };
-    $('wsqBtnWho').onclick = function () { 核心.刷新谁在(); };
+    $('wsqBtnWho').onclick = function () { 核心.智能调查(); };
 
     function 画模板() {
       var 名们 = Object.keys(核心.客户端模板);
@@ -248,13 +259,13 @@
       try { 表 = JSON.parse($('wsqClusters').value); } catch (e) { $('wsqSetTip').textContent = '集群表不是合法 JSON：' + e.message; return; }
       if (!表 || !Object.keys(表).length) { $('wsqSetTip').textContent = '集群表不能为空'; return; }
       核心.设置集群表(表);
-      var 重连 = 核心.改配置({
+      var 动了 = 核心.改配置({
         nic: $('wsqNic').value.trim(), prod: $('wsqProd').value.trim() || 'WS客户端网页',
         dev: $('wsqDev').value.trim() || '浏览器', pass: $('wsqPass').value.trim(),
         biz: $('wsqBiz').value, emg: $('wsqEmg').value,
         hb: Number($('wsqHbin').value || 60), smart: $('wsqSmart').checked, auto: $('wsqAuto').checked
       });
-      $('wsqSetTip').textContent = '已保存' + (重连 ? '（连接参数变了，正在重连）' : '（已生效）');
+      $('wsqSetTip').textContent = 动了 ? '已保存；集群切换请求已发出，等服务器点名回应后才正式提交（约 1 秒）' : '已保存（已生效）';
       画配置();
     };
     $('wsqBtnReset').onclick = function () {
