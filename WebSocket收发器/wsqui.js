@@ -18,10 +18,12 @@
     + '.wsq .card{background:#fff;border:1px solid #dbe7dd;border-radius:8px;margin:8px 8px 0;padding:8px 10px}'
     + '.wsq .card h3{margin:0 0 6px;font-size:12px;color:#4a6b50;font-weight:600;display:flex;align-items:center}'
     + '.wsq .card h3 .r{margin-left:auto;font-weight:400;color:#8aa;font-size:11px}'
-    + '.wsq .card h3 button{height:24px;padding:0 8px;border:1px solid #9cc3a5;background:#f3f9f4;color:#22532a;border-radius:5px;font-size:12px;margin-left:auto}'
     + '.wsq .kv{display:grid;grid-template-columns:74px 1fr;gap:2px 6px;font-size:12px}'
     + '.wsq .kv i{font-style:normal;color:#7d8f83}.wsq .kv b{font-weight:500;word-break:break-all}'
     + '.wsq .kv .wide{grid-column:2/3;word-break:break-all}'
+    + '.wsq .ctl{display:flex;align-items:center;gap:6px;margin:0 0 6px}'
+    + '.wsq .ctl label{width:72px;flex:none;font-size:12px;color:#7d8f83}'
+    + '.wsq .ctl select{flex:1;min-width:0;border:1px solid #cfdcd3;border-radius:6px;background:#fbfdfb;color:#1f2a22;font:13px/1.4 inherit;padding:6px 8px}'
     + '.wsq table{width:100%;border-collapse:collapse;font-size:12px}'
     + '.wsq th,.wsq td{padding:3px 4px;border-bottom:1px solid #edf2ee;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
     + '.wsq th{background:#eef6f0;color:#4a6b50;font-weight:600;position:sticky;top:0}'
@@ -42,7 +44,7 @@
     + '.wsq .chk input{width:16px;height:16px}'
     + '.wsq .btns{display:flex;gap:8px;margin:8px 0 4px}'
     + '.wsq button.act{height:38px;flex:1;border:0;border-radius:8px;background:#2e7d32;color:#fff;font-size:14px;font-weight:600}'
-    + '.wsq button.act.gray{background:#e7efe9;color:#3d5a44;border:1px solid #cfdcd3}'
+    + '.wsq button.act.gray{background:#e7efe9;color:#3d5a44;border:1px solid #cfdcd3;font-size:13px}'
     + '.wsq .tip{font-size:11px;color:#8a9a8e;margin:4px 0 2px}'
     + '.wsq .logbox{height:30vh;overflow:auto;background:#fbfdfb;border:1px solid #e4ece6;border-radius:6px;padding:4px;font:11px/1.5 Consolas,monospace}'
     + '.wsq .logbox div{border-bottom:1px dashed #eef2ee;padding:1px 2px;word-break:break-all;white-space:pre-wrap}'
@@ -56,15 +58,22 @@
     + '<div id="wsqHome">'
     + '  <div class="card"><h3>当前连接</h3><div class="kv">'
     + '    <i>服务器</i><b id="wsqSrv">-</b><i>目标服务器</i><b id="wsqTarget">-</b><i>业务集群</i><b id="wsqClus">-</b>'
-    + '    <i>临时主</i><b id="wsqTemp">-</b><i>频道</i><b id="wsqChan" class="wide">-</b><i>下次心跳</i><b id="wsqHb">-</b><i>主动下线</i><b id="wsqOff">-</b>'
+    + '    <i>临时主</i><b id="wsqTemp">-</b><i>加密频道</i><b id="wsqEnc">-</b><i>频道</i><b id="wsqChan" class="wide">-</b>'
+    + '    <i>下次心跳</i><b id="wsqHb">-</b><i>主动下线</i><b id="wsqOff">-</b>'
     + '  </div></div>'
+    + '  <div class="card"><h3>连接控制</h3>'
+    + '    <div class="ctl"><label>业务集群</label><select id="wsqBizSel"></select></div>'
+    + '    <div class="ctl"><label>目标服务器</label><select id="wsqSrvSel"></select></div>'
+    + '    <div class="btns"><button class="act gray" id="wsqBtnUpd">更新集群信息</button><button class="act gray" id="wsqBtnTest">测试服务器回应</button></div>'
+    + '    <div class="btns"><button class="act" id="wsqBtnWho">智能调查服务器在线</button></div>'
+    + '    <div class="tip">业务集群切换＝临时主（600 分钟自动回 WS1）；目标服务器选定即重新握手。</div></div>'
     + '  <div class="card"><h3>自身集群在线</h3>'
-    + '    <div class="tw" style="max-height:18vh"><table><thead><tr><th>序号</th><th>集群</th><th>类型</th><th>状态</th><th>在线时长</th><th>剩余</th><th>最近活动</th></tr></thead><tbody id="wsqTbCluster"></tbody></table></div></div>'
-    + '  <div class="card"><h3>服务器在线<button id="wsqBtnWho">智能调查服务器在线</button></h3>'
-    + '    <div class="tw" style="max-height:22vh"><table><thead><tr><th>序号</th><th>昵称</th><th>设备名</th><th>产品</th><th>在线集群</th><th>实例号</th></tr></thead><tbody id="wsqTbSrv"><tr><td colspan="6" style="color:#9aa">尚未发现服务器</td></tr></tbody></table></div>'
-    + '    <div class="tip">点某一行＝选定目标服务器（下次启动自动连它）。</div></div>'
+    + '    <div class="tw" style="max-height:18vh"><table><thead><tr><th>序号</th><th>集群</th><th>频道</th><th>类型</th><th>状态</th><th>在线时长</th><th>剩余</th><th>最近活动</th></tr></thead><tbody id="wsqTbCluster"></tbody></table></div></div>'
+    + '  <div class="card"><h3>服务器在线</h3>'
+    + '    <div class="tw" style="max-height:22vh"><table><thead><tr><th>序号</th><th>昵称</th><th>设备名</th><th>产品</th><th>在线集群</th><th>实例号</th><th>最近</th></tr></thead><tbody id="wsqTbSrv"><tr><td colspan="7" style="color:#9aa">尚未发现服务器</td></tr></tbody></table></div>'
+    + '    <div class="tip">点某一行＝选定目标服务器（也可用上方「目标服务器」下拉）。</div></div>'
     + '  <div class="card"><h3>WS 收发流水 <span class="r">最新在第 1 行</span></h3>'
-    + '    <div class="tw" style="max-height:30vh"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>集群</th><th>昵称</th><th>实例号</th><th>类型</th><th>大小(KB)</th><th>字数</th><th>摘要</th></tr></thead><tbody id="wsqTbFlow"></tbody></table></div></div>'
+    + '    <div class="tw" style="max-height:30vh"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>集群</th><th>频道</th><th>昵称</th><th>实例号</th><th>类型</th><th>大小(KB)</th><th>字数</th><th>摘要</th></tr></thead><tbody id="wsqTbFlow"></tbody></table></div></div>'
     + '  <div class="card"><h3>系统日志 <button id="wsqBtnClearLog">清空</button></h3><div class="logbox" id="wsqSysLog"></div></div>'
     + '</div>'
     + '<div class="set" id="wsqTpl">'
@@ -83,8 +92,9 @@
     + '    <div class="f"><label>实例号（10 位，浏览器本机固定）</label><input id="wsqId2" readonly></div></div>'
     + '  <div class="grp"><h4>连接</h4>'
     + '    <div class="f"><label>频道口令（前缀 WSRELAY1 内置）</label><input id="wsqPass" autocomplete="off"></div>'
-    + '    <div class="two"><div class="f"><label>业务集群（切换＝临时主）</label><select id="wsqBiz"></select></div><div class="f"><label>紧急集群</label><select id="wsqEmg"></select></div></div>'
+    + '    <div class="f"><label>紧急集群</label><select id="wsqEmg"></select></div>'
     + '    <div class="chk"><input type="checkbox" id="wsqAuto"><label for="wsqAuto">打开页面自动连接</label></div>'
+    + '    <div class="chk"><input type="checkbox" id="wsqAutoSrv"><label for="wsqAutoSrv">启动时自动连接上次服务器</label></div>'
     + '    <div class="tip">主集群写死 WS1；切到别的集群算临时主，到点自动回 WS1。</div></div>'
     + '  <div class="grp"><h4>心跳与下线</h4>'
     + '    <div class="two"><div class="f"><label>键鼠活跃心跳(秒)</label><input id="wsqHbin" inputmode="numeric"></div><div class="f"><label>静止秒（服务器下发，只读）</label><input id="wsqStill" readonly></div></div>'
@@ -129,13 +139,28 @@
       $('wsqNic').value = c.nic; $('wsqProd').value = c.prod; $('wsqDev').value = c.dev;
       $('wsqId2').value = c.id; $('wsqPass').value = c.pass; $('wsqHbin').value = c.hb;
       $('wsqSmart').checked = !!c.smart; $('wsqAuto').checked = !!c.auto;
-      $('wsqBiz').innerHTML = opt; $('wsqBiz').value = c.biz;
+      $('wsqAutoSrv').checked = !!c.autoSrv;
       $('wsqEmg').innerHTML = opt; $('wsqEmg').value = c.emg;
       $('wsqClusters').value = JSON.stringify(核心.集群表(), null, 1);
       $('wsqStill').value = 核心.状态().静止秒;
       $('wsqSmartSurvey').checked = !!c.智调;
       $('wsqTempMin').value = c.临主分;
       $('wsqShoutSec').value = c.喊话秒;
+    }
+
+    function 画连接控制() {
+      var c = 核心.读配置(), 名 = Object.keys(核心.集群表()), h = '', i, 服 = 核心.服务器();
+      for (i = 0; i < 名.length; i++) h += '<option value="' + 名[i] + '">' + 名[i] + '</option>';
+      $('wsqBizSel').innerHTML = h;
+      $('wsqBizSel').value = c.biz;
+      var s = '<option value="">（不限制）</option>', 有目标 = false, 当前目标 = 核心.目标号();
+      for (i = 0; i < 服.length; i++) {
+        s += '<option value="' + 服[i].号 + '">' + (服[i].昵称 || '-') + '（' + 服[i].号 + '）</option>';
+        if (服[i].号 === 当前目标) 有目标 = true;
+      }
+      if (当前目标 && !有目标) s += '<option value="' + 当前目标 + '">（已选）' + 当前目标 + '</option>';
+      $('wsqSrvSel').innerHTML = s;
+      $('wsqSrvSel').value = 当前目标 || '';
     }
 
     function 画状态(s) {
@@ -147,6 +172,7 @@
       $('wsqTarget').textContent = 目标 ? ((服 ? 服.昵称 : '?') + ' · ' + 目标) : '（不限制）';
       $('wsqClus').textContent = s.业务集群;
       $('wsqTemp').textContent = s.临时主 ? (s.临时主 + '（剩 ' + 时长(s.临时主剩余秒) + '，到点回 WS1）') : '-';
+      $('wsqEnc').textContent = 核心.读配置().加密频道 || '-';
       $('wsqChan').textContent = s.频道;
       $('wsqId').textContent = 核心.读配置().id;
       $('wsqHb').textContent = s.下次心跳秒 + ' 秒（' + (s.心跳满足 ? '满足' : '不满足') + '）';
@@ -154,30 +180,33 @@
     }
 
     function 画集群(列表) {
-      var h = '', i, v;
+      var h = '', i, v, 频道 = 核心.频道 ? 核心.频道() : 核心.状态().频道;
       for (i = 0; i < 列表.length; i++) {
         v = 列表[i] || {};
-        h += '<tr><td>' + (i + 1) + '</td><td>' + (v.集群 || '-') + '</td><td>' + (v.类型 || '-') + '</td><td>' + (v.状态 || '-') + '</td><td>' + 时长(v.在线秒) + '</td><td>' + ((v.剩余秒 || 0) < 0 ? '-' : 时长(v.剩余秒)) + '</td><td>' + (v.最近 || '-') + '</td></tr>';
+        h += '<tr><td>' + (i + 1) + '</td><td>' + (v.集群 || '-') + '</td><td>' + 频道 + '</td><td>' + (v.类型 || '-') + '</td><td>' + (v.状态 || '-') + '</td><td>' + 时长(v.在线秒) + '</td><td>' + ((v.剩余秒 || 0) < 0 ? '-' : 时长(v.剩余秒)) + '</td><td>' + (v.最近 || '-') + '</td></tr>';
       }
-      $('wsqTbCluster').innerHTML = h || '<tr><td colspan="7" style="color:#9aa">未连接</td></tr>';
+      $('wsqTbCluster').innerHTML = h || '<tr><td colspan="8" style="color:#9aa">未连接</td></tr>';
     }
     function 画服务器(列表, 目标) {
       var h = '', i, v;
       for (i = 0; i < 列表.length; i++) {
         v = 列表[i] || {};
         var 集 = (v.在线集群 && v.在线集群.length) ? v.在线集群.join('、') : '-';
-        h += '<tr data-id="' + (v.号 || '') + '" style="cursor:pointer' + (v.号 === 目标 ? ';background:#e8f3ea' : '') + '"><td>' + (i + 1) + '</td><td>' + (v.昵称 || '-') + '</td><td>' + (v.设备名 || '-') + '</td><td>' + (v.产品 || '-') + '</td><td>' + 集 + '</td><td>' + (v.号 || '-') + '</td></tr>';
+        h += '<tr data-id="' + (v.号 || '') + '" style="cursor:pointer' + (v.号 === 目标 ? ';background:#e8f3ea' : '') + '"><td>' + (i + 1) + '</td><td>' + (v.昵称 || '-') + '</td><td>' + (v.设备名 || '-') + '</td><td>' + (v.产品 || '-') + '</td><td>' + 集 + '</td><td>' + (v.号 || '-') + '</td><td>' + (v.最近 || '-') + '</td></tr>';
       }
       var tb = $('wsqTbSrv');
-      tb.innerHTML = h || '<tr><td colspan="6" style="color:#9aa">尚未发现服务器</td></tr>';
+      tb.innerHTML = h || '<tr><td colspan="7" style="color:#9aa">尚未发现服务器</td></tr>';
       Array.prototype.forEach.call(tb.querySelectorAll('tr[data-id]'), function (tr) {
-        tr.onclick = function () { 核心.选服务器(tr.getAttribute('data-id')); 画状态(核心.状态()); };
+        tr.onclick = function () {
+          核心.选服务器(tr.getAttribute('data-id'));
+          画状态(核心.状态()); 画连接控制();
+        };
       });
     }
 
     function 画流水(行) {
       var tb = $('wsqTbFlow'), tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + 行.i + '</td><td>' + 行.time + '</td><td class="' + (行.dir === '发' ? 'dir-f' : 'dir-s') + '">' + 行.dir + '</td><td>' + 行.acc + '</td><td>' + 行.nic + '</td><td>' + 行.id + '</td><td>' + 行.t + '</td><td>' + (行.kb || '0.00') + '</td><td>' + (行.字 || 0) + '</td><td class="sum">' + 行.sum + '</td>';
+      tr.innerHTML = '<td>' + 行.i + '</td><td>' + 行.time + '</td><td class="' + (行.dir === '发' ? 'dir-f' : 'dir-s') + '">' + 行.dir + '</td><td>' + 行.acc + '</td><td>' + (行.ch || '-') + '</td><td>' + 行.nic + '</td><td>' + 行.id + '</td><td>' + 行.t + '</td><td>' + (行.kb || '0.00') + '</td><td>' + (行.字 || 0) + '</td><td class="sum">' + 行.sum + '</td>';
       tb.insertBefore(tr, tb.firstChild);
       while (tb.children.length > 200) tb.removeChild(tb.lastChild);
     }
@@ -200,9 +229,9 @@
       else if (ev.类型 === '流水') 画流水(ev.行);
       else if (ev.类型 === '日志') 日志(ev.级别, ev.文本, ev.时间);
       else if (ev.类型 === '集群') 画集群(ev.列表);
-      else if (ev.类型 === '服务器') 画服务器(ev.列表, ev.目标);
-      else if (ev.类型 === '集群表' || ev.类型 === '配置') { if (当前页 === '设置') 画配置(); }
-      else if (ev.类型 === '握手') 画状态(核心.状态());
+      else if (ev.类型 === '服务器') { 画服务器(ev.列表, ev.目标); 画连接控制(); }
+      else if (ev.类型 === '集群表' || ev.类型 === '配置') { 画连接控制(); if (当前页 === '设置') 画配置(); }
+      else if (ev.类型 === '握手') { 画状态(核心.状态()); 画连接控制(); }
     });
     setInterval(function () { 画集群(核心.集群在线()); }, 1000);
 
@@ -216,6 +245,17 @@
     }
     $('wsqBtnPage').onclick = function () { 切页('设置'); };
     $('wsqBtnTpl').onclick = function () { 切页('模板'); };
+    $('wsqBizSel').onchange = function () {
+      var 名 = this.value;
+      核心.切换业务集群(名);
+      画状态(核心.状态());
+    };
+    $('wsqSrvSel').onchange = function () {
+      核心.选服务器(this.value);
+      画状态(核心.状态());
+    };
+    $('wsqBtnUpd').onclick = function () { 核心.更新集群信息(); };
+    $('wsqBtnTest').onclick = function () { 核心.测试服务器(); };
     $('wsqBtnWho').onclick = function () { 核心.智能调查(); };
 
     function 画模板() {
@@ -262,18 +302,19 @@
       var 动了 = 核心.改配置({
         nic: $('wsqNic').value.trim(), prod: $('wsqProd').value.trim() || 'WS客户端网页',
         dev: $('wsqDev').value.trim() || '浏览器', pass: $('wsqPass').value.trim(),
-        biz: $('wsqBiz').value, emg: $('wsqEmg').value,
-        hb: Number($('wsqHbin').value || 60), smart: $('wsqSmart').checked, auto: $('wsqAuto').checked
+        emg: $('wsqEmg').value,
+        hb: Number($('wsqHbin').value || 60), smart: $('wsqSmart').checked, auto: $('wsqAuto').checked,
+        autoSrv: $('wsqAutoSrv').checked
       });
-      $('wsqSetTip').textContent = 动了 ? '已保存；集群切换请求已发出，等服务器点名回应后才正式提交（约 1 秒）' : '已保存（已生效）';
-      画配置();
+      $('wsqSetTip').textContent = 动了 ? '已保存；连接参数变了，正在重连' : '已保存（已生效）';
+      画配置(); 画连接控制();
     };
     $('wsqBtnReset').onclick = function () {
       if (!confirm('清空本机缓存（含实例号、昵称、集群表）？')) return;
       核心.清缓存(); location.reload();
     };
 
-    画配置(); 画状态(核心.状态()); 画流水全部(); 画集群(核心.集群在线()); 画服务器(核心.服务器(), 核心.目标号()); 画模板();
+    画配置(); 画连接控制(); 画状态(核心.状态()); 画流水全部(); 画集群(核心.集群在线()); 画服务器(核心.服务器(), 核心.目标号()); 画模板();
     日志('sys', '界面就绪（内核 v' + 核心.版本 + '）');
   });
 })();
