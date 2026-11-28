@@ -41,6 +41,9 @@
     + '.wsq .f input[readonly]{background:#f1f4f2;color:#7d8f83}'
     + '.wsq .two{display:flex;gap:8px}.wsq .two>*{flex:1}'
     + '.wsq .chk{display:flex;align-items:center;gap:6px;font-size:13px;margin:4px 0}'
+    + '.wsq .chkline{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 4px}'
+    + '.wsq .chkline label{display:flex;align-items:center;gap:3px;font-size:12px;margin:0}'
+    + '.wsq .chkline input{width:14px;height:14px}'
     + '.wsq .chk input{width:16px;height:16px}'
     + '.wsq .btns{display:flex;gap:8px;margin:8px 0 4px}'
     + '.wsq button.act{height:38px;flex:1;border:0;border-radius:8px;background:#2e7d32;color:#fff;font-size:14px;font-weight:600}'
@@ -80,6 +83,8 @@
     + '  <div class="grp"><h4>模板（诊断用；通道固定当前业务集群）</h4>'
     + '    <div class="f"><label>模板</label><select id="wsqTplSel"></select></div>'
     + '    <div class="f"><label>接收者</label><select id="wsqTplTo"></select></div>'
+    + '    <div class="f"><label>发送集群（逐个勾，或全选）</label><div id="wsqTplClusters" class="chkline"></div></div>'
+    + '    <div class="chk"><input type="checkbox" id="wsqTplAll"><label for="wsqTplAll">全选（全部集群）</label></div>'
     + '    <div id="wsqTplFields"></div>'
     + '  </div>'
     + '  <div class="btns"><button class="act" id="wsqTplSend">发送</button></div>'
@@ -257,6 +262,10 @@
     $('wsqBtnUpd').onclick = function () { 核心.更新集群信息(); };
     $('wsqBtnTest').onclick = function () { 核心.测试服务器(); };
     $('wsqBtnWho').onclick = function () { 核心.智能调查(); };
+    $('wsqTplAll').onchange = function () {
+      var 全 = this.checked;
+      Array.prototype.forEach.call($('wsqTplClusters').querySelectorAll('input[data-c]'), function (el) { el.checked = 全; });
+    };
 
     function 画模板() {
       var 名们 = Object.keys(核心.客户端模板);
@@ -269,6 +278,21 @@
       for (i = 0; i < 服.length; i++) 头 += '<option value="' + 服[i].号 + '">' + (服[i].昵称 || '-') + '（' + 服[i].号 + '）</option>';
       $('wsqTplTo').innerHTML = 头;
       画模板字段();
+      画集群勾();
+    }
+    function 画集群勾() {
+      var 框 = $('wsqTplClusters'), 旧 = {};
+      if (!框) return;
+      Array.prototype.forEach.call(框.querySelectorAll('input[data-c]'), function (el) { 旧[el.getAttribute('data-c')] = el.checked; });
+      框.innerHTML = '';
+      Object.keys(核心.集群表()).forEach(function (n) {
+        var l = document.createElement('label');
+        var i = document.createElement('input');
+        i.type = 'checkbox'; i.setAttribute('data-c', n); i.checked = !!旧[n];
+        l.appendChild(i);
+        l.appendChild(document.createTextNode(n));
+        框.appendChild(l);
+      });
     }
     function 画模板字段() {
       var 名 = $('wsqTplSel').value, 模 = 核心.客户端模板[名] || {}, h = '', i, k;
@@ -290,8 +314,13 @@
         var 服 = 核心.服务器();
         for (var i = 0; i < 服.length; i++) if (服[i].号 === 号) 目标 = 服[i];
       }
-      var ok = 核心.发模板(名, 值, { 目标: 目标 });
-      $('wsqTplTip').textContent = ok ? ('已发送「' + 名 + '」' + (目标 ? ' → ' + 目标.昵称 : '（群发）')) : ('未发送：检查必填或连接状态');
+      var 全选 = $('wsqTplAll').checked;
+      var 集群们 = [];
+      Array.prototype.forEach.call($('wsqTplClusters').querySelectorAll('input[data-c]'), function (el) {
+        if (el.checked) 集群们.push(el.getAttribute('data-c'));
+      });
+      var ok = 核心.发模板(名, 值, { 目标: 目标, 全选: 全选, 集群们: 集群们 });
+      $('wsqTplTip').textContent = ok ? ('已发送「' + 名 + '」' + (集群们.length ? ('（' + 集群们.join('、') + '）') : (目标 ? ' → ' + 目标.昵称 : '（群发）'))) : ('未发送：检查必填或连接状态');
     };
     $('wsqBtnClearLog').onclick = function () { $('wsqSysLog').innerHTML = ''; };
     $('wsqBtnSave').onclick = function () {
