@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="app-version" content="1.6">
+<meta name="app-version" content="1.7">
 <title>WebSocket收发器 · 客户端网页版</title>
 <style>
 /* 页面骨架只留最基本的底色；具体样式在 wsqui.js 里，随界面按需注入 */
@@ -16,7 +16,7 @@ body{background:#eef3ee}
 <div id="app"></div>
 
 <!-- 纯逻辑内核：任何网站只要这一个小文件就能当前 WS 收发底座（不需要界面） -->
-<script src="wsqcore.js?v=1.6"></script>
+<script src="wsqcore.js?v=1.7"></script>
 <script>
   WSQ.初始化({ 存储前缀: 'wsq_' });        /* 身份/集群表/口令等落在 wsq_* 键 */
   WSQ.挂载界面(document.getElementById('app'));   /* 本页要现成界面 → 懒加载 wsqui.js */
