@@ -82,7 +82,7 @@
     + '    <div class="two"><div class="f"><label>产品名称</label><input id="wsqProd" autocomplete="off"></div><div class="f"><label>设备名称</label><input id="wsqDev" autocomplete="off"></div></div>'
     + '    <div class="f"><label>实例号（10 位，浏览器本机固定）</label><input id="wsqId2" readonly></div></div>'
     + '  <div class="grp"><h4>连接</h4>'
-    + '    <div class="f"><label>频道口令（前缀 WSRELAY 内置）</label><input id="wsqPass" autocomplete="off"></div>'
+    + '    <div class="f"><label>频道口令（前缀 WSRELAY1 内置）</label><input id="wsqPass" autocomplete="off"></div>'
     + '    <div class="two"><div class="f"><label>业务集群（切换＝临时主）</label><select id="wsqBiz"></select></div><div class="f"><label>紧急集群</label><select id="wsqEmg"></select></div></div>'
     + '    <div class="chk"><input type="checkbox" id="wsqAuto"><label for="wsqAuto">打开页面自动连接</label></div>'
     + '    <div class="tip">主集群写死 WS1；切到别的集群算临时主，到点自动回 WS1。</div></div>'
