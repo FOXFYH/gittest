@@ -180,7 +180,7 @@
       $('wsqEnc').textContent = 核心.读配置().加密频道 || '-';
       $('wsqChan').textContent = s.频道;
       $('wsqId').textContent = 核心.读配置().id;
-      $('wsqHb').textContent = s.下次心跳秒 + ' 秒（' + (s.心跳满足 ? '满足' : '不满足') + '）';
+      $('wsqHb').textContent = s.心跳满足 ? (s.下次心跳秒 + ' 秒（满足）') : ('不发（不满足：最近 ' + Math.round(s.空闲秒 || 0) + ' 秒无键鼠）');
       $('wsqOff').textContent = !s.允许主动下线 ? '已关闭' : (s.休眠 ? '已下线（动一下即上线）' : Math.max(0, Math.round(s.静止秒 - s.空闲秒)) + ' 秒');
     }
 
